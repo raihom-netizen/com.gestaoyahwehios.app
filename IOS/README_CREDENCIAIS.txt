@@ -40,18 +40,20 @@ Resumo
 - A Play Store gere assinatura Android à parte; isto é só Apple/iOS.
 - O Xcode no Mac também pode usar o .mobileprovision ao abrir o projeto em flutter_app/ios.
 
-Codemagic — integration "codemagic" does not exist
------------------------------------------------
-O codemagic.yaml usa por defeito:
+Codemagic — API App Store Connect SEM integracao nomeada (recomendado)
+-----------------------------------------------------------------------
+O projeto usa variaveis de ambiente (documentacao Codemagic). Na app / Team, grupo
+appstore_credentials (ou o grupo que ligar ao workflow), defina:
 
-  integrations:
-    app_store_connect: codemagic
+  APP_STORE_CONNECT_PRIVATE_KEY   — texto completo do AuthKey_XXX.p8 (Secret)
+  APP_STORE_CONNECT_KEY_IDENTIFIER — Key ID (10 caracteres)
+  APP_STORE_CONNECT_ISSUER_ID     — Issuer ID (UUID)
 
-Isto NAO e um nome fixo da Codemagic: e o nome QUE VOCE deu (ou deve dar) a integracao
-na Team. Se criou a API Key com outro nome (ex. "GestaoYahweh"), altere a linha no YAML
-para esse nome exato, OU crie/edite a integracao na Codemagic para se chamar "codemagic".
+Isto substitui integrations: app_store_connect: codemagic e evita o erro
+"integration codemagic does not exist".
 
-Team settings > Integrations > lista de App Store Connect — o nome na lista = valor em app_store_connect.
+NOTA: Isto e independente de CERTIFICATE_PRIVATE_KEY (chave RSA para certificado
+de distribuicao iOS). Sao dois segredos diferentes.
 
 Codemagic — "Authentication credentials are missing or invalid" (API Key)
 --------------------------------------------------------------------------

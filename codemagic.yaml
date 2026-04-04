@@ -1,37 +1,27 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 # Repositorio GitHub deve conter esta pasta na raiz (push deste monorepo ou espelho).
 #
-# 1) App Store Connect (OBRIGATORIO — sem isto o build falha):
-#    Team settings > Integrations > App Store Connect > Add
-#    Ao criar, defina o nome / "Reference name" EXATAMENTE como na linha
-#    app_store_connect abaixo (por defeito: codemagic).
+# 1) App Store Connect API — variaveis de ambiente (NAO depende de integracao nomeada "codemagic"):
+#    No grupo appstore_credentials (ou outro referenciado abaixo), adicione na Codemagic:
+#      APP_STORE_CONNECT_PRIVATE_KEY  = conteudo completo do ficheiro AuthKey_XXX.p8 (Secret)
+#      APP_STORE_CONNECT_KEY_IDENTIFIER = Key ID (10 caracteres, App Store Connect)
+#      APP_STORE_CONNECT_ISSUER_ID    = Issuer ID (UUID, App Store Connect)
+#    Ver: https://docs.codemagic.io/yaml-publishing/app-store-connect/
 #
-#    ERRO: integration "codemagic" does not exist
-#    -> Ou nao ha integracao na Team com esse nome, ou o nome e outro (ex. com.gestaoyahwehios.app).
-#    Correcao: renomeie a integracao na Codemagic para "codemagic" OU mude o valor
-#    de app_store_connect para o nome real (case-sensitive).
-# 2) Perfis: NAO usar bloco ios_signing aqui (falha se ainda nao ha .mobileprovision
-#    carregado na Team). O script fetch-signing-files --create obtem/cria o perfil App Store.
+# 2) Assinatura iOS: CERTIFICATE_PRIVATE_KEY (RSA) no mesmo grupo — distinto do .p8 da API.
+#    fetch-signing-files --create usa a API (vars acima) + esta chave.
+#
 # 3) NUNCA commite AuthKey_*.p8 nem .mobileprovision (pasta IOS/ — ver IOS/README_CREDENCIAIS.txt).
-#    Perfil gestaoyahwehiosapp.mobileprovision: pode fazer upload na Codemagic > Code signing identities
-#    ou confiar em fetch-signing-files --create no workflow.
 #
 # ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
 #
-# Variaveis como na app controle-totalapp (mesmos grupos / nomes):
-#   Grupo firebase_ipa_upload: FIREBASE_SERVICE_ACCOUNT_JSON, APP_VERSION_SECRET
-#   Grupo appstore_credentials: CERTIFICATE_PRIVATE_KEY
-# Na app Gestao YAHWEH (Codemagic): crie os MESMOS grupos e variaveis OU copie os valores
-# da outra app. Grupos ao nivel da Team partilham entre aplicacoes.
+# Grupo firebase_ipa_upload: FIREBASE_SERVICE_ACCOUNT_JSON, APP_VERSION_SECRET (opcional)
 
 workflows:
   ios-release:
     name: iOS Release (TestFlight)
     max_build_duration: 120
     instance_type: mac_mini_m2
-    integrations:
-      # Nome identico ao da integracao em Team settings > Integrations (App Store Connect).
-      app_store_connect: codemagic
     environment:
       groups:
         - firebase_ipa_upload
@@ -103,7 +93,9 @@ workflows:
           success: true
           failure: true
       app_store_connect:
-        auth: integration
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
 
 # Android AAB local: .\scripts\build_android_play_store_aab.ps1 (keystore fora do Git).
