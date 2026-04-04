@@ -2,12 +2,28 @@ Pasta IOS — credenciais Apple / App Store (Gestão YAHWEH)
 =========================================================
 
 SEGURANCA: NUNCA commite .p12, .p8 ou .mobileprovision no GitHub (repositorio publico).
-  Use apenas secrets na Codemagic: CM_CERTIFICATE, CM_PROVISIONING_PROFILE, APP_STORE_CONNECT_*.
+  Use secrets na Codemagic: APP_STORE_CONNECT_* (API); opcional CM_CERTIFICATE + CM_PROVISIONING_PROFILE
+  apenas se quiser override manual. Assinatura recomendada: identidades da equipa (ver abaixo).
   Se ja subiu estes ficheiros ao Git: apague do historico ou revogue certificado/chave na Apple.
 
 Bundle ID da app na loja: com.gestaoyahwehios.app
 App Store Connect — Apple ID do app: 6761656626
 Team ID (Xcode / projeto): 82RC6YL7KL — ja definido em ios/Runner.xcodeproj (DEVELOPMENT_TEAM).
+
+Codemagic — assinatura AUTOMATICA (recomendado, sem P12 nos secrets)
+--------------------------------------------------------------------
+O codemagic.yaml do repo usa o bloco environment.ios_signing:
+  distribution_type: app_store
+  bundle_identifier: com.gestaoyahwehios.app
+
+Na Codemagic: Team settings > codemagic.yaml settings > Code signing identities
+  - Certificado Apple Distribution com visto verde (upload ou Fetch from Apple).
+  - Provisioning profile App Store para com.gestaoyahwehios.app (mesmo certificado).
+
+Neste modo NAO precisa de CM_CERTIFICATE, CM_PROVISIONING_PROFILE nem CERTIFICATE_PRIVATE_KEY.
+TestFlight continua a usar o grupo appstore_credentials (.p8 + Key ID + Issuer ID).
+
+Doc: https://docs.codemagic.io/yaml-code-signing/signing-ios/
 
 Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automaticamente pelo Flutter):
 
@@ -24,7 +40,7 @@ Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automa
    - Perfil de provisionamento (App Store / Development) para o bundle id acima.
    - Uso opcional na Codemagic: Team settings > codemagic.yaml settings > Code signing identities >
      iOS provisioning profiles > Upload (Reference name à sua escolha).
-   - Alternativa: deixar o workflow criar/obter perfis via app-store-connect fetch-signing-files (com API Key + CERTIFICATE_PRIVATE_KEY).
+   - O YAML atual prioriza ios_signing da equipa; override manual: secrets CM_CERTIFICATE + CM_PROVISIONING_PROFILE.
    - NUNCA commite no Git — perfis podem ser revogados/renovados; mantenha local ou na Codemagic.
 
 Codemagic — perfil sem certificado ("Certificate: Not uploaded")
@@ -38,10 +54,9 @@ aparece mas a coluna Certificate diz "Not uploaded" / icone vermelho:
   Opcoes:
   (1) Na mesma pagina da Codemagic, separador de certificados iOS: fazer upload do
       .p12 do "Apple Distribution" (exportado do Keychain no Mac, com password).
-  (2) Ou usar assinatura automatica: variavel CERTIFICATE_PRIVATE_KEY (grupo
-      appstore_credentials) + API App Store Connect; o script fetch-signing-files
-      obtem/cria certificado e perfil — pode remover o perfil manual duplicado se
-      passar tudo pelo CLI.
+  (2) Ou configurar ios_signing + identidades na equipa Codemagic (recomendado).
+  (3) Legado: CERTIFICATE_PRIVATE_KEY + fetch-signing-files — ja nao e o fluxo principal
+      deste repositorio; prefira Code signing identities ou CM_CERTIFICATE.
 
 Resumo
 ------

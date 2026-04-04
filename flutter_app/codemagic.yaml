@@ -1,17 +1,5 @@
-# Codemagic — Gestão YAHWEH (Flutter na RAIZ do repositório Git)
-#
-# USO: Coloque ESTE ficheiro na raiz do repo que a Codemagic clona, com o nome
-#      codemagic.yaml (não dentro de flutter_app/ no GitHub).
-#
-# Cenário A — Monorepo (raiz = gestao_yahweh_premium_final): use o ficheiro
-#             ../codemagic.yaml (um nível acima), que faz cd flutter_app/ nos scripts.
-#
-# Cenário B — Repo só iOS/Flutter (raiz = pubspec aqui): copie o conteúdo deste
-#             ficheiro para codemagic.yaml na raiz desse repo (ex.: com.gestaoyahwehios.app).
-#             Se o build mostrar passo "API Key + CERTIFICATE_PRIVATE_KEY", esse repo
-#             ainda tem YAML antigo — substitua por esta versão.
-#
-# Variáveis: ver comentários no codemagic.yaml do monorepo ou IOS/README_CREDENCIAIS.txt
+# Codemagic — Flutter na RAIZ do repo (sem pasta flutter_app nos scripts).
+# Ver ../codemagic.yaml no monorepo para comentarios completos (ios_signing automatico).
 
 workflows:
   ios-release:
@@ -21,57 +9,45 @@ workflows:
     environment:
       groups:
         - appstore_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.gestaoyahwehios.app
       vars:
         APP_STORE_APPLE_ID: 6761656626
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
-        IOS_SIGNING_MODE: manual
       flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
       - name: Flutter pub get
         script: flutter pub get
-      - name: Verificar variaveis Apple (falha rapida se faltar)
+      - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e
-          : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
-          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
-          : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
+          : "${APP_STORE_CONNECT_PRIVATE_KEY:?APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
+          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Key ID}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?Issuer UUID}"
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Assinatura iOS: P12 (CM_CERTIFICATE) — prioridade sobre IOS_SIGNING_MODE e CERTIFICATE_PRIVATE_KEY."
-            : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (.mobileprovision Base64).}"
+            : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE Base64}"
+            echo "Override: CM_CERTIFICATE — P12 manual."
           else
-            _mode="${IOS_SIGNING_MODE:-manual}"
-            case "$_mode" in
-              automatic|auto)
-                echo "Assinatura iOS: AUTOMATICO (PEM + fetch --create)."
-                : "${CERTIFICATE_PRIVATE_KEY:?Defina PEM ou CM_CERTIFICATE+CM_PROVISIONING_PROFILE.}"
-                ;;
-              *)
-                : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 Base64). Remova IOS_SIGNING_MODE=automatic se existir.}"
-                : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (Base64).}"
-                ;;
-            esac
+            echo "Assinatura: ios_signing app_store + com.gestaoyahwehios.app (equipa Codemagic)."
           fi
       - name: CocoaPods
         script: |
           cd ios
           pod install
-      - name: Keychain e perfis Apple (API + automatico OU manual P12)
+      - name: JWT App Store Connect + keychain opcional P12
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-CM_CERT_FIRST"
+          echo "CM_IOS_SIGNING_REV=2026-04-team-ios_signing-native-FLUTTER-ROOT"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
             printf '%b' "$val" | tr -d '\r' | perl -0777 -pe 's/^\xEF\xBB\xBF//; s/\A"(.*)"\z/$1/s; s/\A'\''(.*)'\''\z/$1/s' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$out"
           }
           _looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
-          _looks_like_pem_cert() {
-            grep -qE '^-----BEGIN (RSA |EC )?PRIVATE KEY-----|^-----BEGIN ENCRYPTED PRIVATE KEY-----' "$1" \
-              || grep -qE 'BEGIN (RSA |EC )?PRIVATE KEY-----|BEGIN ENCRYPTED PRIVATE KEY-----' "$1"
-          }
           _norm_api() {
             _secret_to_pem_file "${APP_STORE_CONNECT_PRIVATE_KEY}" /tmp/_asc_raw.pem
             if _looks_like_pem_api /tmp/_asc_raw.pem; then
@@ -79,26 +55,10 @@ workflows:
             elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/dev/null && _looks_like_pem_api /tmp/_asc_dec.pem; then
               cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
             else
-              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido."
+              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY invalido."
               exit 1
             fi
             export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
-          }
-          _norm_cert() {
-            _secret_to_pem_file "${CERTIFICATE_PRIVATE_KEY}" /tmp/_cert_raw.pem
-            if _looks_like_pem_cert /tmp/_cert_raw.pem; then
-              cat /tmp/_cert_raw.pem > /tmp/_cert_ok.pem
-            elif base64 -D < /tmp/_cert_raw.pem > /tmp/_cert_dec.pem 2>/dev/null && _looks_like_pem_cert /tmp/_cert_dec.pem; then
-              cat /tmp/_cert_dec.pem > /tmp/_cert_ok.pem
-            else
-              echo "ERRO: CERTIFICATE_PRIVATE_KEY nao e PEM valido (chave PRIVADA do Apple Distribution)."
-              if grep -q 'BEGIN CERTIFICATE' /tmp/_cert_raw.pem 2>/dev/null && ! grep -q 'PRIVATE KEY' /tmp/_cert_raw.pem 2>/dev/null; then
-                echo "  Detetado: parece um CERTIFICADO publico (.cer), nao uma chave privada."
-              fi
-              echo "  Use CM_CERTIFICATE + CM_PROVISIONING_PROFILE (modo manual) ou PEM correto com BEGIN/END PRIVATE KEY."
-              exit 1
-            fi
-            export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/_cert_ok.pem)"
           }
           _persist_asc_pem_to_cm_env() {
             [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
@@ -110,9 +70,8 @@ workflows:
           }
           _norm_api
           _persist_asc_pem_to_cm_env
-          keychain initialize
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Instalando P12 + perfil (CM_CERTIFICATE)..."
+            keychain initialize
             PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
             mkdir -p "$PROFILES_HOME"
             PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
@@ -123,22 +82,7 @@ workflows:
             else
               keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
             fi
-          elif [ "${IOS_SIGNING_MODE:-manual}" = "automatic" ] || [ "${IOS_SIGNING_MODE:-manual}" = "auto" ]; then
-            _norm_cert
-            app-store-connect fetch-signing-files com.gestaoyahwehios.app \
-              --type IOS_APP_STORE \
-              --create
-          else
-            echo "ERRO: Defina CM_CERTIFICATE + CM_PROVISIONING_PROFILE na Codemagic (P12 e perfil em Base64)."
-            exit 1
           fi
-      - name: Instalar certificados no keychain
-        script: |
-          if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "P12 ja instalado — a saltar."
-            exit 0
-          fi
-          keychain add-certificates
       - name: Code signing (Xcode)
         script: |
           cd ios
@@ -150,18 +94,16 @@ workflows:
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
-            echo "FIREBASE_SERVICE_ACCOUNT_JSON vazio - a saltar App Distribution."
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON vazio - a saltar."
             exit 0
           fi
           IPA=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -n 1)
-          if [ -z "$IPA" ]; then echo "Nenhum .ipa encontrado em build/ios/ipa"; exit 1; fi
+          if [ -z "$IPA" ]; then echo "Nenhum .ipa"; exit 1; fi
           printf '%s\n' "$FIREBASE_SERVICE_ACCOUNT_JSON" > /tmp/gcp-sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
           npm install -g firebase-tools@13
-          NOTES="Gestao YAHWEH CI build ${CM_BUILD_NUMBER:-?}"
-          if [ -n "${APP_VERSION_SECRET:-}" ]; then
-            NOTES="$APP_VERSION_SECRET"
-          fi
+          NOTES="Gestao YAHWEH CI ${CM_BUILD_NUMBER:-?}"
+          [ -n "${APP_VERSION_SECRET:-}" ] && NOTES="$APP_VERSION_SECRET"
           firebase appdistribution:distribute "$IPA" \
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \

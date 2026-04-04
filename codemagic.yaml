@@ -1,45 +1,21 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
-# Repositorio GitHub deve conter esta pasta na raiz (push deste monorepo ou espelho).
 #
-# Se o build mostrar o passo "API Key + CERTIFICATE_PRIVATE_KEY" ou erro "PEM RSA valido":
-#   (1) A Codemagic esta a usar OUTRO codemagic.yaml (branch/repo errado ou YAML na UI).
-#   (2) Se a app na Codemagic aponta para um repo onde a RAIZ e a pasta Flutter (sem monorepo),
-#       copie flutter_app/codemagic.yaml desse projeto para a RAIZ desse repo como codemagic.yaml
-#       (paths sem "flutter_app/" — ver cabecalho de flutter_app/codemagic.yaml).
-#   (3) Application settings > confirme que o workflow usa o ficheiro do Git, nao rascunho antigo.
+# Assinatura iOS AUTOMATICA (recomendado): bloco ios_signing abaixo.
+#   Na Codemagic: Team settings > codemagic.yaml settings > Code signing identities
+#   - Certificado Apple Distribution (ex.: gestaoyahwehios) com visto verde no perfil
+#   - Provisioning profile App Store para com.gestaoyahwehios.app (upload ou Fetch)
+#   NAO precisa de CM_CERTIFICATE, CM_PROVISIONING_PROFILE, CERTIFICATE_PRIVATE_KEY.
+#   Doc: https://docs.codemagic.io/yaml-code-signing/signing-ios/
 #
-# 1) App Store Connect API — variaveis de ambiente (NAO depende de integracao nomeada "codemagic"):
-#    No grupo appstore_credentials (ou outro referenciado abaixo), adicione na Codemagic:
-#      APP_STORE_CONNECT_PRIVATE_KEY  = conteudo completo do .p8 (AuthKey_* ou ApiKey_*; Key ID vem da tabela Apple)
-#      APP_STORE_CONNECT_KEY_IDENTIFIER = Key ID (10 caracteres, App Store Connect)
-#      APP_STORE_CONNECT_ISSUER_ID    = Issuer ID (UUID, App Store Connect)
-#    Ver: https://docs.codemagic.io/yaml-publishing/app-store-connect/
+# Opcional (override): se definir CM_CERTIFICATE + CM_PROVISIONING_PROFILE nos secrets,
+#   o workflow usa P12 manual em vez do ios_signing da equipa.
 #
-# 2) Assinatura iOS — PADRAO = MANUAL (igual fluxo Controle Total / Codemagic classico):
+# App Store Connect API (TestFlight / JWT): grupo appstore_credentials
+#   APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER, ISSUER_ID
 #
-#    A) MANUAL (padrao, IOS_SIGNING_MODE nao definido ou "manual"): obrigatorio no grupo
-#       appstore_credentials: CM_CERTIFICATE (P12 Apple Distribution em Base64),
-#       CM_PROVISIONING_PROFILE (.mobileprovision App Store em Base64),
-#       opcional CM_CERTIFICATE_PASSWORD. NAO precisa de CERTIFICATE_PRIVATE_KEY.
-#       Pode APAGAR o secret CERTIFICATE_PRIVATE_KEY na Codemagic para evitar PEM invalido.
+# ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
 #
-#    B) AUTOMATICO: na Codemagic > Environment variables do workflow, defina
-#       IOS_SIGNING_MODE=automatic e mantenha CERTIFICATE_PRIVATE_KEY = PEM valido +
-#       fetch-signing-files --create.
-#
-#    API .p8: o Key ID no secret TEM de existir em App Store Connect > Integrations > Keys
-#    (ex.: gestaoyahwehiosapp = JLLQH77UF8). Um ficheiro ApiKey_L9NVXSRXJZ0O.p8 que NAO
-#    aparece na lista "Ativas" na Apple esta desalinhado — use o .p8 da chave ATIVA ou crie chave nova.
-#
-# 3) NUNCA commite AuthKey_*.p8 nem .mobileprovision (pasta IOS/ — ver IOS/README_CREDENCIAIS.txt).
-#
-# ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
-# Xcode: DEVELOPMENT_TEAM 82RC6YL7KL no projeto (assinacao automatica na CI).
-#
-# Firebase App Distribution (opcional): se quiser, crie na Codemagic o grupo
-# firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON e APP_VERSION_SECRET
-# e adicione "- firebase_ipa_upload" em environment.groups abaixo.
-# Sem esse grupo, o passo Firebase no workflow apenas salta (script ja trata).
+# Firebase App Distribution (opcional): grupo firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON
 
 workflows:
   ios-release:
@@ -49,14 +25,13 @@ workflows:
     environment:
       groups:
         - appstore_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.gestaoyahwehios.app
       vars:
         APP_STORE_APPLE_ID: 6761656626
-        # App iOS no Firebase (App Distribution); mesmo valor em firebase_options.dart
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
-        # Grupo de testadores no Firebase App Distribution (ajuste na Console se necessario)
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
-        # Assinatura: omitir ou "manual" = P12+perfil (CM_*). Use "automatic" + PEM para fetch --create.
-        IOS_SIGNING_MODE: manual
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -65,50 +40,32 @@ workflows:
         script: |
           cd flutter_app
           flutter pub get
-      - name: Verificar variaveis Apple (falha rapida se faltar)
+      - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e
           : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
           : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Assinatura iOS: P12 (CM_CERTIFICATE) — tem prioridade sobre IOS_SIGNING_MODE e CERTIFICATE_PRIVATE_KEY."
-            : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (.mobileprovision App Store em Base64).}"
+            echo "Override: CM_CERTIFICATE definido — assinatura manual P12 (ignora ios_signing da equipa neste passo)."
+            : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE (Base64 .mobileprovision)}"
           else
-            _mode="${IOS_SIGNING_MODE:-manual}"
-            case "$_mode" in
-              automatic|auto)
-                echo "Assinatura iOS: AUTOMATICO (CERTIFICATE_PRIVATE_KEY + fetch --create). Sem CM_CERTIFICATE."
-                : "${CERTIFICATE_PRIVATE_KEY:?Defina CERTIFICATE_PRIVATE_KEY (PEM) ou adicione CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE.}"
-                ;;
-              *)
-                echo "Assinatura iOS: MANUAL (padrao) — precisa CM_CERTIFICATE + CM_PROVISIONING_PROFILE na Codemagic."
-                : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 em Base64). Remova IOS_SIGNING_MODE=automatic da app se estiver a forcar PEM.}"
-                : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (Base64).}"
-                ;;
-            esac
+            echo "Assinatura: Codemagic ios_signing (app_store + com.gestaoyahwehios.app) — certificado/perfil da equipa."
           fi
       - name: CocoaPods
         script: |
           cd flutter_app/ios
           pod install
-      - name: Keychain e perfis Apple (API + automatico OU manual P12)
+      - name: JWT App Store Connect (TestFlight) + keychain opcional P12
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-CM_CERT_FIRST (P12 se CM_CERTIFICATE definido, senao automatic com PEM)"
-          # Secret -> ficheiro: expande \n literais (printf %b), CRLF, BOM, aspas externas "...", '...';
-          # depois valida PEM ou tenta Base64 do blob inteiro.
+          echo "CM_IOS_SIGNING_REV=2026-04-team-ios_signing-native"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
             printf '%b' "$val" | tr -d '\r' | perl -0777 -pe 's/^\xEF\xBB\xBF//; s/\A"(.*)"\z/$1/s; s/\A'\''(.*)'\''\z/$1/s' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$out"
           }
           _looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
-          # Chave do certificado Apple Distribution (PEM): PKCS#1/PKCS#8; nao e o .p8 da API.
-          _looks_like_pem_cert() {
-            grep -qE '^-----BEGIN (RSA |EC )?PRIVATE KEY-----|^-----BEGIN ENCRYPTED PRIVATE KEY-----' "$1" \
-              || grep -qE 'BEGIN (RSA |EC )?PRIVATE KEY-----|BEGIN ENCRYPTED PRIVATE KEY-----' "$1"
-          }
           _norm_api() {
             _secret_to_pem_file "${APP_STORE_CONNECT_PRIVATE_KEY}" /tmp/_asc_raw.pem
             if _looks_like_pem_api /tmp/_asc_raw.pem; then
@@ -116,36 +73,12 @@ workflows:
             elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/dev/null && _looks_like_pem_api /tmp/_asc_dec.pem; then
               cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
             else
-              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido."
-              echo "  Coloque o .p8 COMPLETO (linhas BEGIN/END) em Secret, sem JSON em volta do valor."
-              echo "  Aceita: multilinha; uma linha com \\n literais; Base64 do ficheiro .p8; aspas externas sao removidas."
-              echo "  Nao misture com CERTIFICATE_PRIVATE_KEY (outra chave RSA do certificado)."
+              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido (.p8 completo BEGIN/END)."
               exit 1
             fi
             export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
           }
-          _norm_cert() {
-            _secret_to_pem_file "${CERTIFICATE_PRIVATE_KEY}" /tmp/_cert_raw.pem
-            if _looks_like_pem_cert /tmp/_cert_raw.pem; then
-              cat /tmp/_cert_raw.pem > /tmp/_cert_ok.pem
-            elif base64 -D < /tmp/_cert_raw.pem > /tmp/_cert_dec.pem 2>/dev/null && _looks_like_pem_cert /tmp/_cert_dec.pem; then
-              cat /tmp/_cert_dec.pem > /tmp/_cert_ok.pem
-            else
-              echo "ERRO: CERTIFICATE_PRIVATE_KEY nao e PEM valido (chave PRIVADA do Apple Distribution)."
-              if grep -q 'BEGIN CERTIFICATE' /tmp/_cert_raw.pem 2>/dev/null && ! grep -q 'PRIVATE KEY' /tmp/_cert_raw.pem 2>/dev/null; then
-                echo "  Detetado: parece um CERTIFICADO publico (.cer), nao uma chave privada."
-              fi
-              echo "  NAO use o .p8 da App Store Connect API neste campo."
-              echo "  PEM correto: -----BEGIN RSA PRIVATE KEY----- ou -----BEGIN PRIVATE KEY----- (com END correspondente)."
-              echo "  Alternativa SEM extrair PEM: na Codemagic crie CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE (Base64);"
-              echo "  remova o valor de CERTIFICATE_PRIVATE_KEY e use este codemagic.yaml do repositorio (rev acima)."
-              exit 1
-            fi
-            export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/_cert_ok.pem)"
-          }
           _persist_asc_pem_to_cm_env() {
-            # Sobrescreve APP_STORE_CONNECT_PRIVATE_KEY nos passos seguintes (ex.: TestFlight),
-            # pois o secret bruto pode ter \\n literais que ja foram normalizados em /tmp/_asc_ok.pem.
             [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
             {
               echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
@@ -155,37 +88,22 @@ workflows:
           }
           _norm_api
           _persist_asc_pem_to_cm_env
-          keychain initialize
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Instalando perfil e certificado (CM_CERTIFICATE + CM_PROVISIONING_PROFILE)..."
+            keychain initialize
+            echo "Instalando P12 manual (override CM_CERTIFICATE)..."
             PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
             mkdir -p "$PROFILES_HOME"
             PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
             printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > "$PROFILE_PATH"
-            echo "Perfil: $PROFILE_PATH"
             printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
             if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
               keychain add-certificates --certificate /tmp/cm_distribution.p12
             else
               keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
             fi
-          elif [ "${IOS_SIGNING_MODE:-manual}" = "automatic" ] || [ "${IOS_SIGNING_MODE:-manual}" = "auto" ]; then
-            _norm_cert
-            app-store-connect fetch-signing-files com.gestaoyahwehios.app \
-              --type IOS_APP_STORE \
-              --create
           else
-            echo "ERRO: Sem CM_CERTIFICATE. No Codemagic adicione secrets CM_CERTIFICATE (P12 Base64) e CM_PROVISIONING_PROFILE."
-            echo "  Se a app tiver IOS_SIGNING_MODE=automatic nas variaveis, remova ou defina CM_CERTIFICATE."
-            exit 1
+            echo "Sem CM_CERTIFICATE: Codemagic aplica ios_signing (sem keychain initialize manual — doc Codemagic)."
           fi
-      - name: Instalar certificados no keychain
-        script: |
-          if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "P12 ja instalado no passo anterior — a saltar."
-            exit 0
-          fi
-          keychain add-certificates
       - name: Code signing (Xcode)
         script: |
           cd flutter_app/ios
@@ -204,7 +122,6 @@ workflows:
           cd flutter_app
           IPA=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -n 1)
           if [ -z "$IPA" ]; then echo "Nenhum .ipa encontrado em build/ios/ipa"; exit 1; fi
-          # JSON completo da conta de servico (texto). Se guardou em base64 na Codemagic, faca decode aqui.
           printf '%s\n' "$FIREBASE_SERVICE_ACCOUNT_JSON" > /tmp/gcp-sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
           npm install -g firebase-tools@13
@@ -232,4 +149,4 @@ workflows:
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
 
-# Android AAB local: .\scripts\build_android_play_store_aab.ps1 (keystore fora do Git).
+# Android AAB local: .\scripts\build_android_play_store_aab.ps1
