@@ -3,7 +3,7 @@
 #
 # 1) App Store Connect API — variaveis de ambiente (NAO depende de integracao nomeada "codemagic"):
 #    No grupo appstore_credentials (ou outro referenciado abaixo), adicione na Codemagic:
-#      APP_STORE_CONNECT_PRIVATE_KEY  = conteudo completo do ficheiro AuthKey_XXX.p8 (Secret)
+#      APP_STORE_CONNECT_PRIVATE_KEY  = conteudo completo do .p8 (AuthKey_* ou ApiKey_*; Key ID vem da tabela Apple)
 #      APP_STORE_CONNECT_KEY_IDENTIFIER = Key ID (10 caracteres, App Store Connect)
 #      APP_STORE_CONNECT_ISSUER_ID    = Issuer ID (UUID, App Store Connect)
 #    Ver: https://docs.codemagic.io/yaml-publishing/app-store-connect/

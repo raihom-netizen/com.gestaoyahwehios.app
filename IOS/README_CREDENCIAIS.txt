@@ -7,11 +7,14 @@ Team ID (Xcode / projeto): 82RC6YL7KL — ja definido em ios/Runner.xcodeproj (D
 
 Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automaticamente pelo Flutter):
 
-1) AuthKey_XXXXXX.p8  (ex.: AuthKey_2LLJKKUA62.p8)
-   - Chave privada da API App Store Connect (Users and Access > Integrations > App Store Connect API).
+1) Ficheiro .p8 da API App Store Connect
+   - Nome tipico ao descarregar da Apple: AuthKey_XXXXXXXXXX.p8 (10 caracteres = Key ID).
+   - Se renomeou (ex.: ApiKey_L9NVXSRXJZ0O.p8), tudo bem — o Key ID NAO se adivinha pelo nome
+     do ficheiro: confira na tabela "Chaves ativas" em App Store Connect qual linha corresponde
+     a ESTE .p8 e use esse Key ID em APP_STORE_CONNECT_KEY_IDENTIFIER na Codemagic.
+   - Colar o CONTEUDO COMPLETO do .p8 em APP_STORE_CONNECT_PRIVATE_KEY (Secret).
    - Só pode ser descarregada UMA vez na Apple; guarde cópia segura (password manager / cofre).
-   - Uso: colar na Codemagic em Team settings > Integrations > App Store Connect (ou variável de ambiente equivalente).
-   - NUNCA commite no Git — está ignorado por IOS/*.p8 e **/AuthKey_*.p8 na raiz do repo.
+   - NUNCA commite no Git — ignorado: IOS/*.p8 e **/AuthKey_*.p8 na raiz do repo.
 
 2) *.mobileprovision  (ex.: gestaoyahwehiosapp.mobileprovision)
    - Perfil de provisionamento (App Store / Development) para o bundle id acima.
@@ -46,7 +49,7 @@ Codemagic — API App Store Connect SEM integracao nomeada (recomendado)
 O projeto usa variaveis de ambiente (documentacao Codemagic). Na app / Team, grupo
 appstore_credentials (ou o grupo que ligar ao workflow), defina:
 
-  APP_STORE_CONNECT_PRIVATE_KEY   — texto completo do AuthKey_XXX.p8 (Secret)
+  APP_STORE_CONNECT_PRIVATE_KEY   — texto completo do .p8 da API (AuthKey_... ou ApiKey_...)
   APP_STORE_CONNECT_KEY_IDENTIFIER — Key ID (10 caracteres)
   APP_STORE_CONNECT_ISSUER_ID     — Issuer ID (UUID)
 

@@ -2,7 +2,7 @@ name: gestao_yahweh
 description: GestÃ£o YAHWEH â€” Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart — script scripts/bump_version.ps1 atualiza os dois.
-version: 11.0.765+803
+version: 11.0.766+804
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

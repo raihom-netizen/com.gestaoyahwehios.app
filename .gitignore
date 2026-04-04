@@ -1,6 +1,8 @@
 # Chaves Apple / segredos locais (nunca no Git)
 IOS/*.p8
 **/AuthKey_*.p8
+**/ApiKey_*.p8
+IOS/*.mobileprovision
 
 # Flutter (build local)
 flutter_app/.dart_tool/
