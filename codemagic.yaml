@@ -15,7 +15,10 @@
 #
 # ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
 #
-# Grupo firebase_ipa_upload: FIREBASE_SERVICE_ACCOUNT_JSON, APP_VERSION_SECRET (opcional)
+# Firebase App Distribution (opcional): se quiser, crie na Codemagic o grupo
+# firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON e APP_VERSION_SECRET
+# e adicione "- firebase_ipa_upload" em environment.groups abaixo.
+# Sem esse grupo, o passo Firebase no workflow apenas salta (script ja trata).
 
 workflows:
   ios-release:
@@ -24,7 +27,6 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        - firebase_ipa_upload
         - appstore_credentials
       vars:
         APP_STORE_APPLE_ID: 6761656626
