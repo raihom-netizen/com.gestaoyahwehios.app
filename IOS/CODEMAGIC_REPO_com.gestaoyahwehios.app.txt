@@ -1,0 +1,58 @@
+================================================================================
+IMPORTANTE — Build Codemagic de com.gestaoyahwehios.app
+================================================================================
+
+O ecran da Codemagic mostra o repositorio:
+
+  github.com/raihom-netizen/com.gestaoyahwehios.app
+  branch: main
+  workflow: iOS Release (TestFlight)
+
+Esse repositorio e SEPARADO do monorepo gestao_yahweh_premium_final (pasta no PC).
+
+O ficheiro codemagic.yaml que atualizamos no monorepo na RAIZ (gestao_yahweh_premium_final/codemagic.yaml)
+NAO e lido por este build, a menos que a app Codemagic aponte para esse monorepo.
+
+Por isso o passo continua com o nome antigo:
+  "Keychain e perfis Apple (API Key + CERTIFICATE_PRIVATE_KEY)"
+e o erro "PEM RSA" — e o codemagic.yaml ANTIGO que ainda esta no GitHub em
+com.gestaoyahwehios.app.
+
+--------------------------------------------------------------------------------
+O QUE FAZER (obrigatorio)
+--------------------------------------------------------------------------------
+
+1) Abra no browser o repositorio:
+     https://github.com/raihom-netizen/com.gestaoyahwehios.app
+
+2) Na RAIZ desse repo (mesmo nivel que a pasta flutter_app/), abra:
+     codemagic.yaml
+
+3) Apague o conteudo antigo e copie o conteudo COMPLETO do ficheiro deste PC:
+     gestao_yahweh_premium_final/codemagic.yaml
+     (ficheiro na RAIZ do monorepo — tem cd flutter_app nos scripts).
+
+   NAO use flutter_app/codemagic.yaml aqui: esse e apenas para repositorios onde
+   o projeto Flutter esta na raiz SEM pasta flutter_app.
+
+4) Commit + Push para branch main.
+
+5) Na Codemagic: Application settings > "Check for configuration file" na branch main
+   (se existir o botao).
+
+6) Novo build. No log do passo keychain deve aparecer:
+     CM_IOS_SIGNING_REV=2026-04-dual
+   e o nome do passo:
+     "Keychain e perfis Apple (API + automatico OU manual P12)"
+
+--------------------------------------------------------------------------------
+CREDENCIAIS (depois do YAML certo)
+--------------------------------------------------------------------------------
+
+- CERTIFICATE_PRIVATE_KEY = PEM valido da chave privada Apple Distribution
+  OU
+- CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) e sem obrigatoriedade de PEM
+
+Ver README_CREDENCIAIS.txt
+
+================================================================================

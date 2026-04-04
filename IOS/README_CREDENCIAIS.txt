@@ -44,6 +44,16 @@ Resumo
 - A Play Store gere assinatura Android à parte; isto é só Apple/iOS.
 - O Xcode no Mac também pode usar o .mobileprovision ao abrir o projeto em flutter_app/ios.
 
+Codemagic — dois layouts de repositorio
+---------------------------------------
+- Monorepo (esta pasta gestao_yahweh_premium_final na raiz do Git): codemagic.yaml
+  na RAIZ do repo (faz cd flutter_app nos scripts).
+
+- Repo so com Flutter na raiz (ex.: mirror iOS): use o ficheiro flutter_app/codemagic.yaml
+  deste monorepo como codemagic.yaml na RAIZ desse outro repo (nao use o YAML da raiz
+  do monorepo la — os caminhos cd flutter_app falham). O passo do keychain deve mostrar
+  nome "API + automatico OU manual P12" ou a linha CM_IOS_SIGNING_REV=...
+
 Codemagic — API App Store Connect SEM integracao nomeada (recomendado)
 -----------------------------------------------------------------------
 O projeto usa variaveis de ambiente (documentacao Codemagic). Na app / Team, grupo
@@ -56,8 +66,61 @@ appstore_credentials (ou o grupo que ligar ao workflow), defina:
 Isto substitui integrations: app_store_connect: codemagic e evita o erro
 "integration codemagic does not exist".
 
-NOTA: Isto e independente de CERTIFICATE_PRIVATE_KEY (chave RSA para certificado
-de distribuicao iOS). Sao dois segredos diferentes.
+NOTA: Isto e independente de CERTIFICATE_PRIVATE_KEY (chave do certificado
+Apple Distribution). Sao dois segredos diferentes.
+
+Codemagic — CERTIFICATE_PRIVATE_KEY (fetch-signing-files --create)
+------------------------------------------------------------------
+Este secret e a CHAVE PRIVADA do certificado **Apple Distribution** da tua equipa,
+em formato PEM (linhas -----BEGIN ... PRIVATE KEY----- e -----END ...-----).
+
+  - NAO coloques aqui o ficheiro .p8 da API App Store Connect (isso e so para
+    APP_STORE_CONNECT_PRIVATE_KEY).
+  - Se colaste so o "miolo" base64 sem BEGIN/END, o script falha — usa o PEM completo.
+
+Como obter o PEM a partir de um .p12 (exportado do Keychain no Mac, com password):
+
+  openssl pkcs12 -in AppleDistribution.p12 -nocerts -nodes -out distribution_key.pem
+
+Abre distribution_key.pem, copia TODO o bloco da chave (pode ser BEGIN RSA PRIVATE KEY
+ou BEGIN PRIVATE KEY) e cola em CERTIFICATE_PRIVATE_KEY na Codemagic.
+
+Se ainda nao tens .p12: Keychain Access > My Certificates > Apple Distribution: ... >
+botao direito > Export (define password), depois usa o comando openssl acima.
+Se nunca criaste certificado de distribuicao, cria em developer.apple.com > Certificates
+(Apple Distribution) e instala no Keychain antes de exportar.
+
+Codemagic — modo MANUAL (P12 + perfil, sem CERTIFICATE_PRIVATE_KEY)
+--------------------------------------------------------------------
+Se nao quiseres extrair PEM ou o fetch --create falhar, o codemagic.yaml deteta
+CM_CERTIFICATE e usa assinatura manual (documentacao Codemagic).
+
+No mesmo grupo (ex. appstore_credentials), adiciona:
+
+  CM_CERTIFICATE           — Apple Distribution em .p12 codificado em Base64 (uma linha)
+  CM_PROVISIONING_PROFILE  — ficheiro .mobileprovision em Base64 (uma linha)
+  CM_CERTIFICATE_PASSWORD  — password do .p12 (opcional; secret)
+
+No Mac:
+
+  cat AppleDistribution.p12 | base64 | pbcopy
+  cat gestaoyahwehiosapp.mobileprovision | base64 | pbcopy
+
+No Windows (PowerShell, na pasta dos ficheiros):
+
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes("AppleDistribution.p12")) | Set-Clipboard
+
+Remove ou deixa vazio CERTIFICATE_PRIVATE_KEY quando usares este modo (o workflow
+nao o exige se CM_CERTIFICATE estiver definido).
+
+Alinhar .p8 da API com chaves ATIVAS na Apple
+----------------------------------------------
+Em App Store Connect > Integrations > App Store Connect API, o Key ID no secret
+tem de ser uma linha da tabela "Ativas". Ex.: chave "gestaoyahwehiosapp" =
+JLLQH77UF8 — o .p8 tem de ser o descarregado para ESSA chave (nao reutilizar
+ficheiro cujo Key ID ja nao esta na lista). Chave com papel "Desenvolvedor" pode
+falhar em criar certificados na UI da Codemagic; use chave "Administrador" ou
+crie operacoes no developer.apple.com.
 
 Codemagic — "Authentication credentials are missing or invalid" (API Key)
 --------------------------------------------------------------------------
@@ -72,7 +135,8 @@ da API Key esta errado ou a chave nao corresponde ao Key ID / Issuer ID.
   - Private key: conteudo COMPLETO do ficheiro .p8, incluindo as linhas
     -----BEGIN PRIVATE KEY----- e -----END PRIVATE KEY----- (sem aspas, sem espacos a mais).
   - Se a Codemagic disser "not a valid PEM": nao coloque JSON em volta; nao misture com
-    CERTIFICATE_PRIVATE_KEY (outra chave). O workflow normaliza CRLF e tenta Base64.
+    CERTIFICATE_PRIVATE_KEY (outra chave). O workflow normaliza: \\n literais (uma linha),
+    CRLF, BOM, aspas externas, e tenta Base64 do .p8.
   - Se a chave foi revogada ou gerou de novo na Apple: tem de apagar a integracao
     antiga na Codemagic e criar outra com o NOVO .p8 (só se descarrega uma vez).
 

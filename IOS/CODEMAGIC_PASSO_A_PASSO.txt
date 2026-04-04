@@ -1,0 +1,63 @@
+================================================================================
+CODEMAGIC — porque o erro continua "PEM RSA" / passo "API Key + CERTIFICATE_..."
+================================================================================
+
+Esse texto de erro e o NOME do passo NAO existem no codemagic.yaml atual deste
+projeto. Portanto o build na Codemagic esta a usar:
+
+  - o Workflow Editor (interface) antigo, OU
+  - um repositorio/branch SEM o ficheiro certo na raiz, OU
+  - outro clone (ex.: so pasta ios) onde nao ha codemagic.yaml.
+
+--------------------------------------------------------------------------------
+O QUE FAZER NA CODEMAGIC (ordem)
+--------------------------------------------------------------------------------
+
+1) Abra a aplicacao em codemagic.io > veja qual REPOSITORIO e BRANCH o build usa.
+
+2) No GitHub, nesse repo e nessa branch, confirme na RAIZ:
+     - existe ficheiro exatamente:  codemagic.yaml
+   Se NAO existir, o Codemagic usa o workflow da UI (antigo).
+
+3) Na Codemagic: Application settings > procure "codemagic.yaml" ou
+   "Configuration as code" ou "Check for configuration file" > escolha a branch
+   main (ou a que usa) > detete o ficheiro.
+   Documentacao: https://docs.codemagic.io/yaml-basic-configuration/yaml-getting-started/
+
+4) Ao iniciar build: se aparecer escolha de workflow, escolha o definido no YAML
+   (ex.: "iOS Release (TestFlight)" / workflow id ios-release), NAO um template
+   antigo "Flutter" so pela UI.
+
+5) No log do passo do keychain, o YAML NOVO imprime uma linha com:
+     CM_IOS_SIGNING_REV=
+   Se nao aparecer, o YAML novo ainda NAO esta a correr.
+
+--------------------------------------------------------------------------------
+DOIS REPOSITORIOS COMUNS
+--------------------------------------------------------------------------------
+
+A) Monorepo (raiz = gestao_yahweh_premium_final com pasta flutter_app/):
+   codemagic.yaml na RAIZ do monorepo (ja esta neste projeto).
+
+B) Repo so com Flutter na raiz (ex. com.gestaoyahwehios.app):
+   copie o ficheiro flutter_app/codemagic.yaml DESTE projeto para a RAIZ desse
+   repo no GitHub como codemagic.yaml (substituir o antigo).
+   NAO use o YAML da raiz do monorepo nesse repo (caminhos cd flutter_app falham).
+
+--------------------------------------------------------------------------------
+CREDENCIAIS (depois do YAML certo)
+--------------------------------------------------------------------------------
+
+- CERTIFICATE_PRIVATE_KEY = PEM completo da chave PRIVADA Apple Distribution
+  (BEGIN ... PRIVATE KEY ... END). NAO e o .p8 da API.
+
+- OU modo manual no YAML novo: CM_CERTIFICATE (P12 em Base64) +
+  CM_PROVISIONING_PROFILE (Base64); pode esvaziar CERTIFICATE_PRIVATE_KEY.
+
+Mais detalhe: README_CREDENCIAIS.txt
+
+Se nao conseguir ativar o codemagic.yaml no Git: abra o Workflow Editor na
+Codemagic e cole os scripts de CODEMAGIC_COLAR_WORKFLOW_EDITOR.txt (passo
+Keychain + passo Instalar certificados + opcional verificacao).
+
+================================================================================

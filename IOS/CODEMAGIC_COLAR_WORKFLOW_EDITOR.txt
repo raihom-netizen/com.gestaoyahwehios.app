@@ -1,0 +1,129 @@
+================================================================================
+CODEMAGIC — colar no Workflow Editor (quando o Git ignora codemagic.yaml)
+================================================================================
+
+Se o build ainda mostra "PEM RSA" e o passo "API Key + CERTIFICATE_PRIVATE_KEY",
+esta a usar workflow ANTIGO na interface. Faca:
+
+1) App Codemagic > abra o workflow (Editor / configuracao de build).
+2) Encontre o passo 6 (Keychain...) e APAGUE o script antigo.
+3) Cole UM dos blocos abaixo (A = monorepo com pasta flutter_app, B = Flutter na raiz).
+4) Renomeie o passo para:  Keychain e perfis Apple (API + auto OU P12)
+5) No passo SEGUINTE "Instalar certificados", substitua por SECCAO C (igual A ou B).
+
+Opcional: se existir passo que FALHA sem CERTIFICATE_PRIVATE_KEY mas quer usar P12,
+substitua esse passo pela SECCAO D.
+
+--------------------------------------------------------------------------------
+SECCAO D — Verificacao de variaveis (substitui passo "Verificar..." se necessario)
+--------------------------------------------------------------------------------
+
+set -e
+: "${APP_STORE_CONNECT_PRIVATE_KEY:?APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
+: "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Key ID}"
+: "${APP_STORE_CONNECT_ISSUER_ID:?Issuer UUID}"
+if [ -n "${CM_CERTIFICATE:-}" ]; then
+  : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE Base64 .mobileprovision}"
+  echo "MODO MANUAL P12 — CERTIFICATE_PRIVATE_KEY nao e obrigatorio."
+else
+  : "${CERTIFICATE_PRIVATE_KEY:?PEM Apple Distribution OU defina CM_CERTIFICATE}"
+  echo "MODO AUTOMATICO fetch-signing-files --create."
+fi
+
+--------------------------------------------------------------------------------
+SECCAO A — Keychain (MONOREPO: existe pasta flutter_app no clone)
+--------------------------------------------------------------------------------
+
+set -e
+echo "CM_IOS_SIGNING_REV=2026-04-ui-paste-MONOREPO"
+_secret_to_pem_file() {
+  local val="$1"
+  local out="$2"
+  printf '%b' "$val" | tr -d '\r' | perl -0777 -pe 's/^\xEF\xBB\xBF//; s/\A"(.*)"\z/$1/s; s/\A'\''(.*)'\''\z/$1/s' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$out"
+}
+_looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
+_looks_like_pem_cert() {
+  grep -qE '^-----BEGIN (RSA |EC )?PRIVATE KEY-----|^-----BEGIN ENCRYPTED PRIVATE KEY-----' "$1" \
+    || grep -qE 'BEGIN (RSA |EC )?PRIVATE KEY-----|BEGIN ENCRYPTED PRIVATE KEY-----' "$1"
+}
+_norm_api() {
+  _secret_to_pem_file "${APP_STORE_CONNECT_PRIVATE_KEY}" /tmp/_asc_raw.pem
+  if _looks_like_pem_api /tmp/_asc_raw.pem; then
+    cat /tmp/_asc_raw.pem > /tmp/_asc_ok.pem
+  elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/dev/null && _looks_like_pem_api /tmp/_asc_dec.pem; then
+    cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
+  else
+    echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido (.p8 completo com BEGIN/END)."
+    exit 1
+  fi
+  export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
+}
+_norm_cert() {
+  _secret_to_pem_file "${CERTIFICATE_PRIVATE_KEY}" /tmp/_cert_raw.pem
+  if _looks_like_pem_cert /tmp/_cert_raw.pem; then
+    cat /tmp/_cert_raw.pem > /tmp/_cert_ok.pem
+  elif base64 -D < /tmp/_cert_raw.pem > /tmp/_cert_dec.pem 2>/dev/null && _looks_like_pem_cert /tmp/_cert_dec.pem; then
+    cat /tmp/_cert_dec.pem > /tmp/_cert_ok.pem
+  else
+    echo "ERRO: CERTIFICATE_PRIVATE_KEY nao e PEM valido (chave PRIVADA Apple Distribution)."
+    echo "  OU defina secrets CM_CERTIFICATE + CM_PROVISIONING_PROFILE (P12 + perfil em Base64) e deixe CERTIFICATE_PRIVATE_KEY vazio."
+    exit 1
+  fi
+  export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/_cert_ok.pem)"
+}
+_persist_asc_pem_to_cm_env() {
+  [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
+  {
+    echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
+    cat /tmp/_asc_ok.pem
+    echo 'CM_YAHWEH_ASC_PEM'
+  } >> "$CM_ENV"
+}
+_norm_api
+_persist_asc_pem_to_cm_env
+keychain initialize
+if [ -n "${CM_CERTIFICATE:-}" ]; then
+  echo "Modo manual P12..."
+  PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+  mkdir -p "$PROFILES_HOME"
+  PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
+  printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > "$PROFILE_PATH"
+  printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
+  if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
+    keychain add-certificates --certificate /tmp/cm_distribution.p12
+  else
+    keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
+  fi
+else
+  _norm_cert
+  app-store-connect fetch-signing-files com.gestaoyahwehios.app --type IOS_APP_STORE --create
+fi
+
+--------------------------------------------------------------------------------
+SECCAO B — Keychain (Flutter na RAIZ do repo — sem pasta flutter_app)
+--------------------------------------------------------------------------------
+
+Igual a SECCAO A, mas na ultima parte o fetch-signing-files e o mesmo; a diferenca
+e nos OUTROS passos do workflow (pub get sem cd, pod em ios/). Use a SECCAO A
+no keychain — o script e o mesmo. So os passos Flutter pub get / CocoaPods / Xcode
+mudam (ver flutter_app/codemagic.yaml neste projeto).
+
+--------------------------------------------------------------------------------
+SECCAO C — Instalar certificados no keychain (colar no passo seguinte)
+--------------------------------------------------------------------------------
+
+if [ -n "${CM_CERTIFICATE:-}" ]; then
+  echo "Modo manual: certificado ja instalado."
+  exit 0
+fi
+keychain add-certificates
+
+================================================================================
+Depois de colar: guarde o workflow e inicie novo build. No log deve aparecer
+CM_IOS_SIGNING_REV=2026-04-ui-paste-MONOREPO
+
+Para evitar PEM: na Codemagic > Environment variables > adicione CM_CERTIFICATE
+e CM_PROVISIONING_PROFILE (Base64) e APAGUE o valor de CERTIFICATE_PRIVATE_KEY
+(ou deixe em branco se a UI permitir).
+
+================================================================================

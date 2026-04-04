@@ -1,43 +1,17 @@
-# Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
-# Repositorio GitHub deve conter esta pasta na raiz (push deste monorepo ou espelho).
+# Codemagic — Gestão YAHWEH (Flutter na RAIZ do repositório Git)
 #
-# Se o build mostrar o passo "API Key + CERTIFICATE_PRIVATE_KEY" ou erro "PEM RSA valido":
-#   (1) A Codemagic esta a usar OUTRO codemagic.yaml (branch/repo errado ou YAML na UI).
-#   (2) Se a app na Codemagic aponta para um repo onde a RAIZ e a pasta Flutter (sem monorepo),
-#       copie flutter_app/codemagic.yaml desse projeto para a RAIZ desse repo como codemagic.yaml
-#       (paths sem "flutter_app/" — ver cabecalho de flutter_app/codemagic.yaml).
-#   (3) Application settings > confirme que o workflow usa o ficheiro do Git, nao rascunho antigo.
+# USO: Coloque ESTE ficheiro na raiz do repo que a Codemagic clona, com o nome
+#      codemagic.yaml (não dentro de flutter_app/ no GitHub).
 #
-# 1) App Store Connect API — variaveis de ambiente (NAO depende de integracao nomeada "codemagic"):
-#    No grupo appstore_credentials (ou outro referenciado abaixo), adicione na Codemagic:
-#      APP_STORE_CONNECT_PRIVATE_KEY  = conteudo completo do .p8 (AuthKey_* ou ApiKey_*; Key ID vem da tabela Apple)
-#      APP_STORE_CONNECT_KEY_IDENTIFIER = Key ID (10 caracteres, App Store Connect)
-#      APP_STORE_CONNECT_ISSUER_ID    = Issuer ID (UUID, App Store Connect)
-#    Ver: https://docs.codemagic.io/yaml-publishing/app-store-connect/
+# Cenário A — Monorepo (raiz = gestao_yahweh_premium_final): use o ficheiro
+#             ../codemagic.yaml (um nível acima), que faz cd flutter_app/ nos scripts.
 #
-# 2) Assinatura iOS — escolha UM dos modos (o workflow deteta automaticamente):
+# Cenário B — Repo só iOS/Flutter (raiz = pubspec aqui): copie o conteúdo deste
+#             ficheiro para codemagic.yaml na raiz desse repo (ex.: com.gestaoyahwehios.app).
+#             Se o build mostrar passo "API Key + CERTIFICATE_PRIVATE_KEY", esse repo
+#             ainda tem YAML antigo — substitua por esta versão.
 #
-#    A) AUTOMATICO (padrao): CERTIFICATE_PRIVATE_KEY = PEM da chave privada do certificado
-#       Apple Distribution + fetch-signing-files --create (como ate agora).
-#
-#    B) MANUAL (sem PEM / sem Mac para extrair chave): defina CM_CERTIFICATE (P12 em Base64),
-#       CM_PROVISIONING_PROFILE (.mobileprovision em Base64) e opcionalmente
-#       CM_CERTIFICATE_PASSWORD. Nao precisa de CERTIFICATE_PRIVATE_KEY nem fetch --create.
-#       Gerar Base64 no Mac: cat cert.p12 | base64 | pbcopy
-#
-#    API .p8: o Key ID no secret TEM de existir em App Store Connect > Integrations > Keys
-#    (ex.: gestaoyahwehiosapp = JLLQH77UF8). Um ficheiro ApiKey_L9NVXSRXJZ0O.p8 que NAO
-#    aparece na lista "Ativas" na Apple esta desalinhado — use o .p8 da chave ATIVA ou crie chave nova.
-#
-# 3) NUNCA commite AuthKey_*.p8 nem .mobileprovision (pasta IOS/ — ver IOS/README_CREDENCIAIS.txt).
-#
-# ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
-# Xcode: DEVELOPMENT_TEAM 82RC6YL7KL no projeto (assinacao automatica na CI).
-#
-# Firebase App Distribution (opcional): se quiser, crie na Codemagic o grupo
-# firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON e APP_VERSION_SECRET
-# e adicione "- firebase_ipa_upload" em environment.groups abaixo.
-# Sem esse grupo, o passo Firebase no workflow apenas salta (script ja trata).
+# Variáveis: ver comentários no codemagic.yaml do monorepo ou IOS/README_CREDENCIAIS.txt
 
 workflows:
   ios-release:
@@ -49,18 +23,14 @@ workflows:
         - appstore_credentials
       vars:
         APP_STORE_APPLE_ID: 6761656626
-        # App iOS no Firebase (App Distribution); mesmo valor em firebase_options.dart
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
-        # Grupo de testadores no Firebase App Distribution (ajuste na Console se necessario)
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
       - name: Flutter pub get
-        script: |
-          cd flutter_app
-          flutter pub get
+        script: flutter pub get
       - name: Verificar variaveis Apple (falha rapida se faltar)
         script: |
           set -e
@@ -76,21 +46,18 @@ workflows:
           fi
       - name: CocoaPods
         script: |
-          cd flutter_app/ios
+          cd ios
           pod install
       - name: Keychain e perfis Apple (API + automatico OU manual P12)
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-dual (P12+perfil OU PEM+fetch) — se o nome deste passo for outro, atualize o YAML no Git."
-          # Secret -> ficheiro: expande \n literais (printf %b), CRLF, BOM, aspas externas "...", '...';
-          # depois valida PEM ou tenta Base64 do blob inteiro.
+          echo "CM_IOS_SIGNING_REV=2026-04-dual-FLUTTER-ROOT (P12+perfil OU PEM+fetch)"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
             printf '%b' "$val" | tr -d '\r' | perl -0777 -pe 's/^\xEF\xBB\xBF//; s/\A"(.*)"\z/$1/s; s/\A'\''(.*)'\''\z/$1/s' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$out"
           }
           _looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
-          # Chave do certificado Apple Distribution (PEM): PKCS#1/PKCS#8; nao e o .p8 da API.
           _looks_like_pem_cert() {
             grep -qE '^-----BEGIN (RSA |EC )?PRIVATE KEY-----|^-----BEGIN ENCRYPTED PRIVATE KEY-----' "$1" \
               || grep -qE 'BEGIN (RSA |EC )?PRIVATE KEY-----|BEGIN ENCRYPTED PRIVATE KEY-----' "$1"
@@ -103,9 +70,6 @@ workflows:
               cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
             else
               echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido."
-              echo "  Coloque o .p8 COMPLETO (linhas BEGIN/END) em Secret, sem JSON em volta do valor."
-              echo "  Aceita: multilinha; uma linha com \\n literais; Base64 do ficheiro .p8; aspas externas sao removidas."
-              echo "  Nao misture com CERTIFICATE_PRIVATE_KEY (outra chave RSA do certificado)."
               exit 1
             fi
             export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
@@ -121,17 +85,12 @@ workflows:
               if grep -q 'BEGIN CERTIFICATE' /tmp/_cert_raw.pem 2>/dev/null && ! grep -q 'PRIVATE KEY' /tmp/_cert_raw.pem 2>/dev/null; then
                 echo "  Detetado: parece um CERTIFICADO publico (.cer), nao uma chave privada."
               fi
-              echo "  NAO use o .p8 da App Store Connect API neste campo."
-              echo "  PEM correto: -----BEGIN RSA PRIVATE KEY----- ou -----BEGIN PRIVATE KEY----- (com END correspondente)."
-              echo "  Alternativa SEM extrair PEM: na Codemagic crie CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE (Base64);"
-              echo "  remova o valor de CERTIFICATE_PRIVATE_KEY e use este codemagic.yaml do repositorio (rev acima)."
+              echo "  Use CM_CERTIFICATE + CM_PROVISIONING_PROFILE (modo manual) ou PEM correto com BEGIN/END PRIVATE KEY."
               exit 1
             fi
             export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/_cert_ok.pem)"
           }
           _persist_asc_pem_to_cm_env() {
-            # Sobrescreve APP_STORE_CONNECT_PRIVATE_KEY nos passos seguintes (ex.: TestFlight),
-            # pois o secret bruto pode ter \\n literais que ja foram normalizados em /tmp/_asc_ok.pem.
             [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
             {
               echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
@@ -170,11 +129,10 @@ workflows:
           keychain add-certificates
       - name: Code signing (Xcode)
         script: |
-          cd flutter_app/ios
+          cd ios
           xcode-project use-profiles
       - name: Flutter build IPA
         script: |
-          cd flutter_app
           flutter build ipa --release \
             --export-options-plist=/Users/builder/export_options.plist
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
@@ -183,10 +141,8 @@ workflows:
             echo "FIREBASE_SERVICE_ACCOUNT_JSON vazio - a saltar App Distribution."
             exit 0
           fi
-          cd flutter_app
           IPA=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -n 1)
           if [ -z "$IPA" ]; then echo "Nenhum .ipa encontrado em build/ios/ipa"; exit 1; fi
-          # JSON completo da conta de servico (texto). Se guardou em base64 na Codemagic, faca decode aqui.
           printf '%s\n' "$FIREBASE_SERVICE_ACCOUNT_JSON" > /tmp/gcp-sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
           npm install -g firebase-tools@13
@@ -199,7 +155,7 @@ workflows:
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
     artifacts:
-      - flutter_app/build/ios/ipa/*.ipa
+      - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
@@ -213,5 +169,3 @@ workflows:
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
-
-# Android AAB local: .\scripts\build_android_play_store_aab.ps1 (keystore fora do Git).
