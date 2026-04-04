@@ -148,10 +148,20 @@ workflows:
         notify:
           success: true
           failure: true
+      # Upload do .ipa + pos-processamento Apple (Magic Actions).
+      # Automatico: envio ao App Store Connect, submit_to_testflight (revisao beta TestFlight).
+      # Continua MANUAL no portal: textos da ficha (nome/subtitulo), capturas, privacidade,
+      # escolher build na versao "Preparar para envio", enviar para revisao da LOJA — salvo que
+      # active submit_to_app_store (avaliar risco; requer ficha completa).
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
+        # Novo build substitui revisao beta anterior em fila (evita bloqueio entre versoes).
+        expire_build_submitted_for_review: true
+        # Descomente e use nomes EXACTOS dos grupos em TestFlight > Testadores > Grupos:
+        # beta_groups:
+        #   - NomeDoGrupo1
 
 # Android AAB local: .\scripts\build_android_play_store_aab.ps1
