@@ -56,6 +56,36 @@ workflows:
           pod install
       - name: Keychain e perfis Apple (API Key + CERTIFICATE_PRIVATE_KEY)
         script: |
+          set -e
+          # Normaliza PEM: CRLF (Windows), espacos; se Codemagic guardou Base64 do .p8, decodifica.
+          _norm_api() {
+            printf '%s' "${APP_STORE_CONNECT_PRIVATE_KEY}" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/_asc_raw.pem
+            if grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' /tmp/_asc_raw.pem; then
+              cat /tmp/_asc_raw.pem > /tmp/_asc_ok.pem
+            elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/dev/null && grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' /tmp/_asc_dec.pem; then
+              cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
+            else
+              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM valido."
+              echo "  Coloque o .p8 COMPLETO (linhas BEGIN/END) em Secret, sem JSON nem aspas a volta."
+              echo "  Se usou Base64 na Codemagic, o script tenta decodificar automaticamente."
+              exit 1
+            fi
+            export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
+          }
+          _norm_cert() {
+            printf '%s' "${CERTIFICATE_PRIVATE_KEY}" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/_cert_raw.pem
+            if grep -qE 'BEGIN (RSA )?PRIVATE KEY|BEGIN PRIVATE KEY' /tmp/_cert_raw.pem; then
+              cat /tmp/_cert_raw.pem > /tmp/_cert_ok.pem
+            elif base64 -D < /tmp/_cert_raw.pem > /tmp/_cert_dec.pem 2>/dev/null && grep -qE 'BEGIN (RSA )?PRIVATE KEY|BEGIN PRIVATE KEY' /tmp/_cert_dec.pem; then
+              cat /tmp/_cert_dec.pem > /tmp/_cert_ok.pem
+            else
+              echo "ERRO: CERTIFICATE_PRIVATE_KEY nao e PEM RSA valido (chave para certificado Distribution)."
+              exit 1
+            fi
+            export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/_cert_ok.pem)"
+          }
+          _norm_api
+          _norm_cert
           keychain initialize
           app-store-connect fetch-signing-files com.gestaoyahwehios.app \
             --type IOS_APP_STORE \

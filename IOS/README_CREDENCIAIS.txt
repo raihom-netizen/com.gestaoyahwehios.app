@@ -71,6 +71,8 @@ da API Key esta errado ou a chave nao corresponde ao Key ID / Issuer ID.
     -> Key ID = ABC123XYZ), NAO confundir com SKU do app nem Apple ID numerico.
   - Private key: conteudo COMPLETO do ficheiro .p8, incluindo as linhas
     -----BEGIN PRIVATE KEY----- e -----END PRIVATE KEY----- (sem aspas, sem espacos a mais).
+  - Se a Codemagic disser "not a valid PEM": nao coloque JSON em volta; nao misture com
+    CERTIFICATE_PRIVATE_KEY (outra chave). O workflow normaliza CRLF e tenta Base64.
   - Se a chave foi revogada ou gerou de novo na Apple: tem de apagar a integracao
     antiga na Codemagic e criar outra com o NOVO .p8 (só se descarrega uma vez).
 
