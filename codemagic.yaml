@@ -1,11 +1,20 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 # Repositorio GitHub deve conter esta pasta na raiz (push deste monorepo ou espelho).
 #
-# 1) Team settings > Integrations > App Store Connect: crie/importe a API Key (.p8).
-#    O nome da integracao abaixo deve coincidir (ex.: renomeie "codemagic" para o seu).
+# 1) App Store Connect (OBRIGATORIO — sem isto o build falha):
+#    Team settings > Integrations > App Store Connect > Add
+#    Ao criar, defina o nome / "Reference name" EXATAMENTE como na linha
+#    app_store_connect abaixo (por defeito: codemagic).
+#
+#    ERRO: integration "codemagic" does not exist
+#    -> Ou nao ha integracao na Team com esse nome, ou o nome e outro (ex. com.gestaoyahwehios.app).
+#    Correcao: renomeie a integracao na Codemagic para "codemagic" OU mude o valor
+#    de app_store_connect para o nome real (case-sensitive).
 # 2) Perfis: NAO usar bloco ios_signing aqui (falha se ainda nao ha .mobileprovision
 #    carregado na Team). O script fetch-signing-files --create obtem/cria o perfil App Store.
-# 3) NUNCA commite AuthKey_*.p8 - use so a integracao Codemagic.
+# 3) NUNCA commite AuthKey_*.p8 nem .mobileprovision (pasta IOS/ — ver IOS/README_CREDENCIAIS.txt).
+#    Perfil gestaoyahwehiosapp.mobileprovision: pode fazer upload na Codemagic > Code signing identities
+#    ou confiar em fetch-signing-files --create no workflow.
 #
 # ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
 #
@@ -21,6 +30,7 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
+      # Nome identico ao da integracao em Team settings > Integrations (App Store Connect).
       app_store_connect: codemagic
     environment:
       groups:
