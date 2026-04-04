@@ -3,6 +3,7 @@ Pasta IOS — credenciais Apple / App Store (Gestão YAHWEH)
 
 Bundle ID da app na loja: com.gestaoyahwehios.app
 App Store Connect — Apple ID do app: 6761656626
+Team ID (Xcode / projeto): 82RC6YL7KL — ja definido em ios/Runner.xcodeproj (DEVELOPMENT_TEAM).
 
 Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automaticamente pelo Flutter):
 

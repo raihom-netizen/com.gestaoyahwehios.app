@@ -14,6 +14,7 @@
 # 3) NUNCA commite AuthKey_*.p8 nem .mobileprovision (pasta IOS/ — ver IOS/README_CREDENCIAIS.txt).
 #
 # ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
+# Xcode: DEVELOPMENT_TEAM 82RC6YL7KL no projeto (assinacao automatica na CI).
 #
 # Firebase App Distribution (opcional): se quiser, crie na Codemagic o grupo
 # firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON e APP_VERSION_SECRET
@@ -42,6 +43,13 @@ workflows:
         script: |
           cd flutter_app
           flutter pub get
+      - name: Verificar variaveis Apple (falha rapida se faltar)
+        script: |
+          set -e
+          : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
+          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
+          : "${CERTIFICATE_PRIVATE_KEY:?CERTIFICATE_PRIVATE_KEY (RSA para fetch-signing-files --create)}"
       - name: CocoaPods
         script: |
           cd flutter_app/ios
