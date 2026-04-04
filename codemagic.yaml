@@ -3,7 +3,8 @@
 #
 # 1) Team settings > Integrations > App Store Connect: crie/importe a API Key (.p8).
 #    O nome da integracao abaixo deve coincidir (ex.: renomeie "codemagic" para o seu).
-# 2) Code signing: com integracao + ios_signing, a Codemagic obtem perfis para o bundle id.
+# 2) Perfis: NAO usar bloco ios_signing aqui (falha se ainda nao ha .mobileprovision
+#    carregado na Team). O script fetch-signing-files --create obtem/cria o perfil App Store.
 # 3) NUNCA commite AuthKey_*.p8 - use so a integracao Codemagic.
 #
 # ID Apple (App Store Connect): 6761656626 | Bundle: com.gestaoyahwehios.app
@@ -25,9 +26,6 @@ workflows:
       groups:
         - firebase_ipa_upload
         - appstore_credentials
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.gestaoyahwehios.app
       vars:
         APP_STORE_APPLE_ID: 6761656626
         # App iOS no Firebase (App Distribution); mesmo valor em firebase_options.dart
@@ -46,12 +44,14 @@ workflows:
         script: |
           cd flutter_app/ios
           pod install
-      - name: Keychain e perfis Apple (CERTIFICATE_PRIVATE_KEY / appstore_credentials)
+      - name: Keychain e perfis Apple (API Key + CERTIFICATE_PRIVATE_KEY)
         script: |
           keychain initialize
           app-store-connect fetch-signing-files com.gestaoyahwehios.app \
             --type IOS_APP_STORE \
             --create
+      - name: Instalar certificados no keychain
+        script: keychain add-certificates
       - name: Code signing (Xcode)
         script: |
           cd flutter_app/ios
