@@ -1,5 +1,5 @@
-# Compatibilidade iPhone iOS 11 a 17 (mesmo padrão do Controle Total)
-platform :ios, '11.0'
+# iOS 13+ exigido por webview_flutter_wkwebview e alinhado a AppFrameworkInfo.plist
+platform :ios, '13.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
@@ -37,7 +37,7 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '11.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
   end
 end
