@@ -10,49 +10,31 @@ Bundle ID da app na loja: com.gestaoyahwehios.app
 App Store Connect — Apple ID do app: 6761656626
 Team ID (Xcode / projeto): 82RC6YL7KL — ja definido em ios/Runner.xcodeproj (DEVELOPMENT_TEAM).
 
-Codemagic — assinatura AUTOMATICA (recomendado, sem P12 nos secrets)
---------------------------------------------------------------------
-O codemagic.yaml do repo usa o bloco environment.ios_signing:
-  distribution_type: app_store
-  bundle_identifier: com.gestaoyahwehios.app
+Codemagic — assinatura no CI (obrigatorio no YAML actual)
+-----------------------------------------------------------
+O codemagic.yaml NAO usa ios_signing por bundle na equipa (evita o erro
+"No matching profiles found" quando a equipa nao tem perfil App Store registado).
 
-Na Codemagic: Team settings > codemagic.yaml settings > Code signing identities
-  - Certificado Apple Distribution com visto verde (upload ou Fetch from Apple).
-  - Provisioning profile App Store para com.gestaoyahwehios.app (mesmo certificado).
+No grupo appstore_credentials defina SEMPRE:
+  CM_CERTIFICATE           — .p12 Apple Distribution em Base64 (uma linha)
+  CM_PROVISIONING_PROFILE  — .mobileprovision App Store para com.gestaoyahwehios.app em Base64
+  CM_CERTIFICATE_PASSWORD  — password do .p12 (opcional, secret)
 
-Neste modo NAO precisa de CM_CERTIFICATE, CM_PROVISIONING_PROFILE nem CERTIFICATE_PRIVATE_KEY.
-TestFlight continua a usar o grupo appstore_credentials (.p8 + Key ID + Issuer ID).
+Mais: APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER, ISSUER_ID (TestFlight / API).
 
-Doc: https://docs.codemagic.io/yaml-code-signing/signing-ios/
+Alternativa futura: voltar a ios_signing na equipa quando Code signing identities
+tiver perfil App Store + certificado com visto verde — ver doc Codemagic signing-ios.
 
 Erro: "No matching profiles found for bundle identifier ... app_store"
 -----------------------------------------------------------------------
-Significa que na equipa Codemagic NAO ha perfil App Store registado para
-com.gestaoyahwehios.app (ou o perfil nao casa com o certificado).
+Com o YAML actual este erro NAO deve aparecer (removido ios_signing por bundle).
+Se ainda vir mensagem antiga, confirme que o build usa o commit mais recente do main.
 
-Correcao (escolha uma):
+Se falhar na fase de assinatura/export: verifique CM_PROVISIONING_PROFILE (tem de ser
+perfil App Store, nao Development) e CM_CERTIFICATE (mesmo Apple Distribution do perfil).
 
-  A) Apple Developer > Profiles > criar/editar perfil tipo "App Store" para o
-     App ID com.gestaoyahwehios.app, com o certificado Apple Distribution certo.
-     Depois na Codemagic: Code signing identities > iOS provisioning profiles >
-     "Fetch profiles" (com a API key em Team integrations > Developer Portal) OU
-     fazer upload do .mobileprovision. Na lista, o tipo tem de ser App Store e o
-     Bundle ID tem de ser exactamente com.gestaoyahwehios.app.
-     Na mesma pagina, em Certificates: o certificado usado no perfil tem de estar
-     na equipa com visto verde no perfil (Certificate: ok).
-
-  B) Se ja tem perfil e certificado com "Reference name" na Codemagic mas o match
-     por bundle falha, no codemagic.yaml pode trocar ios_signing para referencias
-     explicitas (NAO misturar com distribution_type + bundle_identifier no mesmo bloco):
-       ios_signing:
-         provisioning_profiles:
-           - NOME_REFERENCIA_DO_PERFIL
-         certificates:
-           - NOME_REFERENCIA_DO_CERTIFICADO
-     Ver comentario no codemagic.yaml na raiz do repo.
-
-  C) Override por secrets: CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE
-     (Base64) no grupo do workflow — o script do YAML instala manualmente.
+Historico: com ios_signing + bundle na equipa, a Codemagic exigia perfil registado
+em Code signing identities; sem isso, falhava antes dos scripts.
 
 Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automaticamente pelo Flutter):
 

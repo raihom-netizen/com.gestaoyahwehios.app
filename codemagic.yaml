@@ -1,16 +1,14 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 #
-# Assinatura iOS AUTOMATICA (recomendado): bloco ios_signing abaixo.
-#   Na Codemagic: Team settings > codemagic.yaml settings > Code signing identities
-#   - Certificado Apple Distribution (ex.: gestaoyahwehios) com visto verde no perfil
-#   - Provisioning profile App Store para com.gestaoyahwehios.app (upload ou Fetch)
-#   NAO precisa de CM_CERTIFICATE, CM_PROVISIONING_PROFILE, CERTIFICATE_PRIVATE_KEY.
-#   Doc: https://docs.codemagic.io/yaml-code-signing/signing-ios/
+# Assinatura iOS: secrets no grupo appstore_credentials (evita "No matching profiles" da equipa).
+#   CM_CERTIFICATE          — Apple Distribution .p12 em Base64 (uma linha)
+#   CM_PROVISIONING_PROFILE — .mobileprovision App Store p/ com.gestaoyahwehios.app em Base64
+#   CM_CERTIFICATE_PASSWORD — password do .p12 (opcional, secret)
+# Gerar Base64 no Mac: cat ficheiro.p12 | base64 | pbcopy  (idem para .mobileprovision)
 #
-# Opcional (override): se definir CM_CERTIFICATE + CM_PROVISIONING_PROFILE nos secrets,
-#   o workflow usa P12 manual em vez do ios_signing da equipa.
+# Sem ios_signing por bundle: a Codemagic falha se Code signing identities nao tiver perfil App Store.
 #
-# App Store Connect API (TestFlight / JWT): grupo appstore_credentials
+# App Store Connect API (TestFlight / JWT): mesmo grupo
 #   APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER, ISSUER_ID
 #
 # ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
@@ -25,14 +23,6 @@ workflows:
     environment:
       groups:
         - appstore_credentials
-      # Se aparecer "No matching profiles found": adicione perfil App Store para este bundle
-      # em Team > Code signing identities, OU use referencias explicitas (sem as duas linhas abaixo):
-      #   ios_signing:
-      #     provisioning_profiles: [ nome_ref_perfil ]
-      #     certificates: [ nome_ref_certificado ]
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.gestaoyahwehios.app
       vars:
         APP_STORE_APPLE_ID: 6761656626
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
@@ -51,20 +41,16 @@ workflows:
           : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
           : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
-          if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Override: CM_CERTIFICATE definido — assinatura manual P12 (ignora ios_signing da equipa neste passo)."
-            : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE (Base64 .mobileprovision)}"
-          else
-            echo "Assinatura: Codemagic ios_signing (app_store + com.gestaoyahwehios.app) — certificado/perfil da equipa."
-          fi
+          : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 Apple Distribution em Base64) no grupo appstore_credentials}"
+          : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (perfil App Store .mobileprovision em Base64)}"
       - name: CocoaPods
         script: |
           cd flutter_app/ios
           pod install
-      - name: JWT App Store Connect (TestFlight) + keychain opcional P12
+      - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-team-ios_signing-native"
+          echo "CM_IOS_SIGNING_REV=2026-04-manual-p12-prov-exportoptions"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
@@ -93,22 +79,38 @@ workflows:
           }
           _norm_api
           _persist_asc_pem_to_cm_env
-          if [ -n "${CM_CERTIFICATE:-}" ]; then
-            keychain initialize
-            echo "Instalando P12 manual (override CM_CERTIFICATE)..."
-            PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
-            mkdir -p "$PROFILES_HOME"
-            PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
-            printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > "$PROFILE_PATH"
-            printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
-            if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
-              keychain add-certificates --certificate /tmp/cm_distribution.p12
-            else
-              keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
-            fi
+          keychain initialize
+          printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_raw.mobileprovision
+          security cms -D -i /tmp/cm_raw.mobileprovision > /tmp/cm_prov.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /tmp/cm_prov.plist)
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' /tmp/cm_prov.plist)
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print TeamIdentifier:0' /tmp/cm_prov.plist)
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          cp /tmp/cm_raw.mobileprovision "${PROFILES_HOME}/${PROFILE_UUID}.mobileprovision"
+          printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
+          if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
+            keychain add-certificates --certificate /tmp/cm_distribution.p12
           else
-            echo "Sem CM_CERTIFICATE: Codemagic aplica ios_signing (sem keychain initialize manual — doc Codemagic)."
+            keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
           fi
+          export CM_EXPORT_PROFILE_NAME="$PROFILE_NAME"
+          export CM_EXPORT_TEAM_ID="$TEAM_ID"
+          python3 << 'PY'
+          import os, plistlib
+          team = os.environ["CM_EXPORT_TEAM_ID"]
+          name = os.environ["CM_EXPORT_PROFILE_NAME"]
+          data = {
+              "method": "app-store",
+              "signingStyle": "manual",
+              "teamID": team,
+              "uploadSymbols": True,
+              "provisioningProfiles": {"com.gestaoyahwehios.app": name},
+          }
+          with open("/tmp/ExportOptions.plist", "wb") as f:
+              plistlib.dump(data, f, fmt=plistlib.FMT_XML)
+          PY
+          echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
       - name: Code signing (Xcode)
         script: |
           cd flutter_app/ios
@@ -116,8 +118,7 @@ workflows:
       - name: Flutter build IPA
         script: |
           cd flutter_app
-          flutter build ipa --release \
-            --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release --export-options-plist=/tmp/ExportOptions.plist
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
