@@ -1,6 +1,10 @@
 Pasta IOS — credenciais Apple / App Store (Gestão YAHWEH)
 =========================================================
 
+SEGURANCA: NUNCA commite .p12, .p8 ou .mobileprovision no GitHub (repositorio publico).
+  Use apenas secrets na Codemagic: CM_CERTIFICATE, CM_PROVISIONING_PROFILE, APP_STORE_CONNECT_*.
+  Se ja subiu estes ficheiros ao Git: apague do historico ou revogue certificado/chave na Apple.
+
 Bundle ID da app na loja: com.gestaoyahwehios.app
 App Store Connect — Apple ID do app: 6761656626
 Team ID (Xcode / projeto): 82RC6YL7KL — ja definido em ios/Runner.xcodeproj (DEVELOPMENT_TEAM).

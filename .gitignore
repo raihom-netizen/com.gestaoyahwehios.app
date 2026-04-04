@@ -3,6 +3,8 @@ IOS/*.p8
 **/AuthKey_*.p8
 **/ApiKey_*.p8
 IOS/*.mobileprovision
+**/*.p12
+*.p12
 
 # Flutter (build local)
 flutter_app/.dart_tool/

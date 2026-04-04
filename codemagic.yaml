@@ -15,15 +15,17 @@
 #      APP_STORE_CONNECT_ISSUER_ID    = Issuer ID (UUID, App Store Connect)
 #    Ver: https://docs.codemagic.io/yaml-publishing/app-store-connect/
 #
-# 2) Assinatura iOS — escolha UM dos modos (o workflow deteta automaticamente):
+# 2) Assinatura iOS — PADRAO = MANUAL (igual fluxo Controle Total / Codemagic classico):
 #
-#    A) AUTOMATICO (padrao): CERTIFICATE_PRIVATE_KEY = PEM da chave privada do certificado
-#       Apple Distribution + fetch-signing-files --create (como ate agora).
+#    A) MANUAL (padrao, IOS_SIGNING_MODE nao definido ou "manual"): obrigatorio no grupo
+#       appstore_credentials: CM_CERTIFICATE (P12 Apple Distribution em Base64),
+#       CM_PROVISIONING_PROFILE (.mobileprovision App Store em Base64),
+#       opcional CM_CERTIFICATE_PASSWORD. NAO precisa de CERTIFICATE_PRIVATE_KEY.
+#       Pode APAGAR o secret CERTIFICATE_PRIVATE_KEY na Codemagic para evitar PEM invalido.
 #
-#    B) MANUAL (sem PEM / sem Mac para extrair chave): defina CM_CERTIFICATE (P12 em Base64),
-#       CM_PROVISIONING_PROFILE (.mobileprovision em Base64) e opcionalmente
-#       CM_CERTIFICATE_PASSWORD. Nao precisa de CERTIFICATE_PRIVATE_KEY nem fetch --create.
-#       Gerar Base64 no Mac: cat cert.p12 | base64 | pbcopy
+#    B) AUTOMATICO: na Codemagic > Environment variables do workflow, defina
+#       IOS_SIGNING_MODE=automatic e mantenha CERTIFICATE_PRIVATE_KEY = PEM valido +
+#       fetch-signing-files --create.
 #
 #    API .p8: o Key ID no secret TEM de existir em App Store Connect > Integrations > Keys
 #    (ex.: gestaoyahwehiosapp = JLLQH77UF8). Um ficheiro ApiKey_L9NVXSRXJZ0O.p8 que NAO
@@ -53,6 +55,8 @@ workflows:
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
         # Grupo de testadores no Firebase App Distribution (ajuste na Console se necessario)
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
+        # Assinatura: omitir ou "manual" = P12+perfil (CM_*). Use "automatic" + PEM para fetch --create.
+        IOS_SIGNING_MODE: manual
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -68,11 +72,21 @@ workflows:
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
           : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            : "${CM_PROVISIONING_PROFILE:?Modo manual: CM_PROVISIONING_PROFILE (Base64 do .mobileprovision)}"
-            echo "Assinatura iOS: MODO MANUAL (CM_CERTIFICATE + perfil) — CERTIFICATE_PRIVATE_KEY omitido."
+            echo "Assinatura iOS: P12 (CM_CERTIFICATE) — tem prioridade sobre IOS_SIGNING_MODE e CERTIFICATE_PRIVATE_KEY."
+            : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (.mobileprovision App Store em Base64).}"
           else
-            : "${CERTIFICATE_PRIVATE_KEY:?Modo automatico: CERTIFICATE_PRIVATE_KEY (PEM Apple Distribution) ou defina CM_CERTIFICATE para modo manual.}"
-            echo "Assinatura iOS: MODO AUTOMATICO (fetch-signing-files --create)."
+            _mode="${IOS_SIGNING_MODE:-manual}"
+            case "$_mode" in
+              automatic|auto)
+                echo "Assinatura iOS: AUTOMATICO (CERTIFICATE_PRIVATE_KEY + fetch --create). Sem CM_CERTIFICATE."
+                : "${CERTIFICATE_PRIVATE_KEY:?Defina CERTIFICATE_PRIVATE_KEY (PEM) ou adicione CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE.}"
+                ;;
+              *)
+                echo "Assinatura iOS: MANUAL (padrao) — precisa CM_CERTIFICATE + CM_PROVISIONING_PROFILE na Codemagic."
+                : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 em Base64). Remova IOS_SIGNING_MODE=automatic da app se estiver a forcar PEM.}"
+                : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (Base64).}"
+                ;;
+            esac
           fi
       - name: CocoaPods
         script: |
@@ -81,7 +95,7 @@ workflows:
       - name: Keychain e perfis Apple (API + automatico OU manual P12)
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-dual (P12+perfil OU PEM+fetch) — se o nome deste passo for outro, atualize o YAML no Git."
+          echo "CM_IOS_SIGNING_REV=2026-04-CM_CERT_FIRST (P12 se CM_CERTIFICATE definido, senao automatic com PEM)"
           # Secret -> ficheiro: expande \n literais (printf %b), CRLF, BOM, aspas externas "...", '...';
           # depois valida PEM ou tenta Base64 do blob inteiro.
           _secret_to_pem_file() {
@@ -143,7 +157,7 @@ workflows:
           _persist_asc_pem_to_cm_env
           keychain initialize
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Instalando perfil e certificado (modo manual P12)..."
+            echo "Instalando perfil e certificado (CM_CERTIFICATE + CM_PROVISIONING_PROFILE)..."
             PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
             mkdir -p "$PROFILES_HOME"
             PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
@@ -155,16 +169,20 @@ workflows:
             else
               keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
             fi
-          else
+          elif [ "${IOS_SIGNING_MODE:-manual}" = "automatic" ] || [ "${IOS_SIGNING_MODE:-manual}" = "auto" ]; then
             _norm_cert
             app-store-connect fetch-signing-files com.gestaoyahwehios.app \
               --type IOS_APP_STORE \
               --create
+          else
+            echo "ERRO: Sem CM_CERTIFICATE. No Codemagic adicione secrets CM_CERTIFICATE (P12 Base64) e CM_PROVISIONING_PROFILE."
+            echo "  Se a app tiver IOS_SIGNING_MODE=automatic nas variaveis, remova ou defina CM_CERTIFICATE."
+            exit 1
           fi
       - name: Instalar certificados no keychain
         script: |
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Modo manual: certificado ja instalado."
+            echo "P12 ja instalado no passo anterior — a saltar."
             exit 0
           fi
           keychain add-certificates

@@ -25,6 +25,7 @@ workflows:
         APP_STORE_APPLE_ID: 6761656626
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
+        IOS_SIGNING_MODE: manual
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -38,11 +39,20 @@ workflows:
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
           : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            : "${CM_PROVISIONING_PROFILE:?Modo manual: CM_PROVISIONING_PROFILE (Base64 do .mobileprovision)}"
-            echo "Assinatura iOS: MODO MANUAL (CM_CERTIFICATE + perfil) — CERTIFICATE_PRIVATE_KEY omitido."
+            echo "Assinatura iOS: P12 (CM_CERTIFICATE) — prioridade sobre IOS_SIGNING_MODE e CERTIFICATE_PRIVATE_KEY."
+            : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (.mobileprovision Base64).}"
           else
-            : "${CERTIFICATE_PRIVATE_KEY:?Modo automatico: CERTIFICATE_PRIVATE_KEY (PEM Apple Distribution) ou defina CM_CERTIFICATE para modo manual.}"
-            echo "Assinatura iOS: MODO AUTOMATICO (fetch-signing-files --create)."
+            _mode="${IOS_SIGNING_MODE:-manual}"
+            case "$_mode" in
+              automatic|auto)
+                echo "Assinatura iOS: AUTOMATICO (PEM + fetch --create)."
+                : "${CERTIFICATE_PRIVATE_KEY:?Defina PEM ou CM_CERTIFICATE+CM_PROVISIONING_PROFILE.}"
+                ;;
+              *)
+                : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 Base64). Remova IOS_SIGNING_MODE=automatic se existir.}"
+                : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (Base64).}"
+                ;;
+            esac
           fi
       - name: CocoaPods
         script: |
@@ -51,7 +61,7 @@ workflows:
       - name: Keychain e perfis Apple (API + automatico OU manual P12)
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-dual-FLUTTER-ROOT (P12+perfil OU PEM+fetch)"
+          echo "CM_IOS_SIGNING_REV=2026-04-CM_CERT_FIRST"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
@@ -102,28 +112,30 @@ workflows:
           _persist_asc_pem_to_cm_env
           keychain initialize
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Instalando perfil e certificado (modo manual P12)..."
+            echo "Instalando P12 + perfil (CM_CERTIFICATE)..."
             PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
             mkdir -p "$PROFILES_HOME"
             PROFILE_PATH="$(mktemp "$PROFILES_HOME"/cm_XXXXXX.mobileprovision)"
             printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > "$PROFILE_PATH"
-            echo "Perfil: $PROFILE_PATH"
             printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
             if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
               keychain add-certificates --certificate /tmp/cm_distribution.p12
             else
               keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
             fi
-          else
+          elif [ "${IOS_SIGNING_MODE:-manual}" = "automatic" ] || [ "${IOS_SIGNING_MODE:-manual}" = "auto" ]; then
             _norm_cert
             app-store-connect fetch-signing-files com.gestaoyahwehios.app \
               --type IOS_APP_STORE \
               --create
+          else
+            echo "ERRO: Defina CM_CERTIFICATE + CM_PROVISIONING_PROFILE na Codemagic (P12 e perfil em Base64)."
+            exit 1
           fi
       - name: Instalar certificados no keychain
         script: |
           if [ -n "${CM_CERTIFICATE:-}" ]; then
-            echo "Modo manual: certificado ja instalado."
+            echo "P12 ja instalado — a saltar."
             exit 0
           fi
           keychain add-certificates
