@@ -9,6 +9,8 @@ workflows:
     environment:
       groups:
         - appstore_credentials
+      # No matching profiles: ver IOS/README_CREDENCIAIS.txt — perfil App Store na equipa
+      # ou provisioning_profiles/certificates por Reference name (doc Codemagic signing-ios).
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.gestaoyahwehios.app

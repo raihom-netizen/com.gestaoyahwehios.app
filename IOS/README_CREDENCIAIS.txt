@@ -25,6 +25,35 @@ TestFlight continua a usar o grupo appstore_credentials (.p8 + Key ID + Issuer I
 
 Doc: https://docs.codemagic.io/yaml-code-signing/signing-ios/
 
+Erro: "No matching profiles found for bundle identifier ... app_store"
+-----------------------------------------------------------------------
+Significa que na equipa Codemagic NAO ha perfil App Store registado para
+com.gestaoyahwehios.app (ou o perfil nao casa com o certificado).
+
+Correcao (escolha uma):
+
+  A) Apple Developer > Profiles > criar/editar perfil tipo "App Store" para o
+     App ID com.gestaoyahwehios.app, com o certificado Apple Distribution certo.
+     Depois na Codemagic: Code signing identities > iOS provisioning profiles >
+     "Fetch profiles" (com a API key em Team integrations > Developer Portal) OU
+     fazer upload do .mobileprovision. Na lista, o tipo tem de ser App Store e o
+     Bundle ID tem de ser exactamente com.gestaoyahwehios.app.
+     Na mesma pagina, em Certificates: o certificado usado no perfil tem de estar
+     na equipa com visto verde no perfil (Certificate: ok).
+
+  B) Se ja tem perfil e certificado com "Reference name" na Codemagic mas o match
+     por bundle falha, no codemagic.yaml pode trocar ios_signing para referencias
+     explicitas (NAO misturar com distribution_type + bundle_identifier no mesmo bloco):
+       ios_signing:
+         provisioning_profiles:
+           - NOME_REFERENCIA_DO_PERFIL
+         certificates:
+           - NOME_REFERENCIA_DO_CERTIFICADO
+     Ver comentario no codemagic.yaml na raiz do repo.
+
+  C) Override por secrets: CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE
+     (Base64) no grupo do workflow — o script do YAML instala manualmente.
+
 Ficheiros que pode manter AQUI (cópia de trabalho local; não são lidos automaticamente pelo Flutter):
 
 1) Ficheiro .p8 da API App Store Connect

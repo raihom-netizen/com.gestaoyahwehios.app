@@ -25,6 +25,11 @@ workflows:
     environment:
       groups:
         - appstore_credentials
+      # Se aparecer "No matching profiles found": adicione perfil App Store para este bundle
+      # em Team > Code signing identities, OU use referencias explicitas (sem as duas linhas abaixo):
+      #   ios_signing:
+      #     provisioning_profiles: [ nome_ref_perfil ]
+      #     certificates: [ nome_ref_certificado ]
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.gestaoyahwehios.app
