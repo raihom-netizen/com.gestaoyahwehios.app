@@ -1,0 +1,16 @@
+# Copie para key.properties (na pasta android/) e preencha.
+# key.properties está no .gitignore — nunca commite senhas.
+#
+# A Google Play só aceita .aab assinado com a MESMA chave de upload (ou Play App Signing).
+# Sem este ficheiro, o Gradle usa assinatura DEBUG e a Play rejeita o upload.
+#
+# Gerar keystore (Windows — ajuste o caminho):
+# keytool -genkey -v -keystore C:\Users\SEU_USER\upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# Coloque o .jks fora do repositório ou em pasta privada; storeFile é relativo à pasta android/
+# (ex.: ../ANDROID/upload-keystore.jks = repo/ANDROID/upload-keystore.jks).
+
+storePassword=sua_senha_do_keystore
+keyPassword=sua_senha_da_chave
+keyAlias=upload
+storeFile=../ANDROID/upload-keystore.jks

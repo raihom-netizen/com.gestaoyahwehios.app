@@ -1,0 +1,29 @@
+# Chaves Apple / segredos locais (nunca no Git)
+IOS/*.p8
+**/AuthKey_*.p8
+
+# Flutter (build local)
+flutter_app/.dart_tool/
+flutter_app/build/
+flutter_app/**/ephemeral/
+flutter_app/ios/Pods/
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/Flutter.podspec
+flutter_app/macos/Flutter/ephemeral/
+flutter_app/linux/flutter/ephemeral/
+flutter_app/windows/flutter/ephemeral/
+
+# Node
+node_modules/
+functions/node_modules/
+scripts/node_modules/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Cursor
+.cursor/

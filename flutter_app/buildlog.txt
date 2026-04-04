@@ -1,0 +1,126 @@
+[ +300 ms] Unable to locate an Android SDK.
+[   +9 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[        ] executing: [C:\flutter\flutter_windows_3.38.7-stable\flutter/] git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[  +49 ms] Exit code 0 from: git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[        ] 2026-01-13 13:47:42 -0800
+[  +11 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +42 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +22 ms] Skipping pub get: version match.
+[  +51 ms] Found plugin firebase_core at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core-3.15.2\
+[   +6 ms] Found plugin firebase_core_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core_web-2.24.1\
+[  +33 ms] Found plugin firebase_auth at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth-5.7.0\
+[   +2 ms] Found plugin firebase_auth_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth_web-5.15.3\
+[   +8 ms] Found plugin cloud_functions at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions-5.6.2\
+[   +4 ms] Found plugin cloud_functions_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions_web-4.11.5\
+[   +4 ms] Found plugin cloud_firestore at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore-5.6.12\
+[   +2 ms] Found plugin cloud_firestore_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore_web-4.4.12\
+[  +37 ms] Found plugin firebase_core at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core-3.15.2\
+[   +2 ms] Found plugin firebase_core_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core_web-2.24.1\
+[  +28 ms] Found plugin firebase_auth at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth-5.7.0\
+[   +1 ms] Found plugin firebase_auth_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth_web-5.15.3\
+[  +16 ms] Found plugin cloud_functions at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions-5.6.2\
+[   +1 ms] Found plugin cloud_functions_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions_web-4.11.5\
+[   +2 ms] Found plugin cloud_firestore at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore-5.6.12\
+[   +1 ms] Found plugin cloud_firestore_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore_web-4.4.12\
+[  +13 ms] Skipping generating web_plugin_registrant.dart because it is up-to-date.
+[  +15 ms] Found plugin firebase_core at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core-3.15.2\
+[   +2 ms] Found plugin firebase_core_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core_web-2.24.1\
+[  +21 ms] Found plugin firebase_auth at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth-5.7.0\
+[   +1 ms] Found plugin firebase_auth_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth_web-5.15.3\
+[   +4 ms] Found plugin cloud_functions at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions-5.6.2\
+[   +1 ms] Found plugin cloud_functions_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions_web-4.11.5\
+[   +2 ms] Found plugin cloud_firestore at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore-5.6.12\
+[   +1 ms] Found plugin cloud_firestore_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore_web-4.4.12\
+[  +67 ms] Found plugin firebase_core at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core-3.15.2\
+[   +4 ms] Found plugin firebase_core_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_core_web-2.24.1\
+[  +19 ms] Found plugin firebase_auth at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth-5.7.0\
+[   +1 ms] Found plugin firebase_auth_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\firebase_auth_web-5.15.3\
+[   +6 ms] Found plugin cloud_functions at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions-5.6.2\
+[  +19 ms] Found plugin cloud_functions_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_functions_web-4.11.5\
+[   +2 ms] Found plugin cloud_firestore at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore-5.6.12\
+[   +1 ms] Found plugin cloud_firestore_web at C:\Users\FAMILIA\AppData\Local\Pub\Cache\hosted\pub.dev\cloud_firestore_web-4.4.12\
+[   +2 ms] generated_plugin_registrant.dart not found. Skipping.
+[   +1 ms] Compiling lib\main.dart for the Web...
+[  +11 ms] Initializing file store
+[   +1 ms] Done initializing file store
+[  +33 ms] Skipping target: web_entrypoint
+[   +1 ms] invalidated build due to missing files: C:\gestao_yahweh\flutter_app\web\*\index.html
+[   +1 ms] Skipping target: dart_build
+[        ] Skipping target: gen_localizations
+[   +1 ms] web_templated_files: Starting due to {InvalidatedReasonKind.outputMissing: The following outputs were missing: C:\gestao_yahweh\flutter_app\build\web\*\index.html, InvalidatedReasonKind.inputMissing: The following inputs were missing: C:\gestao_yahweh\flutter_app\web\*\index.html}
+[   +1 ms] web_static_assets: Starting due to {InvalidatedReasonKind.outputMissing: The following outputs were missing: C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\flutter.js,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\canvaskit.js,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\canvaskit.js.symbols,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\canvaskit.wasm,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\chromium\canvaskit.js,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\chromium\canvaskit.js.symbols,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\chromium\canvaskit.wasm,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm.js,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm.js.symbols,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm.wasm,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm_heavy.js,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm_heavy.js.symbols,C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\canvaskit\skwasm_heavy.wasm}
+[ +614 ms] web_static_assets: Complete
+[   +6 ms] dart2js: Starting due to {}
+[  +10 ms] executing: C:\flutter\flutter_windows_3.38.7-stable\flutter\bin\cache\dart-sdk\bin\dart.exe compile js --platform-binaries=C:\flutter\flutter_windows_3.38.7-stable\flutter\bin\cache\flutter_web_sdk\kernel --invoker=flutter_tool -Ddart.vm.product=true -DFLUTTER_VERSION=3.38.7 -DFLUTTER_CHANNEL=stable -DFLUTTER_GIT_URL=https://github.com/flutter/flutter.git -DFLUTTER_FRAMEWORK_REVISION=3b62efc2a3 -DFLUTTER_ENGINE_REVISION=78fc3012e4 -DFLUTTER_DART_VERSION=3.10.7 -DFLUTTER_WEB_USE_SKIA=true -DFLUTTER_WEB_USE_SKWASM=false -DFLUTTER_WEB_CANVASKIT_URL=https://www.gstatic.com/flutter-canvaskit/78fc3012e45889657f72359b005af7beac47ba3d/ --native-null-assertions --no-source-maps -O4 --minify -o C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\app.dill --packages=C:\gestao_yahweh\flutter_app\.dart_tool\package_config.json --cfe-only C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\main.dart
+[        ] dart2wasm: Starting due to {}
+[   +1 ms] executing: C:\flutter\flutter_windows_3.38.7-stable\flutter\bin\cache\dart-sdk\bin\dart.exe compile wasm --packages=C:\gestao_yahweh\flutter_app\.dart_tool\package_config.json --extra-compiler-option=--platform=C:\flutter\flutter_windows_3.38.7-stable\flutter\bin\cache\flutter_web_sdk\kernel\dart2wasm_platform.dill -Ddart.vm.profile=false -Ddart.vm.product=true --extra-compiler-option=--delete-tostring-package-uri=dart:ui --extra-compiler-option=--delete-tostring-package-uri=package:flutter --extra-compiler-option=--import-shared-memory --extra-compiler-option=--shared-memory-max-pages=32768 -DFLUTTER_VERSION=3.38.7 -DFLUTTER_CHANNEL=stable -DFLUTTER_GIT_URL=https://github.com/flutter/flutter.git -DFLUTTER_FRAMEWORK_REVISION=3b62efc2a3 -DFLUTTER_ENGINE_REVISION=78fc3012e4 -DFLUTTER_DART_VERSION=3.10.7 -DFLUTTER_WEB_USE_SKIA=false -DFLUTTER_WEB_USE_SKWASM=true -DFLUTTER_WEB_CANVASKIT_URL=https://www.gstatic.com/flutter-canvaskit/78fc3012e45889657f72359b005af7beac47ba3d/ --extra-compiler-option=--depfile=C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\dart2wasm.d -O2 --strip-wasm --no-source-maps --minify --extra-compiler-option=--dry-run -o C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\main.dart.wasm C:\gestao_yahweh\flutter_app\.dart_tool\flutter_build\9e9858ed40207623a1a3c855432aaf65\main.dart
+[  +11 ms] web_templated_files: Complete
+[+9723 ms] lib/ui/login_page.dart:118:38:
+           Error: The getter 'cpfController' isn't defined for the type '_LoginPageState'.
+            - '_LoginPageState' is from 'package:gestao_yahweh/ui/login_page.dart' ('lib/ui/login_page.dart').
+           await service.sendPasswordResetByCpf(cpfController.text);
+                                                ^^^^^^^^^^^^^
+           Error: Compilation failed.
+[  +54 ms] dart2wasm: Complete
+[  +15 ms] Persisting file store
+[   +6 ms] Done persisting file store
+[  +21 ms] Compiling lib\main.dart for the Web... (completed in 45,2s)
+[   +1 ms] "flutter web" took 45.690ms.
+[   +1 ms] Running 1 shutdown hook
+[   +4 ms] Shutdown hooks complete
+[ +220 ms] exiting with code 1

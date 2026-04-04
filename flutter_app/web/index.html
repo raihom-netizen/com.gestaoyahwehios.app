@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=10.0, user-scalable=yes, viewport-fit=cover" />
+    <!-- Build release padrão: FLUTTER_WEB_USE_SKIA=false (renderer HTML/DOM) — ver scripts/deploy_web_hosting.ps1 -->
+    <!-- Web: reduz bloqueios de mídia do Storage quando o bucket restringe por referrer -->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#0C3B8A" />
+    <meta name="description" content="Gestão YAHWEH — App para igrejas: membros, eventos, financeiro." />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Gestão YAHWEH" />
+    <!-- Open Graph padrão do app. Links /s/evento?c=&e= são servidos pela Cloud Function shareEvento (Firebase Hosting) com og:image dinâmico e URL assinada do Storage. -->
+    <!-- Open Graph para preview ao compartilhar link público (WhatsApp, redes sociais) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Gestão YAHWEH" />
+    <meta property="og:title" content="Gestão YAHWEH — App para igrejas" />
+    <meta property="og:description" content="Membros, eventos, financeiro. Cadastro e link público da igreja." />
+    <meta property="og:image" content="https://gestaoyahweh.com.br/icons/Icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:url" content="https://gestaoyahweh.com.br/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Gestão YAHWEH" />
+    <meta name="twitter:description" content="App para igrejas: membros, eventos, financeiro." />
+    <meta name="twitter:image" content="https://gestaoyahweh.com.br/icons/Icon-512.png" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png" />
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://gestaoyahweh-21e23.firebaseapp.com" crossorigin />
+    <!-- Storage: mesmo padrão de performance do EcoFire (mídia/foto/vídeo no painel web) -->
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://gestaoyahweh-21e23.firebasestorage.app" crossorigin />
+    <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
+    <link rel="dns-prefetch" href="https://gestaoyahweh-21e23.firebasestorage.app" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <script>
+      (function () {
+        // Remove service worker antigo para que o usuário sempre carregue a versão nova após deploy.
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          });
+        }
+        var GYH_STORAGE_KEY = 'gyh_server_version';
+        function checkVersionAndStore() {
+          fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (res) { return res.json(); }).then(function (data) {
+            var v = (data.version || data.build_number || '').toString();
+            if (v) localStorage.setItem(GYH_STORAGE_KEY, v);
+          }).catch(function () {});
+        }
+        setInterval(checkVersionAndStore, 60000);
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') checkVersionAndStore();
+        });
+        setTimeout(checkVersionAndStore, 8000);
+      })();
+    </script>
+
+    <script>
+      (function () {
+        let deferredPrompt = null;
+
+        window.addEventListener('beforeinstallprompt', function (e) {
+          e.preventDefault();
+          deferredPrompt = e;
+        });
+
+        window.addEventListener('appinstalled', function () {
+          deferredPrompt = null;
+        });
+
+        window.gyhPwa = {
+          canInstall: function () {
+            return !!deferredPrompt;
+          },
+          promptInstall: async function () {
+            if (!deferredPrompt) return false;
+            deferredPrompt.prompt();
+            const result = await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            return result && result.outcome === 'accepted';
+          }
+        };
+
+        // Compatibilidade com integrações anteriores
+        window.isPwaInstallAvailable = function () {
+          return window.gyhPwa.canInstall();
+        };
+
+        window.triggerPwaInstall = function () {
+          return window.gyhPwa.promptInstall();
+        };
+      })();
+    </script>
+    <title>Gestão YAHWEH</title>
+    <base href="/" />
+  </head>
+
+  <body>
+    <script src="flutter_bootstrap.js" async></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+import '../../services/app_permissions.dart';
+
+// Exemplo de uso:
+// if (!AppPermissions.canViewSensitiveMembers(userRole)) { ... }

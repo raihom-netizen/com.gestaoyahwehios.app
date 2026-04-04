@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "157235497908",
+    "project_id": "gestaoyahweh-21e23",
+    "storage_bucket": "gestaoyahweh-21e23.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:157235497908:android:04c65d48c7d9fd094ac0e1",
+        "android_client_info": {
+          "package_name": "com.gestaoyahweh.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "157235497908-ebbdpol1a7lrc4s27mouo937rpshijr7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gestaoyahweh.app",
+            "certificate_hash": "6d8177c8a21753fbe143c582fb14529404f70178"
+          }
+        },
+        {
+          "client_id": "157235497908-93osahk8novc7i2n6jq2fotimfmhefi3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgbGHUg1MfsXjR8KPzmel-nSFFFrPoyhs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "157235497908-93osahk8novc7i2n6jq2fotimfmhefi3.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "157235497908-hehdil2f84e0plip9t09303f0drsphjh.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "br.com.gestaoyahweh.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
