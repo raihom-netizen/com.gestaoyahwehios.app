@@ -120,6 +120,62 @@ botao direito > Export (define password), depois usa o comando openssl acima.
 Se nunca criaste certificado de distribuicao, cria em developer.apple.com > Certificates
 (Apple Distribution) e instala no Keychain antes de exportar.
 
+O QUE SAO (em linguagem simples)
+--------------------------------
+CM_CERTIFICATE
+  E o teu certificado Apple de DISTRIBUICAO (nao e o de desenvolvimento), guardado
+  num ficheiro .p12 no teu Mac. A Apple usa isso para provar que SO TU podes assinar
+  a app para enviar a App Store. Na Codemagic nao se cola o ficheiro .p12 em bruto:
+  converte-se o ficheiro para TEXTO Base64 (uma linha gigante) e esse texto e que
+  colas no secret CM_CERTIFICATE.
+
+CM_PROVISIONING_PROFILE
+  E um ficheiro .mobileprovision que diz: "esta app (bundle com.gestaoyahwehios.app)
+  pode ser assinada com ESTE certificado e ESTA team". Tambem se converte para Base64
+  (uma linha) e cola-se no secret CM_PROVISIONING_PROFILE. Tem de ser perfil tipo
+  App Store (distribuicao), nao so desenvolvimento.
+
+O QUE FAZER — passo a passo
+---------------------------
+A) Obter / confirmar o .p12 (Apple Distribution)
+   1. No Mac: abre "Keychain Access" (Acesso ao Keychain).
+   2. Categoria "My Certificates" / "Os meus certificados".
+   3. Procura algo como "Apple Distribution: Nome (Team ID)".
+   4. Se existir: clica direito > Exportar > guarda como .p12 e define uma PASSWORD
+      (anota-a — e o CM_CERTIFICATE_PASSWORD na Codemagic se o script pedir).
+   5. Se NAO existir: em developer.apple.com > Account > Certificates > cria
+      "Apple Distribution", instala no Mac, depois exporta .p12 como acima.
+
+B) Obter o .mobileprovision (App Store, bundle com.gestaoyahwehios.app)
+   1. Em developer.apple.com > Account > Profiles > + (novo perfil).
+   2. Tipo: App Store Connect (distribuicao App Store).
+   3. App ID: o que tem bundle com.gestaoyahwehios.app.
+   4. Certificado: o Apple Distribution que corresponde ao .p12 de cima.
+   5. Gera, descarrega o ficheiro .mobileprovision (nome tipo xxxxx.mobileprovision).
+
+C) Transformar em "uma linha Base64" e colar na Codemagic
+   No Mac (Terminal), na pasta onde estao os ficheiros:
+
+     cat NomeDoFicheiro.p12 | base64 | pbcopy
+     cat NomeDoPerfil.mobileprovision | base64 | pbcopy
+
+   O pbcopy copia para a area de transferencia. Depois:
+   1. Codemagic > Team > Environment variables > grupo appstore_credentials (ou o que
+      o workflow usa).
+   2. Cria/edita variavel CM_CERTIFICATE — cola o conteudo copiado do .p12 (e UMA linha).
+   3. Cria/edita variavel CM_PROVISIONING_PROFILE — cola o conteudo copiado do .mobileprovision.
+   4. Opcional: CM_CERTIFICATE_PASSWORD = password que definiste ao exportar o .p12.
+   5. Guarda. Nomes tem de ser EXACTAMENTE CM_CERTIFICATE e CM_PROVISIONING_PROFILE.
+
+   No Windows (PowerShell, na pasta dos ficheiros):
+
+     [Convert]::ToBase64String([IO.File]::ReadAllBytes(".\AppleDistribution.p12")) | Set-Clipboard
+     [Convert]::ToBase64String([IO.File]::ReadAllBytes(".\perfil.mobileprovision")) | Set-Clipboard
+
+   Depois cola no browser da Codemagic nos mesmos nomes de variavel.
+
+D) Nao colar o ficheiro binario nem "miolo" cortado — so o resultado completo do Base64.
+
 Codemagic — modo MANUAL (P12 + perfil, sem CERTIFICATE_PRIVATE_KEY)
 --------------------------------------------------------------------
 Se nao quiseres extrair PEM ou o fetch --create falhar, o codemagic.yaml deteta
@@ -135,6 +191,15 @@ No Mac:
 
   cat AppleDistribution.p12 | base64 | pbcopy
   cat gestaoyahwehiosapp.mobileprovision | base64 | pbcopy
+
+Erro Codemagic: "base64: stdin: (null): error decoding base64 input stream"
+---------------------------------------------------------------------------
+Significa que CM_PROVISIONING_PROFILE ou CM_CERTIFICATE (ou o .p8) chegou vazio ao
+script — o secret nao esta no grupo certo, nome errado, ou colou so espacos/linhas vazias.
+Confirma: Environment variables > grupo appstore_credentials ligado ao workflow;
+nomes exactos CM_PROVISIONING_PROFILE e CM_CERTIFICATE; valor = UMA linha Base64 (comando
+cat ... | base64 | pbcopy). O YAML do repo agora falha com mensagem explicita em vez do
+erro generico do macOS base64.
 
 No Windows (PowerShell, na pasta dos ficheiros):
 

@@ -43,12 +43,17 @@ workflows:
           _looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
           _norm_api() {
             _secret_to_pem_file "${APP_STORE_CONNECT_PRIVATE_KEY}" /tmp/_asc_raw.pem
+            if [ ! -s /tmp/_asc_raw.pem ]; then
+              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY vazio apos normalizar."
+              exit 1
+            fi
             if _looks_like_pem_api /tmp/_asc_raw.pem; then
               cat /tmp/_asc_raw.pem > /tmp/_asc_ok.pem
-            elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/dev/null && _looks_like_pem_api /tmp/_asc_dec.pem; then
+            elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/tmp/_asc_b64.err && [ -s /tmp/_asc_dec.pem ] && _looks_like_pem_api /tmp/_asc_dec.pem; then
               cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
             else
-              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY invalido."
+              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM .p8 valido nem Base64 de PEM."
+              [ -s /tmp/_asc_b64.err ] && cat /tmp/_asc_b64.err
               exit 1
             fi
             export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
@@ -64,7 +69,20 @@ workflows:
           _norm_api
           _persist_asc_pem_to_cm_env
           keychain initialize
-          printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_raw.mobileprovision
+          _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
+          if [ -z "${_CM_PROV_COMPACT}" ]; then
+            echo "ERRO: CM_PROVISIONING_PROFILE vazio. cat perfil.mobileprovision | base64 | pbcopy"
+            exit 1
+          fi
+          if ! printf '%s' "${_CM_PROV_COMPACT}" | base64 -D > /tmp/cm_raw.mobileprovision 2>/tmp/_prov_b64.err; then
+            echo "ERRO: CM_PROVISIONING_PROFILE Base64 invalido."
+            cat /tmp/_prov_b64.err 2>/dev/null || true
+            exit 1
+          fi
+          if [ ! -s /tmp/cm_raw.mobileprovision ]; then
+            echo "ERRO: perfil decodificado vazio."
+            exit 1
+          fi
           security cms -D -i /tmp/cm_raw.mobileprovision > /tmp/cm_prov.plist
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /tmp/cm_prov.plist)
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' /tmp/cm_prov.plist)
@@ -72,7 +90,20 @@ workflows:
           PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES_HOME"
           cp /tmp/cm_raw.mobileprovision "${PROFILES_HOME}/${PROFILE_UUID}.mobileprovision"
-          printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r ' | base64 -D > /tmp/cm_distribution.p12
+          _CM_P12_COMPACT="$(printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r\t ')"
+          if [ -z "${_CM_P12_COMPACT}" ]; then
+            echo "ERRO: CM_CERTIFICATE vazio. cat AppleDistribution.p12 | base64 | pbcopy"
+            exit 1
+          fi
+          if ! printf '%s' "${_CM_P12_COMPACT}" | base64 -D > /tmp/cm_distribution.p12 2>/tmp/_p12_b64.err; then
+            echo "ERRO: CM_CERTIFICATE Base64 invalido."
+            cat /tmp/_p12_b64.err 2>/dev/null || true
+            exit 1
+          fi
+          if [ ! -s /tmp/cm_distribution.p12 ]; then
+            echo "ERRO: P12 decodificado vazio."
+            exit 1
+          fi
           if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
             keychain add-certificates --certificate /tmp/cm_distribution.p12
           else
