@@ -84,7 +84,7 @@ workflows:
       - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
-          echo "CM_IOS_SIGNING_REV=2026-04-manual-p12-prov-exportoptions"
+          echo "CM_IOS_SIGNING_REV=2026-04-no-export-pem-persist-end"
           _secret_to_pem_file() {
             local val="$1"
             local out="$2"
@@ -107,19 +107,20 @@ workflows:
               [ -s /tmp/_asc_b64.err ] && cat /tmp/_asc_b64.err
               exit 1
             fi
-            export APP_STORE_CONNECT_PRIVATE_KEY="$(cat /tmp/_asc_ok.pem)"
+            # NUNCA exportar PEM multilinha neste passo: o Codemagic regrava o ambiente em CM_ENV e pode
+            # abrir APP_STORE_CONNECT_PRIVATE_KEY<<... sem fechar -> "not closed with delimiter".
+            unset APP_STORE_CONNECT_PRIVATE_KEY || true
           }
           _persist_asc_pem_to_cm_env() {
             [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
+            _ASC_DELIM="CMGYYWHASCPEM594E2F1END"
             {
-              echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
+              echo "APP_STORE_CONNECT_PRIVATE_KEY<<${_ASC_DELIM}"
               cat /tmp/_asc_ok.pem
-              # Newline obrigatorio antes do delimitador: senao CM_YAHWEH_ASC_PEM cola a "END PRIVATE KEY-----" e o Codemagic nao fecha a variavel multilinha.
-              printf '\n%s\n' 'CM_YAHWEH_ASC_PEM'
+              printf '\n%s\n' "${_ASC_DELIM}"
             } >> "$CM_ENV"
           }
           _norm_api
-          _persist_asc_pem_to_cm_env
           keychain initialize
           # Nao usar tr com espaco: se o secret tiver so espacos/newlines, base64 recebe vazio -> "(null): error decoding".
           _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
@@ -184,6 +185,7 @@ workflows:
               plistlib.dump(data, f, fmt=plistlib.FMT_XML)
           PY
           echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
+          _persist_asc_pem_to_cm_env
       - name: Code signing (Xcode)
         script: |
           cd flutter_app/ios

@@ -222,11 +222,14 @@ No Windows (P12), mesmo padrao:
 Remove ou deixa vazio CERTIFICATE_PRIVATE_KEY quando usares este modo (o workflow
 nao o exige se CM_CERTIFICATE estiver definido).
 
-Erro Codemagic: "Multiline variable APP_STORE_CONNECT_PRIVATE_KEY is not closed with delimiter CM_YAHWEH_ASC_PEM"
-------------------------------------------------------------------------------------------------------------------
-Corrigido no codemagic.yaml do repo: ao gravar o .p8 no ficheiro CM_ENV entre passos,
-e obrigatorio um newline antes da linha de fecho CM_YAHWEH_ASC_PEM. Atualize o main
-(git pull) e volte a correr o build.
+Erro Codemagic: "Multiline variable APP_STORE_CONNECT_PRIVATE_KEY is not closed with delimiter ..."
+---------------------------------------------------------------------------------------------------
+Causas corrigidas no codemagic.yaml: (1) newline antes do delimitador de fecho; (2) nao fazer
+export da PEM multilinha no mesmo passo (o Codemagic regrava CM_ENV e partia o bloco); (3) gravar
+a PEM normalizada em CM_ENV so no FIM do passo JWT, depois do keychain. Atualize o main e rebuild.
+
+Se o build na UI ainda mostrar commit antigo (ex. c1492df), nao esta a usar o YAML novo —
+inicie build explicitamente no ultimo commit do main.
 
 Alinhar .p8 da API com chaves ATIVAS na Apple
 ----------------------------------------------
