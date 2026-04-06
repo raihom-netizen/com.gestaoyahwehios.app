@@ -79,6 +79,37 @@ class ChurchMinistryIntelService {
   static String _normCpf(String? raw) =>
       (raw ?? '').replaceAll(RegExp(r'\D'), '');
 
+  /// Evita `List.cast<String>()` / `as List?` com tipos errados vindos do Firestore.
+  static List<String> _memberCpfDigitsFromField(dynamic v) {
+    if (v == null) return <String>[];
+    if (v is List) {
+      return v
+          .map((e) => _normCpf(e?.toString()))
+          .where((c) => c.length >= 3)
+          .toList();
+    }
+    final single = _normCpf(v.toString());
+    return single.length >= 3 ? <String>[single] : <String>[];
+  }
+
+  /// RSVP: lista de UIDs; aceita legado em Map (chaves = uid).
+  static List<String> _rsvpUidListFromField(dynamic v) {
+    if (v == null) return <String>[];
+    if (v is List) {
+      return v
+          .map((e) => e?.toString().trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    if (v is Map) {
+      return v.keys
+          .map((k) => k?.toString().trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    return <String>[];
+  }
+
   static DateTime? _ts(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) return v.toDate();
@@ -86,7 +117,10 @@ class ChurchMinistryIntelService {
     if (v is Map) {
       final sec = v['seconds'] ?? v['_seconds'];
       if (sec != null) {
-        return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+        final n = sec is num ? sec.toInt() : int.tryParse(sec.toString());
+        if (n != null) {
+          return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+        }
       }
     }
     return DateTime.tryParse(v.toString());
@@ -132,7 +166,7 @@ class ChurchMinistryIntelService {
       final dt = _ts(m['date']);
       if (dt == null) continue;
       if (dt.isBefore(cutoff)) continue;
-      final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => _normCpf(e?.toString())).where((c) => c.length >= 3).toList();
+      final cpfs = _memberCpfDigitsFromField(m['memberCpfs']);
       for (final c in cpfs) {
         final prev = escalaLast[c];
         if (prev == null || dt.isAfter(prev)) escalaLast[c] = dt;
@@ -145,7 +179,7 @@ class ChurchMinistryIntelService {
       if (_noticiaIsAviso(m)) continue;
       final dt = _ts(m['startAt']) ?? _ts(m['createdAt']);
       if (dt == null || dt.isBefore(cutoff)) continue;
-      final rsvp = ((m['rsvp'] as List?) ?? []).map((e) => e.toString().trim()).where((u) => u.isNotEmpty).toList();
+      final rsvp = _rsvpUidListFromField(m['rsvp']);
       for (final uid in rsvp) {
         final prev = rsvpLast[uid];
         if (prev == null || dt.isAfter(prev)) rsvpLast[uid] = dt;

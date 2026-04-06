@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
+import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
@@ -24,6 +28,23 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+
+Map<String, dynamic> _remapScheduleCpfKeyedMap(
+  Map<String, dynamic> old,
+  List<String> newCpfs,
+) {
+  String norm(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
+  final out = <String, dynamic>{};
+  for (final newCpf in newCpfs) {
+    for (final e in old.entries) {
+      if (norm(e.key.toString()) == norm(newCpf)) {
+        out[newCpf] = e.value;
+        break;
+      }
+    }
+  }
+  return out;
+}
 
 class SchedulesPage extends StatefulWidget {
   final String tenantId;
@@ -48,6 +69,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   String _periodFilter = 'mes_atual'; // diario, semanal, mes_anterior, mes_atual, anual, periodo
   DateTime? _periodStart;
   DateTime? _periodEnd;
+  /// Lista (0) ou calendário interativo (1) na aba “Escalas Geradas”.
+  int _instancesViewSegment = 0;
+  DateTime _schedCalFocused = DateTime.now();
+  DateTime? _schedCalSelected;
 
   /// Pastoral / gestão / papel global com escala geral.
   bool get _canWriteFull => AppPermissions.canEditSchedules(widget.role);
@@ -162,6 +187,154 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     });
   }
 
+  Future<void> _notifySchedulePublished(String scheduleId) async {
+    try {
+      final tid = await _effectiveTidFuture;
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('notifySchedulePublished');
+      final res = await fn.call(<String, dynamic>{
+        'tenantId': tid,
+        'scheduleId': scheduleId,
+      });
+      final n = (res.data is Map && (res.data as Map)['count'] != null)
+          ? (res.data as Map)['count']
+          : 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Notificações enviadas ($n envio(s) FCM).',
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha ao notificar: ${e.message}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha ao notificar: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _resolverTrocaEscala({
+    required bool aprovar,
+    required QueryDocumentSnapshot<Map<String, dynamic>> troca,
+  }) async {
+    final pathParts = troca.reference.path.split('/');
+    if (pathParts.length < 4 || pathParts[0] != 'igrejas') return;
+    final tid = pathParts[1];
+    final td = troca.data();
+    final escalaId = (td['escalaId'] ?? '').toString();
+    final sol = (td['solicitanteCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final alvo = (td['alvoCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    if (escalaId.isEmpty || sol.length != 11 || alvo.length != 11) return;
+
+    if (!aprovar) {
+      try {
+        await troca.reference.update({
+          'status': 'recusada',
+          'resolvedAt': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.feedbackSnackBar('Pedido de troca recusado.'),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+        }
+      }
+      return;
+    }
+
+    try {
+      final escRef =
+          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('escalas').doc(escalaId);
+      final escSnap = await escRef.get();
+      if (!escSnap.exists) return;
+      final ed = escSnap.data() ?? {};
+      final cpfs = ((ed['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+      final names = ((ed['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+      int idx = -1;
+      for (var i = 0; i < cpfs.length; i++) {
+        if (cpfs[i].replaceAll(RegExp(r'\D'), '') == sol) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Solicitante não está mais nesta escala.')),
+          );
+        }
+        return;
+      }
+
+      String alvoNome = alvo;
+      try {
+        final mSnap = await _membersCol(tid).doc(alvo).get();
+        if (mSnap.exists) {
+          final md = mSnap.data() ?? {};
+          alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo).toString().trim();
+        } else {
+          final q = await _membersCol(tid).where('CPF', isEqualTo: alvo).limit(1).get();
+          if (q.docs.isNotEmpty) {
+            final md = q.docs.first.data();
+            alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo).toString().trim();
+          }
+        }
+      } catch (_) {}
+
+      final newCpfs = List<String>.from(cpfs);
+      final newNames = List<String>.from(names);
+      newCpfs[idx] = alvo;
+      if (idx < newNames.length) {
+        newNames[idx] = alvoNome;
+      } else {
+        while (newNames.length < newCpfs.length) {
+          newNames.add('');
+        }
+        newNames[idx] = alvoNome;
+      }
+
+      final oldConf = Map<String, dynamic>.from((ed['confirmations'] as Map?) ?? {});
+      final oldUnav = Map<String, dynamic>.from((ed['unavailabilityReasons'] as Map?) ?? {});
+      oldConf.remove(cpfs[idx]);
+      oldUnav.remove(cpfs[idx]);
+      final remappedConf = _remapScheduleCpfKeyedMap(oldConf, newCpfs);
+      final remappedUnav = _remapScheduleCpfKeyedMap(oldUnav, newCpfs);
+
+      await escRef.update({
+        'memberCpfs': newCpfs,
+        'memberNames': newNames,
+        'confirmations': remappedConf,
+        'unavailabilityReasons': remappedUnav,
+        'updatedAt': Timestamp.now(),
+      });
+      await troca.reference.update({
+        'status': 'aprovada',
+        'resolvedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        _refreshInstances();
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Troca aprovada. Escala atualizada.'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -274,33 +447,79 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
     final daysCtrl = TextEditingController(text: '30');
     final membersPerDay = TextEditingController(text: '5');
+    var replicateMonth = false;
+    var monthOffset = 0; // 0 = mês atual, 1 = próximo mês
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Gerar escalas futuras', style: TextStyle(fontWeight: FontWeight.w800)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: daysCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Próximos X dias', prefixIcon: Icon(Icons.date_range_rounded))),
-            const SizedBox(height: 12),
-            TextField(controller: membersPerDay, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Membros por escala', prefixIcon: Icon(Icons.people_rounded))),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade200)),
-              child: Row(children: [
-                Icon(Icons.auto_awesome_rounded, color: Colors.amber.shade700, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Rodízio inteligente: quem serviu menos vezes tem prioridade.', style: TextStyle(fontSize: 12, color: Colors.amber.shade900))),
-              ]),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          title: const Text('Gerar escalas futuras', style: TextStyle(fontWeight: FontWeight.w800)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Repetir no mês inteiro'),
+                  subtitle: const Text('Gera todas as ocorrências do mesmo dia da semana (ex.: todos os domingos). Exige dia da semana no modelo.'),
+                  value: replicateMonth,
+                  onChanged: (v) => setD(() => replicateMonth = v),
+                ),
+                if (replicateMonth) ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    value: monthOffset,
+                    decoration: const InputDecoration(
+                      labelText: 'Mês alvo',
+                      prefixIcon: Icon(Icons.calendar_month_rounded),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text('Mês atual')),
+                      DropdownMenuItem(value: 1, child: Text('Próximo mês')),
+                    ],
+                    onChanged: (v) => setD(() => monthOffset = v ?? 0),
+                  ),
+                ] else ...[
+                  TextField(
+                      controller: daysCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: 'Próximos X dias',
+                          prefixIcon: Icon(Icons.date_range_rounded))),
+                ],
+                const SizedBox(height: 12),
+                TextField(
+                    controller: membersPerDay,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Membros por escala',
+                        prefixIcon: Icon(Icons.people_rounded))),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.amber.shade200)),
+                  child: Row(children: [
+                    Icon(Icons.auto_awesome_rounded, color: Colors.amber.shade700, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(
+                            'Rodízio: quem serviu menos vezes entra primeiro. Periodicidade do modelo: diária, semanal ou mensal.',
+                            style: TextStyle(fontSize: 12, color: Colors.amber.shade900))),
+                  ]),
+                ),
+              ],
             ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Gerar')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Gerar')),
-        ],
       ),
     );
     if (ok != true) return;
@@ -351,23 +570,109 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
 
     final dates = <DateTime>[];
-    while (cursor.isBefore(until) || cursor.isAtSameMomentAs(until)) {
-      dates.add(DateTime(cursor.year, cursor.month, cursor.day, hh, mm));
-      if (rec == 'daily') { cursor = cursor.add(const Duration(days: 1)); }
-      else if (rec == 'monthly') { cursor = DateTime(cursor.year, cursor.month + 1, cursor.day); }
-      else if (rec == 'yearly') { cursor = DateTime(cursor.year + 1, cursor.month, cursor.day); }
-      else { cursor = cursor.add(const Duration(days: 7)); }
+    if (replicateMonth) {
+      if (weekday == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Defina o dia da semana no modelo (ex.: Domingo) para repetir no mês.'),
+            ),
+          );
+        }
+        return;
+      }
+      final targetMonth = DateTime(now.year, now.month + monthOffset, 1);
+      final monthEnd = DateTime(targetMonth.year, targetMonth.month + 1, 0);
+      var c = DateTime(targetMonth.year, targetMonth.month, 1);
+      while (c.weekday != weekday && c.month == targetMonth.month) {
+        c = c.add(const Duration(days: 1));
+      }
+      if (c.month != targetMonth.month) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Não foi possível localizar o dia da semana no mês escolhido.')),
+          );
+        }
+        return;
+      }
+      while (!c.isAfter(monthEnd)) {
+        dates.add(DateTime(c.year, c.month, c.day, hh, mm));
+        c = c.add(const Duration(days: 7));
+      }
+    } else {
+      while (cursor.isBefore(until) || cursor.isAtSameMomentAs(until)) {
+        dates.add(DateTime(cursor.year, cursor.month, cursor.day, hh, mm));
+        if (rec == 'daily') {
+          cursor = cursor.add(const Duration(days: 1));
+        } else if (rec == 'monthly') {
+          cursor = DateTime(cursor.year, cursor.month + 1, cursor.day);
+        } else if (rec == 'yearly') {
+          cursor = DateTime(cursor.year + 1, cursor.month, cursor.day);
+        } else {
+          cursor = cursor.add(const Duration(days: 7));
+        }
+      }
+    }
+
+    final membersForYmds = await _membersCol(tid).get();
+    final unavailableByCpfNorm = <String, List<String>>{};
+    for (final md in membersForYmds.docs) {
+      final d = md.data();
+      final c =
+          (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      if (c.length != 11) continue;
+      unavailableByCpfNorm[c] = MemberScheduleAvailability.parseYmdList(
+        d[MemberScheduleAvailability.fieldYmds],
+      );
+    }
+
+    final uniqueDays = <DateTime>{};
+    for (final dt in dates) {
+      uniqueDays.add(DateTime(dt.year, dt.month, dt.day));
+    }
+    final busyOtherByDayKey = <String, Set<String>>{};
+    for (final day in uniqueDays) {
+      final k = ScheduleIntelValidators.ymdKey(day);
+      busyOtherByDayKey[k] = await ScheduleIntelValidators.otherDeptBusyNormCpfs(
+        instancesCol: instances,
+        calendarDay: day,
+        slotTime: time,
+        currentDepartmentId: deptId,
+      );
     }
 
     final batch = FirebaseFirestore.instance.batch();
     final tsNow = Timestamp.now();
+    var skippedNoEligible = 0;
     for (final dt in dates) {
-      // Ordena por menor frequência (rodízio justo)
+      final dayKey = ScheduleIntelValidators.ymdKey(DateTime(dt.year, dt.month, dt.day));
+      final busyOther = busyOtherByDayKey[dayKey] ?? {};
+      int genScore(int idx) {
+        final c = allCpfs[idx];
+        final norm = c.replaceAll(RegExp(r'[^0-9]'), '');
+        final dayOnly = DateTime(dt.year, dt.month, dt.day);
+        final ymds = unavailableByCpfNorm[norm] ?? const <String>[];
+        final blocked =
+            MemberScheduleAvailability.isUnavailableOn(ymds, dayOnly);
+        final f = freq[c] ?? 0;
+        var s = (blocked ? 1000000 : 0) + f;
+        if (busyOther.contains(norm)) {
+          s += 2000000;
+        }
+        return s;
+      }
+
+      // Rodízio: menor frequência primeiro; indisponível ou conflito com outro dept no mesmo horário ficam de fora.
       final sorted = List<int>.generate(allCpfs.length, (i) => i)
-        ..sort((a, b) => (freq[allCpfs[a]] ?? 0).compareTo(freq[allCpfs[b]] ?? 0));
-      final selectedIndices = sorted.take(perDay.clamp(1, allCpfs.length)).toList();
-      final selCpfs = selectedIndices.map((i) => allCpfs[i]).toList();
-      final selNames = selectedIndices.map((i) => i < allNames.length ? allNames[i] : '').toList();
+        ..sort((a, b) => genScore(a).compareTo(genScore(b)));
+      final cap = perDay.clamp(1, allCpfs.length);
+      final eligible = sorted.where((i) => genScore(i) < 1000000).take(cap).toList();
+      if (eligible.isEmpty) {
+        skippedNoEligible++;
+        continue;
+      }
+      final selCpfs = eligible.map((i) => allCpfs[i]).toList();
+      final selNames = eligible.map((i) => i < allNames.length ? allNames[i] : '').toList();
 
       for (final c in selCpfs) freq[c] = (freq[c] ?? 0) + 1;
 
@@ -382,6 +687,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'memberNames': selNames,
         'confirmations': {},
         'templateId': doc.id,
+        'observations': '',
         'createdAt': tsNow,
         'updatedAt': tsNow,
         'active': true,
@@ -390,7 +696,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     await batch.commit();
     if (mounted) {
       _refreshInstances();
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('${dates.length} escalas geradas com rodízio.'));
+      final genCount = dates.length - skippedNoEligible;
+      var msg = '$genCount escala(s) gerada(s) com rodízio e checagem de conflito/ausência.';
+      if (skippedNoEligible > 0) {
+        msg += ' $skippedNoEligible data(s) ignorada(s): nenhum voluntário elegível (ausência ou outro ministério no mesmo horário).';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(msg));
     }
   }
 
@@ -640,6 +951,23 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 0, label: Text('Lista'), icon: Icon(Icons.view_list_rounded, size: 18)),
+                    ButtonSegment(value: 1, label: Text('Calendário'), icon: Icon(Icons.calendar_month_rounded, size: 18)),
+                  ],
+                  selected: {_instancesViewSegment},
+                  onSelectionChanged: (s) => setState(() {
+                    _instancesViewSegment = s.first;
+                    if (_schedCalSelected == null) _schedCalSelected = DateTime.now();
+                  }),
+                ),
+              ),
+            ),
             Expanded(
               child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 future: _instancesFuture,
@@ -674,6 +1002,30 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       const SizedBox(height: 12),
                       Text('Nenhuma escala no período.', style: TextStyle(color: Colors.grey.shade600)),
                     ]));
+                  }
+                  if (_instancesViewSegment == 1) {
+                    return RefreshIndicator(
+                      onRefresh: () async => _refreshInstances(),
+                      child: _SchedulesCalendarPanel(
+                        docs: docs,
+                        allDepts: allDepts,
+                        focusedDay: _schedCalFocused,
+                        selectedDay: _schedCalSelected ?? _schedCalFocused,
+                        colorForDept: _colorForDept,
+                        currentCpf: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
+                        canWriteFull: _canWriteFull,
+                        managedDeptIds: _managedDeptIds,
+                        onDaySelected: (d, f) => setState(() {
+                          _schedCalSelected = d;
+                          _schedCalFocused = f;
+                        }),
+                        onCalendarPageChanged: (f) =>
+                            setState(() => _schedCalFocused = f),
+                        onOpenDetail: (d, color) => _showInstanceDetail(d, color),
+                        onEdit: _editInstance,
+                        onDelete: _deleteInstance,
+                      ),
+                    );
                   }
                   return RefreshIndicator(
                     onRefresh: () async => _refreshInstances(),
@@ -750,7 +1102,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               whoAttended[name] = (whoAttended[name] ?? 0) + 1;
             } else {
               allConfirmed = false;
-              if (status == 'indisponivel') {
+              if (status == 'indisponivel' || status == 'falta_nao_justificada') {
                 st.faltas++;
                 totalFaltas++;
                 whoMissed[name] = (whoMissed[name] ?? 0) + 1;
@@ -1304,9 +1656,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final names = ((data['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
     if (index < 0 || index >= cpfs.length) return;
     final tid = await _effectiveTidFuture;
-    final deptSnap = await _departmentsCol(tid).doc(deptId).get();
-    final deptName = (deptSnap.data()?['name'] ?? '').toString();
     final membersSnap = await _membersCol(tid).get();
+    DateTime? escDt;
+    try {
+      escDt = (data['date'] as Timestamp?)?.toDate();
+    } catch (_) {}
+    final escTime = (data['time'] ?? '').toString();
+    final crossHints = await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
+      instancesCol: _instancesCol(tid),
+      excludeEscalaDocId: doc.id,
+      calendarDay: escDt ?? DateTime.now(),
+      slotTime: escTime,
+      currentDepartmentId: deptId,
+    );
     final deptMembers = <Map<String, String>>[];
     for (final m in membersSnap.docs) {
       final d = m.data();
@@ -1315,9 +1677,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final cpf = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
       final name = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '').toString();
       if (cpf.isEmpty && name.isEmpty) continue;
-      deptMembers.add({'cpf': cpf, 'name': name});
+      final norm = cpf.replaceAll(RegExp(r'[^0-9]'), '');
+      final ymds = MemberScheduleAvailability.parseYmdList(
+        d[MemberScheduleAvailability.fieldYmds],
+      );
+      final subLines = <String>[cpf];
+      if (escDt != null &&
+          MemberScheduleAvailability.isUnavailableOn(ymds, escDt)) {
+        subLines.add('Indisponível nesta data');
+      }
+      final ch = crossHints[norm];
+      if (ch != null) subLines.add(ch);
+      deptMembers.add({'cpf': cpf, 'name': name, 'subtitle': subLines.join('\n')});
     }
     final currentCpf = cpfs[index];
+    if (!mounted) return;
     final selected = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1332,10 +1706,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               final m = deptMembers[i];
               final cpf = m['cpf'] ?? '';
               final name = m['name'] ?? '';
+              final subtitle = m['subtitle'] ?? cpf;
               if (cpf == currentCpf) return ListTile(title: Text('$name (atual)', style: TextStyle(color: Colors.grey.shade600)));
               return ListTile(
                 title: Text(name),
-                subtitle: Text(cpf),
+                subtitle: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: subtitle.contains('Indisponível') || subtitle.contains('Já escalado')
+                        ? Colors.orange.shade800
+                        : Colors.grey.shade600,
+                  ),
+                ),
                 onTap: () => Navigator.pop(ctx, m),
               );
             },
@@ -1437,6 +1820,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             DateTime? dt;
             try { dt = (data['date'] as Timestamp).toDate(); } catch (_) {}
             final dateTxt = dt == null ? '' : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+            final obs = (data['observations'] ?? '').toString().trim();
 
             final bottomInset = MediaQuery.paddingOf(context).bottom;
             return Padding(
@@ -1481,6 +1865,35 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       Flexible(child: Text(dept, style: TextStyle(fontSize: 13, color: deptColor, fontWeight: FontWeight.w600))),
                     ],
                   ]),
+                  if (obs.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blueGrey.shade100),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.notes_rounded, size: 18, color: Colors.blueGrey.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              obs,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.blueGrey.shade900,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   if (_canWrite) ...[
                     Wrap(
@@ -1489,9 +1902,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       alignment: WrapAlignment.start,
                       children: [
                         FilledButton.tonalIcon(
-                          onPressed: () {
+                          onPressed: () async {
                             Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Notificação enviada aos membros da escala.'));
+                            await _notifySchedulePublished(doc.id);
                           },
                           icon: const Icon(Icons.notifications_active_rounded, size: 20),
                           label: const Text('Notificar membros'),
@@ -1528,6 +1941,139 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       ],
                     ),
                     const SizedBox(height: 16),
+                  ],
+                  if (_canWrite) ...[
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: () {
+                        final segs = doc.reference.path.split('/');
+                        final tid = segs.length >= 2 && segs[0] == 'igrejas'
+                            ? segs[1]
+                            : '';
+                        if (tid.isEmpty) {
+                          return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+                        }
+                        return FirebaseFirestore.instance
+                            .collection('igrejas')
+                            .doc(tid)
+                            .collection('escala_trocas')
+                            .where('escalaId', isEqualTo: doc.id)
+                            .snapshots();
+                      }(),
+                      builder: (context, tSnap) {
+                        if (tSnap.hasError || !tSnap.hasData) {
+                          return const SizedBox.shrink();
+                        }
+                        final docs = tSnap.data!.docs;
+                        final pendingLeader = docs
+                            .where((x) =>
+                                (x.data()['status'] ?? '').toString() ==
+                                'pendente')
+                            .toList();
+                        final pendingAlvo = docs
+                            .where((x) =>
+                                (x.data()['status'] ?? '').toString() ==
+                                'pendente_alvo')
+                            .toList();
+                        if (pendingLeader.isEmpty && pendingAlvo.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (pendingAlvo.isNotEmpty) ...[
+                                Text(
+                                  'Trocas aguardando o substituto',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.blueGrey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...pendingAlvo.map((t) {
+                                  final td = t.data();
+                                  final alvo =
+                                      (td['alvoCpf'] ?? '').toString();
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    color: Colors.blueGrey.shade50,
+                                    child: ListTile(
+                                      leading: Icon(Icons.hourglass_top_rounded,
+                                          color: Colors.blueGrey.shade600),
+                                      title: const Text(
+                                          'Convite enviado ao substituto'),
+                                      subtitle: Text(
+                                        'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      isThreeLine: true,
+                                    ),
+                                  );
+                                }),
+                                if (pendingLeader.isNotEmpty)
+                                  const SizedBox(height: 12),
+                              ],
+                              if (pendingLeader.isNotEmpty) ...[
+                                Text(
+                                  'Trocas pendentes (aprovação manual)',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.deepPurple.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...pendingLeader.map((t) {
+                                  final td = t.data();
+                                  final sol =
+                                      (td['solicitanteCpf'] ?? '').toString();
+                                  final alvo =
+                                      (td['alvoCpf'] ?? '').toString();
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    child: ListTile(
+                                      leading: Icon(Icons.swap_horiz_rounded,
+                                          color: Colors.deepPurple.shade600),
+                                      title: const Text(
+                                          'Pedido de troca de escala'),
+                                      subtitle: Text(
+                                        'Solicitante: $sol\nSubstituto: $alvo',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      isThreeLine: true,
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Aprovar',
+                                            icon: const Icon(
+                                                Icons.check_circle_rounded,
+                                                color: Color(0xFF16A34A)),
+                                            onPressed: () =>
+                                                _resolverTrocaEscala(
+                                                    aprovar: true, troca: t),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Recusar',
+                                            icon: const Icon(Icons.cancel_rounded,
+                                                color: Color(0xFFDC2626)),
+                                            onPressed: () =>
+                                                _resolverTrocaEscala(
+                                                    aprovar: false, troca: t),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ],
                   _StatusSummary(confirmations: confirmations, total: cpfs.length),
                   const SizedBox(height: 16),
@@ -1575,6 +2121,139 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           },
         ),
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Calendário (table_calendar) — aba Escalas Geradas
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _SchedulesCalendarPanel extends StatelessWidget {
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+  final List<_DeptItem> allDepts;
+  final DateTime focusedDay;
+  final DateTime selectedDay;
+  final Color Function(int index) colorForDept;
+  final String currentCpf;
+  final bool canWriteFull;
+  final Set<String> managedDeptIds;
+  final void Function(DateTime selected, DateTime focused) onDaySelected;
+  final void Function(DateTime focused) onCalendarPageChanged;
+  final void Function(DocumentSnapshot<Map<String, dynamic>> doc, Color color)
+      onOpenDetail;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc)
+      onEdit;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc)
+      onDelete;
+
+  const _SchedulesCalendarPanel({
+    required this.docs,
+    required this.allDepts,
+    required this.focusedDay,
+    required this.selectedDay,
+    required this.colorForDept,
+    required this.currentCpf,
+    required this.canWriteFull,
+    required this.managedDeptIds,
+    required this.onDaySelected,
+    required this.onCalendarPageChanged,
+    required this.onOpenDetail,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventsForDay(DateTime day) {
+    return docs.where((d) {
+      DateTime? dt;
+      try {
+        dt = (d.data()['date'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      if (dt == null) return false;
+      return isSameDay(dt, day);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dayEvents = _eventsForDay(selectedDay);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 88),
+      children: [
+        TableCalendar<QueryDocumentSnapshot<Map<String, dynamic>>>(
+          firstDay: DateTime.utc(2020, 1, 1),
+          lastDay: DateTime.utc(2035, 12, 31),
+          focusedDay: focusedDay,
+          selectedDayPredicate: (d) => isSameDay(d, selectedDay),
+          eventLoader: _eventsForDay,
+          startingDayOfWeek: StartingDayOfWeek.sunday,
+          calendarStyle: CalendarStyle(
+            todayDecoration: BoxDecoration(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            selectedDecoration: const BoxDecoration(
+              color: ThemeCleanPremium.primary,
+              shape: BoxShape.circle,
+            ),
+            markersMaxCount: 4,
+            markerDecoration: const BoxDecoration(
+              color: Color(0xFF6366F1),
+              shape: BoxShape.circle,
+            ),
+          ),
+          headerStyle: HeaderStyle(
+            formatButtonVisible: false,
+            titleCentered: true,
+            titleTextStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          onDaySelected: onDaySelected,
+          onPageChanged: onCalendarPageChanged,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Agenda ministerial — dia selecionado',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (dayEvents.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Nenhuma escala neste dia no período filtrado.',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          )
+        else
+          ...dayEvents.map((esc) {
+            final deptIdx = allDepts.indexWhere(
+                (x) => x.id == (esc.data()['departmentId'] ?? '').toString());
+            final deptIdInst =
+                (esc.data()['departmentId'] ?? '').toString();
+            final canMutate =
+                canWriteFull || managedDeptIds.contains(deptIdInst);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _InstanceCard(
+                doc: esc,
+                deptColor: colorForDept(deptIdx.clamp(0, 99)),
+                currentCpf: currentCpf,
+                canWrite: canMutate,
+                onTap: () =>
+                    onOpenDetail(esc, colorForDept(deptIdx.clamp(0, 99))),
+                onEdit: canMutate ? () => onEdit(esc) : null,
+                onDelete: canMutate ? () => onDelete(esc) : null,
+              ),
+            );
+          }),
+      ],
     );
   }
 }
@@ -1706,12 +2385,17 @@ class _InstanceCard extends StatelessWidget {
     final dateTxt = dt == null ? '' : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
     final isPast = dt != null && dt.isBefore(DateTime.now());
 
-    int confirmed = 0, unavailable = 0;
+    int confirmed = 0, unavailable = 0, faltaNj = 0;
     for (final v in confirmations.values) {
-      if (v == 'confirmado') confirmed++;
-      if (v == 'indisponivel') unavailable++;
+      if (v == 'confirmado') {
+        confirmed++;
+      } else if (v == 'indisponivel') {
+        unavailable++;
+      } else if (v == 'falta_nao_justificada') {
+        faltaNj++;
+      }
     }
-    final pending = cpfs.length - confirmed - unavailable;
+    final pending = cpfs.length - confirmed - unavailable - faltaNj;
 
     return Material(
       color: Colors.transparent,
@@ -1766,7 +2450,11 @@ class _InstanceCard extends StatelessWidget {
                         if (time.isNotEmpty) ...[Text(time, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)), const SizedBox(width: 10)],
                         if (dept.isNotEmpty) Text(dept, style: TextStyle(fontSize: 12, color: deptColor, fontWeight: FontWeight.w600)),
                         const Spacer(),
-                        _MiniStatusDots(confirmed: confirmed, pending: pending, unavailable: unavailable),
+                        _MiniStatusDots(
+                            confirmed: confirmed,
+                            pending: pending,
+                            unavailable: unavailable,
+                            faltaNj: faltaNj),
                       ]),
                       if (names.isNotEmpty) ...[
                         const SizedBox(height: 10),
@@ -1865,7 +2553,23 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     _departmentName = (d['departmentName'] ?? '').toString();
     final existingCpfs = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
     _selectedCpfs.addAll(existingCpfs);
+    _dayCtrl.addListener(_onTemplateDayTimeChanged);
+    _timeCtrl.addListener(_onTemplateDayTimeChanged);
     if (_departmentId.isNotEmpty) _loadDeptMembers();
+  }
+
+  void _onTemplateDayTimeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _dayCtrl.removeListener(_onTemplateDayTimeChanged);
+    _timeCtrl.removeListener(_onTemplateDayTimeChanged);
+    _titleCtrl.dispose();
+    _dayCtrl.dispose();
+    _timeCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDeptMembers() async {
@@ -1906,7 +2610,17 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
         final photoUrl = imageUrlFromMap(data);
         if (cpf.isEmpty && name.isEmpty) continue;
-        deptMembers.add(_MemberSelect(cpf: cpf, name: name, photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '', frequency: freq[cpf] ?? 0));
+        final ymds = MemberScheduleAvailability.parseYmdList(
+          data[MemberScheduleAvailability.fieldYmds],
+        );
+        deptMembers.add(_MemberSelect(
+          cpf: cpf,
+          name: name,
+          photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+          frequency: freq[cpf] ?? 0,
+          memberDocId: m.id,
+          unavailableYmds: ymds,
+        ));
       }
       deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
 
@@ -1947,6 +2661,30 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     return c;
   }
 
+  DateTime? _nextOccurrenceForTemplateWeekday() {
+    final w = _weekdayFromDayLabel(_dayCtrl.text);
+    if (w == null) return null;
+    final now = DateTime.now();
+    var d = DateTime(now.year, now.month, now.day);
+    for (var i = 0; i < 400; i++) {
+      if (d.weekday == w) return d;
+      d = d.add(const Duration(days: 1));
+    }
+    return null;
+  }
+
+  List<String> _templateWarningLines(_MemberSelect m) {
+    final lines = <String>[];
+    final next = _nextOccurrenceForTemplateWeekday();
+    if (next != null &&
+        MemberScheduleAvailability.isUnavailableOn(m.unavailableYmds, next)) {
+      lines.add(
+        'Indisponível na próxima ocorrência (${next.day.toString().padLeft(2, '0')}/${next.month.toString().padLeft(2, '0')})',
+      );
+    }
+    return lines;
+  }
+
   Future<void> _checkConflicts() async {
     if (_selectedCpfs.isEmpty) return;
     final tplWeekday = _weekdayFromDayLabel(_dayCtrl.text);
@@ -1974,16 +2712,40 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         if (escDt == null) continue;
         if (tplWeekday != null && escDt.weekday != tplWeekday) continue;
         final escTime = (esc.data()['time'] ?? '').toString().trim();
-        if (escTime != tStr) continue;
+        if (!MemberScheduleAvailability.timesOverlapRough(tStr, escTime)) {
+          continue;
+        }
         final mems = ((esc.data()['memberCpfs'] as List?) ?? [])
             .map((e) => e.toString())
             .toList();
         final otherDeptName =
             (esc.data()['departmentName'] ?? otherDept).toString();
+        final escTimeShort = escTime.isNotEmpty ? escTime : '?';
         for (final c in chunk) {
           if (mems.any((m) => _normCpfConflict(m) == _normCpfConflict(c))) {
-            conflicts.putIfAbsent(c, () => <String>{}).add(otherDeptName);
+            conflicts.putIfAbsent(c, () => <String>{}).add(
+                  '$otherDeptName ($escTimeShort)',
+                );
           }
+        }
+      }
+    }
+    final nextOcc = _nextOccurrenceForTemplateWeekday();
+    if (nextOcc != null) {
+      for (final cpf in cpfsList) {
+        _MemberSelect? match;
+        for (final mm in _deptMembers) {
+          if (_normCpfConflict(mm.cpf) == _normCpfConflict(cpf)) {
+            match = mm;
+            break;
+          }
+        }
+        if (match != null &&
+            MemberScheduleAvailability.isUnavailableOn(
+                match.unavailableYmds, nextOcc)) {
+          conflicts.putIfAbsent(cpf, () => <String>{}).add(
+                'calendário: indisponível na próx. data (${nextOcc.day}/${nextOcc.month})',
+              );
         }
       }
     }
@@ -1992,7 +2754,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
       final buf = StringBuffer();
       for (final e in conflicts.entries) {
         buf.writeln(
-            '• ${_displayNameForCpf(e.key)} → outro dept: ${e.value.join(", ")}');
+            '• ${_displayNameForCpf(e.key)} → ${e.value.join("; ")}');
       }
       await showDialog<void>(
         context: context,
@@ -2014,7 +2776,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-            'Nenhum conflito no mesmo dia da semana e horário em outro departamento.'),
+            'Nenhum conflito no mesmo dia da semana com horário sobreposto em outro departamento.'),
       );
     }
   }
@@ -2056,7 +2818,6 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = ThemeCleanPremium.isMobile(context);
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
@@ -2156,6 +2917,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                               _MemberCheckTile(
                                 member: m,
                                 selected: _selectedCpfs.contains(m.cpf),
+                                warningLines: _templateWarningLines(m),
                                 onChanged: (v) {
                                   setState(() {
                                     if (v == true) { _selectedCpfs.add(m.cpf); }
@@ -2211,6 +2973,7 @@ class _GeneratedInstanceEditPage extends StatefulWidget {
 class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _timeCtrl;
+  late final TextEditingController _observationsCtrl;
   late DateTime _selectedDate;
   String _departmentId = '';
   String _departmentName = '';
@@ -2218,8 +2981,12 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   final Set<String> _selectedCpfs = {};
   late List<String> _initialCpfsOrder;
   late List<String> _initialNames;
+  /// Ordem exibida na escala (arrastar e soltar).
+  final List<String> _memberOrder = [];
   bool _loadingMembers = false;
   bool _saving = false;
+  Map<String, String> _crossDeptHintByNormCpf = {};
+  Timer? _crossHintDebounce;
 
   static String _normCpf(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
@@ -2237,6 +3004,8 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     final d = widget.doc.data() ?? {};
     _titleCtrl = TextEditingController(text: (d['title'] ?? '').toString());
     _timeCtrl = TextEditingController(text: (d['time'] ?? '19:00').toString());
+    _observationsCtrl =
+        TextEditingController(text: (d['observations'] ?? '').toString());
     DateTime? dt;
     try {
       dt = (d['date'] as Timestamp?)?.toDate();
@@ -2247,13 +3016,53 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     _initialCpfsOrder = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
     _initialNames = ((d['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
     _selectedCpfs.addAll(_initialCpfsOrder);
+    _syncMemberOrderFromSelection();
     if (_departmentId.isNotEmpty) _loadDeptMembers();
+    _timeCtrl.addListener(_scheduleCrossHintReload);
+  }
+
+  void _scheduleCrossHintReload() {
+    _crossHintDebounce?.cancel();
+    _crossHintDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) _reloadCrossDeptHints();
+    });
+  }
+
+  Future<void> _reloadCrossDeptHints() async {
+    if (_departmentId.isEmpty) return;
+    final hints = await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
+      instancesCol: widget.instancesCol,
+      excludeEscalaDocId: widget.doc.id,
+      calendarDay: _selectedDate,
+      slotTime: _timeCtrl.text.trim(),
+      currentDepartmentId: _departmentId,
+    );
+    if (mounted) setState(() => _crossDeptHintByNormCpf = hints);
+  }
+
+  void _syncMemberOrderFromSelection() {
+    _memberOrder.removeWhere((c) => !_selectedCpfs.contains(c));
+    for (final c in _selectedCpfs) {
+      if (!_memberOrder.contains(c)) _memberOrder.add(c);
+    }
+  }
+
+  String _displayNameForOrderedCpf(String c) {
+    final fromDept = _deptMembers.where((m) => m.cpf == c);
+    if (fromDept.isNotEmpty && fromDept.first.name.trim().isNotEmpty) {
+      return fromDept.first.name;
+    }
+    final fb = _fallbackNameForCpf(c);
+    return fb.isNotEmpty ? fb : c;
   }
 
   @override
   void dispose() {
+    _timeCtrl.removeListener(_scheduleCrossHintReload);
+    _crossHintDebounce?.cancel();
     _titleCtrl.dispose();
     _timeCtrl.dispose();
+    _observationsCtrl.dispose();
     super.dispose();
   }
 
@@ -2278,20 +3087,39 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       if (seen.contains(_normCpf(c))) continue;
       seen.add(_normCpf(c));
       final name = _fallbackNameForCpf(c);
-      out.add(_MemberSelect(cpf: c, name: name.isNotEmpty ? name : c, photoUrl: '', frequency: -1));
+      out.add(_MemberSelect(
+        cpf: c,
+        name: name.isNotEmpty ? name : c,
+        photoUrl: '',
+        frequency: -1,
+        memberDocId: '',
+        unavailableYmds: const [],
+      ));
     }
     return out;
   }
 
-  List<String> _orderedMemberCpfs() {
-    final ordered = <String>[];
-    for (final c in _initialCpfsOrder) {
-      if (_selectedCpfs.contains(c)) ordered.add(c);
+  List<String> _instanceMemberWarningLines(_MemberSelect m) {
+    final lines = <String>[];
+    if (MemberScheduleAvailability.isUnavailableOn(
+        m.unavailableYmds, _selectedDate)) {
+      lines.add('Indisponível nesta data');
     }
-    for (final c in _selectedCpfs) {
-      if (!ordered.contains(c)) ordered.add(c);
+    final hint = _crossDeptHintByNormCpf[_normCpf(m.cpf)];
+    if (hint != null) lines.add(hint);
+    return lines;
+  }
+
+  bool _instanceSelectionBlocked(_MemberSelect m) {
+    return _instanceMemberWarningLines(m).isNotEmpty;
+  }
+
+  _MemberSelect? _lookupDisplayMember(String cpf) {
+    final n = _normCpf(cpf);
+    for (final m in _displayMembers) {
+      if (_normCpf(m.cpf) == n) return m;
     }
-    return ordered;
+    return null;
   }
 
   List<String> _namesForOrderedCpfs(List<String> orderedCpfs) {
@@ -2360,7 +3188,17 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
         final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
         final photoUrl = imageUrlFromMap(data);
         if (cpf.isEmpty && name.isEmpty) continue;
-        deptMembers.add(_MemberSelect(cpf: cpf, name: name, photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '', frequency: freq[cpf] ?? 0));
+        final ymds = MemberScheduleAvailability.parseYmdList(
+          data[MemberScheduleAvailability.fieldYmds],
+        );
+        deptMembers.add(_MemberSelect(
+          cpf: cpf,
+          name: name,
+          photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+          frequency: freq[cpf] ?? 0,
+          memberDocId: m.id,
+          unavailableYmds: ymds,
+        ));
       }
       deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
 
@@ -2369,6 +3207,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
           _deptMembers = deptMembers;
           _loadingMembers = false;
         });
+        await _reloadCrossDeptHints();
       }
     } catch (e) {
       if (mounted) {
@@ -2387,7 +3226,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
-    if (picked != null && mounted) setState(() => _selectedDate = picked);
+    if (picked != null && mounted) {
+      setState(() => _selectedDate = picked);
+      await _reloadCrossDeptHints();
+    }
   }
 
   Future<void> _pickTime() async {
@@ -2397,6 +3239,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       final h = picked.hour.toString().padLeft(2, '0');
       final m = picked.minute.toString().padLeft(2, '0');
       setState(() => _timeCtrl.text = '$h:$m');
+      await _reloadCrossDeptHints();
     }
   }
 
@@ -2414,9 +3257,50 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       return;
     }
 
+    await _reloadCrossDeptHints();
+    if (!mounted) return;
+    final orderedPreview = List<String>.from(_memberOrder);
+    final blockers = <String>[];
+    for (final cpf in orderedPreview) {
+      final m = _lookupDisplayMember(cpf);
+      if (m == null) continue;
+      if (_instanceSelectionBlocked(m)) {
+        final name = m.name.isNotEmpty ? m.name : cpf;
+        blockers.add('• $name: ${_instanceMemberWarningLines(m).join('; ')}');
+      }
+    }
+    if (blockers.isNotEmpty) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.block_rounded, color: ThemeCleanPremium.error),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Não é possível salvar')),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Text(
+              'Ajuste a escala antes de salvar:\n\n${blockers.join('\n')}',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendi')),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     try {
-      final orderedCpfs = _orderedMemberCpfs();
+      final orderedCpfs = List<String>.from(_memberOrder);
       final memberNames = _namesForOrderedCpfs(orderedCpfs);
       final data = widget.doc.data() ?? {};
       final oldConf = Map<String, dynamic>.from((data['confirmations'] as Map?) ?? {});
@@ -2439,6 +3323,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
         'departmentName': _departmentName,
         'memberCpfs': orderedCpfs,
         'memberNames': memberNames,
+        'observations': _observationsCtrl.text.trim(),
         'confirmations': _remapCpfKeyedMap(oldConf, orderedCpfs),
         'unavailabilityReasons': _remapCpfKeyedMap(oldUnav, orderedCpfs),
         'updatedAt': Timestamp.now(),
@@ -2486,6 +3371,15 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                         TextField(
                           controller: _titleCtrl,
                           decoration: const InputDecoration(labelText: 'Título da escala', prefixIcon: Icon(Icons.title_rounded)),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _observationsCtrl,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Observações (ex.: Escala de Verão, culto especial)',
+                            prefixIcon: Icon(Icons.notes_rounded),
+                          ),
                         ),
                         const SizedBox(height: 14),
                         if (isMobile) ...[
@@ -2575,7 +3469,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                             TextButton(
                               onPressed: () => setState(() {
                                 for (final m in _displayMembers) {
-                                  _selectedCpfs.add(m.cpf);
+                                  if (!_instanceSelectionBlocked(m)) {
+                                    _selectedCpfs.add(m.cpf);
+                                  }
                                 }
                               }),
                               child: const Text('Todos', style: TextStyle(fontSize: 12)),
@@ -2619,6 +3515,8 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                               _MemberCheckTile(
                                 member: m,
                                 selected: _selectedCpfs.contains(m.cpf),
+                                warningLines: _instanceMemberWarningLines(m),
+                                dimmedWhenUnselected: _instanceSelectionBlocked(m),
                                 onChanged: (v) {
                                   setState(() {
                                     if (v == true) {
@@ -2626,9 +3524,53 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                                     } else {
                                       _selectedCpfs.remove(m.cpf);
                                     }
+                                    _syncMemberOrderFromSelection();
                                   });
                                 },
                               ),
+                            if (_memberOrder.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Text(
+                                'Ordem na escala (arraste para reordenar)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              ReorderableListView(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                onReorder: (oldIndex, newIndex) {
+                                  setState(() {
+                                    if (newIndex > oldIndex) newIndex--;
+                                    final item = _memberOrder.removeAt(oldIndex);
+                                    _memberOrder.insert(newIndex, item);
+                                  });
+                                },
+                                children: [
+                                  for (var i = 0; i < _memberOrder.length; i++)
+                                    ListTile(
+                                      key: ValueKey(_memberOrder[i]),
+                                      leading:
+                                          const Icon(Icons.drag_handle_rounded),
+                                      title: Text(
+                                        _displayNameForOrderedCpf(
+                                            _memberOrder[i]),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: Text(
+                                        _memberOrder[i],
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
                           ],
                         ],
                       ),
@@ -2684,35 +3626,81 @@ class _MemberSelect {
   final String name;
   final String photoUrl;
   final int frequency;
-  const _MemberSelect({required this.cpf, required this.name, required this.photoUrl, required this.frequency});
+  final String memberDocId;
+  final List<String> unavailableYmds;
+  const _MemberSelect({
+    required this.cpf,
+    required this.name,
+    required this.photoUrl,
+    required this.frequency,
+    this.memberDocId = '',
+    this.unavailableYmds = const [],
+  });
 }
 
 class _MemberCheckTile extends StatelessWidget {
   final _MemberSelect member;
   final bool selected;
   final ValueChanged<bool?> onChanged;
-  const _MemberCheckTile({required this.member, required this.selected, required this.onChanged});
+  final List<String> warningLines;
+  /// Membro não deve ser incluído (ausência / conflito): linha esmaecida e não marca checkbox ao tocar.
+  final bool dimmedWhenUnselected;
+  const _MemberCheckTile({
+    required this.member,
+    required this.selected,
+    required this.onChanged,
+    this.warningLines = const [],
+    this.dimmedWhenUnselected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final dim = dimmedWhenUnselected && !selected;
+    void toggle() {
+      if (!selected && dim) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Este nome não pode ser incluído: indisponível nesta data ou conflito de horário em outro ministério.',
+            ),
+          ),
+        );
+        return;
+      }
+      onChanged(!selected);
+    }
+
+    Widget row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
         color: selected ? ThemeCleanPremium.primary.withOpacity(0.06) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
-          onTap: () => onChanged(!selected),
+          onTap: toggle,
           borderRadius: BorderRadius.circular(10),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
                   width: 24,
                   height: 24,
                   child: Checkbox(
                     value: selected,
-                    onChanged: onChanged,
+                    onChanged: (v) {
+                      if (v == true && dim) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Indisponível ou conflito de horário: não é possível incluir nesta escala.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      onChanged(v);
+                    },
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                 ),
@@ -2731,10 +3719,41 @@ class _MemberCheckTile extends StatelessWidget {
                     children: [
                       Text(member.name.isNotEmpty ? member.name : member.cpf, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       if (member.frequency > 0) Text('${member.frequency}x escalado(a)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                      for (final line in warningLines)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                line.contains('Já escalado')
+                                    ? Icons.warning_rounded
+                                    : Icons.event_busy_rounded,
+                                size: 13,
+                                color: line.contains('Já escalado')
+                                    ? Colors.red.shade700
+                                    : Colors.orange.shade800,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  line,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: line.contains('Já escalado')
+                                        ? Colors.red.shade800
+                                        : Colors.orange.shade900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                if (member.frequency == 0)
+                if (member.frequency == 0 && warningLines.isEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
@@ -2746,6 +3765,11 @@ class _MemberCheckTile extends StatelessWidget {
         ),
       ),
     );
+
+    if (dim) {
+      return Opacity(opacity: 0.48, child: row);
+    }
+    return row;
   }
 }
 
@@ -2785,6 +3809,11 @@ class _MemberConfirmationTile extends StatelessWidget {
         statusColor = ThemeCleanPremium.error;
         statusIcon = Icons.cancel_rounded;
         statusLabel = 'Indisponível';
+        break;
+      case 'falta_nao_justificada':
+        statusColor = const Color(0xFFB91C1C);
+        statusIcon = Icons.person_off_rounded;
+        statusLabel = 'Falta não justificada';
         break;
       default:
         statusColor = Colors.amber.shade700;
@@ -2848,6 +3877,9 @@ class _MemberConfirmationTile extends StatelessWidget {
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'confirmado', child: Text('Marcar confirmado')),
                     const PopupMenuItem(value: 'indisponivel', child: Text('Marcar indisponível')),
+                    const PopupMenuItem(
+                        value: 'falta_nao_justificada',
+                        child: Text('Falta não justificada (assiduidade)')),
                     const PopupMenuItem(value: '', child: Text('Pendente')),
                     if (status == 'indisponivel' && (onSubstituir != null || onExcluirMembro != null)) ...[
                       const PopupMenuDivider(),
@@ -2893,12 +3925,17 @@ class _StatusSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    int confirmed = 0, unavailable = 0;
+    int confirmed = 0, unavailable = 0, faltaNj = 0;
     for (final v in confirmations.values) {
-      if (v == 'confirmado') confirmed++;
-      if (v == 'indisponivel') unavailable++;
+      if (v == 'confirmado') {
+        confirmed++;
+      } else if (v == 'indisponivel') {
+        unavailable++;
+      } else if (v == 'falta_nao_justificada') {
+        faltaNj++;
+      }
     }
-    final pending = total - confirmed - unavailable;
+    final pending = total - confirmed - unavailable - faltaNj;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -2906,6 +3943,7 @@ class _StatusSummary extends StatelessWidget {
         _StatusBadge(label: 'Confirmados', count: confirmed, color: ThemeCleanPremium.success),
         _StatusBadge(label: 'Pendentes', count: pending, color: Colors.amber.shade700),
         _StatusBadge(label: 'Indisponíveis', count: unavailable, color: ThemeCleanPremium.error),
+        _StatusBadge(label: 'Falta NJ', count: faltaNj, color: const Color(0xFFB91C1C)),
       ],
     );
   }
@@ -3064,7 +4102,13 @@ class _MiniStatusDots extends StatelessWidget {
   final int confirmed;
   final int pending;
   final int unavailable;
-  const _MiniStatusDots({required this.confirmed, required this.pending, required this.unavailable});
+  final int faltaNj;
+  const _MiniStatusDots({
+    required this.confirmed,
+    required this.pending,
+    required this.unavailable,
+    this.faltaNj = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3072,6 +4116,7 @@ class _MiniStatusDots extends StatelessWidget {
       if (confirmed > 0) ...[Container(width: 8, height: 8, decoration: BoxDecoration(color: ThemeCleanPremium.success, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$confirmed', style: TextStyle(fontSize: 10, color: ThemeCleanPremium.success, fontWeight: FontWeight.w700))],
       if (pending > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: BoxDecoration(color: Colors.amber.shade600, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$pending', style: TextStyle(fontSize: 10, color: Colors.amber.shade600, fontWeight: FontWeight.w700))],
       if (unavailable > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: BoxDecoration(color: ThemeCleanPremium.error, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$unavailable', style: TextStyle(fontSize: 10, color: ThemeCleanPremium.error, fontWeight: FontWeight.w700))],
+      if (faltaNj > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFB91C1C), shape: BoxShape.circle)), const SizedBox(width: 2), Text('$faltaNj', style: const TextStyle(fontSize: 10, color: Color(0xFFB91C1C), fontWeight: FontWeight.w700))],
     ]);
   }
 }

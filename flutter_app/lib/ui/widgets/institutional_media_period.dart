@@ -24,7 +24,13 @@ DateTime? institutionalMediaDateFromItem(
   required String storagePath,
 }) {
   final raw = item['uploadedAt'];
-  if (raw is Timestamp) return raw.toDate();
+  if (raw is Timestamp) {
+    try {
+      return raw.toDate();
+    } catch (_) {
+      return institutionalMediaDateFromPath(storagePath);
+    }
+  }
   return institutionalMediaDateFromPath(storagePath);
 }
 

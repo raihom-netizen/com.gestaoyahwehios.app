@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
         SafeNetworkImage,
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageMediaUrlLooksLike,
         imageUrlFromMap,
         imageUrlsListFromMap,
@@ -69,7 +70,7 @@ List<String> yahwehPostGalleryRefs(Map<String, dynamic> p) {
   if (out.isEmpty) {
     add(imageUrlFromMap(p));
   }
-  return out;
+  return dedupeImageRefsByStorageIdentity(out);
 }
 
 String? _yahwehPostVideoPosterUrl(Map<String, dynamic>? p) {

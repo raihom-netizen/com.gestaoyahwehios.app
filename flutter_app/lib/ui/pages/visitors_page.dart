@@ -19,6 +19,75 @@ class VisitorsPage extends StatefulWidget {
 /// Aba principal: Do Dia (cadastros de hoje, em aberto) | Histórico (consultas)
 enum _TabVisitante { doDia, historico }
 
+/// Quem pode gerir visitantes (igual critério da lista no módulo).
+bool churchVisitorManagementRole(String role) {
+  final r = role.toLowerCase();
+  return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+}
+
+/// Abre a ficha completa do visitante (editar, follow-up, excluir) sem trocar o módulo do shell.
+Future<void> openChurchVisitorFichaFromDashboard(
+  BuildContext context, {
+  required String tenantId,
+  required String role,
+  required String visitorDocId,
+}) async {
+  await FirebaseAuth.instance.currentUser?.getIdToken(true);
+  final snap = await FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('visitantes')
+      .doc(visitorDocId)
+      .get();
+  if (!context.mounted) return;
+  if (!snap.exists || snap.data() == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Visitante não encontrado.')),
+    );
+    return;
+  }
+  final visitor = _VisitorData(id: snap.id, data: snap.data()!);
+  final membersRef = FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('membros');
+  final canManage = churchVisitorManagementRole(role);
+  final isMobile = ThemeCleanPremium.isMobile(context);
+  if (isMobile) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _VisitorDetailsPage(
+          tenantId: tenantId,
+          visitor: visitor,
+          canManage: canManage,
+          canConvertVisitor: AppPermissions.canConvertVisitorToMember(role),
+          membersRef: membersRef,
+        ),
+      ),
+    );
+  } else {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
+          child: _VisitorDetailsPage(
+            tenantId: tenantId,
+            visitor: visitor,
+            canManage: canManage,
+            canConvertVisitor: AppPermissions.canConvertVisitorToMember(role),
+            membersRef: membersRef,
+            isDialog: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _VisitorsPageState extends State<VisitorsPage> {
   _TabVisitante _tab = _TabVisitante.doDia;
   String _searchNome = '';
@@ -28,10 +97,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int? _filtroAno;
   late Future<QuerySnapshot<Map<String, dynamic>>> _visitantesFuture;
 
-  bool get _canManage {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
-  }
+  bool get _canManage => churchVisitorManagementRole(widget.role);
 
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
       FirebaseFirestore.instance

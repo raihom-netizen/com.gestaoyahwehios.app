@@ -201,7 +201,9 @@ class MediaUploadService {
   }
 
   /// Salva variantes de imagem (thumb/card/full). **Não** usar para foto de perfil de membro:
-  /// o canónico é só `foto_perfil.jpg` (extensões Cloud que geram `thumb_` devem ficar desativadas ou limpas após upload).
+  /// o canónico é só `foto_perfil.jpg`. Após upload, use
+  /// [FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload] para remover
+  /// `thumb_foto_perfil.jpg` etc. (ex.: extensão Resize Images no Console).
   static Future<Map<String, MediaUploadResult>> uploadImageVariants({
     required String basePathWithoutExt,
     required Uint8List imageBytes,

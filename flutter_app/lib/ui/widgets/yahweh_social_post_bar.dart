@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -14,6 +15,8 @@ class YahwehSocialPostBar extends StatefulWidget {
   final bool isEvento;
   /// Slug da igreja (link no texto da agenda).
   final String churchSlug;
+  /// `noticias` (eventos) ou `avisos` (mural de avisos).
+  final String postsParentCollection;
 
   const YahwehSocialPostBar({
     super.key,
@@ -21,6 +24,7 @@ class YahwehSocialPostBar extends StatefulWidget {
     required this.postId,
     required this.isEvento,
     this.churchSlug = '',
+    this.postsParentCollection = ChurchTenantPostsCollections.noticias,
   });
 
   @override
@@ -38,7 +42,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
       .instance
       .collection('igrejas')
       .doc(widget.tenantId)
-      .collection('noticias')
+      .collection(widget.postsParentCollection)
       .doc(widget.postId);
 
   Future<({String name, String photo})> _memberDisplay() async {
@@ -87,6 +91,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
         memberName: m.name,
         photoUrl: m.photo,
         currentlyLiked: currentlyLiked,
+        parentCollection: widget.postsParentCollection,
       );
     } catch (_) {
       if (mounted) {
@@ -129,6 +134,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
         memberName: m.name,
         photoUrl: m.photo,
         currentlyConfirmed: current,
+        parentCollection: widget.postsParentCollection,
       );
       if (!current && widget.isEvento && mounted) {
         DateTime? start;

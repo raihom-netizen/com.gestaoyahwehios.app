@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,7 +9,6 @@ import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 
-import 'login_page.dart';
 import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
@@ -300,11 +301,18 @@ class _ContaDesativadaPage extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   /// Abre a lista Membros com a ficha deste documento (ex.: QR da carteirinha lido por gestor).
   final String? initialOpenMemberDocId;
 
   const AuthGate({super.key, this.initialOpenMemberDocId});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  StreamSubscription<User?>? _authLogoutNavSub;
 
   Future<Map<String, dynamic>?> _loadProfile(User user) async {
     try {
@@ -504,6 +512,26 @@ class AuthGate extends StatelessWidget {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _authLogoutNavSub =
+        FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null || !mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true)
+            .pushNamedAndRemoveUntil('/', (_) => false);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _authLogoutNavSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
@@ -515,12 +543,15 @@ class AuthGate extends StatelessWidget {
         }
 
         final user = snap.data;
-        if (user == null) return const LoginPage(afterLoginRoute: '/painel', showFleetBranding: false);
-
+        if (user == null) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
         return _AuthGateProfileLoader(
           user: user,
           loadProfile: () => _loadProfile(user),
-          initialOpenMemberDocId: initialOpenMemberDocId,
+          initialOpenMemberDocId: widget.initialOpenMemberDocId,
         );
       },
     );
@@ -568,10 +599,21 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   bool _isConnectionError(Object e) {
     if (e is FirebaseException) {
       final code = e.code.toLowerCase();
-      return code == 'unavailable' || code == 'internal' || code == 'deadline-exceeded';
+      return code == 'unavailable' ||
+          code == 'internal' ||
+          code == 'deadline-exceeded' ||
+          code == 'aborted' ||
+          code == 'cancelled';
     }
     final msg = e.toString().toLowerCase();
-    return msg.contains('failed to fetch') || msg.contains('network') || msg.contains('socket');
+    return msg.contains('failed to fetch') ||
+        msg.contains('network') ||
+        msg.contains('socket') ||
+        msg.contains('offline') ||
+        msg.contains('unreachable') ||
+        msg.contains('connection reset') ||
+        msg.contains('host lookup') ||
+        msg.contains('channel-error');
   }
 
   @override

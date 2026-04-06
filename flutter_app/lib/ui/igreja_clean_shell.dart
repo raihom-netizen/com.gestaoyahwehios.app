@@ -278,6 +278,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
       context: context,
       tenantId: widget.tenantId,
       userRole: widget.role,
+      userCpfDigits: () {
+        var d = widget.cpf.replaceAll(RegExp(r'\D'), '');
+        if (d.length == 10) d = '0$d';
+        return d.length == 11 ? d : null;
+      }(),
       canAccessShellIndex: _canAccessItem,
       onSelect: _handleGlobalSearchSelection,
     ).whenComplete(() {
@@ -304,15 +309,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
     final d = church.data() ?? {};
     var slug = (d['slug'] ?? '').toString().trim();
     if (slug.isEmpty) slug = tid;
-    final noticias = FirebaseFirestore.instance
+    final avisos = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tid)
-        .collection('noticias');
+        .collection('avisos');
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => MuralAvisoEditorPage(
           tenantId: tid,
-          noticias: noticias,
+          postsCollection: avisos,
           doc: doc,
           type: 'aviso',
           churchSlug: slug,
@@ -441,6 +446,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
     );
   }
 
+  void _navigateToShellModuleFromDashboard(int index) {
+    if (!_canAccessItem(index)) {
+      _showPanelSnack('Acesso negado para este módulo.', isError: true);
+      return;
+    }
+    setState(() => _selectedIndex = index);
+  }
+
   void _prefetchShellModuleData(int index) {
     if (!_globalSearchAllowed) return;
     if (!_canAccessItem(index)) return;
@@ -458,11 +471,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           unawaited(base.collection('membros').limit(24).get());
           break;
         case 6:
-          unawaited(base
-              .collection('noticias')
-              .where('type', isEqualTo: 'aviso')
-              .limit(24)
-              .get());
+          unawaited(base.collection('avisos').limit(24).get());
           break;
         case 7:
           unawaited(base
@@ -800,9 +809,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
               IconButton(
                 icon: const Icon(Icons.logout_rounded,
                     color: Colors.white, size: 22),
-                onPressed: () => FirebaseAuth.instance.signOut().then((_) =>
-                    Navigator.pushNamedAndRemoveUntil(
-                        context, '/', (_) => false)),
+                onPressed: () {
+                  final nav =
+                      Navigator.of(context, rootNavigator: true);
+                  FirebaseAuth.instance.signOut().then((_) {
+                    nav.pushNamedAndRemoveUntil('/', (_) => false);
+                  });
+                },
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                 tooltip: 'Sair',
               ),
@@ -1380,8 +1393,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           tenantId: widget.tenantId,
           role: widget.role,
           cpf: widget.cpf,
+          podeVerFinanceiro: widget.podeVerFinanceiro,
+          podeVerPatrimonio: widget.podeVerPatrimonio,
+          permissions: widget.permissions,
           onNavigateToEventos: () => setState(() => _selectedIndex = 7),
           onNavigateToMembers: () => setState(() => _selectedIndex = 2),
+          onNavigateToShellModule: _navigateToShellModuleFromDashboard,
         );
       case 1:
         return IgrejaCadastroPage(
@@ -1420,7 +1437,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         return DepartmentsPage(
             key: const ValueKey('page_3'),
             tenantId: widget.tenantId,
-            role: widget.role);
+            role: widget.role,
+            permissions: widget.permissions);
       case 4:
         return VisitorsPage(
             key: const ValueKey('page_4'),
@@ -1461,7 +1479,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         return CalendarPage(
             key: const ValueKey('page_9'),
             tenantId: widget.tenantId,
-            role: widget.role);
+            role: widget.role,
+            embeddedInShell: true);
       case 10:
         return MySchedulesPage(
             key: const ValueKey('page_10'),
@@ -1553,8 +1572,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
             tenantId: widget.tenantId,
             role: widget.role,
             cpf: widget.cpf,
+            podeVerFinanceiro: widget.podeVerFinanceiro,
+            podeVerPatrimonio: widget.podeVerPatrimonio,
+            permissions: widget.permissions,
             onNavigateToEventos: () => setState(() => _selectedIndex = 7),
-            onNavigateToMembers: () => setState(() => _selectedIndex = 2));
+            onNavigateToMembers: () => setState(() => _selectedIndex = 2),
+            onNavigateToShellModule: _navigateToShellModuleFromDashboard);
     }
   }
 
@@ -1621,9 +1644,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         logoUrl: logoUrl,
         onRenew: () => Navigator.push(
             context, ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
-        onLogout: () => FirebaseAuth.instance.signOut().then((_) {
-          Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
-        }),
+        onLogout: () {
+          final nav = Navigator.of(context, rootNavigator: true);
+          FirebaseAuth.instance.signOut().then((_) {
+            nav.pushNamedAndRemoveUntil('/', (_) => false);
+          });
+        },
       ),
     );
   }

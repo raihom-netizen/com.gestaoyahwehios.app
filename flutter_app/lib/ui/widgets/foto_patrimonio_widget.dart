@@ -8,10 +8,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 
 /// Miniatura estável para o módulo de patrimônio (fotos do bem, notas, etiquetas).
 ///
-/// Prioriza [AppStorageImageService.resolveImageUrl] com [storagePath] + URL (token renovável);
-/// em seguida [StorageMediaService.freshPlayableMediaUrl] / path. Exibição via [ResilientNetworkImage]
-/// (renova token se ainda for URL Storage; evita imagem quebrada na web).
-/// preso na web, mesmo padrão de [StableStorageImage] / membros).
+/// Com URL **https** no Firestore, usa de imediato (lista rápida); [ResilientNetworkImage] renova
+/// token no decode se precisar. Sem https, resolve path/gs via [StorageMediaService] / [AppStorageImageService].
 class FotoPatrimonioWidget extends StatefulWidget {
   /// Caminho no bucket (ex.: `igrejas/{id}/patrimonio/...`) alinhado ao índice em [fotoStoragePaths].
   final String? storagePath;
@@ -44,7 +42,7 @@ class FotoPatrimonioWidget extends StatefulWidget {
 class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
   static final LinkedHashMap<int, String> _resolvedUrlCache =
       LinkedHashMap<int, String>();
-  static const int _kMaxResolvedCache = 96;
+  static const int _kMaxResolvedCache = 200;
 
   String? _url;
   bool _resolveFinished = false;
@@ -64,7 +62,7 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
   @override
   void initState() {
     super.initState();
-    _applyCandidates();
+    _startResolve(fromDidUpdate: false);
   }
 
   @override
@@ -72,7 +70,7 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
     super.didUpdateWidget(oldWidget);
     if (!_sameUrls(oldWidget.candidateUrls, widget.candidateUrls) ||
         oldWidget.storagePath != widget.storagePath) {
-      _applyCandidates();
+      _startResolve(fromDidUpdate: true);
     }
   }
 
@@ -84,64 +82,69 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
     return true;
   }
 
-  void _applyCandidates() {
+  /// Caminho rápido: URL https do Firestore aparece na hora; [ResilientNetworkImage] /
+  /// [FreshFirebaseStorageImage] renovam token se precisar (sem bloquear a lista inteira).
+  void _startResolve({required bool fromDidUpdate}) {
     _resolveGen++;
+    final gen = _resolveGen;
     final h = _candidatesHash(widget.candidateUrls, widget.storagePath);
     final cached = _resolvedUrlCache[h];
     if (cached != null && isValidImageUrl(cached)) {
       _url = sanitizeImageUrl(cached);
       _resolveFinished = true;
+      if (fromDidUpdate) setState(() {});
       return;
+    }
+    for (final raw in widget.candidateUrls) {
+      final s = sanitizeImageUrl(raw);
+      if (s.isEmpty) continue;
+      if (isValidImageUrl(s) &&
+          (s.startsWith('https://') || s.startsWith('http://'))) {
+        _rememberResolved(h, s);
+        _url = s;
+        _resolveFinished = true;
+        if (fromDidUpdate) setState(() {});
+        return;
+      }
     }
     _url = null;
     _resolveFinished = false;
+    if (fromDidUpdate) setState(() {});
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => _resolveBestCandidate(_resolveGen));
+        .addPostFrameCallback((_) => _resolveBestCandidate(gen));
   }
 
   Future<void> _resolveBestCandidate(int gen) async {
     if (!mounted || gen != _resolveGen) return;
 
     String? found;
+    final h = _candidatesHash(widget.candidateUrls, widget.storagePath);
     try {
       final path = widget.storagePath?.trim();
 
-      // 1) URLs do Firestore primeiro: na web evita um getDownloadURL extra por foto
-      // quando a URL HTTPS já existe (token renovado em [freshPlayableMediaUrl]).
+      // Só entra aqui sem https válido: path, gs://, caminho relativo — precisa getDownloadURL.
       for (final raw in widget.candidateUrls) {
         if (!mounted || gen != _resolveGen) return;
         final s = sanitizeImageUrl(raw);
         if (s.isEmpty) continue;
-
-        String? resolved;
-        if (isValidImageUrl(s)) {
-          if (StorageMediaService.isFirebaseStorageMediaUrl(s)) {
-            try {
-              resolved = await StorageMediaService.freshPlayableMediaUrl(s)
-                  .timeout(const Duration(seconds: 12), onTimeout: () => s);
-            } catch (_) {
-              resolved = s;
-            }
-          } else {
-            resolved = s;
-          }
-        } else {
+        if (isValidImageUrl(s) &&
+            (s.startsWith('https://') || s.startsWith('http://'))) {
+          continue;
+        }
+        try {
           final u = await StorageMediaService.downloadUrlFromPathOrUrl(s)
               .timeout(const Duration(seconds: 8), onTimeout: () => null);
-          resolved = u != null ? sanitizeImageUrl(u) : null;
-        }
-        if (!mounted || gen != _resolveGen) return;
-        final finalUrl = sanitizeImageUrl(resolved ?? '');
-        if (isValidImageUrl(finalUrl)) {
-          _rememberResolved(
-              _candidatesHash(widget.candidateUrls, widget.storagePath),
-              finalUrl);
-          found = finalUrl;
-          break;
-        }
+          if (!mounted || gen != _resolveGen) return;
+          final fu = sanitizeImageUrl(u ?? '');
+          if (isValidImageUrl(fu)) {
+            _rememberResolved(h, fu);
+            found = fu;
+            break;
+          }
+        } catch (_) {}
       }
 
-      // 2) Só path / URL inválida: resolve pelo caminho no bucket.
+      // Fallback: só [storagePath] no bucket.
       if (found == null && path != null && path.isNotEmpty) {
         final firstRaw =
             widget.candidateUrls.isEmpty ? '' : widget.candidateUrls.first;
@@ -158,8 +161,7 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
           if (!mounted || gen != _resolveGen) return;
           final fu = sanitizeImageUrl(u0 ?? '');
           if (isValidImageUrl(fu)) {
-            _rememberResolved(
-                _candidatesHash(widget.candidateUrls, widget.storagePath), fu);
+            _rememberResolved(h, fu);
             found = fu;
           }
         } catch (_) {}

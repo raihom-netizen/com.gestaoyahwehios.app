@@ -2,6 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+
+import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 import 'video_thumb_capture.dart';
@@ -16,6 +19,8 @@ class VideoHandlerService implements IVideoHandlerService {
   @override
   Future<VideoUploadResult?> pickCompressAndUpload({
     required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
     Duration maxDuration = const Duration(seconds: 60),
   }) async {
     final xfile = await _picker.pickVideo(
@@ -26,10 +31,20 @@ class VideoHandlerService implements IVideoHandlerService {
 
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final bytes = await xfile.readAsBytes();
-    final ext = xfile.mimeType?.toString().contains('mp4') == true ? 'mp4' : 'mp4';
-    final ts = DateTime.now().millisecondsSinceEpoch;
+    final slot = videoSlotIndex.clamp(0, 1);
+    await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
+      tenantId: tenantId,
+      postDocId: eventPostDocId,
+      videoSlot: slot,
+    );
+
+    final videoPath =
+        ChurchStorageLayout.eventHostedVideoMp4Path(tenantId, eventPostDocId, slot);
+    final thumbPath =
+        ChurchStorageLayout.eventHostedVideoThumbPath(tenantId, eventPostDocId, slot);
+
     final videoUrl = await MediaUploadService.uploadBytesWithRetry(
-      storagePath: 'igrejas/$tenantId/eventos/videos/${ts}_video.$ext',
+      storagePath: videoPath,
       bytes: bytes,
       contentType: xfile.mimeType ?? 'video/mp4',
     );
@@ -41,7 +56,7 @@ class VideoHandlerService implements IVideoHandlerService {
       if (thumbBytes != null && thumbBytes.isNotEmpty) {
         try {
           thumbUrl = await MediaUploadService.uploadBytesWithRetry(
-            storagePath: 'igrejas/$tenantId/eventos/thumbs/${ts}_thumb.jpg',
+            storagePath: thumbPath,
             bytes: thumbBytes,
             contentType: 'image/jpeg',
           );

@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         SafeNetworkImage,
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageBytesFromDownloadUrl,
         firebaseStorageMediaUrlLooksLike,
         isFirebaseStorageHttpUrl,
@@ -581,7 +582,11 @@ Future<void> scheduleFeedMediaWarmup(
       }
     }
   }
-  await preloadNetworkImages(context, imageUrls, maxItems: 18);
+  await preloadNetworkImages(
+    context,
+    dedupeImageRefsByStorageIdentity(imageUrls),
+    maxItems: 24,
+  );
   await precacheHostedVideosFromFeed(videoUrls, maxItems: 8);
   if (kIsWeb) {
     for (final v in videoUrls.take(8)) {

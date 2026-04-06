@@ -59,7 +59,8 @@ class _BiometricLockPageState extends State<BiometricLockPage> {
                   Text(
                     _unlocking
                         ? 'Aguardando sua digital/face...'
-                        : 'Nao foi possivel autenticar.',
+                        : 'Nao foi possivel autenticar. Toque em «Tentar de novo» ou use a senha da sua conta.',
+                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 14),
                   Row(

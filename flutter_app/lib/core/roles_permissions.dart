@@ -110,7 +110,7 @@ class ChurchRolePermissions {
     editAnyMember: true,
     viewMemberDirectory: true,
     editChurchProfile: true,
-    editDepartments: false,
+    editDepartments: true,
     editSchedulesAll: true,
     manageVisitors: true,
     manageCargosCatalog: false,
@@ -140,7 +140,7 @@ class ChurchRolePermissions {
     editAnyMember: false,
     viewMemberDirectory: false,
     editChurchProfile: false,
-    editDepartments: false,
+    editDepartments: true,
     editSchedulesAll: false,
     manageVisitors: false,
     manageCargosCatalog: false,
@@ -155,7 +155,7 @@ class ChurchRolePermissions {
     editAnyMember: true,
     viewMemberDirectory: true,
     editChurchProfile: false,
-    editDepartments: false,
+    editDepartments: true,
     editSchedulesAll: true,
     manageVisitors: false,
     manageCargosCatalog: false,
@@ -304,6 +304,7 @@ class ChurchRolePermissions {
       case 2:
         return s.viewMemberDirectory && !s.restrictedNav;
       case 3:
+        if (_hasGranularModule(permissions, 'departamentos')) return true;
         return s.editDepartments && !s.restrictedNav;
       case 4:
         return s.manageVisitors && !s.restrictedNav;

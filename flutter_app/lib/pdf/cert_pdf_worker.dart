@@ -153,26 +153,35 @@ Uint8List? _fontPinyonScriptCache;
 Uint8List? _fontLibreBaskervilleCache;
 
 Future<void> _ensureLuxuryPdfFontsLoaded() async {
-  if (_fontCinzelDecorativeCache == null) {
-    try {
-      final b =
-          await rootBundle.load('assets/fonts/CinzelDecorative-Regular.ttf');
-      _fontCinzelDecorativeCache = b.buffer.asUint8List();
-    } catch (_) {}
-  }
-  if (_fontPinyonScriptCache == null) {
-    try {
-      final b = await rootBundle.load('assets/fonts/PinyonScript-Regular.ttf');
-      _fontPinyonScriptCache = b.buffer.asUint8List();
-    } catch (_) {}
-  }
-  if (_fontLibreBaskervilleCache == null) {
-    try {
-      final b =
-          await rootBundle.load('assets/fonts/LibreBaskerville-Variable.ttf');
-      _fontLibreBaskervilleCache = b.buffer.asUint8List();
-    } catch (_) {}
-  }
+  await Future.wait([
+    () async {
+      if (_fontCinzelDecorativeCache == null) {
+        try {
+          final b =
+              await rootBundle.load('assets/fonts/CinzelDecorative-Regular.ttf');
+          _fontCinzelDecorativeCache = b.buffer.asUint8List();
+        } catch (_) {}
+      }
+    }(),
+    () async {
+      if (_fontPinyonScriptCache == null) {
+        try {
+          final b =
+              await rootBundle.load('assets/fonts/PinyonScript-Regular.ttf');
+          _fontPinyonScriptCache = b.buffer.asUint8List();
+        } catch (_) {}
+      }
+    }(),
+    () async {
+      if (_fontLibreBaskervilleCache == null) {
+        try {
+          final b = await rootBundle
+              .load('assets/fonts/LibreBaskerville-Variable.ttf');
+          _fontLibreBaskervilleCache = b.buffer.asUint8List();
+        } catch (_) {}
+      }
+    }(),
+  ]);
 }
 
 Future<Uint8List?> _fetchCertificateTemplateBackgroundBytes({
@@ -244,34 +253,50 @@ Future<Uint8List?> _fetchInstitutionalPastorSignatureBytes(
 }
 
 Future<void> _ensurePdfFontsLoaded() async {
-  if (_fontMontserratCache == null) {
-    try {
-      final b = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-      _fontMontserratCache = b.buffer.asUint8List();
-    } catch (_) {}
-  }
-  if (_fontGreatVibesCache == null) {
-    try {
-      final b = await rootBundle.load('assets/fonts/GreatVibes-Regular.ttf');
-      _fontGreatVibesCache = b.buffer.asUint8List();
-    } catch (_) {
-      try {
-        final b = await rootBundle.load('assets/fonts/Roboto-Italic.ttf');
-        _fontGreatVibesCache = b.buffer.asUint8List();
-      } catch (_) {}
-    }
-  }
-  if (_fontUnifrakturCache == null) {
-    try {
-      final b = await rootBundle.load('assets/fonts/UnifrakturMaguntia-Book.ttf');
-      _fontUnifrakturCache = b.buffer.asUint8List();
-    } catch (_) {
-      try {
-        final b = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
-        _fontUnifrakturCache = b.buffer.asUint8List();
-      } catch (_) {}
-    }
-  }
+  await Future.wait([
+    () async {
+      if (_fontMontserratCache == null) {
+        try {
+          final b = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+          _fontMontserratCache = b.buffer.asUint8List();
+        } catch (_) {}
+      }
+    }(),
+    () async {
+      if (_fontGreatVibesCache == null) {
+        try {
+          final b = await rootBundle.load('assets/fonts/GreatVibes-Regular.ttf');
+          _fontGreatVibesCache = b.buffer.asUint8List();
+        } catch (_) {
+          try {
+            final b = await rootBundle.load('assets/fonts/Roboto-Italic.ttf');
+            _fontGreatVibesCache = b.buffer.asUint8List();
+          } catch (_) {}
+        }
+      }
+    }(),
+    () async {
+      if (_fontUnifrakturCache == null) {
+        try {
+          final b =
+              await rootBundle.load('assets/fonts/UnifrakturMaguntia-Book.ttf');
+          _fontUnifrakturCache = b.buffer.asUint8List();
+        } catch (_) {
+          try {
+            final b = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+            _fontUnifrakturCache = b.buffer.asUint8List();
+          } catch (_) {}
+        }
+      }
+    }(),
+  ]);
+}
+
+Future<void> _ensureAllCertPdfFonts() async {
+  await Future.wait([
+    _ensurePdfFontsLoaded(),
+    _ensureLuxuryPdfFontsLoaded(),
+  ]);
 }
 
 Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
@@ -383,14 +408,18 @@ Future<Uint8List?> _tryChurchLogoBytesDirectFromStorage(
     tid,
     tenantData: tenantHint,
   );
-  for (final p in paths) {
-    try {
-      final b = await FirebaseStorage.instance
+  if (paths.isEmpty) return null;
+  final chunks = await Future.wait(
+    paths.map(
+      (p) => FirebaseStorage.instance
           .ref(p)
           .getData(12 * 1024 * 1024)
-          .timeout(const Duration(seconds: 3), onTimeout: () => null);
-      if (b != null && b.length > 32) return Uint8List.fromList(b);
-    } catch (_) {}
+          .timeout(const Duration(seconds: 4), onTimeout: () => null)
+          .catchError((_) => null),
+    ),
+  );
+  for (final b in chunks) {
+    if (b != null && b.length > 32) return Uint8List.fromList(b);
   }
   return null;
 }
@@ -554,15 +583,15 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
     onProgress?.call(msg, progress01.clamp(0.0, 1.0));
   }
 
-  report('Processando certificado 1 de 1 — baixando imagens…', 0.08);
-  await _ensurePdfFontsLoaded();
-  await _ensureLuxuryPdfFontsLoaded();
+  report('Processando certificado 1 de 1 — carregando fontes e mídia…', 0.06);
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
   }
+
+  final fontsFuture = _ensureAllCertPdfFonts();
 
   final tpl = certificateVisualTemplateById(p.visualTemplateId.trim()) ??
       kCertificateVisualTemplates.first;
@@ -588,53 +617,51 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
       return b;
     }
 
-    for (final logoUrlTry in logoUrls) {
-      final bytes = await _fetchLogoBytesHighRes(logoUrlTry);
-      final u = useIfRealLogo(bytes);
-      if (u != null) return u;
-    }
-    final tid = p.tenantId.trim();
-    if (tid.isNotEmpty) {
-      Map<String, dynamic>? tenantHint;
-      final nm = p.nomeIgreja.trim();
-      if (nm.isNotEmpty) {
-        tenantHint = {'name': nm};
-      }
-      final defaultUrl =
-          await FirebaseStorageService.getChurchLogoDownloadUrl(
-        tid,
-        tenantData: tenantHint,
+    if (logoUrls.isNotEmpty) {
+      final tried = await Future.wait(
+        logoUrls.map((u) => _fetchLogoBytesHighRes(u)),
       );
-      if (defaultUrl != null && defaultUrl.isNotEmpty) {
-        final bytes = await _fetchLogoBytesHighRes(defaultUrl);
+      for (final bytes in tried) {
         final u = useIfRealLogo(bytes);
         if (u != null) return u;
       }
-      final direct = await _tryChurchLogoBytesDirectFromStorage(
+    }
+    final tid = p.tenantId.trim();
+    if (tid.isEmpty) return null;
+    Map<String, dynamic>? tenantHint;
+    final nm = p.nomeIgreja.trim();
+    if (nm.isNotEmpty) {
+      tenantHint = {'name': nm};
+    }
+    final defaultUrl = await FirebaseStorageService.getChurchLogoDownloadUrl(
+      tid,
+      tenantData: tenantHint,
+    );
+    final fallbackFutures = <Future<Uint8List?>>[
+      if (defaultUrl != null && defaultUrl.isNotEmpty)
+        _fetchLogoBytesHighRes(defaultUrl).then(useIfRealLogo)
+      else
+        Future<Uint8List?>.value(null),
+      _tryChurchLogoBytesDirectFromStorage(
         tid,
         churchNameHint: p.nomeIgreja,
-      );
-      final du = useIfRealLogo(direct);
-      if (du != null) return du;
-      try {
-        final branding = await loadReportPdfBranding(tid);
-        final u = useIfRealLogo(branding.logoBytes);
-        if (u != null) return u;
-      } catch (_) {}
+      ).then(useIfRealLogo),
+      loadReportPdfBranding(tid)
+          .then((br) => useIfRealLogo(br.logoBytes))
+          .catchError((Object _, StackTrace __) => null),
+    ];
+    final triedFb = await Future.wait(fallbackFutures);
+    for (final u in triedFb) {
+      if (u != null) return u;
     }
     return null;
   }
 
   final logoFuture = fetchFirstLogoBytes();
-  final List<Uint8List?> sigRaw;
+
+  final Future<List<Uint8List?>> sigPackFuture;
   if (p.useDigitalSignature && p.signatoriesForPdf.isNotEmpty) {
-    if (kIsWeb) {
-      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-      try {
-        await FirebaseAuth.instance.currentUser?.getIdToken();
-      } catch (_) {}
-    }
-    sigRaw = await Future.wait(
+    sigPackFuture = Future.wait(
       p.signatoriesForPdf
           .map(
             (s) => _fetchSignatorySignatureBytes(
@@ -646,12 +673,24 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
           .toList(),
     );
   } else {
-    sigRaw = List<Uint8List?>.filled(p.signatoriesForPdf.length, null);
+    sigPackFuture =
+        Future<List<Uint8List?>>.value(
+            List<Uint8List?>.filled(p.signatoriesForPdf.length, null));
   }
 
-  final logoRaw = await logoFuture;
-  final bgRaw = await bgFuture;
-  final instSigRaw = await instSigFuture;
+  report('Processando certificado 1 de 1 — baixando imagens em paralelo…', 0.14);
+
+  final packed = await Future.wait<Object?>([
+    fontsFuture.then((_) => null),
+    logoFuture,
+    bgFuture,
+    instSigFuture,
+    sigPackFuture,
+  ]);
+  final logoRaw = packed[1] as Uint8List?;
+  final bgRaw = packed[2] as Uint8List?;
+  final instSigRaw = packed[3] as Uint8List?;
+  final sigRaw = packed[4] as List<Uint8List?>;
 
   report('Processando certificado 1 de 1 — otimizando fotos…', 0.38);
 

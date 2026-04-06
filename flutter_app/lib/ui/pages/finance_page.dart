@@ -12,6 +12,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -101,6 +102,41 @@ Future<List<String>> _getCategoriasDespesaForTenant(String tenantId) async {
   return nomes.where((n) => seen.add(n)).toList();
 }
 
+Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
+  final col = FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('categorias_receitas');
+  var snap = await col.orderBy('nome').get();
+  if (snap.docs.isEmpty) {
+    for (final nome in _categoriasReceitaPadrao) {
+      await col.add(
+          {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
+    }
+    snap = await col.orderBy('nome').get();
+  }
+  final nomes = snap.docs
+      .map((d) => (d.data()['nome'] ?? '').toString())
+      .where((s) => s.isNotEmpty);
+  final seen = <String>{};
+  return nomes.where((n) => seen.add(n)).toList();
+}
+
+Future<List<({String id, String nome})>> _financeContasAtivasTenant(
+    String tenantId) async {
+  final snap = await FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('contas')
+      .orderBy('nome')
+      .get();
+  return snap.docs
+      .where((d) => d.data()['ativo'] != false)
+      .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
+      .where((e) => e.nome.isNotEmpty)
+      .toList();
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // FinancePage — Módulo Financeiro Completo (Controle Total)
 // ───────────────────────────────────────────────────────────────────────────────
@@ -113,6 +149,12 @@ class FinancePage extends StatefulWidget {
   final bool? podeVerFinanceiro;
   final List<String>? permissions;
 
+  /// Aba inicial (0–4): Resumo, Lançamentos, Despesas fixas, Categorias, Contas.
+  final int? initialTabIndex;
+
+  /// Abre o editor deste lançamento após entrar na página (ex.: painel → despesa).
+  final String? openLancamentoId;
+
   const FinancePage({
     super.key,
     required this.tenantId,
@@ -120,6 +162,8 @@ class FinancePage extends StatefulWidget {
     this.cpf,
     this.podeVerFinanceiro,
     this.permissions,
+    this.initialTabIndex,
+    this.openLancamentoId,
   });
 
   @override
@@ -135,57 +179,27 @@ class _FinancePageState extends State<FinancePage>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this);
+    final rawTab = widget.initialTabIndex ?? 0;
+    final idx = rawTab < 0 ? 0 : (rawTab > 4 ? 4 : rawTab);
+    _tabCtrl = TabController(length: 5, vsync: this, initialIndex: idx);
     _tenantRef =
         FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
     _financeCol = _tenantRef.collection('finance');
     FirebaseAuth.instance.currentUser?.getIdToken(true);
-  }
-
-  /// Garante categorias de receita no Firestore; retorna lista de nomes (sem repetição).
-  Future<List<String>> _getCategoriasReceita() async {
-    final col = _tenantRef.collection('categorias_receitas');
-    var snap = await col.orderBy('nome').get();
-    if (snap.docs.isEmpty) {
-      for (final nome in _categoriasReceitaPadrao) {
-        await col.add(
-            {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
-      }
-      snap = await col.orderBy('nome').get();
+    final openId = widget.openLancamentoId?.trim();
+    if (openId != null && openId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLancamento(openId));
     }
-    final nomes = snap.docs
-        .map((d) => (d.data()['nome'] ?? '').toString())
-        .where((s) => s.isNotEmpty);
-    final seen = <String>{};
-    return nomes.where((n) => seen.add(n)).toList();
   }
 
-  /// Garante categorias de despesa no Firestore; retorna lista de nomes (sem repetição).
-  Future<List<String>> _getCategoriasDespesa() async {
-    final col = _tenantRef.collection('categorias_despesas');
-    var snap = await col.orderBy('nome').get();
-    if (snap.docs.isEmpty) {
-      for (final nome in _categoriasDespesaPadrao) {
-        await col.add(
-            {'nome': nome, 'ordem': _categoriasDespesaPadrao.indexOf(nome)});
-      }
-      snap = await col.orderBy('nome').get();
-    }
-    final nomes = snap.docs
-        .map((d) => (d.data()['nome'] ?? '').toString())
-        .where((s) => s.isNotEmpty);
-    final seen = <String>{};
-    return nomes.where((n) => seen.add(n)).toList();
-  }
-
-  /// Lista contas ativas (id, nome) para transferências.
-  Future<List<({String id, String nome})>> _getContas() async {
-    final snap = await _tenantRef.collection('contas').orderBy('nome').get();
-    return snap.docs
-        .where((d) => d.data()['ativo'] != false)
-        .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
-        .where((e) => e.nome.isNotEmpty)
-        .toList();
+  Future<void> _openPendingLancamento(String id) async {
+    if (!mounted) return;
+    try {
+      final doc = await _financeCol.doc(id).get();
+      if (!doc.exists || !mounted) return;
+      _tabCtrl.index = 1;
+      await _showLancamentoDialog(context, doc: doc);
+    } catch (_) {}
   }
 
   @override
@@ -360,7 +374,12 @@ class _FinancePageState extends State<FinancePage>
                     role: widget.role,
                   ),
                   _FinanceCategoriasTab(tenantId: widget.tenantId),
-                  _FinanceContasTab(tenantId: widget.tenantId),
+                  _FinanceContasTab(
+                    tenantId: widget.tenantId,
+                    role: widget.role,
+                    onEditLancamento: (ctx, doc) =>
+                        _showLancamentoDialog(ctx, doc: doc),
+                  ),
                 ],
               ),
             ),
@@ -372,442 +391,9 @@ class _FinancePageState extends State<FinancePage>
 
   // ─── Lançamento Rápido (Receita / Despesa / Transferência) ────────────────────
   Future<void> _showLancamentoDialog(BuildContext context,
-      {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    final isEdit = doc != null;
-    final data = doc?.data();
-
-    String tipo = isEdit ? (data?['type'] ?? 'entrada').toString() : 'entrada';
-    if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia')
-      tipo = 'entrada';
-    final valorCtrl = TextEditingController(
-        text:
-            isEdit ? (data?['amount'] ?? data?['valor'] ?? '').toString() : '');
-    final descCtrl = TextEditingController(
-        text: isEdit
-            ? (data?['descricao'] ?? data?['anotacoes'] ?? '').toString()
-            : '');
-    String categoria = isEdit ? (data?['categoria'] ?? '').toString() : '';
-    String? contaOrigemId = isEdit
-        ? ((data?['contaOrigemId'] ?? '').toString().isEmpty
-            ? null
-            : (data?['contaOrigemId']).toString())
-        : null;
-    String? contaDestinoId = isEdit
-        ? ((data?['contaDestinoId'] ?? '').toString().isEmpty
-            ? null
-            : (data?['contaDestinoId']).toString())
-        : null;
-    DateTime dataSel = DateTime.now();
-    if (isEdit) {
-      final ts = data?['createdAt'] ?? data?['date'];
-      if (ts is Timestamp) dataSel = ts.toDate();
-    }
-
-    final catsReceita = await _getCategoriasReceita();
-    final catsDespesa = await _getCategoriasDespesa();
-    final contas = await _getContas();
-    if (categoria.isNotEmpty) {
-      if (tipo == 'entrada' && !catsReceita.contains(categoria)) categoria = '';
-      if (tipo == 'saida' && !catsDespesa.contains(categoria)) categoria = '';
-    }
-    if (contaOrigemId != null && !contas.any((c) => c.id == contaOrigemId))
-      contaOrigemId = null;
-    if (contaDestinoId != null && !contas.any((c) => c.id == contaDestinoId))
-      contaDestinoId = null;
-
-    if (!mounted) return;
-    String t = tipo;
-    String cat = categoria;
-    String? coId = contaOrigemId;
-    String? cdId = contaDestinoId;
-    DateTime dataSelLocal = dataSel;
-    XFile? comprovanteFile;
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) {
-          final isTransfer = t == 'transferencia';
-          final cats = t == 'entrada'
-              ? catsReceita
-              : (t == 'saida' ? catsDespesa : <String>[]);
-          if (cat.isNotEmpty && cats.isNotEmpty && !cats.contains(cat))
-            cat = '';
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            title: Row(
-              children: [
-                Icon(isEdit ? Icons.edit_rounded : Icons.add_circle_rounded,
-                    color: ThemeCleanPremium.primary),
-                const SizedBox(width: 10),
-                Text(isEdit ? 'Editar Lançamento' : 'Transação',
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                          value: 'entrada',
-                          label: Text('Receita'),
-                          icon: Icon(Icons.trending_up_rounded)),
-                      ButtonSegment(
-                          value: 'saida',
-                          label: Text('Despesa'),
-                          icon: Icon(Icons.trending_down_rounded)),
-                      ButtonSegment(
-                          value: 'transferencia',
-                          label: Text('Transferência'),
-                          icon: Icon(Icons.swap_horiz_rounded)),
-                    ],
-                    selected: {t},
-                    onSelectionChanged: (s) => setDlgState(() {
-                      t = s.first;
-                      cat = '';
-                      coId = null;
-                      cdId = null;
-                    }),
-                    style: SegmentedButton.styleFrom(
-                      selectedForegroundColor: t == 'entrada'
-                          ? _financeEntradas
-                          : t == 'saida'
-                              ? _financeSaidas
-                              : _financeTransferencia,
-                      selectedBackgroundColor: t == 'entrada'
-                          ? const Color(0xFFEFF6FF)
-                          : t == 'saida'
-                              ? const Color(0xFFFEF2F2)
-                              : const Color(0xFFEEF2FF),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (!isTransfer) ...[
-                    DropdownButtonFormField<String>(
-                      value: cat.isNotEmpty ? cat : null,
-                      decoration: InputDecoration(
-                        labelText: 'Categoria',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        prefixIcon: const Icon(Icons.category_rounded),
-                      ),
-                      items: cats
-                          .map(
-                              (c) => DropdownMenuItem(value: c, child: Text(c)))
-                          .toList(),
-                      onChanged: (v) => setDlgState(() => cat = v ?? ''),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (isTransfer) ...[
-                    DropdownButtonFormField<String>(
-                      value: coId != null && contas.any((e) => e.id == coId)
-                          ? coId
-                          : null,
-                      decoration: InputDecoration(
-                        labelText: 'Conta de origem',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        prefixIcon:
-                            const Icon(Icons.account_balance_wallet_rounded),
-                      ),
-                      items: contas
-                          .map((c) => DropdownMenuItem(
-                              value: c.id, child: Text(c.nome)))
-                          .toList(),
-                      onChanged: (v) => setDlgState(() => coId = v),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: cdId != null && contas.any((e) => e.id == cdId)
-                          ? cdId
-                          : null,
-                      decoration: InputDecoration(
-                        labelText: 'Conta de destino',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        prefixIcon: const Icon(Icons.account_balance_rounded),
-                      ),
-                      items: contas
-                          .map((c) => DropdownMenuItem(
-                              value: c.id, child: Text(c.nome)))
-                          .toList(),
-                      onChanged: (v) => setDlgState(() => cdId = v),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  TextField(
-                    controller: descCtrl,
-                    decoration: InputDecoration(
-                      labelText: isTransfer
-                          ? 'Anotações (opcional)'
-                          : 'Descrição (opcional)',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.notes_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: valorCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: r'Valor (R$)',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.attach_money_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  InkWell(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: dataSelLocal,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2030),
-                      );
-                      if (picked != null)
-                        setDlgState(() => dataSelLocal = picked);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 14),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade400),
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_today_rounded,
-                              size: 20,
-                              color: ThemeCleanPremium.onSurfaceVariant),
-                          const SizedBox(width: 12),
-                          Text(
-                            '${dataSelLocal.day.toString().padLeft(2, '0')}/${dataSelLocal.month.toString().padLeft(2, '0')}/${dataSelLocal.year}',
-                            style: const TextStyle(fontSize: 15),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Icon(Icons.receipt_long_rounded,
-                          size: 20, color: Colors.grey.shade600),
-                      const SizedBox(width: 8),
-                      Text('Comprovante',
-                          style: TextStyle(
-                              fontSize: 14, color: Colors.grey.shade700)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final source = await showDialog<ImageSource>(
-                        context: ctx,
-                        builder: (c) => SimpleDialog(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusLg)),
-                          title: const Text('Anexar comprovante'),
-                          children: [
-                            SimpleDialogOption(
-                              onPressed: () =>
-                                  Navigator.pop(c, ImageSource.camera),
-                              child: const Row(children: [
-                                Icon(Icons.camera_alt_rounded),
-                                SizedBox(width: 12),
-                                Text('Câmera')
-                              ]),
-                            ),
-                            SimpleDialogOption(
-                              onPressed: () =>
-                                  Navigator.pop(c, ImageSource.gallery),
-                              child: const Row(children: [
-                                Icon(Icons.photo_library_rounded),
-                                SizedBox(width: 12),
-                                Text('Galeria / Arquivo')
-                              ]),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (source == null) return;
-                      final picker = ImagePicker();
-                      final xfile = await picker.pickImage(
-                          source: source, maxWidth: 1200, imageQuality: 80);
-                      if (xfile != null) {
-                        comprovanteFile = xfile;
-                        setDlgState(() {});
-                      }
-                    },
-                    icon: Icon(
-                        comprovanteFile != null
-                            ? Icons.check_circle_rounded
-                            : Icons.add_photo_alternate_rounded,
-                        size: 20),
-                    label: Text(comprovanteFile != null
-                        ? 'Comprovante anexado'
-                        : 'Anexar comprovante'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: comprovanteFile != null
-                          ? ThemeCleanPremium.success
-                          : null,
-                    ),
-                  ),
-                  if (comprovanteFile != null)
-                    TextButton.icon(
-                      onPressed: () => setDlgState(() {
-                        comprovanteFile = null;
-                      }),
-                      icon: const Icon(Icons.close, size: 18),
-                      label: const Text('Remover'),
-                      style: TextButton.styleFrom(
-                          foregroundColor: ThemeCleanPremium.error),
-                    ),
-                  if (isEdit &&
-                      (data?['comprovanteUrl'] ?? '').toString().isNotEmpty &&
-                      comprovanteFile == null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('Comprovante atual já anexado.',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade600)),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar')),
-              FilledButton.icon(
-                onPressed: () {
-                  final valor =
-                      double.tryParse(valorCtrl.text.replaceAll(',', '.')) ?? 0;
-                  if (valor <= 0) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                        content: Text('Informe um valor válido.')));
-                    return;
-                  }
-                  if (!isTransfer && cat.isEmpty) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                        content: Text('Selecione uma categoria.')));
-                    return;
-                  }
-                  if (isTransfer &&
-                      (coId == null || cdId == null || coId == cdId)) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                        content: Text(
-                            'Selecione contas de origem e destino diferentes.')));
-                    return;
-                  }
-                  final map = <String, dynamic>{
-                    'type': t,
-                    'amount': valor,
-                    'descricao': descCtrl.text.trim(),
-                    'createdAt': Timestamp.fromDate(dataSelLocal),
-                  };
-                  if (!isTransfer) map['categoria'] = cat;
-                  if (isTransfer) {
-                    map['contaOrigemId'] = coId;
-                    map['contaDestinoId'] = cdId;
-                    map['contaOrigemNome'] =
-                        contas.where((e) => e.id == coId).firstOrNull?.nome ??
-                            '';
-                    map['contaDestinoNome'] =
-                        contas.where((e) => e.id == cdId).firstOrNull?.nome ??
-                            '';
-                  }
-                  Navigator.pop(ctx, map);
-                },
-                icon: Icon(isEdit ? Icons.save_rounded : Icons.check_rounded),
-                label: Text(isEdit ? 'Salvar' : 'Adicionar'),
-                style: FilledButton.styleFrom(
-                    backgroundColor: ThemeCleanPremium.primary),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    if (result == null || !mounted) return;
-
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      if (isEdit) {
-        if (comprovanteFile != null) {
-          final ref = FirebaseStorage.instance
-              .ref('igrejas/${widget.tenantId}/comprovantes/${doc!.id}.jpg');
-          final bytes = await comprovanteFile!.readAsBytes();
-          final compressed = await ImageHelper.compressImage(
-            bytes,
-            minWidth: 800,
-            minHeight: 600,
-            quality: 70,
-          );
-          await ref.putData(
-              compressed,
-              SettableMetadata(
-                  contentType: 'image/jpeg',
-                  cacheControl: 'public, max-age=31536000'));
-          final url = await ref.getDownloadURL();
-          result['comprovanteUrl'] = url;
-        } else if ((data?['comprovanteUrl'] ?? '').toString().isNotEmpty) {
-          result['comprovanteUrl'] = data!['comprovanteUrl'];
-        }
-        await doc!.reference.update(result);
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Lançamento atualizado!',
-                  style: TextStyle(color: Colors.white)),
-              backgroundColor: Colors.green));
-      } else {
-        final docRef = await _financeCol.add(result);
-        if (comprovanteFile != null) {
-          final ref = FirebaseStorage.instance
-              .ref('igrejas/${widget.tenantId}/comprovantes/${docRef.id}.jpg');
-          final bytes = await comprovanteFile!.readAsBytes();
-          final compressed = await ImageHelper.compressImage(
-            bytes,
-            minWidth: 800,
-            minHeight: 600,
-            quality: 70,
-          );
-          await ref.putData(
-              compressed,
-              SettableMetadata(
-                  contentType: 'image/jpeg',
-                  cacheControl: 'public, max-age=31536000'));
-          final url = await ref.getDownloadURL();
-          await docRef.update({'comprovanteUrl': url});
-        }
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Lançamento salvo!',
-                  style: TextStyle(color: Colors.white)),
-              backgroundColor: Colors.green));
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
-    }
+      {DocumentSnapshot<Map<String, dynamic>>? doc}) {
+    return showFinanceLancamentoEditorForTenant(context,
+        tenantId: widget.tenantId, existingDoc: doc);
   }
 
   // ─── Exportar CSV ────────────────────────────────────────────────────────────
@@ -1195,7 +781,7 @@ class _ResumoTabState extends State<_ResumoTab> {
 
         final saldo = totalReceitas - totalDespesas;
 
-        // Saldo por conta (apenas transferências: usa TODOS os docs — saldo acumulado)
+        // Saldo por conta: transferências + receitas (crédito na conta) + despesas (débito).
         final saldoPorConta = <String, double>{};
         for (final c in contasDocs) {
           if (c.data()['ativo'] == false) continue;
@@ -1205,17 +791,35 @@ class _ResumoTabState extends State<_ResumoTab> {
         for (final d in allDocs) {
           final data = d.data();
           final tipo = (data['type'] ?? '').toString().toLowerCase();
-          if (tipo != 'transferencia') continue;
           final valor = _parseValor(data['amount'] ?? data['valor']);
-          final origemId = (data['contaOrigemId'] ?? '').toString();
-          final destinoId = (data['contaDestinoId'] ?? '').toString();
-          if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId))
-            saldoPorConta[destinoId] = (saldoPorConta[destinoId] ?? 0) + valor;
-          if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId))
-            saldoPorConta[origemId] = (saldoPorConta[origemId] ?? 0) - valor;
+          if (tipo == 'transferencia') {
+            final origemId = (data['contaOrigemId'] ?? '').toString();
+            final destinoId = (data['contaDestinoId'] ?? '').toString();
+            if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
+              saldoPorConta[destinoId] =
+                  (saldoPorConta[destinoId] ?? 0) + valor;
+            }
+            if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
+              saldoPorConta[origemId] =
+                  (saldoPorConta[origemId] ?? 0) - valor;
+            }
+            continue;
+          }
+          if (tipo.contains('entrada') || tipo.contains('receita')) {
+            final destinoId = (data['contaDestinoId'] ?? '').toString();
+            if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
+              saldoPorConta[destinoId] =
+                  (saldoPorConta[destinoId] ?? 0) + valor;
+            }
+          } else {
+            final origemId = (data['contaOrigemId'] ?? '').toString();
+            if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
+              saldoPorConta[origemId] =
+                  (saldoPorConta[origemId] ?? 0) - valor;
+            }
+          }
         }
 
-        final parent = context.findAncestorStateOfType<_FinancePageState>();
         final contasAtivas =
             contasDocs.where((c) => c.data()['ativo'] != false).toList();
 
@@ -1314,7 +918,8 @@ class _ResumoTabState extends State<_ResumoTab> {
                           tipo: 'entrada',
                           titulo: 'Receitas',
                           onEdit: (ctx, doc) async {
-                            await parent?._showLancamentoDialog(ctx, doc: doc);
+                            await showFinanceLancamentoEditorForTenant(ctx,
+                                tenantId: widget.tenantId, existingDoc: doc);
                           },
                         ),
                       ),
@@ -1338,7 +943,8 @@ class _ResumoTabState extends State<_ResumoTab> {
                           tipo: 'saida',
                           titulo: 'Despesas',
                           onEdit: (ctx, doc) async {
-                            await parent?._showLancamentoDialog(ctx, doc: doc);
+                            await showFinanceLancamentoEditorForTenant(ctx,
+                                tenantId: widget.tenantId, existingDoc: doc);
                           },
                         ),
                       ),
@@ -1526,9 +1132,6 @@ class _ResumoTabState extends State<_ResumoTab> {
                       final id = c.id;
                       final nome = (c.data()['nome'] ?? '').toString();
                       final saldoConta = saldoPorConta[id] ?? 0.0;
-                      final cor = saldoConta >= 0
-                          ? _financeSaldoPositivo
-                          : _financeSaldoNegativo;
                       return SizedBox(
                         width: narrow ? double.infinity : 180,
                         child: _ContaSaldoCard(
@@ -1545,8 +1148,10 @@ class _ResumoTabState extends State<_ResumoTab> {
                                   contaId: id,
                                   contaNome: nome,
                                   onEdit: (ctx, doc) async {
-                                    await parent?._showLancamentoDialog(ctx,
-                                        doc: doc);
+                                    await showFinanceLancamentoEditorForTenant(
+                                        ctx,
+                                        tenantId: widget.tenantId,
+                                        existingDoc: doc);
                                   },
                                 ),
                               ),
@@ -2221,8 +1826,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   }
 
   void _editarLancamento(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final parent = context.findAncestorStateOfType<_FinancePageState>();
-    parent?._showLancamentoDialog(context, doc: doc);
+    showFinanceLancamentoEditorForTenant(context,
+        tenantId: widget.tenantId, existingDoc: doc);
   }
 
   Future<void> _excluirLancamento(
@@ -2318,8 +1923,16 @@ class _LancamentoCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          onTap: () => _showDetalhes(context, data, comprovanteUrl, dataStr,
-              isEntrada, isTransfer, color, valor, titulo, subtitulo),
+          onTap: () => showFinanceLancamentoDetailsBottomSheet(context,
+              data: data,
+              comprovanteUrl: comprovanteUrl,
+              dataStr: dataStr,
+              isEntrada: isEntrada,
+              isTransfer: isTransfer,
+              color: color,
+              valor: valor,
+              titulo: titulo,
+              subtitulo: subtitulo),
           child: Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
             child: Row(
@@ -2403,8 +2016,10 @@ class _LancamentoCard extends StatelessWidget {
                           icon: Icons.camera_alt_rounded,
                           color: const Color(0xFF7C3AED),
                           tooltip: 'Comprovante',
-                          onTap: () =>
-                              _uploadComprovante(context, doc, tenantId),
+                          onTap: () => uploadFinanceComprovanteForLancamento(
+                              context,
+                              tenantId: tenantId,
+                              doc: doc),
                         ),
                       ],
                     ),
@@ -2416,214 +2031,6 @@ class _LancamentoCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  void _showDetalhes(
-      BuildContext context,
-      Map<String, dynamic> data,
-      String comprovanteUrl,
-      String dataStr,
-      bool isEntrada,
-      bool isTransfer,
-      Color color,
-      double valor,
-      String titulo,
-      String subtitulo) {
-    final tipoLabel =
-        isTransfer ? 'Transferência' : (isEntrada ? 'Receita' : 'Despesa');
-    final origemNome = (data['contaOrigemNome'] ?? '').toString();
-    final destinoNome = (data['contaDestinoNome'] ?? '').toString();
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-                child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Icon(
-                      isTransfer
-                          ? Icons.swap_horiz_rounded
-                          : (isEntrada
-                              ? Icons.trending_up_rounded
-                              : Icons.trending_down_rounded),
-                      color: color,
-                      size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(titulo,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w800)),
-                      Text(tipoLabel,
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: color,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                Text('R\$ ${valor.toStringAsFixed(2)}',
-                    style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        color: color)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (isTransfer &&
-                origemNome.isNotEmpty &&
-                destinoNome.isNotEmpty) ...[
-              Text('Conta de origem',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600)),
-              Text(origemNome, style: const TextStyle(fontSize: 15)),
-              const SizedBox(height: 8),
-              Text('Conta de destino',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600)),
-              Text(destinoNome, style: const TextStyle(fontSize: 15)),
-              const SizedBox(height: 12),
-            ],
-            if (isTransfer &&
-                (data['descricao'] ?? '').toString().trim().isNotEmpty) ...[
-              Text('Anotações',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600)),
-              Text((data['descricao'] ?? '').toString(),
-                  style: const TextStyle(fontSize: 15)),
-              const SizedBox(height: 12),
-            ],
-            if (subtitulo.isNotEmpty && !isTransfer) ...[
-              Text('Descrição',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600)),
-              Text(subtitulo, style: const TextStyle(fontSize: 15)),
-              const SizedBox(height: 12),
-            ],
-            Text('Data',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            Text(dataStr, style: const TextStyle(fontSize: 15)),
-            if (comprovanteUrl.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Comprovante',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600)),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SafeNetworkImage(
-                    imageUrl: comprovanteUrl,
-                    height: 200,
-                    fit: BoxFit.cover,
-                    errorWidget: const Text('Erro ao carregar imagem')),
-              ),
-            ],
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _uploadComprovante(BuildContext context,
-      DocumentSnapshot<Map<String, dynamic>> doc, String tenantId) async {
-    final picker = ImagePicker();
-    final source = await showDialog<ImageSource>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Anexar comprovante'),
-        children: [
-          if (!kIsWeb)
-            SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, ImageSource.camera),
-                child: const Row(children: [
-                  Icon(Icons.camera_alt_rounded),
-                  SizedBox(width: 12),
-                  Text('Câmera')
-                ])),
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, ImageSource.gallery),
-              child: const Row(children: [
-                Icon(Icons.photo_library_rounded),
-                SizedBox(width: 12),
-                Text('Galeria / Arquivo')
-              ])),
-        ],
-      ),
-    );
-    if (source == null) return;
-
-    final xfile = await picker.pickImage(
-        source: source, maxWidth: 1200, imageQuality: 80);
-    if (xfile == null) return;
-
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Enviando comprovante...')));
-
-    try {
-      final ref = FirebaseStorage.instance
-          .ref('igrejas/$tenantId/comprovantes/${doc.id}.jpg');
-      final bytes = await xfile.readAsBytes();
-      final compressed = await ImageHelper.compressImage(
-        bytes,
-        minWidth: 800,
-        minHeight: 600,
-        quality: 70,
-      );
-      await ref.putData(
-          compressed,
-          SettableMetadata(
-              contentType: 'image/jpeg',
-              cacheControl: 'public, max-age=31536000'));
-      final url = await ref.getDownloadURL();
-      await doc.reference.update({'comprovanteUrl': url});
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Comprovante anexado!',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
-    } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
-    }
   }
 }
 
@@ -3161,7 +2568,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
     if (result == null) return;
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     if (isEdit) {
-      await doc!.reference.update(result);
+      await doc.reference.update(result);
     } else {
       await _col.add(result);
     }
@@ -3606,8 +3013,16 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
 // ═══════════════════════════════════════════════════════════════════════════════
 class _FinanceContasTab extends StatefulWidget {
   final String tenantId;
+  final String role;
+  final Future<void> Function(
+          BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc)
+      onEditLancamento;
 
-  const _FinanceContasTab({required this.tenantId});
+  const _FinanceContasTab({
+    required this.tenantId,
+    required this.role,
+    required this.onEditLancamento,
+  });
 
   @override
   State<_FinanceContasTab> createState() => _FinanceContasTabState();
@@ -3619,6 +3034,36 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('contas');
+
+  CollectionReference<Map<String, dynamic>> get _financeCol =>
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('finance');
+
+  static String _tipoContaLabel(String? raw) {
+    switch ((raw ?? '').toLowerCase()) {
+      case 'poupanca':
+      case 'poupança':
+        return 'Poupança';
+      case 'caixa':
+        return 'Caixa / numerário';
+      default:
+        return 'Conta corrente';
+    }
+  }
+
+  static String _contaSubtitle(Map<String, dynamic> d) {
+    final tipo = _tipoContaLabel(d['tipoConta']?.toString());
+    final banco = (d['bancoNome'] ?? '').toString().trim();
+    final ag = (d['agencia'] ?? '').toString().trim();
+    final nc = (d['numeroConta'] ?? '').toString().trim();
+    final parts = <String>[tipo];
+    if (banco.isNotEmpty) parts.add(banco);
+    if (ag.isNotEmpty) parts.add('Ag. $ag');
+    if (nc.isNotEmpty) parts.add('Conta $nc');
+    return parts.join(' · ');
+  }
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
 
@@ -3660,7 +3105,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Contas para transferências (origem/destino)',
+                      'Contas, bancos e caixas (transferências e extrato)',
                       style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade800,
@@ -3719,8 +3164,10 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                   itemCount: docs.length,
                   itemBuilder: (context, i) {
                     final d = docs[i];
-                    final nome = (d.data()['nome'] ?? '').toString();
-                    final ativo = d.data()['ativo'] != false;
+                    final data = d.data();
+                    final nome = (data['nome'] ?? '').toString();
+                    final ativo = data['ativo'] != false;
+                    final sub = _contaSubtitle(data);
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
@@ -3734,6 +3181,23 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: ThemeCleanPremium.spaceLg,
                             vertical: 12),
+                        onTap: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _MovimentacoesContaPage(
+                                financeCol: _financeCol,
+                                tenantId: widget.tenantId,
+                                role: widget.role,
+                                contaId: d.id,
+                                contaNome: nome.isNotEmpty ? nome : 'Conta',
+                                onEdit: (ctx, doc) =>
+                                    widget.onEditLancamento(ctx, doc),
+                              ),
+                            ),
+                          );
+                          if (mounted) _refresh();
+                        },
                         leading: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -3747,11 +3211,22 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                         title: Text(nome,
                             style:
                                 const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: ativo
-                            ? null
-                            : Text('Inativa',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.grey.shade600)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (sub.isNotEmpty)
+                              Text(sub,
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade700)),
+                            if (!ativo)
+                              Text('Inativa',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.orange.shade800)),
+                          ],
+                        ),
+                        isThreeLine: sub.isNotEmpty || !ativo,
                         trailing: PopupMenuButton<String>(
                           icon: const Icon(Icons.more_vert_rounded),
                           shape: RoundedRectangleBorder(
@@ -3814,46 +3289,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   Future<void> _showAddConta(
       BuildContext context, CollectionReference<Map<String, dynamic>> col,
       {VoidCallback? onSaved}) async {
-    final ctrl = TextEditingController();
-    final nome = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Nova conta'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Nome da conta',
-            hintText: 'Ex.: Caixa da Tesouraria',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Adicionar'),
-            style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.primary),
-          ),
-        ],
-      ),
-    );
-    if (nome != null && nome.isNotEmpty && context.mounted) {
-      await col.add({'nome': nome, 'ativo': true});
-      if (context.mounted) {
-        onSaved?.call();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Conta adicionada.',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
-      }
-    }
+    await _showContaEditor(context, col, null, onSaved: onSaved);
   }
 
   Future<void> _showEditConta(
@@ -3861,43 +3297,243 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
       CollectionReference<Map<String, dynamic>> col,
       DocumentSnapshot<Map<String, dynamic>> doc,
       {VoidCallback? onSaved}) async {
-    final nomeAtual = (doc.data()?['nome'] ?? '').toString();
-    final ctrl = TextEditingController(text: nomeAtual);
-    final nome = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Editar conta'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-              labelText: 'Nome', border: OutlineInputBorder()),
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Salvar'),
-            style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.primary),
-          ),
-        ],
-      ),
-    );
-    if (nome != null && nome.isNotEmpty && context.mounted) {
-      await doc.reference.update({'nome': nome});
-      if (context.mounted) {
-        onSaved?.call();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Conta atualizada.',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
+    await _showContaEditor(context, col, doc, onSaved: onSaved);
+  }
+
+  Future<void> _showContaEditor(
+    BuildContext context,
+    CollectionReference<Map<String, dynamic>> col,
+    DocumentSnapshot<Map<String, dynamic>>? existing, {
+    VoidCallback? onSaved,
+  }) async {
+    final d = existing?.data();
+    final nomeCtrl = TextEditingController(text: (d?['nome'] ?? '').toString());
+    final agenciaCtrl = TextEditingController(text: (d?['agencia'] ?? '').toString());
+    final contaCtrl = TextEditingController(text: (d?['numeroConta'] ?? '').toString());
+    final obsCtrl = TextEditingController(text: (d?['observacao'] ?? '').toString());
+
+    var bancoSel = kBrasilBancosComuns.first;
+    final cod = (d?['bancoCodigo'] ?? '').toString();
+    final nm = (d?['bancoNome'] ?? '').toString();
+    if (nm.isNotEmpty || cod.isNotEmpty) {
+      final ix = kBrasilBancosComuns.indexWhere(
+        (o) =>
+            o.codigo == cod && o.nome.toLowerCase() == nm.toLowerCase(),
+      );
+      if (ix >= 0) {
+        bancoSel = kBrasilBancosComuns[ix];
+      } else {
+        bancoSel = BrasilBancoOption(
+            codigo: cod, nome: nm.isNotEmpty ? nm : 'Instituição');
       }
+    }
+
+    String tipoConta = (d?['tipoConta'] ?? 'corrente').toString().toLowerCase();
+    if (!['corrente', 'poupanca', 'caixa'].contains(tipoConta)) {
+      tipoConta = 'corrente';
+    }
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            final bankOptions = List<BrasilBancoOption>.from(kBrasilBancosComuns);
+            if (!bankOptions.any((o) =>
+                o.codigo == bancoSel.codigo && o.nome == bancoSel.nome)) {
+              bankOptions.insert(0, bancoSel);
+            }
+            return Padding(
+              padding: EdgeInsets.only(
+                left: ThemeCleanPremium.spaceLg,
+                right: ThemeCleanPremium.spaceLg,
+                top: ThemeCleanPremium.spaceMd,
+                bottom: MediaQuery.viewInsetsOf(ctx).bottom + ThemeCleanPremium.spaceLg,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      existing == null ? 'Nova conta ou caixa' : 'Editar conta',
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Defina banco, tipo e agência para controle e extratos.',
+                      style:
+                          TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: nomeCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nome de exibição *',
+                        hintText: 'Ex.: Conta principal, Caixa culto',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.label_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<BrasilBancoOption>(
+                      value: bankOptions.contains(bancoSel) ? bancoSel : bankOptions.first,
+                      decoration: const InputDecoration(
+                        labelText: 'Banco / instituição',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.account_balance_rounded),
+                      ),
+                      isExpanded: true,
+                      items: bankOptions
+                          .map((b) => DropdownMenuItem(
+                                value: b,
+                                child: Text(
+                                  b.label,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setDlg(() => bancoSel = v);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Tipo', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                            value: 'corrente',
+                            label: Text('Corrente'),
+                            icon: Icon(Icons.credit_card_rounded, size: 18)),
+                        ButtonSegment(
+                            value: 'poupanca',
+                            label: Text('Poupança'),
+                            icon: Icon(Icons.savings_rounded, size: 18)),
+                        ButtonSegment(
+                            value: 'caixa',
+                            label: Text('Caixa'),
+                            icon: Icon(Icons.payments_rounded, size: 18)),
+                      ],
+                      selected: {tipoConta},
+                      onSelectionChanged: (s) {
+                        if (s.isNotEmpty) setDlg(() => tipoConta = s.first);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: agenciaCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Agência',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.store_rounded),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: contaCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Nº conta (opcional)',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.numbers_rounded),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: obsCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Observação (opcional)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.notes_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: () {
+                        final n = nomeCtrl.text.trim();
+                        if (n.isEmpty) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(content: Text('Informe o nome da conta.')),
+                          );
+                          return;
+                        }
+                        Navigator.pop(ctx, true);
+                      },
+                      icon: const Icon(Icons.save_rounded),
+                      label: Text(existing == null ? 'Cadastrar' : 'Salvar'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (ok != true || !context.mounted) return;
+
+    final nome = nomeCtrl.text.trim();
+    if (nome.isEmpty) return;
+
+    final payload = <String, dynamic>{
+      'nome': nome,
+      'bancoCodigo': bancoSel.codigo,
+      'bancoNome': bancoSel.nome,
+      'agencia': agenciaCtrl.text.trim(),
+      'numeroConta': contaCtrl.text.trim(),
+      'tipoConta': tipoConta,
+      'observacao': obsCtrl.text.trim(),
+      'ativo': d?['ativo'] ?? true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (existing == null) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+      await col.add(payload);
+    } else {
+      await existing.reference.set(payload, SetOptions(merge: true));
+    }
+
+    if (context.mounted) {
+      onSaved?.call();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            existing == null ? 'Conta cadastrada.' : 'Conta atualizada.',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green));
     }
   }
 
@@ -4182,6 +3818,904 @@ class _MiniButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
+Future<void> showFinanceLancamentoEditorForTenant(
+  BuildContext context, {
+  required String tenantId,
+  DocumentSnapshot<Map<String, dynamic>>? existingDoc,
+}) async {
+  final financeCol = FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('finance');
+
+  final isEdit = existingDoc != null;
+  final data = existingDoc?.data();
+
+  String tipo = isEdit ? (data?['type'] ?? 'entrada').toString() : 'entrada';
+  if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia') {
+    tipo = 'entrada';
+  }
+  final valorCtrl = TextEditingController(
+      text:
+          isEdit ? (data?['amount'] ?? data?['valor'] ?? '').toString() : '');
+  final descCtrl = TextEditingController(
+      text: isEdit
+          ? (data?['descricao'] ?? data?['anotacoes'] ?? '').toString()
+          : '');
+  String categoria = isEdit ? (data?['categoria'] ?? '').toString() : '';
+  String? contaOrigemId = isEdit
+      ? ((data?['contaOrigemId'] ?? '').toString().isEmpty
+          ? null
+          : (data?['contaOrigemId']).toString())
+      : null;
+  String? contaDestinoId = isEdit
+      ? ((data?['contaDestinoId'] ?? '').toString().isEmpty
+          ? null
+          : (data?['contaDestinoId']).toString())
+      : null;
+  DateTime dataSel = DateTime.now();
+  if (isEdit) {
+    final ts = data?['createdAt'] ?? data?['date'];
+    if (ts is Timestamp) dataSel = ts.toDate();
+  }
+
+  final catsReceita = await _financeCategoriasReceitaTenant(tenantId);
+  final catsDespesa = await _getCategoriasDespesaForTenant(tenantId);
+  final contas = await _financeContasAtivasTenant(tenantId);
+  if (categoria.isNotEmpty) {
+    if (tipo == 'entrada' && !catsReceita.contains(categoria)) categoria = '';
+    if (tipo == 'saida' && !catsDespesa.contains(categoria)) categoria = '';
+  }
+  if (contaOrigemId != null && !contas.any((c) => c.id == contaOrigemId)) {
+    contaOrigemId = null;
+  }
+  if (contaDestinoId != null && !contas.any((c) => c.id == contaDestinoId)) {
+    contaDestinoId = null;
+  }
+  if (tipo == 'entrada') {
+    contaOrigemId = null;
+  } else if (tipo == 'saida') {
+    contaDestinoId = null;
+  }
+
+  if (!context.mounted) return;
+  String t = tipo;
+  String cat = categoria;
+  String? coId = contaOrigemId;
+  String? cdId = contaDestinoId;
+  DateTime dataSelLocal = dataSel;
+  XFile? comprovanteFile;
+  String nomeConta(String? id) {
+    if (id == null) return '';
+    for (final c in contas) {
+      if (c.id == id) return c.nome;
+    }
+    return '';
+  }
+
+  final result = await showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDlgState) {
+        final isTransfer = t == 'transferencia';
+        final cats = t == 'entrada'
+            ? catsReceita
+            : (t == 'saida' ? catsDespesa : <String>[]);
+        if (cat.isNotEmpty && cats.isNotEmpty && !cats.contains(cat)) cat = '';
+        final contaFieldId = t == 'entrada' ? cdId : coId;
+        return Dialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24)),
+          clipBehavior: Clip.antiAlias,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 440,
+              maxHeight: MediaQuery.sizeOf(ctx).height * 0.88,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        ThemeCleanPremium.primary,
+                        ThemeCleanPremium.primary.withOpacity(0.82),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 4, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.22),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            isEdit
+                                ? Icons.edit_note_rounded
+                                : Icons.payments_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isEdit ? 'Editar lançamento' : 'Transação',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Controle por conta ou caixa',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.92),
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded,
+                              color: Colors.white),
+                          tooltip: 'Fechar',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                        value: 'entrada',
+                        label: Text('Receita'),
+                        icon: Icon(Icons.trending_up_rounded)),
+                    ButtonSegment(
+                        value: 'saida',
+                        label: Text('Despesa'),
+                        icon: Icon(Icons.trending_down_rounded)),
+                    ButtonSegment(
+                        value: 'transferencia',
+                        label: Text('Transferência'),
+                        icon: Icon(Icons.swap_horiz_rounded)),
+                  ],
+                  selected: {t},
+                  onSelectionChanged: (s) => setDlgState(() {
+                    final prev = t;
+                    t = s.first;
+                    cat = '';
+                    if (t == 'transferencia' || prev == 'transferencia') {
+                      coId = null;
+                      cdId = null;
+                    } else if (prev == 'entrada' && t == 'saida') {
+                      coId = cdId;
+                      cdId = null;
+                    } else if (prev == 'saida' && t == 'entrada') {
+                      cdId = coId;
+                      coId = null;
+                    }
+                  }),
+                  style: SegmentedButton.styleFrom(
+                    selectedForegroundColor: t == 'entrada'
+                        ? _financeEntradas
+                        : t == 'saida'
+                            ? _financeSaidas
+                            : _financeTransferencia,
+                    selectedBackgroundColor: t == 'entrada'
+                        ? const Color(0xFFEFF6FF)
+                        : t == 'saida'
+                            ? const Color(0xFFFEF2F2)
+                            : const Color(0xFFEEF2FF),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (!isTransfer) ...[
+                  DropdownButtonFormField<String>(
+                    value: cat.isNotEmpty ? cat : null,
+                    decoration: InputDecoration(
+                      labelText: 'Categoria',
+                      filled: true,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm)),
+                      prefixIcon: const Icon(Icons.category_rounded),
+                    ),
+                    items: cats
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .toList(),
+                    onChanged: (v) => setDlgState(() => cat = v ?? ''),
+                  ),
+                  const SizedBox(height: 12),
+                  if (contas.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      value: contaFieldId != null &&
+                              contas.any((e) => e.id == contaFieldId)
+                          ? contaFieldId
+                          : null,
+                      decoration: InputDecoration(
+                        labelText: t == 'entrada'
+                            ? 'Conta / caixa (crédito)'
+                            : 'Conta / caixa (débito)',
+                        hintText: 'Onde o valor entra ou sai',
+                        filled: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm)),
+                        prefixIcon: const Icon(
+                            Icons.account_balance_wallet_rounded),
+                      ),
+                      items: contas
+                          .map((c) => DropdownMenuItem(
+                              value: c.id, child: Text(c.nome)))
+                          .toList(),
+                      onChanged: (v) => setDlgState(() {
+                        if (t == 'entrada') {
+                          cdId = v;
+                          coId = null;
+                        } else {
+                          coId = v;
+                          cdId = null;
+                        }
+                      }),
+                    ),
+                  if (contas.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        border: Border.all(
+                            color: Colors.orange.shade200, width: 1),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              color: Colors.orange.shade800, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Cadastre contas em Financeiro → Contas para vincular receitas e despesas.',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: Colors.orange.shade900,
+                                  height: 1.35),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                ],
+                if (isTransfer) ...[
+                  DropdownButtonFormField<String>(
+                    value: coId != null && contas.any((e) => e.id == coId)
+                        ? coId
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: 'Conta de origem',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm)),
+                      prefixIcon:
+                          const Icon(Icons.account_balance_wallet_rounded),
+                    ),
+                    items: contas
+                        .map((c) => DropdownMenuItem(
+                            value: c.id, child: Text(c.nome)))
+                        .toList(),
+                    onChanged: (v) => setDlgState(() => coId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: cdId != null && contas.any((e) => e.id == cdId)
+                        ? cdId
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: 'Conta de destino',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm)),
+                      prefixIcon: const Icon(Icons.account_balance_rounded),
+                    ),
+                    items: contas
+                        .map((c) => DropdownMenuItem(
+                            value: c.id, child: Text(c.nome)))
+                        .toList(),
+                    onChanged: (v) => setDlgState(() => cdId = v),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: descCtrl,
+                  decoration: InputDecoration(
+                    labelText: isTransfer
+                        ? 'Anotações (opcional)'
+                        : 'Descrição (opcional)',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm)),
+                    prefixIcon: const Icon(Icons.notes_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: valorCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: r'Valor (R$)',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm)),
+                    prefixIcon: const Icon(Icons.attach_money_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: dataSelLocal,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (picked != null) setDlgState(() => dataSelLocal = picked);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded,
+                            size: 20,
+                            color: ThemeCleanPremium.onSurfaceVariant),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${dataSelLocal.day.toString().padLeft(2, '0')}/${dataSelLocal.month.toString().padLeft(2, '0')}/${dataSelLocal.year}',
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.receipt_long_rounded,
+                        size: 20, color: Colors.grey.shade600),
+                    const SizedBox(width: 8),
+                    Text('Comprovante',
+                        style: TextStyle(
+                            fontSize: 14, color: Colors.grey.shade700)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final source = await showDialog<ImageSource>(
+                      context: ctx,
+                      builder: (c) => SimpleDialog(
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg)),
+                        title: const Text('Anexar comprovante'),
+                        children: [
+                          SimpleDialogOption(
+                            onPressed: () =>
+                                Navigator.pop(c, ImageSource.camera),
+                            child: const Row(children: [
+                              Icon(Icons.camera_alt_rounded),
+                              SizedBox(width: 12),
+                              Text('Câmera')
+                            ]),
+                          ),
+                          SimpleDialogOption(
+                            onPressed: () =>
+                                Navigator.pop(c, ImageSource.gallery),
+                            child: const Row(children: [
+                              Icon(Icons.photo_library_rounded),
+                              SizedBox(width: 12),
+                              Text('Galeria / Arquivo')
+                            ]),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (source == null) return;
+                    final picker = ImagePicker();
+                    final xfile = await picker.pickImage(
+                        source: source, maxWidth: 1200, imageQuality: 80);
+                    if (xfile != null) {
+                      comprovanteFile = xfile;
+                      setDlgState(() {});
+                    }
+                  },
+                  icon: Icon(
+                      comprovanteFile != null
+                          ? Icons.check_circle_rounded
+                          : Icons.add_photo_alternate_rounded,
+                      size: 20),
+                  label: Text(comprovanteFile != null
+                      ? 'Comprovante anexado'
+                      : 'Anexar comprovante'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: comprovanteFile != null
+                        ? ThemeCleanPremium.success
+                        : null,
+                  ),
+                ),
+                if (comprovanteFile != null)
+                  TextButton.icon(
+                    onPressed: () => setDlgState(() {
+                      comprovanteFile = null;
+                    }),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Remover'),
+                    style: TextButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.error),
+                  ),
+                if (isEdit &&
+                    (data?['comprovanteUrl'] ?? '').toString().isNotEmpty &&
+                    comprovanteFile == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('Comprovante atual já anexado.',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey.shade600)),
+                  ),
+              ],
+                    ),
+                  ),
+                ),
+                Material(
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withOpacity(0.4),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(12, 10, 12, 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancelar'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () {
+                            final valor = double.tryParse(
+                                    valorCtrl.text.replaceAll(',', '.')) ??
+                                0;
+                            if (valor <= 0) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                      content:
+                                          Text('Informe um valor válido.')));
+                              return;
+                            }
+                            if (!isTransfer && cat.isEmpty) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          'Selecione uma categoria.')));
+                              return;
+                            }
+                            if (!isTransfer && contas.isNotEmpty) {
+                              if (t == 'entrada' && cdId == null) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'Selecione a conta ou caixa da receita.')));
+                                return;
+                              }
+                              if (t == 'saida' && coId == null) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'Selecione a conta ou caixa da despesa.')));
+                                return;
+                              }
+                            }
+                            if (isTransfer &&
+                                (coId == null ||
+                                    cdId == null ||
+                                    coId == cdId)) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          'Selecione contas de origem e destino diferentes.')));
+                              return;
+                            }
+                            final map = <String, dynamic>{
+                              'type': t,
+                              'amount': valor,
+                              'descricao': descCtrl.text.trim(),
+                              'createdAt':
+                                  Timestamp.fromDate(dataSelLocal),
+                            };
+                            if (!isTransfer) map['categoria'] = cat;
+                            if (isTransfer) {
+                              map['contaOrigemId'] = coId;
+                              map['contaDestinoId'] = cdId;
+                              map['contaOrigemNome'] = nomeConta(coId);
+                              map['contaDestinoNome'] = nomeConta(cdId);
+                            } else if (contas.isNotEmpty) {
+                              if (t == 'entrada') {
+                                map['contaDestinoId'] = cdId;
+                                map['contaDestinoNome'] = nomeConta(cdId);
+                              } else {
+                                map['contaOrigemId'] = coId;
+                                map['contaOrigemNome'] = nomeConta(coId);
+                              }
+                            }
+                            Navigator.pop(ctx, map);
+                          },
+                          icon: Icon(isEdit
+                              ? Icons.save_rounded
+                              : Icons.check_rounded),
+                          label:
+                              Text(isEdit ? 'Salvar' : 'Adicionar'),
+                          style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  ThemeCleanPremium.primary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  if (result == null || !context.mounted) return;
+
+  try {
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    if (isEdit) {
+      final novoComp = comprovanteFile;
+      if (novoComp != null) {
+        final ref = FirebaseStorage.instance
+            .ref('igrejas/$tenantId/comprovantes/${existingDoc.id}.jpg');
+        final bytes = await novoComp.readAsBytes();
+        final compressed = await ImageHelper.compressImage(
+          bytes,
+          minWidth: 800,
+          minHeight: 600,
+          quality: 70,
+        );
+        await ref.putData(
+            compressed,
+            SettableMetadata(
+                contentType: 'image/jpeg',
+                cacheControl: 'public, max-age=31536000'));
+        final url = await ref.getDownloadURL();
+        result['comprovanteUrl'] = url;
+      } else if ((data?['comprovanteUrl'] ?? '').toString().isNotEmpty) {
+        result['comprovanteUrl'] = data?['comprovanteUrl'];
+      }
+      final patch = Map<String, dynamic>.from(result);
+      final tt = (patch['type'] ?? '').toString();
+      if (tt == 'entrada') {
+        patch['contaOrigemId'] = FieldValue.delete();
+        patch['contaOrigemNome'] = FieldValue.delete();
+      } else if (tt == 'saida') {
+        patch['contaDestinoId'] = FieldValue.delete();
+        patch['contaDestinoNome'] = FieldValue.delete();
+      }
+      await existingDoc.reference.update(patch);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Lançamento atualizado!',
+                style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green));
+      }
+    } else {
+      final docRef = await financeCol.add(result);
+      final novoCompAdd = comprovanteFile;
+      if (novoCompAdd != null) {
+        final ref = FirebaseStorage.instance
+            .ref('igrejas/$tenantId/comprovantes/${docRef.id}.jpg');
+        final bytesNew = await novoCompAdd.readAsBytes();
+        final compressedNew = await ImageHelper.compressImage(
+          bytesNew,
+          minWidth: 800,
+          minHeight: 600,
+          quality: 70,
+        );
+        await ref.putData(
+            compressedNew,
+            SettableMetadata(
+                contentType: 'image/jpeg',
+                cacheControl: 'public, max-age=31536000'));
+        final urlNew = await ref.getDownloadURL();
+        await docRef.update({'comprovanteUrl': urlNew});
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Lançamento salvo!',
+                style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green));
+      }
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
+    }
+  }
+}
+
+Future<void> uploadFinanceComprovanteForLancamento(
+  BuildContext context, {
+  required String tenantId,
+  required DocumentSnapshot<Map<String, dynamic>> doc,
+}) async {
+  final picker = ImagePicker();
+  final source = await showDialog<ImageSource>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+      title: const Text('Anexar comprovante'),
+      children: [
+        if (!kIsWeb)
+          SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, ImageSource.camera),
+              child: const Row(children: [
+                Icon(Icons.camera_alt_rounded),
+                SizedBox(width: 12),
+                Text('Câmera')
+              ])),
+        SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, ImageSource.gallery),
+            child: const Row(children: [
+              Icon(Icons.photo_library_rounded),
+              SizedBox(width: 12),
+              Text('Galeria / Arquivo')
+            ])),
+      ],
+    ),
+  );
+  if (source == null) return;
+
+  final xfile = await picker.pickImage(
+      source: source, maxWidth: 1200, imageQuality: 80);
+  if (xfile == null) return;
+
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+      .showSnackBar(const SnackBar(content: Text('Enviando comprovante...')));
+
+  try {
+    final ref = FirebaseStorage.instance
+        .ref('igrejas/$tenantId/comprovantes/${doc.id}.jpg');
+    final bytes = await xfile.readAsBytes();
+    final compressed = await ImageHelper.compressImage(
+      bytes,
+      minWidth: 800,
+      minHeight: 600,
+      quality: 70,
+    );
+    await ref.putData(
+        compressed,
+        SettableMetadata(
+            contentType: 'image/jpeg',
+            cacheControl: 'public, max-age=31536000'));
+    final url = await ref.getDownloadURL();
+    await doc.reference.update({'comprovanteUrl': url});
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Comprovante anexado!',
+              style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.green));
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
+    }
+  }
+}
+
+void showFinanceLancamentoDetailsBottomSheet(
+  BuildContext context, {
+  required Map<String, dynamic> data,
+  required String comprovanteUrl,
+  required String dataStr,
+  required bool isEntrada,
+  required bool isTransfer,
+  required Color color,
+  required double valor,
+  required String titulo,
+  required String subtitulo,
+}) {
+  final tipoLabel =
+      isTransfer ? 'Transferência' : (isEntrada ? 'Receita' : 'Despesa');
+  final origemNome = (data['contaOrigemNome'] ?? '').toString();
+  final destinoNome = (data['contaDestinoNome'] ?? '').toString();
+  showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (ctx) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+              child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2)))),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12)),
+                child: Icon(
+                    isTransfer
+                        ? Icons.swap_horiz_rounded
+                        : (isEntrada
+                            ? Icons.trending_up_rounded
+                            : Icons.trending_down_rounded),
+                    color: color,
+                    size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(titulo,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                    Text(tipoLabel,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: color,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              Text('R\$ ${valor.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: color)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (isTransfer &&
+              origemNome.isNotEmpty &&
+              destinoNome.isNotEmpty) ...[
+            Text('Conta de origem',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(origemNome, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 8),
+            Text('Conta de destino',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(destinoNome, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+          ],
+          if (isTransfer &&
+              (data['descricao'] ?? '').toString().trim().isNotEmpty) ...[
+            Text('Anotações',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text((data['descricao'] ?? '').toString(),
+                style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+          ],
+          if (subtitulo.isNotEmpty && !isTransfer) ...[
+            Text('Descrição',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(subtitulo, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+          ],
+          Text('Data',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600)),
+          Text(dataStr, style: const TextStyle(fontSize: 15)),
+          if (data['pagamentoConfirmado'] == true) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.verified_rounded,
+                    size: 20, color: Colors.green.shade700),
+                const SizedBox(width: 8),
+                Text(
+                  'Pagamento confirmado',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.green.shade800),
+                ),
+              ],
+            ),
+          ],
+          if (comprovanteUrl.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Comprovante',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SafeNetworkImage(
+                  imageUrl: comprovanteUrl,
+                  height: 200,
+                  fit: BoxFit.cover,
+                  errorWidget: const Text('Erro ao carregar imagem')),
+            ),
+          ],
+          const SizedBox(height: 20),
+        ],
+      ),
+    ),
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
-/// Nome da pasta da foto de perfil no Storage: `PrimeiroNome_uidDoFirebase`
-/// (ex.: `Raihom_WIQ6QyLFn5UeEKZKXzF08kE4rCC2`). Se não houver [authUid], usa o id do documento.
+/// **Canónico (uploads atuais):** `igrejas/{idIgreja}/membros/{idDocumentoMembro}/foto_perfil.jpg`
+/// — o [idDocumentoMembro] é o id do doc Firestore (muitas vezes o CPF só dígitos, ex. `94536368191`);
+/// o ficheiro é sempre `foto_perfil.jpg` (ver [ChurchStorageLayout.memberCanonicalProfilePhotoPath]).
 ///
-/// Caminho completo: `igrejas/{tenant}/membros/{stem}/foto_perfil.jpg`
+/// **Legado / descoberta:** pasta alternativa `PrimeiroNome_uidDoFirebase` (ex.: `Raihom_WIQ6…`) usada em
+/// [profileFolderStem] para [FirebaseStorageService.getMemberProfilePhotoDownloadUrl] tentar caminhos antigos.
 library;
 
 abstract final class MemberPhotoStorageNaming {

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -47,6 +48,17 @@ class _CargosPageState extends State<CargosPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _cargosFuture;
   /// Evita loop ao criar cargos padrão automaticamente.
   bool _triedAutoSeed = false;
+
+  /// Módulos extras gravados no doc do cargo e opcionalmente fundidos em `users.permissions`.
+  static const List<(String key, String label)> _kCargoModulePermissions = [
+    ('membros', 'Membros'),
+    ('departamentos', 'Departamentos'),
+    ('financeiro', 'Financeiro'),
+    ('patrimonio', 'Patrimônio'),
+    ('certificados', 'Certificados'),
+    ('escalas', 'Escalas'),
+    ('relatorios', 'Relatórios'),
+  ];
 
   static const _welcomeCargos = <_WelcomeCargoRow>[
     _WelcomeCargoRow(
@@ -144,6 +156,7 @@ class _CargosPageState extends State<CargosPage> {
           'order': i,
           'isDefaultPreset': true,
           'isWelcomeKit': true,
+          'modulePermissions': <String>[],
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
@@ -172,54 +185,228 @@ class _CargosPageState extends State<CargosPage> {
     setState(() => _cargosFuture = _col.orderBy('name').get());
   }
 
-  Future<void> _addOrEdit({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+  Future<void> _restoreMissingDefaultCargos() async {
     if (!_canWrite) return;
-    final data = doc?.data() ?? {};
-    final nameCtrl = TextEditingController(text: (data['name'] ?? '').toString());
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: Text(doc == null ? 'Novo cargo' : 'Editar cargo'),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Nome do cargo',
-            prefixIcon: Icon(Icons.badge_rounded),
-          ),
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
+        title: const Text('Restaurar cargos padrão'),
+        content: Text(
+          'Serão criados de novo os ${_welcomeCargos.length} cargos do kit oficial que ainda não existirem. '
+          'Cargos personalizados não serão removidos.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Salvar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Restaurar faltantes')),
         ],
       ),
     );
     if (ok != true) return;
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final existing = await _col.get();
+      final have = existing.docs.map((d) => d.id).toSet();
+      var n = 0;
+      final batch = FirebaseFirestore.instance.batch();
+      for (var i = 0; i < _welcomeCargos.length; i++) {
+        final row = _welcomeCargos[i];
+        if (have.contains(row.docId)) continue;
+        batch.set(_col.doc(row.docId), <String, dynamic>{
+          'name': row.name,
+          'key': row.key,
+          'permissionTemplate': row.permissionTemplate,
+          'hierarchyLevel': row.hierarchyLevel,
+          'accentColor': row.accentColor,
+          'requiresConsecrationDate': row.requiresConsecrationDate,
+          'order': i,
+          'isDefaultPreset': true,
+          'isWelcomeKit': true,
+          'modulePermissions': <String>[],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        n++;
+      }
+      if (n == 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Todos os cargos padrão já existem.')),
+          );
+        }
+        return;
+      }
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$n cargo(s) padrão criado(s).', style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _refresh();
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+    }
+  }
+
+  Future<void> _addOrEdit({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+    if (!_canWrite) return;
+    final data = doc?.data() ?? {};
+    final nameCtrl = TextEditingController(text: (data['name'] ?? '').toString());
+    final keyCtrl = TextEditingController(text: (data['key'] ?? doc?.id ?? '').toString());
+    final hierCtrl = TextEditingController(
+        text: (data['hierarchyLevel'] ?? '').toString().trim().isEmpty
+            ? '50'
+            : '${data['hierarchyLevel']}');
+    var template = (data['permissionTemplate'] ?? data['key'] ?? 'membro').toString().trim();
+    if (template.isEmpty) template = 'membro';
+    final modRaw = data['modulePermissions'] ?? data['module_permissions'];
+    final moduleSel = <String>{
+      if (modRaw is List)
+        for (final e in modRaw) (e ?? '').toString().trim().toLowerCase(),
+    };
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          final templates = ChurchFuncoesControleService.permissionTemplates;
+          final templateValue =
+              templates.any((t) => t.key == template) ? template : 'membro';
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+            title: Text(doc == null ? 'Novo cargo' : 'Editar cargo'),
+            content: SingleChildScrollView(
+              child: SizedBox(
+                width: 420,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nome do cargo',
+                        prefixIcon: Icon(Icons.badge_rounded),
+                      ),
+                      textCapitalization: TextCapitalization.words,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: keyCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Chave técnica (única)',
+                        prefixIcon: const Icon(Icons.key_rounded),
+                        helperText: doc == null
+                            ? 'Deixe vazio para gerar a partir do nome.'
+                            : 'Usada em FUNÇÕES do membro.',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: hierCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Nível hierárquico (0–100)',
+                        prefixIcon: Icon(Icons.layers_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: templateValue,
+                      decoration: const InputDecoration(
+                        labelText: 'Modelo de permissões base',
+                        prefixIcon: Icon(Icons.security_rounded),
+                      ),
+                      items: templates
+                          .map((t) => DropdownMenuItem(value: t.key, child: Text(t.label)))
+                          .toList(),
+                      onChanged: (v) => setDlg(() => template = v ?? 'membro'),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Módulos extras no painel',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade800)),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Somam-se ao modelo base. Ao vincular membro neste cargo, podem ser fundidos em users.permissions.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: _kCargoModulePermissions.map((m) {
+                        final sel = moduleSel.contains(m.$1);
+                        return FilterChip(
+                          label: Text(m.$2),
+                          selected: sel,
+                          onSelected: (v) => setDlg(() {
+                            if (v) {
+                              moduleSel.add(m.$1);
+                            } else {
+                              moduleSel.remove(m.$1);
+                            }
+                          }),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Salvar')),
+            ],
+          );
+        },
+      ),
+    );
+    if (saved != true) return;
     final name = nameCtrl.text.trim();
     if (name.isEmpty) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Informe o nome do cargo.')));
       return;
     }
-    final key = _nameToKey(name);
+    var key = keyCtrl.text.trim().toLowerCase();
+    if (key.isEmpty) key = _nameToKey(name);
     if (key.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nome inválido para o cargo.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chave inválida para o cargo.')));
       return;
     }
+    final h = int.tryParse(hierCtrl.text.trim()) ?? 50;
+    final mods = moduleSel.toList()..sort();
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final payload = <String, dynamic>{
+        'name': name,
+        'key': key,
+        'permissionTemplate': template,
+        'hierarchyLevel': h.clamp(0, 100),
+        'modulePermissions': mods,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
       if (doc == null) {
-        await _col.doc(key).set({
-          'name': name,
-          'key': key,
-          'order': 999,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cargo cadastrado!', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+        payload['order'] = 999;
+        payload['createdAt'] = FieldValue.serverTimestamp();
+        await _col.doc(key).set(payload);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Cargo cadastrado!', style: TextStyle(color: Colors.white)),
+              backgroundColor: Colors.green));
+        }
       } else {
-        await doc.reference.update({'name': name, 'key': key, 'updatedAt': FieldValue.serverTimestamp()});
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cargo atualizado!', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+        await doc.reference.update(payload);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Cargo atualizado!', style: TextStyle(color: Colors.white)),
+              backgroundColor: Colors.green));
+        }
       }
       _refresh();
     } catch (e) {
@@ -271,6 +458,7 @@ class _CargosPageState extends State<CargosPage> {
           role: widget.role,
           cargoName: name,
           cargoKey: key,
+          cargoRef: doc.reference,
           canWrite: _canWrite,
           onChanged: _refresh,
         ),
@@ -317,6 +505,17 @@ class _CargosPageState extends State<CargosPage> {
                   icon: const Icon(Icons.refresh_rounded),
                   style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
                 ),
+                if (_canWrite)
+                  PopupMenuButton<String>(
+                    tooltip: 'Mais opções',
+                    icon: const Icon(Icons.more_vert_rounded),
+                    onSelected: (v) {
+                      if (v == 'restore') _restoreMissingDefaultCargos();
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'restore', child: Text('Restaurar cargos padrão (faltantes)')),
+                    ],
+                  ),
                 if (_canWrite)
                   IconButton(
                     tooltip: 'Novo cargo',
@@ -394,6 +593,16 @@ class _CargosPageState extends State<CargosPage> {
                       icon: const Icon(Icons.refresh_rounded, color: Colors.white),
                       style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
                     ),
+                    if (_canWrite)
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                        onSelected: (v) {
+                          if (v == 'restore') _restoreMissingDefaultCargos();
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'restore', child: Text('Restaurar padrões (faltantes)')),
+                        ],
+                      ),
                     if (_canWrite)
                       IconButton(
                         tooltip: 'Novo cargo',
@@ -679,6 +888,7 @@ class _CargoMembrosPage extends StatefulWidget {
   final String role;
   final String cargoName;
   final String cargoKey;
+  final DocumentReference<Map<String, dynamic>> cargoRef;
   final bool canWrite;
   final VoidCallback onChanged;
 
@@ -687,6 +897,7 @@ class _CargoMembrosPage extends StatefulWidget {
     required this.role,
     required this.cargoName,
     required this.cargoKey,
+    required this.cargoRef,
     required this.canWrite,
     required this.onChanged,
   });
@@ -761,6 +972,149 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
   static String _nome(Map<String, dynamic> d) =>
       (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? 'Membro').toString().trim();
+
+  bool _memberHasCargo(Map<String, dynamic> d) {
+    final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
+    final cargoNameNorm = widget.cargoName.toLowerCase().trim();
+    final funcoes = d['FUNCOES'] ?? d['funcoes'];
+    if (funcoes is List) {
+      for (final f in funcoes) {
+        final s = (f ?? '').toString().trim().toLowerCase();
+        if (s == cargoKeyNorm || s == cargoNameNorm) return true;
+      }
+    }
+    final cargo =
+        (d['CARGO'] ?? d['cargo'] ?? d['funcao'] ?? d['role'] ?? '').toString().trim().toLowerCase();
+    return cargo == cargoKeyNorm || cargo == cargoNameNorm;
+  }
+
+  Future<List<_MemberWithRef>> _fetchAllMembersForPicker() async {
+    var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
+    if (allIds.isEmpty) allIds = [widget.tenantId];
+    final db = FirebaseFirestore.instance;
+    final seen = <String>{};
+    final list = <_MemberWithRef>[];
+    for (final tid in allIds) {
+      try {
+        final snap = await db.collection('igrejas').doc(tid).collection('membros').limit(500).get();
+        for (final doc in snap.docs) {
+          if (seen.contains(doc.id)) continue;
+          seen.add(doc.id);
+          list.add(_MemberWithRef(id: doc.id, data: doc.data(), ref: doc.reference));
+        }
+      } catch (_) {}
+    }
+    list.sort((a, b) => _nome(a.data).toLowerCase().compareTo(_nome(b.data).toLowerCase()));
+    return list;
+  }
+
+  Future<void> _linkMemberToCargo(_MemberWithRef m) async {
+    if (!_canWrite) return;
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    final cargoKey = widget.cargoKey.trim();
+    if (cargoKey.isEmpty) return;
+
+    final funcoesRaw = m.data['FUNCOES'] ?? m.data['funcoes'];
+    var funcoes = funcoesRaw is List
+        ? funcoesRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+    final kNorm = cargoKey.toLowerCase();
+    final nNorm = widget.cargoName.toLowerCase().trim();
+    final already = funcoes.any((f) {
+      final s = f.toLowerCase();
+      return s == kNorm || s == nNorm;
+    });
+    if (already) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Este membro já possui este cargo.')),
+        );
+      }
+      return;
+    }
+    funcoes = [...funcoes, cargoKey];
+
+    final updates = <String, dynamic>{'FUNCOES': funcoes};
+    final hadEmptyPrimary = (m.data['CARGO'] ?? m.data['cargo'] ?? '').toString().trim().isEmpty &&
+        (m.data['funcao'] ?? '').toString().trim().isEmpty;
+    if (hadEmptyPrimary && funcoes.isNotEmpty) {
+      final primary = funcoes.first;
+      updates['CARGO'] = primary;
+      updates['funcao'] = primary;
+      updates['role'] = primary.toLowerCase();
+    }
+
+    var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
+    if (allIds.isEmpty) allIds = [widget.tenantId];
+    final db = FirebaseFirestore.instance;
+    for (final tid in allIds) {
+      try {
+        await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+      } catch (_) {}
+    }
+
+    List<String> extraMods = [];
+    try {
+      final c = await widget.cargoRef.get();
+      extraMods = AppPermissions.normalizePermissions(c.data()?['modulePermissions']);
+    } catch (_) {}
+
+    final authUid = (m.data['authUid'] ?? '').toString().trim();
+    if (authUid.isNotEmpty) {
+      try {
+        final uref = db.collection('users').doc(authUid);
+        final userPatch = <String, dynamic>{'FUNCOES': funcoes};
+        if (extraMods.isNotEmpty) {
+          final us = await uref.get();
+          final cur = AppPermissions.normalizePermissions(us.data()?['permissions']);
+          userPatch['permissions'] = {...cur, ...extraMods}.toList();
+        }
+        await uref.set(userPatch, SetOptions(merge: true));
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Membro vinculado ao cargo.', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.green,
+        ),
+      );
+      widget.onChanged();
+      _loadMembers();
+    }
+  }
+
+  Future<void> _pickAndLinkMember() async {
+    if (!_canWrite) return;
+    try {
+      final all = await _fetchAllMembersForPicker();
+      final candidates = all.where((m) => !_memberHasCargo(m.data)).toList();
+      if (!mounted) return;
+      if (candidates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Todos os membros já têm este cargo ou não há membros cadastrados.')),
+        );
+        return;
+      }
+      final chosen = await showModalBottomSheet<_MemberWithRef>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (ctx) => _PickMemberForCargoBottomSheet(
+          cargoLabel: widget.cargoName,
+          candidates: candidates,
+        ),
+      );
+      if (chosen == null || !mounted) return;
+      await _linkMemberToCargo(chosen);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+    }
+  }
 
   static String? _fotoUrl(Map<String, dynamic> d) {
     final u = imageUrlFromMap(d);
@@ -851,6 +1205,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         .map((d) => (key: (d.data()['key'] ?? d.id).toString(), name: (d.data()['name'] ?? d.id).toString()))
         .where((c) => c.key != widget.cargoKey)
         .toList();
+    if (!mounted) return;
     if (cargos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não há outros cargos para alterar.')));
       return;
@@ -978,6 +1333,14 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
           ),
         ],
       ),
+      floatingActionButton: _canWrite
+          ? FloatingActionButton.extended(
+              onPressed: _pickAndLinkMember,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Vincular membro'),
+              backgroundColor: ThemeCleanPremium.primary,
+            )
+          : null,
       body: _loading
           ? Center(
               child: Column(
@@ -1005,11 +1368,17 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Vincule membros no cadastro de Membros.',
+                          'Use o botão Vincular membro ou o cadastro em Membros.',
                           style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 24),
+                        FilledButton.icon(
+                          onPressed: _pickAndLinkMember,
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                          label: const Text('Vincular membro'),
+                        ),
+                        const SizedBox(height: 12),
                         OutlinedButton.icon(
                           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MembersPage(tenantId: widget.tenantId, role: widget.role))),
                           icon: const Icon(Icons.people_rounded),
@@ -1092,6 +1461,148 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                     },
                   ),
                 ),
+    );
+  }
+}
+
+class _PickMemberForCargoBottomSheet extends StatefulWidget {
+  final String cargoLabel;
+  final List<_MemberWithRef> candidates;
+
+  const _PickMemberForCargoBottomSheet({
+    required this.cargoLabel,
+    required this.candidates,
+  });
+
+  @override
+  State<_PickMemberForCargoBottomSheet> createState() => _PickMemberForCargoBottomSheetState();
+}
+
+class _PickMemberForCargoBottomSheetState extends State<_PickMemberForCargoBottomSheet> {
+  final TextEditingController _q = TextEditingController();
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  static String _nome(Map<String, dynamic> d) =>
+      (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? 'Membro').toString().trim();
+
+  static String? _email(Map<String, dynamic> d) {
+    final e = (d['EMAIL'] ?? d['email'] ?? '').toString().trim();
+    return e.isEmpty ? null : e;
+  }
+
+  static String? _fotoUrl(Map<String, dynamic> d) {
+    final u = imageUrlFromMap(d);
+    return u.isNotEmpty ? u : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = MediaQuery.paddingOf(context);
+    final inset = MediaQuery.viewInsetsOf(context);
+    return Padding(
+      padding: EdgeInsets.only(bottom: inset.bottom),
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.65,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        builder: (ctx, scrollCtrl) {
+          return StatefulBuilder(
+            builder: (ctx, setSt) {
+              final qq = _q.text.trim().toLowerCase();
+              final filtered = qq.isEmpty
+                  ? widget.candidates
+                  : widget.candidates.where((m) {
+                      final n = _nome(m.data).toLowerCase();
+                      final em = (_email(m.data) ?? '').toLowerCase();
+                      final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+                      return n.contains(qq) || em.contains(qq) || cpf.contains(qq.replaceAll(RegExp(r'\D'), ''));
+                    }).toList();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20, 12 + pad.top * 0, 20, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Vincular a "${widget.cargoLabel}"',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _q,
+                          decoration: InputDecoration(
+                            hintText: 'Buscar por nome, e-mail ou CPF',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
+                            isDense: true,
+                          ),
+                          onChanged: (_) => setSt(() {}),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Nenhum resultado',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollCtrl,
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final m = filtered[i];
+                              final foto = _fotoUrl(m.data);
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: SafeCircleAvatarImage(
+                                    imageUrl: foto,
+                                    radius: 22,
+                                    fallbackIcon: Icons.person_rounded,
+                                    fallbackColor: ThemeCleanPremium.primary,
+                                  ),
+                                ),
+                                title: Text(_nome(m.data), style: const TextStyle(fontWeight: FontWeight.w700)),
+                                subtitle: Text(
+                                  _email(m.data) ?? (m.data['CPF'] ?? m.data['cpf'] ?? '').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => Navigator.pop(context, m),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

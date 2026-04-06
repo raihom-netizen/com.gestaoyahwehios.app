@@ -254,10 +254,12 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
   }
 }
 
-/// Faixa de ações compacta (referência divulgação: CTAs secundários; login fica no topo + FAB).
+/// Faixa de ações: CTA duplo (visitante vs membro) + canais secundários (WhatsApp, mapa, PWA).
 class ChurchPublicSiteHero extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onMemberSignup;
+  /// Entrada explícita para quem já é membro (login / app), em paralelo ao cadastro público.
+  final VoidCallback onMemberLogin;
   final VoidCallback? onTalkChurch;
   final VoidCallback? onOpenMaps;
 
@@ -265,6 +267,7 @@ class ChurchPublicSiteHero extends StatelessWidget {
     super.key,
     required this.accentColor,
     required this.onMemberSignup,
+    required this.onMemberLogin,
     this.onTalkChurch,
     this.onOpenMaps,
   });
@@ -275,6 +278,7 @@ class ChurchPublicSiteHero extends StatelessWidget {
       ThemeCleanPremium.minTouchTarget,
       ThemeCleanPremium.minTouchTarget,
     );
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -292,58 +296,167 @@ class ChurchPublicSiteHero extends StatelessWidget {
             ),
           ],
         ),
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            if (onTalkChurch != null)
-              FilledButton.icon(
-                onPressed: onTalkChurch,
-                icon: const Icon(Icons.chat_rounded, size: 20),
-                label: const Text('Falar com a Igreja'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF16A34A),
-                  foregroundColor: Colors.white,
-                  minimumSize: minTouch,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final narrow = c.maxWidth < 420;
+            final ctaVisitante = Semantics(
+              button: true,
+              label: 'Sou visitante. Abrir cadastro de novo membro na igreja.',
+              child: SizedBox(
+                width: narrow ? double.infinity : null,
+                child: FilledButton.icon(
+                  onPressed: onMemberSignup,
+                  icon: const Icon(Icons.person_add_rounded, size: 20),
+                  label: const Text('Sou visitante — Cadastro'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accentColor,
+                    foregroundColor: Colors.white,
+                    minimumSize: minTouch,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
                 ),
               ),
-            if (onOpenMaps != null)
-              OutlinedButton.icon(
-                onPressed: onOpenMaps,
-                icon: const Icon(Icons.location_on_rounded, size: 20),
-                label: const Text('Ver localização'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: accentColor,
-                  minimumSize: minTouch,
-                  side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+            );
+            final ctaMembro = Semantics(
+              button: true,
+              label: 'Já sou membro. Entrar no sistema ou aplicativo da igreja.',
+              child: SizedBox(
+                width: narrow ? double.infinity : null,
+                child: FilledButton.tonalIcon(
+                  onPressed: onMemberLogin,
+                  icon: const Icon(Icons.login_rounded, size: 20),
+                  label: const Text('Já sou membro — Entrar'),
+                  style: FilledButton.styleFrom(
+                    foregroundColor: onSurface,
+                    backgroundColor: const Color(0xFFE8EEF5),
+                    minimumSize: minTouch,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: accentColor.withValues(alpha: 0.35)),
+                    ),
                   ),
                 ),
               ),
-            OutlinedButton.icon(
-              onPressed: onMemberSignup,
-              icon: const Icon(Icons.person_add_rounded, size: 20),
-              label: const Text('Cadastro de membro'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: accentColor,
-                minimumSize: minTouch,
-                side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Comece por aqui',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey.shade800,
+                    letterSpacing: 0.2,
+                  ),
                 ),
-              ),
-            ),
-            const InstallPwaButton(),
-          ],
+                const SizedBox(height: 10),
+                if (narrow)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ctaVisitante,
+                      const SizedBox(height: 10),
+                      ctaMembro,
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(child: ctaVisitante),
+                      const SizedBox(width: 10),
+                      Expanded(child: ctaMembro),
+                    ],
+                  ),
+                if (onTalkChurch != null || onOpenMaps != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 16, 0, 10),
+                    child: Divider(height: 1, color: Colors.grey.shade200),
+                  ),
+                  Text(
+                    'Outras opções',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      if (onTalkChurch != null)
+                        Semantics(
+                          button: true,
+                          label: 'Abrir conversa no WhatsApp com a igreja.',
+                          child: FilledButton.icon(
+                            onPressed: onTalkChurch,
+                            icon: const Icon(Icons.chat_rounded, size: 20),
+                            label: const Text('Falar com a Igreja'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF16A34A),
+                              foregroundColor: Colors.white,
+                              minimumSize: minTouch,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (onOpenMaps != null)
+                        Semantics(
+                          button: true,
+                          label: 'Abrir localização da igreja no mapa.',
+                          child: OutlinedButton.icon(
+                            onPressed: onOpenMaps,
+                            icon: const Icon(Icons.location_on_rounded, size: 20),
+                            label: const Text('Ver localização'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: accentColor,
+                              minimumSize: minTouch,
+                              side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Semantics(
+                        label: 'Instalar o site como aplicativo no celular ou computador.',
+                        child: const InstallPwaButton(),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      Semantics(
+                        label: 'Instalar o site como aplicativo no celular ou computador.',
+                        child: const InstallPwaButton(),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );

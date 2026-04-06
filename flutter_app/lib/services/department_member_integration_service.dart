@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 
 /// Integração Membros ↔ Departamentos ↔ Escalas (denormalização + limpeza de escalas futuras).
@@ -453,7 +454,7 @@ class DepartmentMemberIntegrationService {
     await commitIfNeeded();
   }
 
-  /// IDs de departamentos em que o CPF é [leaderCpf] ou [viceLeaderCpf] (apenas dígitos).
+  /// IDs de departamentos em que o CPF é líder ([leaderCpfs] ou legado [leaderCpf]/[viceLeaderCpf]).
   static Future<Set<String>> managedDepartmentIdsForCpf({
     required String tenantId,
     required String cpfDigits,
@@ -467,10 +468,9 @@ class DepartmentMemberIntegrationService {
         .get();
     final out = <String>{};
     for (final d in snap.docs) {
-      final data = d.data();
-      final lc = _normCpf((data['leaderCpf'] ?? '').toString());
-      final vc = _normCpf((data['viceLeaderCpf'] ?? '').toString());
-      if (lc == my || vc == my) out.add(d.id);
+      if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(d.data(), my)) {
+        out.add(d.id);
+      }
     }
     return out;
   }

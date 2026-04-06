@@ -12,7 +12,13 @@
 ///    use [StorageMediaService.publishableHttpsUrlForFirestore].
 ///
 /// 4. **UI**: não usar [Image.network] direto para `firebasestorage.googleapis.com` / `*.firebasestorage.app`
-///    no painel web; usar [ResilientNetworkImage], [SafeNetworkImage], [FreshFirebaseStorageImage].
+///    no painel **nem no site público**; usar [ResilientNetworkImage], [SafeNetworkImage],
+///    [FreshFirebaseStorageImage], [StableStorageImage] (logo, membros `foto_perfil`, mural/avisos,
+///    eventos, património, vídeo-posters, marketing). Vídeos hospedados: [StorageMediaService] /
+///    widgets em `premium_storage_video/`.
+///
+/// 5. **Pré-carregar**: usar `preloadNetworkImages` (`ui/widgets/safe_network_image.dart`), não
+///    `precacheImage(NetworkImage(...))` com URLs que possam ser Storage na web.
 library church_media_publish_policy;
 
 export 'package:gestao_yahweh/services/media_upload_service.dart';

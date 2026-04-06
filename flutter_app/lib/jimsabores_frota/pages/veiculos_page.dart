@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-// ...restante do código copiado do JIM SABORES...
+
+import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
 
 class VeiculosPage extends StatefulWidget {
   const VeiculosPage({super.key});
@@ -66,7 +67,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
 
     Future<void> coletar({required String campo, required String valor, required Map<String, dynamic> dados}) async {
       if (valor.isEmpty) return;
-      final snap = await _db.collection('abastecimentos').where(campo, isEqualTo: valor).get();
+      final snap = await FrotaFirestorePaths.abastecimentos().where(campo, isEqualTo: valor).get();
       for (final doc in snap.docs) {
         final atual = updates[doc.reference] ?? <String, dynamic>{};
         atual.addAll(dados);
@@ -203,7 +204,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
         );
         return;
       }
-      await _db.collection('veiculos').doc(placaId).set({
+      await FrotaFirestorePaths.veiculos().doc(placaId).set({
         ...payload,
         'created_at': FieldValue.serverTimestamp(),
       });
@@ -215,7 +216,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
     } else {
       final antigoId = doc.id;
       if (antigoId != placaId) {
-        final novoDoc = await _db.collection('veiculos').doc(placaId).get();
+        final novoDoc = await FrotaFirestorePaths.veiculos().doc(placaId).get();
         if (novoDoc.exists) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -225,7 +226,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
         }
 
         final batch = _db.batch();
-        final novoRef = _db.collection('veiculos').doc(placaId);
+        final novoRef = FrotaFirestorePaths.veiculos().doc(placaId);
         batch.set(novoRef, {
           ...payload,
           'created_at': dados?['created_at'] ?? FieldValue.serverTimestamp(),
@@ -261,14 +262,12 @@ class _VeiculosPageState extends State<VeiculosPage> {
     final dados = doc.data() as Map<String, dynamic>?;
     final placa = (dados?['placa'] ?? doc.id).toString();
 
-    final uso = await _db
-        .collection('abastecimentos')
+    final uso = await FrotaFirestorePaths.abastecimentos()
         .where('placa', isEqualTo: placa)
         .limit(1)
         .get();
 
-    final usoLegado = await _db
-        .collection('abastecimentos')
+    final usoLegado = await FrotaFirestorePaths.abastecimentos()
         .where('veiculo', isEqualTo: placa)
         .limit(1)
         .get();
@@ -362,7 +361,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(10),
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: _db.collection('veiculos').orderBy('placa').snapshots(),
+                      stream: FrotaFirestorePaths.veiculos().orderBy('placa').snapshots(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
                           return const Center(child: CircularProgressIndicator());

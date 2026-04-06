@@ -1,4 +1,3 @@
-import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -226,11 +225,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     if (uploaded == null || uploaded.isEmpty) {
       throw Exception('Falha ao enviar foto para o Storage.');
     }
-    unawaited(
-      FirebaseStorageCleanupService.deleteGeneratedMemberProfileThumbnails(
-        tenantId: tenantId,
-        memberId: mid,
-      ),
+    FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
+      tenantId: tenantId,
+      memberId: mid,
     );
     return uploaded;
   }

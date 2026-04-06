@@ -40,7 +40,7 @@ class ChurchDepartmentsBootstrap {
   /// Quantidade de presets únicos (por nome) usada nas mensagens da UI.
   static int get uniquePresetCount => _presetsSorted.length;
 
-  /// Itens do kit de boas-vindas (6 departamentos temáticos).
+  /// Itens do kit de boas-vindas (11 departamentos base).
   static int get welcomeKitCount => kDepartmentWelcomeKit.length;
 
   /// Lista ordenada para exibir sugestões na UI quando o Firestore ainda está vazio.
@@ -116,7 +116,9 @@ class ChurchDepartmentsBootstrap {
             'bgColor1': c1,
             'bgColor2': c2,
             'bgImageUrl': '',
+            'leaderCpfs': <String>[],
             'leaderCpf': '',
+            'viceLeaderCpf': '',
             'leaderUid': '',
             'permissions': <String>[],
             'createdAt': now,

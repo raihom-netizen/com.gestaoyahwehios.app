@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../core/frota_firestore_paths.dart';
 import '../services/data_formatador.dart';
 import '../services/endereco_formatador.dart';
 
@@ -67,9 +68,9 @@ class _AbastecimentoPageState extends State<AbastecimentoPage> {
   }
 
   Future<void> _carregarDadosIniciais() async {
-    final veiculosSnapshot = await FirebaseFirestore.instance.collection('veiculos').get();
+    final veiculosSnapshot = await FrotaFirestorePaths.veiculos().get();
     final motoristasSnapshot = await FirebaseFirestore.instance.collection('usuarios').get();
-    final combustiveisSnapshot = await FirebaseFirestore.instance.collection('combustiveis').get();
+    final combustiveisSnapshot = await FrotaFirestorePaths.combustiveis().get();
 
     final mapaMotoristas = <String, _MotoristaOption>{};
     for (final doc in motoristasSnapshot.docs) {
@@ -161,7 +162,7 @@ class _AbastecimentoPageState extends State<AbastecimentoPage> {
     final combustivel = tipoCombustivel ?? 'GASOLINA';
     final motorista = _findMotorista(motoristaSelecionado);
     final motoristaNome = (motorista?.label ?? motoristaSelecionado ?? '').trim();
-    await FirebaseFirestore.instance.collection('abastecimentos').add({
+    await FrotaFirestorePaths.abastecimentos().add({
       'veiculo': veiculoSelecionado,
       'placa': placa,
       'motorista': motoristaNome,

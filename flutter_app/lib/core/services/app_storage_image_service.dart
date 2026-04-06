@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
+        firebaseStorageDownloadUrlLooksTokenized,
         firebaseStorageMediaUrlLooksLike,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
@@ -115,6 +116,9 @@ class AppStorageImageService {
     }
     if (!isValidImageUrl(s)) return null;
     if (StorageMediaService.isFirebaseStorageMediaUrl(s)) {
+      if (firebaseStorageDownloadUrlLooksTokenized(s)) {
+        return s;
+      }
       return _twice(() async {
         final r = await StorageMediaService.freshPlayableMediaUrl(s)
             .timeout(const Duration(seconds: 28));
@@ -182,7 +186,7 @@ class AppStorageImageService {
   }) async {
     final tid = tenantId.trim();
 
-    final r0 = await _resolveUncached(
+    final r0 = await resolveImageUrl(
       storagePath: preferStoragePath,
       imageUrl: preferImageUrl,
       gsUrl: preferGsUrl,
@@ -192,12 +196,12 @@ class AppStorageImageService {
     if (tenantData != null) {
       final u = churchTenantLogoUrl(tenantData);
       if (_validResolved(u)) {
-        final r1 = await _resolveUncached(imageUrl: u);
+        final r1 = await resolveImageUrl(imageUrl: u);
         if (_validResolved(r1)) return sanitizeImageUrl(r1!);
       }
       final sp = ChurchImageFields.logoStoragePath(tenantData);
       if (sp != null && sp.isNotEmpty) {
-        final r2 = await _resolveUncached(storagePath: sp);
+        final r2 = await resolveImageUrl(storagePath: sp);
         if (_validResolved(r2)) return sanitizeImageUrl(r2!);
       }
     }

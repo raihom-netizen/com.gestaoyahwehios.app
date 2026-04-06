@@ -1,12 +1,11 @@
 import "dart:async";
-import "dart:convert";
 
+import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
+import "package:gestao_yahweh/core/public_site_media_auth.dart";
 import "package:cloud_functions/cloud_functions.dart";
 import "package:cloud_firestore/cloud_firestore.dart";
 import "package:url_launcher/url_launcher.dart";
-import "package:http/http.dart" as http;
-import "package:gestao_yahweh/app_version.dart";
 import "package:gestao_yahweh/ui/widgets/version_footer.dart";
 import "package:gestao_yahweh/ui/theme_clean_premium.dart";
 import "package:gestao_yahweh/ui/login_page.dart";
@@ -14,6 +13,8 @@ import "package:gestao_yahweh/data/planos_oficiais.dart";
 import "package:gestao_yahweh/services/plan_price_service.dart";
 import "package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart";
 import "package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart";
+import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart";
+import "package:gestao_yahweh/services/public_site_analytics.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
 
@@ -51,6 +52,11 @@ class _SitePublicPageState extends State<SitePublicPage> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      });
+    }
     // Preços = mesma fonte do Master: Firestore `config/plans/items` (+ fallback [planosOficiais]).
     PlanPriceService.getEffectivePrices().then((p) {
       if (mounted) setState(() => _effectivePrices = p);
@@ -61,7 +67,6 @@ class _SitePublicPageState extends State<SitePublicPage> {
   Map<String, dynamic>? _church; // {tenantId, name, logoUrl, slug...}
 
   Timer? _autoTimer;
-  String _lastAutoQuery = "";
 
   @override
   void dispose() {
@@ -137,7 +142,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
         }
       } on FirebaseFunctionsException catch (e) {
         if (!mounted) return;
-        final code = (e.code ?? '').toString();
+        final code = e.code;
         setState(() {
           _loading = false;
           _church = null;
@@ -205,7 +210,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
               .where('cpf', isEqualTo: cpf)
               .limit(1)
               .get();
-          if (snapUsers!.docs.isEmpty) {
+          if (snapUsers.docs.isEmpty) {
             snapUsers = await FirebaseFirestore.instance
                 .collectionGroup('usersIndex')
                 .where(FieldPath.documentId, isEqualTo: cpf)
@@ -509,6 +514,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
 
   /// Abre o Painel Master (login admin).
   void _goAdmin() {
+    unawaited(PublicSiteAnalytics.logMarketingAction('marketing_master_login'));
     Navigator.of(context).pushNamedAndRemoveUntil('/login_admin', (route) => false);
   }
   void _onCpfChanged(String value) => setState(() {});
@@ -517,6 +523,8 @@ class _SitePublicPageState extends State<SitePublicPage> {
   void _navigateToChurchLogin() {
     final church = _church;
     if (church == null || !mounted) return;
+    unawaited(PublicSiteAnalytics.logMarketingAction(
+        'marketing_prefill_church_login'));
     final name = church['name']?.toString();
     final cpfOrEmail = _cpfCtrl.text.trim();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -528,6 +536,9 @@ class _SitePublicPageState extends State<SitePublicPage> {
             afterLoginRoute: '/painel',
             showFleetBranding: false,
             churchLabel: name,
+            churchLogoUrl: (church['logoUrl'] ?? '').toString().trim().isEmpty
+                ? null
+                : (church['logoUrl'] ?? '').toString().trim(),
             prefillCpf: cpfOrEmail.isNotEmpty ? cpfOrEmail : null,
             backRoute: '/',
           ),
@@ -540,8 +551,112 @@ class _SitePublicPageState extends State<SitePublicPage> {
     if (_church == null || _loading) return;
     final slug = _church!['slug'] as String?;
     if (slug != null && slug.isNotEmpty) {
+      unawaited(
+          PublicSiteAnalytics.logMarketingAction('marketing_open_church_slug'));
       Navigator.of(context).pushNamed('/igreja_$slug');
     }
+  }
+
+  /// AppBar curta (Android/iPhone): logo + título; ações em menu para não truncar.
+  static const double _kAppBarCompactWidth = 520;
+
+  List<Widget> _sitePublicAppBarActions(BuildContext context) {
+    if (widget.isConviteRoute) return const [];
+    final narrow = MediaQuery.sizeOf(context).width < _kAppBarCompactWidth;
+    if (narrow) {
+      return [
+        PopupMenuButton<String>(
+          tooltip: 'Menu',
+          icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+          color: Colors.white,
+          onSelected: (value) {
+            switch (value) {
+              case 'planos':
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_menu_planos'));
+                Navigator.pushNamed(context, '/planos');
+                break;
+              case 'cadastro':
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_menu_cadastro'));
+                Navigator.pushNamed(context, '/cadastro');
+                break;
+              case 'entrar':
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_menu_entrar'));
+                Navigator.pushNamed(context, '/igreja/login');
+                break;
+            }
+          },
+          itemBuilder: (ctx) => const [
+            PopupMenuItem(value: 'planos', child: Text('Planos')),
+            PopupMenuItem(value: 'cadastro', child: Text('Cadastro')),
+            PopupMenuItem(value: 'entrar', child: Text('Entrar')),
+          ],
+        ),
+      ];
+    }
+    return [
+      TextButton(
+        onPressed: () {
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_bar_planos'));
+          Navigator.pushNamed(context, '/planos');
+        },
+        child: const Text(
+          'Planos',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+      ),
+      TextButton(
+        onPressed: () {
+          unawaited(PublicSiteAnalytics.logMarketingAction(
+              'marketing_bar_cadastro'));
+          Navigator.pushNamed(context, '/cadastro');
+        },
+        child: const Text(
+          'Cadastro',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: TextButton(
+          onPressed: () {
+            unawaited(PublicSiteAnalytics.logMarketingAction(
+                'marketing_bar_entrar'));
+            Navigator.pushNamed(context, '/igreja/login');
+          },
+          child: const Text(
+            'Entrar',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _sitePublicAppBarTitle(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < _kAppBarCompactWidth;
+    return Row(
+      children: [
+        _PublicSiteGestaoYahwehLogo(size: narrow ? 28 : 32),
+        SizedBox(width: narrow ? 8 : 10),
+        Expanded(
+          child: Text(
+            'Gestão YAHWEH',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              fontSize: narrow ? 16 : 18,
+              letterSpacing: 0.2,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -573,39 +688,13 @@ class _SitePublicPageState extends State<SitePublicPage> {
                         tooltip: 'Voltar ao início',
                       )
                     : null,
-                title: const Text('Gestão YAHWEH', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.white)),
+                title: _sitePublicAppBarTitle(context),
                 backgroundColor: topBar,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 scrolledUnderElevation: 0,
                 iconTheme: const IconThemeData(color: Colors.white),
-                actions: widget.isConviteRoute
-                    ? const []
-                    : [
-                        TextButton(
-                          onPressed: () => Navigator.pushNamed(context, '/planos'),
-                          child: const Text('Planos',
-                              style: TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.w600)),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pushNamed(context, '/cadastro'),
-                          child: const Text('Cadastro',
-                              style: TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.w600)),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: TextButton(
-                            onPressed: () =>
-                                Navigator.pushNamed(context, '/igreja/login'),
-                            child: const Text('Entrar',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800)),
-                          ),
-                        ),
-                      ],
+                actions: _sitePublicAppBarActions(context),
               ),
               Expanded(
                 child: _buildBody(context),
@@ -651,32 +740,59 @@ class _SitePublicPageState extends State<SitePublicPage> {
             : Row(
                 children: [Expanded(child: left), const SizedBox(width: 16), SizedBox(width: 420, child: right)],
               );
+        final bottomInset = MediaQuery.paddingOf(context).bottom;
+        final hPad =
+            isMobile ? ThemeCleanPremium.spaceMd : ThemeCleanPremium.spaceLg;
         return SingleChildScrollView(
           child: Padding(
-            padding: EdgeInsets.all(
-                isMobile ? ThemeCleanPremium.spaceMd : ThemeCleanPremium.spaceLg),
+            padding: EdgeInsets.fromLTRB(
+              hPad,
+              hPad,
+              hPad,
+              hPad + bottomInset + 8,
+            ),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1200),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 920),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _SectionTitle(
+                              title: 'Conheça em vídeo',
+                              subtitle:
+                                  'Pitch rápido do ecossistema: app, painel da igreja e site público.',
+                            ),
+                            const SizedBox(height: 10),
+                            PremiumMarketingHeroVideo(
+                              height: isMobile ? 200 : 280,
+                              defaultStoragePath: 'public/videos/institucional.mp4',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
                     topRow,
                     const SizedBox(height: 24),
                     Center(
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 920),
-                        child: PremiumMarketingHeroVideo(
-                          height: isMobile ? 200 : 280,
-                          defaultStoragePath: 'public/videos/institucional.mp4',
-                        ),
+                        constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 960),
+                        child: const MarketingClientesShowcaseSection(),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 20),
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 960),
-                        child: const MarketingGestaoYahwehGallerySection(),
+                        child: const MarketingGestaoYahwehGallerySection(
+                          excludePdfFromPublicGallery: true,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 28),
@@ -722,31 +838,28 @@ class _SitePublicPageState extends State<SitePublicPage> {
                     ),
                     const SizedBox(height: 26),
                     const _SectionTitle(
-                      title: "Tudo o que esta incluido",
-                      subtitle: "Nenhum plano e capado. O sistema completo ja vem ativo.",
+                      title: "Tudo o que está incluído",
+                      subtitle:
+                          "Nenhum plano é capado: o sistema completo já vem ativo, com estes módulos.",
                     ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: const [
-                        _IncludedItem(text: "App Android e iOS"),
-                        _IncludedItem(text: "Painel Web administrativo"),
-                        _IncludedItem(text: "Painel ADM no app"),
-                        _IncludedItem(text: "Site publico da igreja"),
-                        _IncludedItem(text: "Eventos estilo Instagram"),
-                        _IncludedItem(text: "Aniversariantes automatico"),
-                        _IncludedItem(text: "Controle completo de escalas"),
-                        _IncludedItem(text: "Financeiro e dizimos"),
-                        _IncludedItem(text: "Firebase + Google Drive"),
-                        _IncludedItem(text: "Backups automaticos"),
-                        _IncludedItem(text: "Seguranca por papeis"),
-                      ],
+                    const SizedBox(height: 16),
+                    const _PremiumIncludedFeaturesGrid(),
+                    const SizedBox(height: 28),
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 720),
+                        child: const _YahwehPublicFaqSection(),
+                      ),
                     ),
                     const SizedBox(height: 26),
                     _DownloadsSection(),
-                    const SizedBox(height: 26),
-                    _AdminCta(onGoAdmin: _goAdmin),
+                    const SizedBox(height: 22),
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 720),
+                        child: const _YahwehAudienceFooterBar(),
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     const VersionFooter(showVersion: true),
                   ],
@@ -759,6 +872,224 @@ class _SitePublicPageState extends State<SitePublicPage> {
     );
   }
 }
+
+class _YahwehPublicFaqSection extends StatelessWidget {
+  const _YahwehPublicFaqSection();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tile(String q, String a) {
+      return ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        title: Text(q, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(a, style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade800)),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Perguntas frequentes',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: Colors.blueGrey.shade900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              tile(
+                'Posso usar meu próprio domínio no site da igreja?',
+                'Sim. O site público pode ser divulgado com o endereço da igreja (slug) e integrações de contato; domínio personalizado depende da sua configuração de DNS e hospedagem — nossa equipe orienta na contratação.',
+              ),
+              const Divider(height: 1),
+              tile(
+                'Preciso instalar algo para os membros?',
+                'Há aplicativo para celular e acesso web. Membros podem usar o que for mais conveniente; o painel da igreja funciona em navegador e em app.',
+              ),
+              const Divider(height: 1),
+              tile(
+                'Onde ficam armazenados dados e mídias?',
+                'Em infraestrutura cloud com regras de acesso por perfil (igreja, gestor e membro). Você controla o que é público no site e o que permanece interno.',
+              ),
+              const Divider(height: 1),
+              tile(
+                'LGPD e responsabilidade pelos dados',
+                'A igreja é titular dos dados dos membros cadastrados. O Gestão YAHWEH fornece ferramentas de gestão e boas práticas de acesso; recomendamos política interna de privacidade alinhada à LGPD.',
+              ),
+              const Divider(height: 1),
+              tile(
+                'Como falo com o suporte?',
+                'Use os canais indicados após o cadastro ou no painel. Priorizamos estabilidade, segurança e resposta em horário comercial.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _YahwehAudienceFooterBar extends StatelessWidget {
+  const _YahwehAudienceFooterBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Três entradas claras',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: Colors.blueGrey.shade900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Escolha o caminho que combina com você: visitante, membro ou liderança.',
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            ActionChip(
+              avatar: const Icon(Icons.waving_hand_rounded, size: 18),
+              label: const Text('Visitantes — cadastro da igreja'),
+              onPressed: () {
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_footer_chip_cadastro'));
+                Navigator.pushNamed(context, '/cadastro');
+              },
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.login_rounded, size: 18),
+              label: const Text('Membros — entrar no sistema'),
+              onPressed: () {
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_footer_chip_entrar'));
+                Navigator.pushNamed(context, '/igreja/login');
+              },
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.workspace_premium_rounded, size: 18),
+              label: const Text('Líderes — planos e limites'),
+              onPressed: () {
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_footer_chip_planos'));
+                Navigator.pushNamed(context, '/planos');
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Membros: use CPF ou e-mail para localizar sua igreja na página inicial. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
+        ),
+      ],
+    );
+  }
+}
+
+/// Logo da marca no site público: PNG → ícone do app → identidade tipográfica (nunca área vazia).
+class _PublicSiteGestaoYahwehLogo extends StatelessWidget {
+  final double size;
+
+  const _PublicSiteGestaoYahwehLogo({required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    return Image.asset(
+      'assets/LOGO_GESTAO_YAHWEH.png',
+      height: size,
+      width: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, __, ___) => Image.asset(
+        'assets/icon/app_icon.png',
+        height: size * 0.88,
+        width: size * 0.88,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, __, ___) =>
+            _PublicSiteGestaoYahwehTextMark(maxSide: size, color: primary),
+      ),
+    );
+  }
+}
+
+class _PublicSiteGestaoYahwehTextMark extends StatelessWidget {
+  final double maxSide;
+  final Color color;
+
+  const _PublicSiteGestaoYahwehTextMark({
+    required this.maxSide,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: maxSide,
+        maxWidth: maxSide * 1.35,
+        minHeight: 72,
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.church_rounded, size: maxSide * 0.22, color: color),
+            const SizedBox(height: 8),
+            Text(
+              'Gestão',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
+                height: 1.05,
+              ),
+            ),
+            Text(
+              'YAHWEH',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w900,
+                fontSize: 26,
+                height: 1.05,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LeftHero extends StatelessWidget {
   final VoidCallback onGoAdmin;
   const _LeftHero({required this.onGoAdmin});
@@ -781,13 +1112,7 @@ class _LeftHero extends StatelessWidget {
                   final logoSize = isMobile
                       ? (constraints.maxWidth < 400 ? 200.0 : 280.0)
                       : 480.0;
-                  return Image.asset(
-                    'assets/LOGO_GESTAO_YAHWEH.png',
-                    height: logoSize,
-                    width: logoSize,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                  );
+                  return _PublicSiteGestaoYahwehLogo(size: logoSize);
                 },
               ),
             ),
@@ -819,7 +1144,11 @@ class _LeftHero extends StatelessWidget {
               runSpacing: 10,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => Navigator.pushNamed(context, '/igreja/login'),
+                  onPressed: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_login'));
+                    Navigator.pushNamed(context, '/igreja/login');
+                  },
                   icon: const Icon(Icons.login),
                   label: const Text('Login'),
                   style: OutlinedButton.styleFrom(
@@ -832,7 +1161,11 @@ class _LeftHero extends StatelessWidget {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () => Navigator.pushNamed(context, '/planos'),
+                  onPressed: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_planos'));
+                    Navigator.pushNamed(context, '/planos');
+                  },
                   icon: const Icon(Icons.star),
                   label: const Text('Ver planos'),
                 ),
@@ -860,15 +1193,42 @@ class _SectionTitle extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: ThemeCleanPremium.onSurface)),
-        const SizedBox(height: 6),
-        Text(subtitle,
-            style: const TextStyle(
-                color: ThemeCleanPremium.onSurfaceVariant, height: 1.35)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              width: 4,
+              height: 26,
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.primary,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                  color: ThemeCleanPremium.onSurface,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: ThemeCleanPremium.onSurfaceVariant,
+            height: 1.45,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ],
     );
   }
@@ -892,7 +1252,7 @@ class _PlanCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         border: Border.all(
             color: plan.featured
-                ? accent.withOpacity(0.55)
+                ? accent.withValues(alpha: 0.55)
                 : const Color(0xFFE5EAF3)),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
@@ -911,7 +1271,7 @@ class _PlanCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: accent.withOpacity(0.1),
+                    color: accent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text("Recomendado", style: TextStyle(color: accent, fontWeight: FontWeight.w800, fontSize: 12)),
@@ -939,58 +1299,121 @@ class _PlanCard extends StatelessWidget {
   }
 }
 
-class _IncludedItem extends StatelessWidget {
-  final String text;
-  const _IncludedItem({required this.text});
+/// Módulos incluídos no plano — ícones Material 3, cartões com sombra suave.
+class _PremiumIncludedFeaturesGrid extends StatelessWidget {
+  const _PremiumIncludedFeaturesGrid();
+
+  static const List<({IconData icon, String label})> _features = [
+    (icon: Icons.groups_rounded, label: 'Controle de membros'),
+    (icon: Icons.cake_rounded, label: 'Aniversariantes'),
+    (icon: Icons.campaign_rounded, label: 'Avisos'),
+    (icon: Icons.event_available_rounded, label: 'Eventos'),
+    (icon: Icons.calendar_view_week_rounded, label: 'Escalas'),
+    (icon: Icons.calendar_month_rounded, label: 'Agendas'),
+    (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
+    (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
+    (icon: Icons.inventory_2_rounded, label: 'Controle de patrimônio'),
+    (icon: Icons.account_balance_wallet_rounded, label: 'Controle financeiro'),
+    (icon: Icons.workspace_premium_rounded, label: 'Emissão de certificados'),
+    (icon: Icons.badge_rounded, label: 'Cartão membro moderno'),
+    (icon: Icons.devices_rounded, label: 'Acesso via web, Android e iOS (Apple)'),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE5EAF3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_circle, size: 16, color: Color(0xFF16A34A)),
-          const SizedBox(width: 6),
-          Text(text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-        ],
-      ),
+    final primary = ThemeCleanPremium.primary;
+    return LayoutBuilder(
+      builder: (context, c) {
+        final maxW = c.maxWidth;
+        final cols = maxW > 920 ? 3 : (maxW > 560 ? 2 : 1);
+        const gap = 14.0;
+        final tileW = cols <= 1
+            ? maxW
+            : (maxW - gap * (cols - 1)) / cols;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: _features.map((f) {
+            return SizedBox(
+              width: tileW,
+              child: _PremiumFeatureTile(
+                icon: f.icon,
+                label: f.label,
+                accent: primary,
+              ),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 }
 
-class _AdminCta extends StatelessWidget {
-  final VoidCallback onGoAdmin;
-  const _AdminCta({required this.onGoAdmin});
+class _PremiumFeatureTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color accent;
+
+  const _PremiumFeatureTile({
+    required this.icon,
+    required this.label,
+    required this.accent,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF111827),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.07),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Icon(Icons.admin_panel_settings, color: Colors.white),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              "Painel Super Admin: controle de licencas, planos, pagamentos e bloqueios.",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  accent,
+                  Color.lerp(accent, const Color(0xFF312E81), 0.35)!,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
+            child: Icon(icon, color: Colors.white, size: 24),
           ),
-          FilledButton(
-            onPressed: onGoAdmin,
-            style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black87),
-            child: const Text("Abrir painel"),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13.5,
+                height: 1.28,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.1,
+              ),
+            ),
           ),
         ],
       ),
@@ -1070,20 +1493,6 @@ class _DownloadsSection extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final String label;
-  const _MiniStat({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      label: Text(label),
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE4E7EF))),
     );
   }
 }
@@ -1201,7 +1610,11 @@ class _ChurchLookupCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => Navigator.pushNamed(context, '/signup'),
+                onPressed: () {
+                  unawaited(PublicSiteAnalytics.logMarketingAction(
+                      'marketing_signup_google'));
+                  Navigator.pushNamed(context, '/signup');
+                },
                 icon: const Icon(Icons.g_mobiledata_rounded, size: 22),
                 label: const Text("Criar conta com Google (30 dias grátis)"),
                 style: ElevatedButton.styleFrom(

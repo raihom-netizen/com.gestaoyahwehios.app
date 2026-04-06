@@ -129,7 +129,9 @@ class AppPermissions {
   static bool isRestrictedMember(String role) =>
       ChurchRolePermissions.snapshotFor(role).restrictedNav;
 
-  // Módulo departamentos (criar/editar)
-  static bool canEditDepartments(String role) =>
-      ChurchRolePermissions.snapshotFor(role).editDepartments;
+  // Módulo departamentos (hub, kit, vínculos) — papel + módulo granular `departamentos`.
+  static bool canEditDepartments(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'departamentos')) return true;
+    return ChurchRolePermissions.snapshotFor(role).editDepartments;
+  }
 }

@@ -4,6 +4,7 @@ library;
 
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageMediaUrlLooksLike,
         firebaseStorageObjectPathFromHttpUrl,
         imageUrlFromMap,
@@ -201,7 +202,27 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
       if (out.isNotEmpty) break;
     }
   }
-  return noticiaImageRefsPreferDisplayOrder(out);
+  return dedupeImageRefsByStorageIdentity(
+      noticiaImageRefsPreferDisplayOrder(out));
+}
+
+/// Proporção do carrossel estilo feed (retrato tipo Instagram 4:5; vídeo 16:9).
+/// [media_info.aspect_ratio] = largura / altura da primeira foto quando salva no editor.
+double postFeedCarouselAspectRatioForIndex(
+  Map<String, dynamic>? data,
+  int index,
+  int photoCount,
+) {
+  if (photoCount <= 0) return 16 / 9;
+  if (index >= photoCount) return 16 / 9;
+  final mi = data?['media_info'];
+  if (mi is Map) {
+    final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
+    if (oar is num) {
+      return oar.toDouble().clamp(0.56, 1.85);
+    }
+  }
+  return 4 / 5;
 }
 
 /// Caminho no Storage para foto/capa do post (quando [imageUrl] no Firestore está vazio ou expirado).

@@ -1,8 +1,6 @@
 import 'dart:async' show unawaited;
-import 'dart:convert';
+import 'dart:convert' show jsonDecode;
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' show Rect;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -14,11 +12,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
@@ -27,12 +27,12 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaExternalVideoUrl,
         eventNoticiaHostedVideoPlayUrl,
-        eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaPhotoUrls,
         eventNoticiaVideosFromDoc,
         looksLikeHostedVideoFileUrl,
         noticiaImageRefsPreferDisplayOrder,
+        postFeedCarouselAspectRatioForIndex,
         youtubeThumbnailUrlForVideoUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage, resolveNoticiaHostedVideoShareUrl;
@@ -44,10 +44,10 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         SafeNetworkImage,
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageObjectPathFromHttpUrl,
         imageUrlsListFromMap,
         imageUrlFromMap,
-        isFirebaseStorageHttpUrl,
         churchTenantLogoUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
@@ -191,7 +191,13 @@ class _InstagramMuralState extends State<InstagramMural> {
       FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .collection('noticias');
+          .collection(ChurchTenantPostsCollections.noticias);
+
+  CollectionReference<Map<String, dynamic>> get _avisos =>
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection(ChurchTenantPostsCollections.avisos);
 
   String get _nomeIgreja =>
       (_tenantData?['name'] ?? _tenantData?['nome'] ?? '').toString();
@@ -243,9 +249,10 @@ class _InstagramMuralState extends State<InstagramMural> {
     );
     if (ok == true) {
       await doc.reference.delete();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(ThemeCleanPremium.successSnackBar('Excluído.'));
+      }
     }
   }
 
@@ -257,7 +264,7 @@ class _InstagramMuralState extends State<InstagramMural> {
       MaterialPageRoute(
           builder: (_) => MuralAvisoEditorPage(
                 tenantId: widget.tenantId,
-                noticias: _noticias,
+                postsCollection: type == 'evento' ? _noticias : _avisos,
                 doc: doc,
                 type: type,
                 churchSlug: widget.churchSlug,
@@ -276,7 +283,7 @@ class _InstagramMuralState extends State<InstagramMural> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _streamForAll() {
-    return _noticias
+    return _avisos
         .orderBy('createdAt', descending: true)
         .limit(_feedQueryLimit)
         .snapshots();
@@ -297,16 +304,6 @@ class _InstagramMuralState extends State<InstagramMural> {
     });
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterByType(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-    String type,
-  ) {
-    return docs.where((d) {
-      final t = (d.data()['type'] ?? 'aviso').toString();
-      return t == type;
-    }).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
@@ -322,13 +319,13 @@ class _InstagramMuralState extends State<InstagramMural> {
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 24,
               offset: const Offset(0, 12),
               spreadRadius: 0,
             ),
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -350,21 +347,21 @@ class _InstagramMuralState extends State<InstagramMural> {
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        ThemeCleanPremium.primary.withOpacity(0.06),
-                        ThemeCleanPremium.primary.withOpacity(0.02),
+                        ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                        ThemeCleanPremium.primary.withValues(alpha: 0.02),
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     border: Border(
                         bottom: BorderSide(
-                            color: Colors.grey.shade200.withOpacity(0.8))),
+                            color: Colors.grey.shade200.withValues(alpha: 0.8))),
                   ),
                   child: Row(children: [
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: ThemeCleanPremium.primary.withOpacity(0.12),
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusSm),
                       ),
@@ -415,7 +412,7 @@ class _InstagramMuralState extends State<InstagramMural> {
                     stream: _streamForAll(),
                     builder: (context, snap) {
                       _lastRawDocsCount = snap.data?.docs.length ?? 0;
-                      if (snap.hasError)
+                      if (snap.hasError) {
                         return Center(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
@@ -439,13 +436,13 @@ class _InstagramMuralState extends State<InstagramMural> {
                             ),
                           ),
                         );
+                      }
                       if (snap.connectionState == ConnectionState.waiting &&
                           !snap.hasData) {
                         return YahwehPremiumFeedShimmer.muralFeedSkeleton();
                       }
                       const type = 'aviso';
-                      final docs =
-                          _filterByType(snap.data?.docs ?? [], type);
+                      final docs = snap.data?.docs ?? [];
                       if (docs.isNotEmpty) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (!context.mounted) return;
@@ -501,7 +498,7 @@ class _InstagramMuralState extends State<InstagramMural> {
                                   _openEditor(doc: doc, type: type),
                               onDelete: () => _deletePost(doc),
                               onShare: (Rect? shareOrigin) async {
-                                final d = doc.data() ?? {};
+                                final d = doc.data();
                                 DateTime? sdt;
                                 try {
                                   sdt = (d['startAt'] as Timestamp).toDate();
@@ -617,8 +614,8 @@ class _MuralPostLinksRow extends StatelessWidget {
         double? lng = eventLng;
         final church = snap.data?.data();
         if (church != null) {
-          if (lat == null) lat = _parseD(church['latitude']);
-          if (lng == null) lng = _parseD(church['longitude']);
+          lat ??= _parseD(church['latitude']);
+          lng ??= _parseD(church['longitude']);
         }
         String? mapsUrl;
         if (lat != null && lng != null) {
@@ -763,7 +760,8 @@ class _PostCard extends StatefulWidget {
     addAll(imageUrlsListFromMap(data));
     if (out.isEmpty) addOne(eventNoticiaDisplayVideoThumbnailUrl(data));
     if (out.isEmpty) addOne(imageUrlFromMap(data));
-    return noticiaImageRefsPreferDisplayOrder(out);
+    return dedupeImageRefsByStorageIdentity(
+        noticiaImageRefsPreferDisplayOrder(out));
   }
 
   /// Slides de **foto** no carrossel: não usa miniatura de vídeo como falsa foto; remove duplicata única = poster do vídeo.
@@ -819,7 +817,7 @@ class _PostCard extends StatefulWidget {
       }
       if (thumbs.contains(u)) return [];
     }
-    return ordered;
+    return dedupeImageRefsByStorageIdentity(ordered);
   }
 
   @override
@@ -943,6 +941,8 @@ class _PostCardState extends State<_PostCard>
         memberName: m.name,
         photoUrl: m.photo,
         currentlyConfirmed: currentlyConfirmed,
+        parentCollection:
+            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
       if (!currentlyConfirmed && mounted) {
         final lat = data['locationLat'];
@@ -997,6 +997,8 @@ class _PostCardState extends State<_PostCard>
         memberName: dn,
         photoUrl: photo,
         currentlyLiked: liked,
+        parentCollection:
+            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
     } catch (_) {
       if (!mounted) return;
@@ -1122,7 +1124,7 @@ class _PostCardState extends State<_PostCard>
                                         radius: 14,
                                         backgroundColor: ThemeCleanPremium
                                             .primary
-                                            .withOpacity(0.12),
+                                            .withValues(alpha: 0.12),
                                         child: Icon(Icons.person,
                                             size: 14,
                                             color: ThemeCleanPremium.primary)),
@@ -1180,7 +1182,7 @@ class _PostCardState extends State<_PostCard>
                                 : const Icon(Icons.send_rounded),
                             style: IconButton.styleFrom(
                               backgroundColor:
-                                  ThemeCleanPremium.primary.withOpacity(0.1),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.1),
                               minimumSize: const Size(
                                   ThemeCleanPremium.minTouchTarget,
                                   ThemeCleanPremium.minTouchTarget),
@@ -1203,7 +1205,7 @@ class _PostCardState extends State<_PostCard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final type = (data['type'] ?? 'aviso').toString();
     final title = (data['title'] ?? '').toString();
     final text = (data['text'] ?? '').toString();
@@ -1393,7 +1395,11 @@ class _PostCardState extends State<_PostCard>
                   clipBehavior: Clip.hardEdge,
                   children: [
                     AspectRatio(
-                      aspectRatio: 16 / 9,
+                      aspectRatio: postFeedCarouselAspectRatioForIndex(
+                        data,
+                        _carouselIndex,
+                        photoCount,
+                      ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(20),
                         child: PageView.builder(
@@ -1429,9 +1435,9 @@ class _PostCardState extends State<_PostCard>
                                         height: h,
                                         fit: BoxFit.cover,
                                         memCacheWidth:
-                                            (w * dpr).round().clamp(64, 1080),
+                                            (w * dpr).round().clamp(64, 1400),
                                         memCacheHeight:
-                                            (h * dpr).round().clamp(64, 1080),
+                                            (h * dpr).round().clamp(64, 1400),
                                         placeholder: YahwehPremiumFeedShimmer
                                             .mediaCover(),
                                         errorWidget:
@@ -1740,7 +1746,6 @@ class _PostCardState extends State<_PostCard>
                   child: InkWell(
                     onTap: carouselLen > 1
                         ? () {
-                            final pc = photoCount;
                             final mp = List<String>.from(muralPhotos);
                             final ve = videoEntries
                                 .map((e) => Map<String, String>.from(e))
@@ -1863,7 +1868,6 @@ class _PostCardState extends State<_PostCard>
 
   Future<void> _openMuralPostVideoAt(BuildContext context, int slot) async {
     final data = widget.doc.data();
-    if (data == null) return;
     final vids = eventNoticiaVideosFromDoc(data);
     if (vids.isEmpty) {
       await _openMuralPostVideoLegacy(context);
@@ -1871,10 +1875,6 @@ class _PostCardState extends State<_PostCard>
     }
     if (slot < 0 || slot >= vids.length) return;
     await _openMuralVideoFromEntry(context, vids[slot]);
-  }
-
-  Future<void> _openMuralPostVideo(BuildContext context) async {
-    await _openMuralPostVideoAt(context, 0);
   }
 
   Future<void> _openMuralVideoFromEntry(
@@ -1937,7 +1937,6 @@ class _PostCardState extends State<_PostCard>
 
   Future<void> _openMuralPostVideoLegacy(BuildContext context) async {
     final data = widget.doc.data();
-    if (data == null) return;
     final hosted = eventNoticiaHostedVideoPlayUrl(data) ?? '';
     final ext = eventNoticiaExternalVideoUrl(data);
     final legacy = (data['videoUrl'] ?? '').toString().trim();
@@ -2257,7 +2256,7 @@ class _PostCardState extends State<_PostCard>
               child: Text(
                 title,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.95), fontSize: 13),
+                    color: Colors.white.withValues(alpha: 0.95), fontSize: 13),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -2572,16 +2571,18 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
 /// Formulário de aviso/evento do mural — público para abertura a partir da busca global (shell).
 class MuralAvisoEditorPage extends StatefulWidget {
   final String tenantId;
-  final CollectionReference<Map<String, dynamic>> noticias;
+  final CollectionReference<Map<String, dynamic>> postsCollection;
   final DocumentSnapshot<Map<String, dynamic>>? doc;
   final String type;
   final String churchSlug;
-  const MuralAvisoEditorPage(
-      {required this.tenantId,
-      required this.noticias,
-      this.doc,
-      required this.type,
-      required this.churchSlug});
+  const MuralAvisoEditorPage({
+    super.key,
+    required this.tenantId,
+    required this.postsCollection,
+    this.doc,
+    required this.type,
+    required this.churchSlug,
+  });
 
   @override
   State<MuralAvisoEditorPage> createState() => _MuralAvisoEditorPageState();
@@ -2654,7 +2655,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       _referencia.text = (data['locationReferencia'] ?? '').toString();
       if (_logradouro.text.isEmpty && _cep.text.isEmpty) {
         final legacy = (data['location'] ?? '').toString().trim();
-        if (legacy.isNotEmpty) _logradouro.text = legacy;
+        if (legacy.isNotEmpty) {
+          _logradouro.text = legacy;
+        }
       }
     }
     final lat = data['locationLat'];
@@ -2674,7 +2677,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (_) {}
     try {
       final v = data['validUntil'];
-      if (v is Timestamp) _validUntil = v.toDate();
+      if (v is Timestamp) {
+        _validUntil = v.toDate();
+      }
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
   }
@@ -2682,7 +2687,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   /// Monta o endereço completo a partir do doc da igreja (tenant).
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
     final endereco = (data['endereco'] ?? '').toString().trim();
-    if (endereco.isNotEmpty) return endereco;
+    if (endereco.isNotEmpty) {
+      return endereco;
+    }
     final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
     final bairro = (data['bairro'] ?? '').toString().trim();
     final cidade =
@@ -2690,14 +2697,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final estado = (data['estado'] ?? data['uf'] ?? '').toString().trim();
     final cep = (data['cep'] ?? '').toString().trim();
     final parts = <String>[];
-    if (rua.isNotEmpty) parts.add(rua);
-    if (bairro.isNotEmpty) parts.add(bairro);
-    if (cidade.isNotEmpty && estado.isNotEmpty)
+    if (rua.isNotEmpty) {
+      parts.add(rua);
+    }
+    if (bairro.isNotEmpty) {
+      parts.add(bairro);
+    }
+    if (cidade.isNotEmpty && estado.isNotEmpty) {
       parts.add('$cidade - $estado');
-    else if (cidade.isNotEmpty)
+    } else if (cidade.isNotEmpty) {
       parts.add(cidade);
-    else if (estado.isNotEmpty) parts.add(estado);
-    if (cep.isNotEmpty) parts.add('CEP $cep');
+    } else if (estado.isNotEmpty) {
+      parts.add(estado);
+    }
+    if (cep.isNotEmpty) {
+      parts.add('CEP $cep');
+    }
     return parts.join(', ');
   }
 
@@ -3007,15 +3022,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
       return;
     }
-    final docRef = widget.doc?.reference ?? widget.noticias.doc();
+    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
     final postId = docRef.id;
     setState(() => _saving = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final allUrls = List<String>.from(_existingUrls);
-      for (var i = 0; i < _newImages.length; i++) {
-        final slot = allUrls.length;
-        allUrls.add(await _upload(_newImages[i], postId, slot));
+      var allUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      if (_newImages.isNotEmpty) {
+        final startSlot = allUrls.length;
+        final uploaded = await Future.wait(
+          List.generate(
+            _newImages.length,
+            (i) => _upload(_newImages[i], postId, startSlot + i),
+          ),
+        );
+        allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
       }
       var aspectRatio = 1.0;
       if (_newImages.isNotEmpty) {
@@ -3027,18 +3047,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final now = FieldValue.serverTimestamp();
 
       final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
-      var thumbForMeta = '';
-      if (thumbForMeta.isEmpty && allUrls.isNotEmpty) {
-        final prev = widget.doc?.data()?['media_info'];
-        if (prev is Map && _newImages.isEmpty) {
-          final u = sanitizeImageUrl(
-              (prev['url_thumb'] ?? prev['urlThumb'] ?? '').toString());
-          if (u.isNotEmpty && isValidImageUrl(u)) thumbForMeta = u;
-        }
-      }
-      if (thumbForMeta.isEmpty && firstUrl.isNotEmpty) {
-        thumbForMeta = firstUrl;
-      }
       if (_newImages.isEmpty && allUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
@@ -3069,10 +3077,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         payload['imagem_url'] = FieldValue.delete();
       }
 
+      /// Só [url_original]: miniatura no Storage não é mais referenciada (evita confusão com `thumb_*` da extensão).
       if (allUrls.isNotEmpty) {
         payload['media_info'] = <String, dynamic>{
           'url_original': firstUrl,
-          'url_thumb': thumbForMeta.isNotEmpty ? thumbForMeta : firstUrl,
           'aspect_ratio': aspectRatio,
           'tipo': hasVideo ? 'video' : 'image',
         };
@@ -3131,6 +3139,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         await widget.doc!.reference.set(payload, SetOptions(merge: true));
       }
 
+      if (_newImages.isNotEmpty) {
+        if (widget.type == 'aviso') {
+          FirebaseStorageCleanupService.scheduleCleanupAfterAvisoPostImageUpload(
+            tenantId: widget.tenantId,
+            postDocId: postId,
+          );
+        } else if (widget.type == 'evento') {
+          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+            tenantId: widget.tenantId,
+            postDocId: postId,
+          );
+        }
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3138,13 +3160,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
                 Text('Erro: $e', style: const TextStyle(color: Colors.white)),
             backgroundColor: ThemeCleanPremium.error));
+      }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
@@ -3224,9 +3249,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final padding = ThemeCleanPremium.pagePadding(context);
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
+    final publishLabel =
+        widget.doc != null ? 'Atualizar' : 'Publicar';
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: const Color(0xFFF1F5F9),
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.maybePop(context),
@@ -3261,6 +3291,48 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
           ),
         ],
+      ),
+      bottomNavigationBar: Material(
+        elevation: 12,
+        shadowColor: const Color(0x40000000),
+        color: Theme.of(context).colorScheme.surface,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              padding.left,
+              10,
+              padding.right,
+              10 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SizedBox(
+              height: math.max(52, ThemeCleanPremium.minTouchTarget),
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.publish_rounded),
+                label: Text(
+                  _saving ? 'Publicando...' : publishLabel,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
       body: SafeArea(
         child: ListView(
@@ -3317,7 +3389,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               height: thumbSize,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.12),
+                                color: Colors.green.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(12),
                                 border:
                                     Border.all(color: Colors.green.shade400),
@@ -3348,7 +3420,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               height: thumbSize,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.12),
+                                color: Colors.green.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(12),
                                 border:
                                     Border.all(color: Colors.green.shade400),
@@ -3405,7 +3477,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                           Icon(Icons.place_rounded,
                               size: 22,
                               color:
-                                  ThemeCleanPremium.primary.withOpacity(0.85)),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.85)),
                           const SizedBox(width: 8),
                           Text('Local (opcional)',
                               style: TextStyle(
@@ -3731,8 +3803,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                   firstDate: DateTime(DateTime.now().year - 1),
                                   lastDate: DateTime(DateTime.now().year + 3),
                                   initialDate: _date ?? DateTime.now());
-                              if (picked != null)
+                              if (picked != null) {
                                 setState(() => _date = picked);
+                              }
                             },
                             icon: const Icon(Icons.event_rounded),
                             label: Text(_date == null
@@ -3746,8 +3819,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               final picked = await showTimePicker(
                                   context: context,
                                   initialTime: _time ?? TimeOfDay.now());
-                              if (picked != null)
+                              if (picked != null) {
                                 setState(() => _time = picked);
+                              }
                             },
                             icon: const Icon(Icons.schedule_rounded),
                             label: Text(_time == null
@@ -3792,8 +3866,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                               DateTime.now().add(
                                                   const Duration(days: 30)),
                                         );
-                                        if (picked != null)
+                                        if (picked != null) {
                                           setState(() => _validUntil = picked);
+                                        }
                                       },
                                       icon: const Icon(
                                           Icons.calendar_today_rounded,
@@ -3856,33 +3931,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       ),
                     ]),
               ),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: math.max(52, ThemeCleanPremium.minTouchTarget),
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.publish_rounded),
-                  label: Text(
-                    _saving
-                        ? 'Publicando...'
-                        : (widget.doc != null ? 'Atualizar' : 'Publicar'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 15),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ThemeCleanPremium.primary,
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                  ),
-                ),
-              ),
+              SizedBox(height: 88 + MediaQuery.paddingOf(context).bottom),
             ]),
       ),
     );

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
@@ -36,10 +37,15 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 String? churchPublicPostThumbUrl(Map<String, dynamic> p) {
   final mi = p['media_info'];
   if (mi is Map) {
-    final u = sanitizeImageUrl(
-        (mi['url_thumb'] ?? mi['urlThumb'] ?? '').toString());
-    if (u.isNotEmpty && isValidImageUrl(u)) return u;
+    for (final k in ['url_thumb', 'urlThumb', 'url_original', 'urlOriginal']) {
+      final u = sanitizeImageUrl((mi[k] ?? '').toString());
+      if (u.isNotEmpty && isValidImageUrl(u)) return u;
+    }
   }
+  final img = sanitizeImageUrl(
+      (p['imageUrl'] ?? p['imagemUrl'] ?? p['defaultImageUrl'] ?? '')
+          .toString());
+  if (img.isNotEmpty && isValidImageUrl(img)) return img;
   return null;
 }
 
@@ -232,45 +238,70 @@ class ChurchPublicSocialFeedGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (docs.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(
-      builder: (context, c) {
-        final tileH = (c.maxWidth * 0.92).clamp(240.0, 420.0);
-        return ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 14),
-          itemBuilder: (context, i) {
-            final d = docs[i];
-            final p = d.data();
-            return SizedBox(
-              height: tileH,
-              child: _SocialGridTile(
-                postId: d.id,
-                post: p,
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: docs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 14),
+      itemBuilder: (context, i) {
+        return churchPublicSocialFeedTile(
+          context: context,
+          doc: docs[i],
+          igrejaId: igrejaId,
+          churchSlug: churchSlug,
+          accent: accent,
+          memCacheW: memCacheW,
+          memCacheH: memCacheH,
+          onOpenHostedVideo: onOpenHostedVideo,
+        );
+      },
+    );
+  }
+}
+
+/// Um cartão do feed público (altura conforme a largura) — para [SliverList] lazy.
+Widget churchPublicSocialFeedTile({
+  required BuildContext context,
+  required QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  required String igrejaId,
+  required String churchSlug,
+  required Color accent,
+  required int memCacheW,
+  required int memCacheH,
+  required Future<void> Function(
+    BuildContext context,
+    Map<String, dynamic> post,
+    String postId,
+  ) onOpenHostedVideo,
+}) {
+  return LayoutBuilder(
+    builder: (context, c) {
+      final tileH = (c.maxWidth * 0.92).clamp(240.0, 420.0);
+      return SizedBox(
+        height: tileH,
+        child: _SocialGridTile(
+          postId: doc.id,
+          post: doc.data(),
+          igrejaId: igrejaId,
+          churchSlug: churchSlug,
+          accent: accent,
+          memCacheW: memCacheW,
+          memCacheH: memCacheH,
+          onOpenHostedVideo: onOpenHostedVideo,
+          onOpenDetail: () => unawaited(ChurchPublicPostLightbox.show(
+                context,
+                doc: doc,
                 igrejaId: igrejaId,
                 churchSlug: churchSlug,
                 accent: accent,
                 memCacheW: memCacheW,
                 memCacheH: memCacheH,
                 onOpenHostedVideo: onOpenHostedVideo,
-                onOpenDetail: () => unawaited(ChurchPublicPostLightbox.show(
-                  context,
-                  doc: d,
-                  igrejaId: igrejaId,
-                  churchSlug: churchSlug,
-                  accent: accent,
-                  memCacheW: memCacheW,
-                  memCacheH: memCacheH,
-                  onOpenHostedVideo: onOpenHostedVideo,
-                )),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+              )),
+        ),
+      );
+    },
+  );
 }
 
 class _SocialGridTile extends StatefulWidget {
@@ -650,6 +681,9 @@ class ChurchPublicPostLightbox {
                 post: p,
                 onOpenVideo: () => onOpenHostedVideo(ctx, p, postId),
                 showAssistVideoButton: showAssistBtn,
+                postsParentCollection:
+                    ChurchTenantPostsCollections.segmentFromPostRef(
+                        doc.reference),
               );
 
               final dialogH = (screenH * 0.88).clamp(380.0, 720.0);
@@ -825,6 +859,7 @@ class _LightboxTextPanel extends StatelessWidget {
   final Map<String, dynamic> post;
   final VoidCallback onOpenVideo;
   final bool showAssistVideoButton;
+  final String postsParentCollection;
 
   const _LightboxTextPanel({
     required this.title,
@@ -837,6 +872,7 @@ class _LightboxTextPanel extends StatelessWidget {
     required this.post,
     required this.onOpenVideo,
     required this.showAssistVideoButton,
+    required this.postsParentCollection,
   });
 
   Future<void> _copy(BuildContext context) async {
@@ -926,6 +962,7 @@ class _LightboxTextPanel extends StatelessWidget {
                   postId: postId,
                   isEvento: isEvento,
                   churchSlug: churchSlug,
+                  postsParentCollection: postsParentCollection,
                 ),
               ],
             ),

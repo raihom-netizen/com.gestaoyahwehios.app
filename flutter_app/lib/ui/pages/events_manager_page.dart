@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -30,9 +31,11 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaExternalVideoUrl,
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaVideoThumbUrl,
-        looksLikeHostedVideoFileUrl;
+        looksLikeHostedVideoFileUrl,
+        postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -40,6 +43,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         SafeNetworkImage,
         SafeCircleAvatarImage,
         FreshFirebaseStorageImage,
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageMediaUrlLooksLike,
         firebaseStorageObjectPathFromHttpUrl,
         imageUrlFromMap,
@@ -447,15 +451,17 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       minHeight: 600,
                                                       quality: 70,
                                                     );
+                                                    final templateStorageId =
+                                                        doc?.id ??
+                                                            DateTime.now()
+                                                                .millisecondsSinceEpoch
+                                                                .toString();
                                                     final ref = FirebaseStorage
                                                         .instance
                                                         .ref(
                                                             ChurchStorageLayout.eventTemplateCoverPath(
                                                                 tenantId,
-                                                                doc?.id ??
-                                                                    DateTime.now()
-                                                                        .millisecondsSinceEpoch
-                                                                        .toString()));
+                                                                templateStorageId));
                                                     await ref.putData(
                                                         compressed,
                                                         SettableMetadata(
@@ -466,6 +472,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                     final downloadUrl =
                                                         await ref
                                                             .getDownloadURL();
+                                                    FirebaseStorageCleanupService
+                                                        .scheduleCleanupAfterEventTemplateCoverUpload(
+                                                      tenantId: tenantId,
+                                                      templateUniqueId:
+                                                          templateStorageId,
+                                                    );
                                                     if (ctx.mounted) {
                                                       defaultPhotoUrl.value =
                                                           downloadUrl;
@@ -525,13 +537,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                 minHeight: 600,
                                 quality: 70,
                               );
+                              final templateStorageId = doc?.id ??
+                                  DateTime.now()
+                                      .millisecondsSinceEpoch
+                                      .toString();
                               final ref = FirebaseStorage.instance.ref(
                                   ChurchStorageLayout.eventTemplateCoverPath(
-                                      tenantId,
-                                      doc?.id ??
-                                          DateTime.now()
-                                              .millisecondsSinceEpoch
-                                              .toString()));
+                                      tenantId, templateStorageId));
                               await ref.putData(
                                   compressed,
                                   SettableMetadata(
@@ -539,6 +551,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                       cacheControl:
                                           'public, max-age=31536000'));
                               final downloadUrl = await ref.getDownloadURL();
+                              FirebaseStorageCleanupService
+                                  .scheduleCleanupAfterEventTemplateCoverUpload(
+                                tenantId: tenantId,
+                                templateUniqueId: templateStorageId,
+                              );
                               if (ctx.mounted) {
                                 defaultPhotoUrl.value = downloadUrl;
                                 setSheetState(() {});
@@ -1900,7 +1917,7 @@ List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
       thumbPaths.add(normalizeFirebaseStorageObjectPath(p));
     }
   }
-  return raw.where((u) {
+  return dedupeImageRefsByStorageIdentity(raw.where((u) {
     final s = sanitizeImageUrl(u);
     if (thumbUrls.contains(s)) return false;
     final p = firebaseStorageObjectPathFromHttpUrl(s);
@@ -1909,7 +1926,7 @@ List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
       return false;
     }
     return true;
-  }).toList();
+  }).toList());
 }
 
 List<Map<String, String>> _eventVideosFromData(Map<String, dynamic> data) =>
@@ -2330,12 +2347,14 @@ class _EventoPostState extends State<_EventoPost>
                           final w = c.maxWidth.isFinite && c.maxWidth > 0
                               ? c.maxWidth
                               : 400.0;
-                          final h = w * 9 / 16;
+                          final ar = postFeedCarouselAspectRatioForIndex(
+                              data, 0, allImages.length);
+                          final h = w / ar;
                           final dpr = MediaQuery.devicePixelRatioOf(context);
                           final memW = (w * dpr).round().clamp(64, 2048);
                           final memH = (h * dpr).round().clamp(64, 2048);
                           return AspectRatio(
-                            aspectRatio: 16 / 9,
+                            aspectRatio: ar,
                             child: _buildEventFeedPhotoSlide(
                               data: data,
                               imageUrl: allImages[0],
@@ -2355,9 +2374,11 @@ class _EventoPostState extends State<_EventoPost>
                           final w = c.maxWidth.isFinite && c.maxWidth > 0
                               ? c.maxWidth
                               : 400.0;
-                          final h = w * 9 / 16;
+                          final ar = postFeedCarouselAspectRatioForIndex(
+                              data, _carouselIndex, allImages.length);
+                          final h = w / ar;
                           return AspectRatio(
-                            aspectRatio: 16 / 9,
+                            aspectRatio: ar,
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
@@ -3844,6 +3865,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _uploadingVideo = false;
   bool _buscandoCep = false;
 
+  /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
+  late final DocumentReference<Map<String, dynamic>> _eventDocRef;
+
   /// Endereço da igreja (com lat/lng) vs. endereço manual por CEP.
   bool _useChurchLocation = false;
   String? _churchAddressText;
@@ -4042,6 +4066,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
+    _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _text = TextEditingController(text: (data['text'] ?? '').toString());
@@ -4254,6 +4279,63 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             size: 40, color: Colors.grey.shade600),
       );
 
+  /// Slot 0/1 explícito no path (`_v0.mp4`); legado sem sufixo → `null` (apenas apagar por URL).
+  int? _hostedVideoStorageSlotFromUrl(String videoUrl) {
+    final u = sanitizeImageUrl(videoUrl.trim());
+    if (u.isEmpty || !isFirebaseStorageHttpUrl(u)) return null;
+    final path = firebaseStorageObjectPathFromHttpUrl(u);
+    if (path == null || path.isEmpty) return null;
+    if (!path.contains('/eventos/videos/')) return null;
+    final m = RegExp(r'_v(\d+)\.mp4$', caseSensitive: false).firstMatch(path);
+    if (m != null) {
+      final n = int.tryParse(m.group(1) ?? '');
+      if (n != null) return n.clamp(0, 1);
+    }
+    return null;
+  }
+
+  /// Próximo slot livre (0 ou 1). Vídeos legado em `videos/` sem `_vN` contam pelo índice na lista.
+  int _nextHostedVideoStorageSlot() {
+    final used = <int>{};
+    for (var i = 0; i < _eventVideos.length; i++) {
+      final url = (_eventVideos[i]['videoUrl'] ?? '').toString();
+      final s = _hostedVideoStorageSlotFromUrl(url);
+      if (s != null) {
+        used.add(s);
+      } else {
+        final u = sanitizeImageUrl(url.trim());
+        final p = firebaseStorageObjectPathFromHttpUrl(u) ?? '';
+        if (u.isNotEmpty &&
+            isFirebaseStorageHttpUrl(u) &&
+            p.contains('/eventos/videos/')) {
+          used.add(i.clamp(0, 1));
+        }
+      }
+    }
+    if (!used.contains(0)) return 0;
+    if (!used.contains(1)) return 1;
+    return -1;
+  }
+
+  Future<void> _removeEventVideoAt(int index) async {
+    if (index < 0 || index >= _eventVideos.length) return;
+    final v = _eventVideos[index];
+    final videoUrl = (v['videoUrl'] ?? '').toString();
+    final thumbUrl = (v['thumbUrl'] ?? '').toString();
+    final slot = _hostedVideoStorageSlotFromUrl(videoUrl);
+    if (slot != null) {
+      await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
+        tenantId: widget.tenantId,
+        postDocId: _eventDocRef.id,
+        videoSlot: slot,
+      );
+    } else {
+      await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+          [videoUrl, thumbUrl]);
+    }
+    if (mounted) setState(() => _eventVideos.removeAt(index));
+  }
+
   Future<void> _pickAndUploadVideo() async {
     if (_uploadingVideo || _eventVideos.length >= _maxVideosPerEvent) {
       if (_eventVideos.length >= _maxVideosPerEvent && mounted) {
@@ -4266,21 +4348,30 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    // Trava por evento: em edição, revalida no servidor
-    if (widget.doc != null) {
-      final snap = await widget.doc!.reference.get();
-      final existing = _eventVideosFromData(snap.data() ?? {});
-      if (existing.length >= _maxVideosPerEvent) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text(
-                'Este evento já atingiu o limite de 2 vídeos. Remova um para adicionar outro.'),
-            backgroundColor: ThemeCleanPremium.error,
-            behavior: SnackBarBehavior.floating,
-          ));
-        }
-        return;
+    final snap = await _eventDocRef.get();
+    final existing = _eventVideosFromData(snap.data() ?? {});
+    if (existing.length >= _maxVideosPerEvent) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text(
+              'Este evento já atingiu o limite de 2 vídeos. Remova um para adicionar outro.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
       }
+      return;
+    }
+    final slot = _nextHostedVideoStorageSlot();
+    if (slot < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text(
+              'Limite de 2 vídeos no Storage. Remova um vídeo para adicionar outro.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
     }
     setState(() => _uploadingVideo = true);
     try {
@@ -4290,6 +4381,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 'Otimizando e enviando vídeo (máx. ${_maxVideoSeconds}s)...'));
       final result = await VideoHandlerService.instance.pickCompressAndUpload(
         tenantId: widget.tenantId,
+        eventPostDocId: _eventDocRef.id,
+        videoSlotIndex: slot,
         maxDuration: const Duration(seconds: 60),
       );
       if (result == null || !mounted) {
@@ -4451,7 +4544,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
-    final docRef = widget.doc?.reference ?? widget.noticias.doc();
+    final docRef = _eventDocRef;
     final postId = docRef.id;
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
@@ -4532,6 +4625,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         payload['templateId'] = FieldValue.delete();
         await widget.doc!.reference.set(payload, SetOptions(merge: true));
       }
+      if (_newImages.isNotEmpty) {
+        FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+          tenantId: widget.tenantId,
+          postDocId: postId,
+        );
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(widget.doc == null
@@ -4609,6 +4708,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             if (_validUntil != null)
               payload['validUntil'] = Timestamp.fromDate(_validUntil!);
             await docRef.set(payload);
+            if (_newImages.isNotEmpty) {
+              FirebaseStorageCleanupService
+                  .scheduleCleanupAfterEventPostImageUpload(
+                tenantId: widget.tenantId,
+                postDocId: postId,
+              );
+            }
           } else {
             final retryUrls = List<String>.from(_existingUrls);
             for (var i = 0;
@@ -4668,6 +4774,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             }
             merge['templateId'] = FieldValue.delete();
             await widget.doc!.reference.set(merge, SetOptions(merge: true));
+            if (_newImages.isNotEmpty) {
+              FirebaseStorageCleanupService
+                  .scheduleCleanupAfterEventPostImageUpload(
+                tenantId: widget.tenantId,
+                postDocId: postId,
+              );
+            }
           }
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -4858,8 +4971,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                               top: 4,
                               right: 4,
                               child: GestureDetector(
-                                onTap: () =>
-                                    setState(() => _eventVideos.removeAt(i)),
+                                onTap: () => unawaited(_removeEventVideoAt(i)),
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: const BoxDecoration(

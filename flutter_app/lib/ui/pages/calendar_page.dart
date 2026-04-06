@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -22,7 +23,14 @@ import 'package:url_launcher/url_launcher.dart';
 class CalendarPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  const CalendarPage({super.key, required this.tenantId, required this.role});
+  /// Dentro do [IgrejaCleanShell]: sem barra inferior sobreposta ao calendário; ações compactas na linha do modo de vista.
+  final bool embeddedInShell;
+  const CalendarPage({
+    super.key,
+    required this.tenantId,
+    required this.role,
+    this.embeddedInShell = false,
+  });
 
   @override
   State<CalendarPage> createState() => _CalendarPageState();
@@ -89,6 +97,9 @@ class _CalendarPageState extends State<CalendarPage>
     if (r == null || g == null || b == null) return null;
     return Color(0xFF000000 | (r << 16) | (g << 8) | b);
   }
+
+  bool get _embeddedMobile =>
+      widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
 
   bool get _canWrite {
     final r = widget.role.toLowerCase();
@@ -510,6 +521,13 @@ class _CalendarPageState extends State<CalendarPage>
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final showAppBar = !isMobile || Navigator.canPop(context);
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    final pad = ThemeCleanPremium.pagePadding(context);
+    final useSplitCalendar =
+        _agendaView != _AgendaViewKind.list && (isMobile || wide);
+    final showBottomBar =
+        isMobile && _agendaView != _AgendaViewKind.list && !_embeddedMobile;
+
     return Scaffold(
       appBar: !showAppBar
           ? null
@@ -526,74 +544,306 @@ class _CalendarPageState extends State<CalendarPage>
                 'Agenda inteligente',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
               ),
+              actions: [
+                if (_agendaView != _AgendaViewKind.list) ...[
+                  IconButton(
+                    tooltip: 'Exportar PDF',
+                    onPressed: _exportAgendaPdf,
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                  ),
+                  if (_canWrite)
+                    IconButton(
+                      tooltip: 'Novo evento',
+                      onPressed: () => _showAddEvent(),
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                ],
+              ],
             ),
-      floatingActionButton: _canWrite
+      floatingActionButton: _canWrite &&
+              !showBottomBar &&
+              !useSplitCalendar &&
+              !_embeddedMobile
           ? FloatingActionButton.extended(
-              onPressed: _showAddEvent,
+              onPressed: () => _showAddEvent(),
               icon: const Icon(Icons.add_rounded),
-              label: const Text('Novo Evento'),
+              label: const Text('Novo evento'),
               backgroundColor: ThemeCleanPremium.primary,
               foregroundColor: Colors.white,
             )
           : null,
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadEvents,
-          child: ListView(
-            padding: ThemeCleanPremium.pagePadding(context),
-            children: [
-              if (isMobile) ...[
-                Text(
-                  'Agenda inteligente',
-                  style: GoogleFonts.poppins(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: ThemeCleanPremium.onSurface,
+      bottomNavigationBar: showBottomBar
+          ? SafeArea(
+              child: Material(
+                elevation: 8,
+                color: ThemeCleanPremium.cardBackground,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _exportAgendaPdf,
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 22),
+                          label: Text('PDF', style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
+                          ),
+                        ),
+                      ),
+                      if (_canWrite) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton.icon(
+                            onPressed: () => _showAddEvent(),
+                            icon: const Icon(Icons.add_rounded, size: 22),
+                            label: Text('Novo evento', style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700)),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                const SizedBox(height: ThemeCleanPremium.spaceMd),
-              ],
-              if (_loadError != null) ...[
-                Padding(
-                  padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                  child: ChurchPanelErrorBody(
-                    title: 'Não foi possível carregar alguns eventos',
-                    error: _loadError,
-                    onRetry: _loadEvents,
-                  ),
-                ),
-              ],
-              _buildViewToggle(),
-              const SizedBox(height: ThemeCleanPremium.spaceSm),
-              _buildCategoryFilterRow(),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                child: _agendaView == _AgendaViewKind.list
-                    ? Column(
-                        key: const ValueKey('list'),
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildListFilters(),
-                          const SizedBox(height: ThemeCleanPremium.spaceSm),
-                          _buildListView(key: const ValueKey('listcontent')),
-                        ],
-                      )
-                    : _buildCalendarView(key: const ValueKey('calendar')),
               ),
-              SizedBox(height: isMobile ? 88 : ThemeCleanPremium.spaceLg),
-              HolidayFooter(year: _holidayFooterYear),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-            ],
-          ),
-        ),
+            )
+          : null,
+      body: SafeArea(
+        child: useSplitCalendar
+            ? Padding(
+                padding: pad,
+                child: _buildSplitCalendarBody(wide: wide, isMobile: isMobile),
+              )
+            : RefreshIndicator(
+                onRefresh: _loadEvents,
+                child: ListView(
+                  padding: pad,
+                  children: [
+                    if (_embeddedMobile && _agendaView == _AgendaViewKind.list) ...[
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _embeddedAgendaIconActions(),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                    if (isMobile && !_embeddedMobile) ...[
+                      Text(
+                        'Agenda inteligente',
+                        style: GoogleFonts.poppins(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    ],
+                    if (_loadError != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+                        child: ChurchPanelErrorBody(
+                          title: 'Não foi possível carregar alguns eventos',
+                          error: _loadError,
+                          onRetry: _loadEvents,
+                        ),
+                      ),
+                    ],
+                    _buildViewToggleRow(),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    _buildCategoryFilterRow(),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: _agendaView == _AgendaViewKind.list
+                          ? Column(
+                              key: const ValueKey('list'),
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildListFilters(),
+                                const SizedBox(height: ThemeCleanPremium.spaceSm),
+                                _buildListView(key: const ValueKey('listcontent')),
+                              ],
+                            )
+                          : _buildCalendarStacked(key: const ValueKey('calendar')),
+                    ),
+                    SizedBox(
+                        height: (isMobile && !_embeddedMobile)
+                            ? 88
+                            : ThemeCleanPremium.spaceLg),
+                    HolidayFooter(year: _holidayFooterYear),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  ],
+                ),
+              ),
       ),
     );
   }
 
-  Widget _buildViewToggle() {
+  /// Calendário em cima (altura generosa), resumo do dia + mês abaixo — web largo em duas colunas.
+  Widget _buildSplitCalendarBody({required bool wide, required bool isMobile}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxH = constraints.maxHeight.isFinite && constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : MediaQuery.sizeOf(context).height * 0.55;
+        final frac = _embeddedMobile ? 0.48 : 0.36;
+        final calendarH = wide
+            ? math.min(440.0, math.max(300.0, maxH * 0.36))
+            : math.min(460.0, math.max(260.0, maxH * frac));
+
+        Widget calendarBlock() => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_loadError != null)
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                    child: ChurchPanelErrorBody(
+                      title: 'Não foi possível carregar alguns eventos',
+                      error: _loadError,
+                      onRetry: _loadEvents,
+                    ),
+                  ),
+                _buildViewToggleRow(),
+                const SizedBox(height: ThemeCleanPremium.spaceSm),
+                _buildCategoryFilterRow(),
+                const SizedBox(height: ThemeCleanPremium.spaceMd),
+                SizedBox(
+                  height: calendarH,
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: _buildCalendarTopOnly(),
+                  ),
+                ),
+              ],
+            );
+
+        final detailsBottomPad =
+            isMobile && !_embeddedMobile ? 72.0 : ThemeCleanPremium.spaceMd;
+
+        Widget detailsBlock() => RefreshIndicator(
+              onRefresh: _loadEvents,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(top: ThemeCleanPremium.spaceSm),
+                children: [
+                  Text(
+                    'Resumo do dia',
+                    style: GoogleFonts.poppins(
+                      fontSize: isMobile ? 17 : 16,
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceSm),
+                  _buildSelectedDayEvents(),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  Text(
+                    'Resumo do mês',
+                    style: GoogleFonts.poppins(
+                      fontSize: isMobile ? 17 : 16,
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceSm),
+                  _buildFocusedMonthSummary(),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  HolidayFooter(year: _holidayFooterYear),
+                  SizedBox(height: detailsBottomPad),
+                ],
+              ),
+            );
+
+        if (wide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 11,
+                child: SingleChildScrollView(
+                  child: calendarBlock(),
+                ),
+              ),
+              const SizedBox(width: ThemeCleanPremium.spaceMd),
+              Expanded(flex: 9, child: detailsBlock()),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isMobile && !_embeddedMobile)
+              Padding(
+                padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                child: Text(
+                  'Agenda inteligente',
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+            calendarBlock(),
+            Expanded(child: detailsBlock()),
+          ],
+        );
+      },
+    );
+  }
+
+  /// PDF + novo evento compactos (painel igreja no telefone — evita barra inferior sobre o calendário).
+  Widget _embeddedAgendaIconActions() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Exportar PDF',
+          onPressed: _exportAgendaPdf,
+          icon: const Icon(Icons.picture_as_pdf_rounded),
+          style: IconButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
+          ),
+        ),
+        if (_canWrite)
+          IconButton(
+            tooltip: 'Novo evento',
+            onPressed: () => _showAddEvent(),
+            icon: const Icon(Icons.add_circle_outline_rounded),
+            style: IconButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildViewToggleRow() {
+    final core = _buildViewToggleCore();
+    if (_embeddedMobile && _agendaView != _AgendaViewKind.list) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: core),
+          _embeddedAgendaIconActions(),
+        ],
+      );
+    }
+    return core;
+  }
+
+  Widget _buildViewToggleCore() {
     return Container(
       decoration: BoxDecoration(
         color: ThemeCleanPremium.cardBackground,
@@ -728,7 +978,8 @@ class _CalendarPageState extends State<CalendarPage>
 
   // ─── Calendário (table_calendar) — mês / semana ────────────────────────────
 
-  Widget _buildCalendarView({Key? key}) {
+  /// Só a grade (uso no layout “calendário em cima”).
+  Widget _buildCalendarTopOnly({Key? key}) {
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -745,16 +996,51 @@ class _CalendarPageState extends State<CalendarPage>
               ),
             ),
           ),
+      ],
+    );
+  }
+
+  /// Lista vertical única (modo sem split): calendário + dia + resumo mês.
+  Widget _buildCalendarStacked({Key? key}) {
+    return Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildCalendarTopOnly(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
+        Text(
+          'Resumo do dia',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: ThemeCleanPremium.onSurface,
+          ),
+        ),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildSelectedDayEvents(),
+        const SizedBox(height: ThemeCleanPremium.spaceMd),
+        Text(
+          'Resumo do mês',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: ThemeCleanPremium.onSurface,
+          ),
+        ),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
+        _buildFocusedMonthSummary(),
       ],
     );
   }
 
   Widget _buildTableCalendarCard() {
+    final isMobile = ThemeCleanPremium.isMobile(context);
     final calFormat = _agendaView == _AgendaViewKind.week
         ? CalendarFormat.week
         : CalendarFormat.month;
+    final rowH = isMobile ? 52.0 : 46.0;
+    final dowH = isMobile ? 30.0 : 26.0;
+    final cellFs = isMobile ? 15.5 : 14.0;
     return Container(
       decoration: BoxDecoration(
         color: ThemeCleanPremium.cardBackground,
@@ -773,31 +1059,62 @@ class _CalendarPageState extends State<CalendarPage>
           calendarFormat: calFormat,
           availableGestures: AvailableGestures.all,
           startingDayOfWeek: StartingDayOfWeek.sunday,
+          rowHeight: rowH,
+          daysOfWeekHeight: dowH,
           eventLoader: (day) => _eventsByDay[_dayKey(day)] ?? const [],
           calendarStyle: CalendarStyle(
             outsideDaysVisible: true,
-            weekendTextStyle: TextStyle(color: Colors.grey.shade600),
+            cellMargin: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+            defaultTextStyle: GoogleFonts.poppins(
+              fontSize: cellFs,
+              fontWeight: FontWeight.w600,
+              color: ThemeCleanPremium.onSurface,
+            ),
+            weekendTextStyle: GoogleFonts.poppins(
+              fontSize: cellFs,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
             todayDecoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withOpacity(0.22),
+              color: ThemeCleanPremium.primary.withOpacity(0.18),
               shape: BoxShape.circle,
+              border: Border.all(color: ThemeCleanPremium.primary, width: 2),
+            ),
+            todayTextStyle: GoogleFonts.poppins(
+              fontSize: cellFs,
+              fontWeight: FontWeight.w800,
+              color: ThemeCleanPremium.primary,
             ),
             selectedDecoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withOpacity(0.42),
+              color: ThemeCleanPremium.primary,
               shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2.5),
+              boxShadow: [
+                BoxShadow(
+                  color: ThemeCleanPremium.primary.withOpacity(0.45),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            markerSize: 5,
+            selectedTextStyle: GoogleFonts.poppins(
+              fontSize: cellFs,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+            markerSize: isMobile ? 6 : 5,
             markersMaxCount: 4,
             markersAlignment: Alignment.bottomCenter,
           ),
           daysOfWeekStyle: DaysOfWeekStyle(
             weekdayStyle: GoogleFonts.poppins(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+              fontSize: isMobile ? 13 : 12,
+              fontWeight: FontWeight.w700,
               color: ThemeCleanPremium.onSurfaceVariant,
             ),
             weekendStyle: GoogleFonts.poppins(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+              fontSize: isMobile ? 13 : 12,
+              fontWeight: FontWeight.w700,
               color: Colors.grey.shade500,
             ),
           ),
@@ -807,8 +1124,8 @@ class _CalendarPageState extends State<CalendarPage>
             leftChevronPadding: EdgeInsets.zero,
             rightChevronPadding: EdgeInsets.zero,
             titleTextStyle: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+              fontSize: isMobile ? 19 : 17,
+              fontWeight: FontWeight.w800,
               color: ThemeCleanPremium.onSurface,
             ),
           ),
@@ -875,9 +1192,9 @@ class _CalendarPageState extends State<CalendarPage>
             padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
             child: Text(
               label[0].toUpperCase() + label.substring(1),
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
                 color: ThemeCleanPremium.onSurface,
               ),
             ),
@@ -987,9 +1304,9 @@ class _CalendarPageState extends State<CalendarPage>
                             children: [
                               Text(
                                 ev.title.isNotEmpty ? ev.title : ev.type,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
                                   color: ThemeCleanPremium.onSurface,
                                 ),
                                 maxLines: 1,
@@ -998,9 +1315,12 @@ class _CalendarPageState extends State<CalendarPage>
                               const SizedBox(height: 4),
                               Row(
                                 children: [
-                                  Icon(Icons.access_time_rounded, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
+                                  Icon(Icons.access_time_rounded, size: 16, color: ThemeCleanPremium.onSurfaceVariant),
                                   const SizedBox(width: 4),
-                                  Text(time, style: const TextStyle(fontSize: 12, color: ThemeCleanPremium.onSurfaceVariant)),
+                                  Text(time,
+                                      style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: ThemeCleanPremium.onSurfaceVariant)),
                                 ],
                               ),
                             ],
@@ -1031,6 +1351,104 @@ class _CalendarPageState extends State<CalendarPage>
         fontWeight: FontWeight.w600,
         color: color,
       )),
+    );
+  }
+
+  /// Totais e contagem por categoria no mês visível no calendário.
+  Widget _buildFocusedMonthSummary() {
+    final y = _focusedMonth.year;
+    final m = _focusedMonth.month;
+    var total = 0;
+    final byCat = <String, int>{};
+    for (final e in _eventsByDay.entries) {
+      DateTime? d;
+      try {
+        d = DateFormat('yyyy-MM-dd').parse(e.key);
+      } catch (_) {
+        continue;
+      }
+      if (d.year != y || d.month != m) continue;
+      for (final ev in e.value) {
+        total++;
+        final ck = (ev.categoryKey ?? 'outro').trim();
+        byCat[ck] = (byCat[ck] ?? 0) + 1;
+      }
+    }
+    final rawMonth = DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth);
+    final monthLabel =
+        rawMonth.isEmpty ? '' : '${rawMonth[0].toUpperCase()}${rawMonth.substring(1)}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.analytics_rounded, color: ThemeCleanPremium.primary, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  monthLabel,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            total == 0
+                ? 'Nenhum evento neste mês na faixa carregada.'
+                : '$total evento${total == 1 ? '' : 's'} no mês',
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: ThemeCleanPremium.primary,
+            ),
+          ),
+          if (total > 0 && byCat.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...byCat.entries.map((en) {
+              final label = _categoryLabels[en.key] ?? en.key;
+              final col = _categoryColors[en.key] ?? ThemeCleanPremium.onSurfaceVariant;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(color: col, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Text(
+                      '${en.value}',
+                      style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1138,14 +1556,31 @@ class _CalendarPageState extends State<CalendarPage>
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
-          build: (ctx) => [
-            pw.Header(child: pw.Text('Agenda', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
-            pw.Table(border: pw.TableBorder.all(width: 0.5), children: rows),
-          ],
+          build: (ctx) {
+            final refMonth = DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth);
+            return [
+              pw.Header(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Agenda — Gestão YAHWEH',
+                        style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Referência: $refMonth', style: const pw.TextStyle(fontSize: 10)),
+                  ],
+                ),
+              ),
+              pw.Table(border: pw.TableBorder.all(width: 0.5), children: rows),
+            ];
+          },
         ),
       );
       final bytes = Uint8List.fromList(await pdf.save());
-      if (mounted) await showPdfActions(context, bytes: bytes, filename: 'agenda_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      if (mounted) {
+        final fn =
+            'agenda_${_focusedMonth.year}_${_focusedMonth.month.toString().padLeft(2, '0')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        await showPdfActions(context, bytes: bytes, filename: fn);
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
     }
@@ -1501,7 +1936,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   // ─── Novo evento → coleção agenda (+ opcional mural) ───────────────────────
 
-  void _showAddEvent() {
+  Future<void> _showAddEvent() async {
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     final locCtrl = TextEditingController();
@@ -1517,24 +1952,30 @@ class _CalendarPageState extends State<CalendarPage>
     final needCantina = ValueNotifier<bool>(false);
     final saving = ValueNotifier<bool>(false);
 
-    showModalBottomSheet(
+    final savedDate = await showModalBottomSheet<DateTime?>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusXl)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          ThemeCleanPremium.spaceLg,
-          ThemeCleanPremium.spaceMd,
-          ThemeCleanPremium.spaceLg,
-          MediaQuery.of(ctx).viewInsets.bottom + ThemeCleanPremium.spaceLg,
-        ),
-        child: SingleChildScrollView(
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.sizeOf(ctx).height * 0.92,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            ThemeCleanPremium.spaceLg,
+            ThemeCleanPremium.spaceMd,
+            ThemeCleanPremium.spaceLg,
+            MediaQuery.viewInsetsOf(ctx).bottom + ThemeCleanPremium.spaceLg,
+          ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
               Center(
                   child: Container(
                 width: 40,
@@ -1547,10 +1988,11 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               Text('Novo evento (agenda)',
                   style: GoogleFonts.poppins(
-                      fontSize: 18, fontWeight: FontWeight.w800)),
+                      fontSize: 20, fontWeight: FontWeight.w800)),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               TextField(
                 controller: titleCtrl,
+                style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
                   labelText: 'Título *',
                   prefixIcon: Icon(Icons.title_rounded),
@@ -1682,9 +2124,17 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                 ],
               ),
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 4),
+                child: Text(
+                  'Dica: término antes do início no mesmo dia vira dia seguinte (ex.: 19h–08h).',
+                  style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600),
+                ),
+              ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               TextField(
                 controller: locCtrl,
+                style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
                   labelText: 'Local / sala',
                   prefixIcon: Icon(Icons.place_rounded),
@@ -1693,6 +2143,7 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               TextField(
                 controller: respCtrl,
+                style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
                   labelText: 'Responsável',
                   prefixIcon: Icon(Icons.person_rounded),
@@ -1763,6 +2214,7 @@ class _CalendarPageState extends State<CalendarPage>
               TextField(
                 controller: descCtrl,
                 maxLines: 3,
+                style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
                   labelText: 'Descrição',
                   prefixIcon: Icon(Icons.description_rounded),
@@ -1802,15 +2254,19 @@ class _CalendarPageState extends State<CalendarPage>
                                 int.tryParse(ep.elementAtOrNull(1) ?? '') ?? 0;
                             final startBase = DateTime(
                                 date.year, date.month, date.day, sh, sm);
-                            final endBase = DateTime(
+                            var endBase = DateTime(
                                 date.year, date.month, date.day, eh, em);
+                            if (!endBase.isAfter(startBase)) {
+                              endBase =
+                                  endBase.add(const Duration(days: 1));
+                            }
                             if (!endBase.isAfter(startBase)) {
                               saving.value = false;
                               if (ctx.mounted) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                        'Horário de término deve ser após o início.'),
+                                        'Revise os horários de início e fim.'),
                                   ),
                                 );
                               }
@@ -1877,13 +2333,11 @@ class _CalendarPageState extends State<CalendarPage>
                               ScaffoldMessenger.of(ctx).showSnackBar(
                                   ThemeCleanPremium.successSnackBar(
                                       'Evento salvo na agenda.'));
-                              Navigator.pop(ctx);
-                            }
-                            await Future<void>.delayed(
-                                const Duration(milliseconds: 120));
-                            if (mounted) {
-                              _loadEvents();
-                              _restartAgendaSubscription();
+                              final d = dateNotifier.value;
+                              Navigator.pop(
+                                ctx,
+                                DateTime(d.year, d.month, d.day),
+                              );
                             }
                           } catch (e) {
                             saving.value = false;
@@ -1904,7 +2358,15 @@ class _CalendarPageState extends State<CalendarPage>
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.save_rounded),
-                  label: Text(isSaving ? 'Salvando...' : 'Salvar na agenda'),
+                  label: Text(
+                    isSaving ? 'Salvando...' : 'Salvar na agenda',
+                    style: GoogleFonts.poppins(
+                        fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1912,6 +2374,17 @@ class _CalendarPageState extends State<CalendarPage>
         ),
       ),
     );
+    if (!mounted) return;
+    if (savedDate != null) {
+      setState(() {
+        _selectedDay =
+            DateTime(savedDate.year, savedDate.month, savedDate.day);
+        _focusedDay = _selectedDay!;
+        _focusedMonth = DateTime(savedDate.year, savedDate.month, 1);
+      });
+      await _loadEvents();
+      _restartAgendaSubscription();
+    }
   }
 }
 

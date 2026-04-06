@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
@@ -174,12 +177,376 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   /// Retorna a chave de CPF usada no documento (igual à de memberCpfs/confirmations).
   String _confirmationKey(Map<String, dynamic> data) {
-    final list = (data['memberCpfs'] as List?)?.cast<String>() ?? [];
+    final raw = data['memberCpfs'];
     final normalized = _cpfDigits.replaceAll(RegExp(r'[^0-9]'), '');
-    for (final c in list) {
-      if ((c ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '') == normalized) return c;
+    if (raw is List) {
+      for (final e in raw) {
+        final c = e?.toString() ?? '';
+        if (c.replaceAll(RegExp(r'[^0-9]'), '') == normalized) return c;
+      }
     }
     return _cpfDigits;
+  }
+
+  Future<void> _abrirPedidoTroca(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> escalaDoc,
+  ) async {
+    if (_cpfDigits.length != 11) return;
+    final m = escalaDoc.data();
+    final deptId = (m['departmentId'] ?? '').toString();
+    if (deptId.isEmpty) return;
+    DateTime? escDt;
+    try {
+      escDt = (m['date'] as Timestamp?)?.toDate();
+    } catch (_) {}
+    if (escDt == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Data da escala inválida.')),
+      );
+      return;
+    }
+    final escalaTime = (m['time'] ?? '19:00').toString();
+    final escalaTitle = (m['title'] ?? 'Escala').toString().trim();
+    final escalaDateLabel = DateFormat('dd/MM/yyyy', 'pt_BR').format(escDt);
+    final memberCpfs =
+        ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final currentNorm = <String>{
+      for (final c in memberCpfs) c.replaceAll(RegExp(r'[^0-9]'), ''),
+    };
+
+    final tid = await _effectiveTidFuture;
+    if (!context.mounted) return;
+
+    String solicitanteNome = '';
+    try {
+      final col =
+          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+      final byId = await col.doc(_cpfDigits).get();
+      if (byId.exists) {
+        final d = byId.data()!;
+        solicitanteNome =
+            (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+      } else {
+        final q = await col.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
+        if (q.docs.isNotEmpty) {
+          final d = q.docs.first.data();
+          solicitanteNome =
+              (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+        }
+      }
+    } catch (_) {}
+
+    List<ScheduleSwapCandidate> candidates;
+    try {
+      candidates = await ScheduleSwapService.filterFreeCandidates(
+        tenantId: tid,
+        departmentId: deptId,
+        solicitanteCpfDigits: _cpfDigits,
+        escalaDay: escDt,
+        escalaTime: escalaTime,
+        currentEscalaMemberCpfsNorm: currentNorm,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao buscar irmãos disponíveis: $e')),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não há irmãos livres neste horário (outra escala no mesmo dia ou indisponibilidade no calendário).',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final chosen = await showDialog<ScheduleSwapCandidate?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Solicitar troca'),
+        content: SizedBox(
+          width: 320,
+          height: 400,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Só aparecem irmãos do mesmo departamento livres nesta data e horário.',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: candidates.length,
+                  itemBuilder: (_, i) {
+                    final o = candidates[i];
+                    return ListTile(
+                      leading: const Icon(Icons.person_add_alt_1_rounded),
+                      title: Text(o.nome),
+                      subtitle: const Text(
+                        'Livre neste horário',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      onTap: () => Navigator.pop(ctx, o),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (chosen == null || !context.mounted) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('escala_trocas')
+          .add({
+        'escalaId': escalaDoc.id,
+        'departmentId': deptId,
+        'solicitanteCpf': _cpfDigits,
+        'alvoCpf': chosen.cpf,
+        'status': 'pendente_alvo',
+        'solicitanteNome': solicitanteNome.isNotEmpty ? solicitanteNome : _cpfDigits,
+        'escalaTitle': escalaTitle,
+        'escalaDateLabel': escalaDateLabel,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Convite enviado para ${chosen.nome}. Quando aceitar, a escala será atualizada e o líder notificado.',
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao registrar pedido: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _respondTrocaConvite(String tid, String trocaId, bool accept) async {
+    try {
+      await ScheduleSwapService.respondSwap(
+        tenantId: tid,
+        trocaId: trocaId,
+        accept: accept,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          accept
+              ? 'Troca confirmada. A escala foi atualizada e o líder foi avisado.'
+              : 'Você recusou o pedido. O irmão foi avisado.',
+        ),
+      );
+      await _load();
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'Não foi possível concluir.'),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    }
+  }
+
+  Widget _buildIncomingSwapInvites() {
+    if (_cpfDigits.length != 11) return const SizedBox.shrink();
+    return FutureBuilder<String>(
+      future: _effectiveTidFuture,
+      builder: (context, snap) {
+        if (!snap.hasData) return const SizedBox.shrink();
+        final tid = snap.data!;
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(tid)
+              .collection('escala_trocas')
+              .where('alvoCpf', isEqualTo: _cpfDigits)
+              .snapshots(),
+          builder: (context, tSnap) {
+            if (!tSnap.hasData) return const SizedBox.shrink();
+            final items = tSnap.data!.docs
+                .where(
+                    (d) => (d.data()['status'] ?? '').toString() == 'pendente_alvo')
+                .toList();
+            if (items.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.mail_outline_rounded,
+                          color: Colors.deepPurple.shade700, size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Convites de troca',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.deepPurple.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (final doc in items)
+                    Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        side: BorderSide(color: Colors.deepPurple.shade100),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              (doc.data()['solicitanteNome'] ?? 'Um irmão')
+                                  .toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'pediu para você assumir esta escala.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              [
+                                (doc.data()['escalaDateLabel'] ?? '').toString(),
+                                (doc.data()['escalaTitle'] ?? '').toString(),
+                              ].where((s) => s.trim().isNotEmpty).join(' · '),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () => _respondTrocaConvite(
+                                        tid, doc.id, true),
+                                    icon: const Icon(Icons.check_rounded, size: 20),
+                                    label: const Text('Aceitar'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF16A34A),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _respondTrocaConvite(
+                                        tid, doc.id, false),
+                                    icon: const Icon(Icons.close_rounded, size: 20),
+                                    label: const Text('Recusar'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String?> _resolveMemberDocId(String tid) async {
+    if (_cpfDigits.length != 11) return null;
+    final col =
+        FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+    final byId = await col.doc(_cpfDigits).get();
+    if (byId.exists) return _cpfDigits;
+    for (final field in ['CPF', 'cpf']) {
+      final q = await col.where(field, isEqualTo: _cpfDigits).limit(1).get();
+      if (q.docs.isNotEmpty) return q.docs.first.id;
+    }
+    return null;
+  }
+
+  Future<void> _openAvailabilityCalendar() async {
+    if (_cpfDigits.length != 11) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Informe o CPF no cadastro para usar o calendário de indisponibilidade.')),
+      );
+      return;
+    }
+    final tid = await _effectiveTidFuture;
+    if (!context.mounted) return;
+    final mid = await _resolveMemberDocId(tid);
+    if (!context.mounted) return;
+    if (mid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Cadastro de membro não encontrado para este CPF.')),
+      );
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => MemberScheduleAvailabilityPage(
+          tenantId: widget.tenantId,
+          memberDocId: mid,
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    await _load();
   }
 
   Future<void> _confirmPresence(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) async {
@@ -215,6 +582,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       appBar: isMobile ? null : AppBar(
         elevation: 0,
         title: const Text('Minhas Escalas', style: TextStyle(fontWeight: FontWeight.w700)),
+        actions: [
+          IconButton(
+            tooltip: 'Indisponibilidade para escalas',
+            onPressed: _openAvailabilityCalendar,
+            icon: const Icon(Icons.event_busy_rounded),
+          ),
+        ],
       ),
       body: SafeArea(
         child: _loading
@@ -227,6 +601,16 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (isMobile)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                          child: OutlinedButton.icon(
+                            onPressed: _openAvailabilityCalendar,
+                            icon: const Icon(Icons.event_busy_rounded, size: 20),
+                            label: const Text('Dias em que não posso servir'),
+                          ),
+                        ),
+                      _buildIncomingSwapInvites(),
                       _buildSummary(now),
                       const SizedBox(height: ThemeCleanPremium.spaceSm),
                       _buildFilterChips(context),
@@ -323,6 +707,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           cpfDigits: _cpfDigits,
           onConfirm: _confirmPresence,
           onPop: () => setState(() {}),
+          onRequestSwap: _cpfDigits.length == 11
+              ? (d) => _abrirPedidoTroca(context, d)
+              : null,
         ),
       ),
     );
@@ -522,6 +909,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       cpfDigits: _cpfDigits,
       deptColors: _deptColors,
       onConfirm: (d, status, [motivo]) => _confirmPresence(d, status, motivo),
+      onRequestSwap: _cpfDigits.length == 11
+          ? () => _abrirPedidoTroca(context, doc)
+          : null,
     );
   }
 }
@@ -533,6 +923,7 @@ class _ScaleEventCard extends StatelessWidget {
   final String cpfDigits;
   final List<Color> deptColors;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
+  final VoidCallback? onRequestSwap;
 
   const _ScaleEventCard({
     required this.doc,
@@ -540,6 +931,7 @@ class _ScaleEventCard extends StatelessWidget {
     required this.cpfDigits,
     required this.deptColors,
     required this.onConfirm,
+    this.onRequestSwap,
   });
 
   @override
@@ -618,6 +1010,7 @@ class _ScaleEventCard extends StatelessWidget {
                         Color bg;
                         if (conf == 'confirmado') { bg = ThemeCleanPremium.success; }
                         else if (conf == 'indisponivel') { bg = ThemeCleanPremium.error; }
+                        else if (conf == 'falta_nao_justificada') { bg = const Color(0xFFB91C1C); }
                         else { bg = Colors.grey.shade400; }
                         return Tooltip(
                           message: '$n (${conf.isEmpty ? 'pendente' : conf})',
@@ -702,6 +1095,17 @@ class _ScaleEventCard extends StatelessWidget {
                         ),
                       ),
                     ]),
+                    if (onRequestSwap != null) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: onRequestSwap,
+                          icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                          label: const Text('Solicitar troca'),
+                        ),
+                      ),
+                    ],
                   ] else if (myStatus.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -743,6 +1147,7 @@ class _MinhaEscalaListaPage extends StatefulWidget {
   final String cpfDigits;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
   final VoidCallback onPop;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap;
 
   const _MinhaEscalaListaPage({
     required this.titulo,
@@ -751,6 +1156,7 @@ class _MinhaEscalaListaPage extends StatefulWidget {
     required this.cpfDigits,
     required this.onConfirm,
     required this.onPop,
+    this.onRequestSwap,
   });
 
   @override
@@ -880,6 +1286,9 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                       cpfDigits: widget.cpfDigits,
                       deptColors: _deptColors,
                       onConfirm: _confirm,
+                      onRequestSwap: widget.onRequestSwap != null
+                          ? () => widget.onRequestSwap!(doc)
+                          : null,
                     )),
                   ],
                 );

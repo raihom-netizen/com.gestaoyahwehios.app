@@ -5,8 +5,9 @@ import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 /// A página confirma que o documento pertence ao ecossistema Gestão YAHWEH; a validação
 /// plena permanece com a secretaria da igreja.
 ///
-/// **Protocolo UUID** ([protocolValidationUrl]): aponta para `/#/validar?cid=` e lê
-/// `certificados_emitidos/{id}` no Firestore. O QR no PDF é gerado em vetor pelo pacote `pdf`
+/// **Protocolo UUID** ([protocolValidationUrl]): aponta para `/#/validar?cid=` e resolve
+/// `certificados_protocol_index` → `igrejas/{tenantId}/certificados_emitidos/{id}` (legado: raiz).
+/// O QR no PDF é gerado em vetor pelo pacote `pdf`
 /// ([BarcodeWidget]), sem ficheiro de imagem no Storage.
 class CertificadoConsultaUrl {
   CertificadoConsultaUrl._();

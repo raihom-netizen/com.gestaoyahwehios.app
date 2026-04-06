@@ -480,6 +480,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
         content = AdminDashboardPage(
           embedInPanel: true,
           onNavigateTo: (item) => _selectMenuItem(context, item),
+          masterModuleVisible: _canAccessMasterItem,
         );
         break;
       case AdminMenuItem.sistemaAlertas:

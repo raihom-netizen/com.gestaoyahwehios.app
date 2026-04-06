@@ -141,6 +141,9 @@ class _MembersPageState extends State<MembersPage> {
   /// Expandido por defeito: filtros (género, idade, dept., etc.) ficam visíveis sem toque extra.
   bool _filtrosExpanded = true;
 
+  /// Busca + abas Todos/Ativos/Inativos/Pendentes — recolher libera espaço para a lista (web e celular).
+  bool _buscaRapidosExpanded = true;
+
   /// Tenant ID efetivo (documento em tenants): resolvido por slug/alias quando o usuário tem igreja "Brasil para Cristo" etc.
   String? _resolvedTenantId;
 
@@ -161,7 +164,12 @@ class _MembersPageState extends State<MembersPage> {
     final t = tenantId.trim();
     final m = memberId.trim();
     if (t.isEmpty || m.isEmpty) return;
-    FirebaseStorageService.invalidateMemberPhotoCache(tenantId: t, memberId: m);
+    final au = (memberData?['authUid'] ?? '').toString().trim();
+    FirebaseStorageService.invalidateMemberPhotoCache(
+      tenantId: t,
+      memberId: m,
+      authUid: au.isEmpty ? null : au,
+    );
     AppStorageImageService.instance
         .invalidateStoragePrefix('igrejas/$t/membros/$m');
     final d = memberData;
@@ -784,11 +792,6 @@ class _MembersPageState extends State<MembersPage> {
       (r['filiacaoMae'] ?? '').toString().trim(),
     );
     put(['SEXO', 'sexo'], (r['sexo'] ?? '').toString().trim());
-    final capa = (r['fotoCapaUrl'] ?? '').toString().trim();
-    if (capa.isNotEmpty) {
-      patch['FOTO_CAPA_URL'] = capa;
-      patch['fotoCapaUrl'] = capa;
-    }
     if (patch.isEmpty) return;
     setState(() {
       _optimisticMemberOverlays[memberId] = {
@@ -1662,12 +1665,6 @@ class _MembersPageState extends State<MembersPage> {
         _parseDate(d['DATA_BATISMO'] ?? d['dataBatismo'] ?? d['data_batismo']);
     final profissaoCtrl =
         TextEditingController(text: _str(d, 'PROFISSAO', 'profissao'));
-    final geoLatCtrl = TextEditingController(
-        text: _geoCoordText(d['GEO_LAT'] ?? d['latitude']));
-    final geoLngCtrl = TextEditingController(
-        text: _geoCoordText(d['GEO_LNG'] ?? d['longitude']));
-    final fotoCapaCtrl = TextEditingController(
-        text: (d['FOTO_CAPA_URL'] ?? d['fotoCapaUrl'] ?? '').toString().trim());
     XFile? newPhoto;
     Uint8List? newPhotoBytes;
     final currentPhoto = _photoUrlForMember(member.id, d);
@@ -1677,14 +1674,6 @@ class _MembersPageState extends State<MembersPage> {
     bool removeAssinatura = false;
     final currentAssinaturaUrl =
         (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
-    Uint8List? newDigitalBytes;
-    bool removeDigital = false;
-    final currentDigitalUrl = (d['imagemDigitalUrl'] ??
-            d['IMAGEM_DIGITAL_URL'] ??
-            d['digitalImagemUrl'] ??
-            '')
-        .toString()
-        .trim();
     final keyAssinaturaPreview = GlobalKey();
     bool podeVerFinanceiro = d['podeVerFinanceiro'] == true;
     bool podeVerPatrimonio = d['podeVerPatrimonio'] == true;
@@ -2594,117 +2583,6 @@ class _MembersPageState extends State<MembersPage> {
                                 );
                               },
                             ),
-                          if (staffEdit)
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                                border:
-                                    Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(Icons.fingerprint_rounded,
-                                          size: 22,
-                                          color: ThemeCleanPremium.primary),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          'Digital na carteirinha (opcional)',
-                                          style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
-                                              color:
-                                                  ThemeCleanPremium.onSurface),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Imagem da digital ou marca visual para o PDF; o QR da carteirinha aponta para a página pública de consulta.',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                        height: 1.3),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  if (currentDigitalUrl.isNotEmpty &&
-                                      !removeDigital &&
-                                      newDigitalBytes == null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: ResilientNetworkImage(
-                                          imageUrl: sanitizeImageUrl(
-                                              currentDigitalUrl),
-                                          height: 72,
-                                          width: 56,
-                                          fit: BoxFit.contain,
-                                          errorWidget: const Icon(
-                                              Icons.broken_image_rounded),
-                                        ),
-                                      ),
-                                    ),
-                                  if (newDigitalBytes != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.memory(newDigitalBytes!,
-                                            height: 72,
-                                            width: 56,
-                                            fit: BoxFit.contain),
-                                      ),
-                                    ),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      OutlinedButton.icon(
-                                        onPressed: () async {
-                                          final picker = ImagePicker();
-                                          final file = await picker.pickImage(
-                                              source: ImageSource.gallery,
-                                              maxWidth: 800,
-                                              imageQuality: 90);
-                                          if (file == null || !ctx.mounted)
-                                            return;
-                                          final bytes =
-                                              await file.readAsBytes();
-                                          setDlg(() {
-                                            newDigitalBytes = bytes;
-                                            removeDigital = false;
-                                          });
-                                        },
-                                        icon: const Icon(Icons.upload_rounded,
-                                            size: 18),
-                                        label: const Text('Enviar imagem'),
-                                      ),
-                                      if ((currentDigitalUrl.isNotEmpty ||
-                                              newDigitalBytes != null) &&
-                                          !removeDigital)
-                                        TextButton.icon(
-                                          onPressed: () => setDlg(() {
-                                            newDigitalBytes = null;
-                                            removeDigital = true;
-                                          }),
-                                          icon: const Icon(
-                                              Icons.delete_outline_rounded),
-                                          label: const Text('Remover'),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: DropdownButtonFormField<String>(
@@ -2936,27 +2814,6 @@ class _MembersPageState extends State<MembersPage> {
                               controller: estadoCtrl,
                               label: 'Estado',
                               icon: Icons.flag_rounded),
-                          _EditField(
-                            controller: geoLatCtrl,
-                            label: 'Latitude (Maps)',
-                            icon: Icons.explore_rounded,
-                            type: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                          ),
-                          _EditField(
-                            controller: geoLngCtrl,
-                            label: 'Longitude (Maps)',
-                            icon: Icons.explore_rounded,
-                            type: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                          ),
-                          if (staffEdit)
-                            _EditField(
-                              controller: fotoCapaCtrl,
-                              label: 'URL da foto de capa (opcional)',
-                              icon: Icons.wallpaper_rounded,
-                              type: TextInputType.url,
-                            ),
                           if (staffEdit &&
                               funcoesNotifier.value
                                   .map((e) => e.toString().toLowerCase())
@@ -3076,9 +2933,6 @@ class _MembersPageState extends State<MembersPage> {
                                 'escolaridade': escolaridadeCtrl.text.trim(),
                                 'profissao': profissaoCtrl.text.trim(),
                                 'dataBatismo': dataBatismo,
-                                'geoLat': geoLatCtrl.text.trim(),
-                                'geoLng': geoLngCtrl.text.trim(),
-                                'fotoCapaUrl': fotoCapaCtrl.text.trim(),
                                 'filiacaoPai': filiacaoPaiCtrl.text.trim(),
                                 'filiacaoMae': filiacaoMaeCtrl.text.trim(),
                                 'endereco': enderecoCtrl.text.trim(),
@@ -3163,11 +3017,12 @@ class _MembersPageState extends State<MembersPage> {
                 );
                 photoUrl = upload.downloadUrl;
                 photoStoragePath = upload.storagePath;
-                unawaited(
-                  FirebaseStorageCleanupService
-                      .deleteGeneratedMemberProfileThumbnails(
-                    tenantId: targetTenantId,
-                    memberId: member.id,
+                FirebaseStorageCleanupService
+                    .scheduleCleanupAfterMemberProfilePhotoUpload(
+                  tenantId: targetTenantId,
+                  memberId: FirebaseStorageService.memberProfileStorageFolderId(
+                    member.id,
+                    authUidFoto.isEmpty ? null : authUidFoto,
                   ),
                 );
                 if (mounted) {
@@ -3236,12 +3091,6 @@ class _MembersPageState extends State<MembersPage> {
           updates['DATA_BATISMO'] =
               Timestamp.fromDate(result['dataBatismo'] as DateTime);
         }
-        final selfLat = double.tryParse(
-            (result['geoLat'] ?? '').toString().trim().replaceAll(',', '.'));
-        final selfLng = double.tryParse(
-            (result['geoLng'] ?? '').toString().trim().replaceAll(',', '.'));
-        if (selfLat != null) updates['GEO_LAT'] = selfLat;
-        if (selfLng != null) updates['GEO_LNG'] = selfLng;
         if (photoUrl != null) {
           updates['foto_url'] = photoUrl;
           updates['FOTO_URL_OU_ID'] = photoUrl;
@@ -3419,11 +3268,12 @@ class _MembersPageState extends State<MembersPage> {
             );
             photoUrl = upload.downloadUrl;
             photoStoragePath = upload.storagePath;
-            unawaited(
-              FirebaseStorageCleanupService
-                  .deleteGeneratedMemberProfileThumbnails(
-                tenantId: targetTenantId,
-                memberId: member.id,
+            FirebaseStorageCleanupService
+                .scheduleCleanupAfterMemberProfilePhotoUpload(
+              tenantId: targetTenantId,
+              memberId: FirebaseStorageService.memberProfileStorageFolderId(
+                member.id,
+                authUidGestor.isEmpty ? null : authUidGestor,
               ),
             );
             if (mounted) {
@@ -3482,16 +3332,6 @@ class _MembersPageState extends State<MembersPage> {
     if (result['dataBatismo'] is DateTime) {
       updates['DATA_BATISMO'] =
           Timestamp.fromDate(result['dataBatismo'] as DateTime);
-    }
-    final gLat = double.tryParse(geoLatCtrl.text.trim().replaceAll(',', '.'));
-    final gLng = double.tryParse(geoLngCtrl.text.trim().replaceAll(',', '.'));
-    if (gLat != null) updates['GEO_LAT'] = gLat;
-    if (gLng != null) updates['GEO_LNG'] = gLng;
-    final capa = fotoCapaCtrl.text.trim();
-    if (capa.isNotEmpty) {
-      updates['FOTO_CAPA_URL'] = capa;
-    } else {
-      updates['FOTO_CAPA_URL'] = FieldValue.delete();
     }
     if (permBaseFinal == 'membro') {
       if (result['podeVerFinanceiro'] != null) {
@@ -3552,52 +3392,6 @@ class _MembersPageState extends State<MembersPage> {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(uAss);
       }
       updates['assinaturaUrl'] = FieldValue.delete();
-    }
-    if (newDigitalBytes != null) {
-      try {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Enviando imagem da digital...'));
-        for (final k in const [
-          'imagemDigitalUrl',
-          'IMAGEM_DIGITAL_URL',
-          'digitalImagemUrl'
-        ]) {
-          final oldD =
-              sanitizeImageUrl((member.data[k] ?? '').toString().trim());
-          if (oldD.isNotEmpty) {
-            await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(oldD);
-          }
-        }
-        final ref = FirebaseStorage.instance
-            .ref('igrejas/$targetTenantId/membros/${member.id}_digital.png');
-        await ref.putData(
-            newDigitalBytes!,
-            SettableMetadata(
-                contentType: 'image/png',
-                cacheControl: 'public, max-age=31536000'));
-        final url = await ref.getDownloadURL();
-        updates['imagemDigitalUrl'] = url;
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar('Digital salva.'));
-      } catch (e) {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar('Erro ao enviar digital: $e'));
-      }
-    }
-    if (removeDigital) {
-      for (final k in const [
-        'imagemDigitalUrl',
-        'IMAGEM_DIGITAL_URL',
-        'digitalImagemUrl'
-      ]) {
-        final oldD = sanitizeImageUrl((member.data[k] ?? '').toString().trim());
-        if (oldD.isNotEmpty) {
-          await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(oldD);
-        }
-      }
-      updates['imagemDigitalUrl'] = FieldValue.delete();
     }
     final linkage = isMoveToOtherChurch
         ? await _getLinkageForTenant(targetTenantId)
@@ -3885,14 +3679,12 @@ class _MembersPageState extends State<MembersPage> {
         refs.add(db.collection('users').doc(uid));
       }
 
-      const maxOps = 450;
-      for (var i = 0; i < refs.length; i += maxOps) {
-        final batch = db.batch();
-        final end = i + maxOps > refs.length ? refs.length : i + maxOps;
-        for (var j = i; j < end; j++) {
-          batch.delete(refs[j]);
+      for (final r in refs) {
+        try {
+          await r.delete();
+        } catch (e) {
+          debugPrint('members_page._deleteMember skip ref=$r: $e');
         }
-        await batch.commit();
       }
 
       if (mounted) {
@@ -4959,6 +4751,27 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
+  String _buscaRapidosSectionSubtitle() {
+    const statusLabels = <String, String>{
+      'todos': 'Todos',
+      'ativos': 'Ativos',
+      'inativos': 'Inativos',
+      'pendentes': 'Pendentes',
+    };
+    final st = statusLabels[_filtroStatus] ?? _filtroStatus;
+    final q = _searchCtrl.text.trim();
+    if (_buscaRapidosExpanded) {
+      return 'Recolha para ampliar a lista na tela (útil no celular e no navegador).';
+    }
+    final bits = <String>['Toque para expandir'];
+    bits.add('Status: $st');
+    if (q.isNotEmpty) {
+      final short = q.length > 26 ? '${q.substring(0, 26)}…' : q;
+      bits.add('Busca: "$short"');
+    }
+    return bits.join(' · ');
+  }
+
   Widget _buildPremiumSearchField(EdgeInsets padding) {
     return Padding(
       padding: EdgeInsets.fromLTRB(padding.left, 10, padding.right, 0),
@@ -5309,8 +5122,29 @@ class _MembersPageState extends State<MembersPage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildPremiumSearchField(padding),
-                          _buildPremiumStatusBar(padding),
+                          Padding(
+                            padding: EdgeInsets.only(
+                                left: padding.left, right: padding.right),
+                            child: _CollapsibleSection(
+                              title: 'Busca e filtros rápidos',
+                              subtitle: _buscaRapidosSectionSubtitle(),
+                              icon: Icons.manage_search_rounded,
+                              expanded: _buscaRapidosExpanded,
+                              badgeCount: (_q.isNotEmpty || _filtroStatus != 'todos')
+                                  ? 1
+                                  : 0,
+                              onToggle: () => setState(() =>
+                                  _buscaRapidosExpanded =
+                                      !_buscaRapidosExpanded),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildPremiumSearchField(EdgeInsets.zero),
+                                  _buildPremiumStatusBar(EdgeInsets.zero),
+                                ],
+                              ),
+                            ),
+                          ),
                           if (_canManage)
                             Padding(
                               padding: EdgeInsets.only(
@@ -6443,15 +6277,6 @@ Map<String, dynamic> _mergeMemberPhotoFields(
     if (v != null && v.toString().trim().isNotEmpty) out2[k] = v;
   }
   return out2;
-}
-
-String _geoCoordText(dynamic v) {
-  if (v == null) return '';
-  if (v is num) {
-    final s = v.toString();
-    return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
-  }
-  return v.toString().trim();
 }
 
 String _str(Map<String, dynamic> d, String key1,

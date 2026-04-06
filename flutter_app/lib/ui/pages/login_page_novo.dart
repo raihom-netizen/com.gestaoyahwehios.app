@@ -6,6 +6,10 @@ class LoginPageNovo extends StatelessWidget {
   const LoginPageNovo({super.key});
   @override
   Widget build(BuildContext context) {
-    return const LoginPage(title: 'Entrar', afterLoginRoute: '/painel');
+    return const LoginPage(
+      title: 'Entrar',
+      afterLoginRoute: '/painel',
+      showGoogleLogin: true,
+    );
   }
 }

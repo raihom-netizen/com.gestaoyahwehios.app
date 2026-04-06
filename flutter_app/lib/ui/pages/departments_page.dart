@@ -3,13 +3,14 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/gestures.dart';
-import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_department_fa_icons.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -34,12 +35,20 @@ import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  const DepartmentsPage(
-      {super.key, required this.tenantId, required this.role});
+  /// Módulos extras (ex.: `departamentos`) vindos de `users.permissions` / painel do gestor.
+  final List<String>? permissions;
+  const DepartmentsPage({
+    super.key,
+    required this.tenantId,
+    required this.role,
+    this.permissions,
+  });
 
   @override
   State<DepartmentsPage> createState() => _DepartmentsPageState();
@@ -49,7 +58,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   /// Carregamento explícito: na web + IndexedStack o FutureBuilder às vezes não reconstrói após o .get() — área ficava em branco.
   bool _deptLoading = true;
   Object? _deptError;
-  QuerySnapshot<Map<String, dynamic>>? _deptSnap;
 
   /// ID do documento da igreja (resolve slug/alias) — mesmo path do dashboard.
   String _effectiveTenantId = '';
@@ -69,7 +77,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _effectiveTenantId = widget.tenantId;
-      _deptSnap = null;
       _startDeptLoad(forceServer: true);
     }
   }
@@ -81,11 +88,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       _deptError = null;
     });
     try {
-      final snap = await _resolveTenantAndLoad(forceServer: forceServer);
+      await _resolveTenantAndLoad(forceServer: forceServer);
       if (!mounted) return;
       setState(() {
         _deptLoading = false;
-        _deptSnap = snap;
         _deptError = null;
       });
     } catch (e, st) {
@@ -98,8 +104,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Resolve tenant; se a subcoleção estiver vazia, **kit de boas-vindas** (6 departamentos).
-  /// O catálogo completo continua disponível pelo botão “Gravar os N no sistema”.
+  /// Resolve tenant; se a subcoleção estiver vazia, **kit de boas-vindas** (11 departamentos base).
+  /// O catálogo base (11) continua disponível pelo botão “Gravar no sistema”.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
       {bool forceServer = false}) async {
     try {
@@ -109,7 +115,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       _effectiveTenantId = widget.tenantId;
     }
     final tid = _tid.trim();
-    if (tid.isNotEmpty && AppPermissions.canEditDepartments(widget.role)) {
+    if (tid.isNotEmpty &&
+        AppPermissions.canEditDepartments(widget.role,
+            permissions: widget.permissions)) {
       try {
         await ChurchDepartmentsBootstrap.ensureWelcomeKitDocuments(
           FirebaseFirestore.instance
@@ -152,7 +160,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
     if (loaded.docs.isEmpty &&
         tid.isNotEmpty &&
-        AppPermissions.canEditDepartments(widget.role)) {
+        AppPermissions.canEditDepartments(widget.role,
+            permissions: widget.permissions)) {
       try {
         await ChurchDepartmentsBootstrap.ensureWelcomeKitDocuments(
           FirebaseFirestore.instance
@@ -274,35 +283,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     await _startDeptLoad(forceServer: true);
   }
 
-  Future<Map<String, dynamic>> _getEngajamento(String deptId) async {
-    final membrosSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_tid)
-        .collection('membros')
-        .where('DEPARTAMENTOS', arrayContains: deptId)
-        .get();
-    final membros = membrosSnap.docs;
-    final totalMembros = membros.length;
-    final now = DateTime.now();
-    final aniversariantes = membros.where((m) {
-      final dt = birthDateFromMemberData(m.data());
-      return dt != null && dt.month == now.month;
-    }).toList();
-    final reunioesSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_tid)
-        .collection('eventos')
-        .where('departamentoId', isEqualTo: deptId)
-        .where('tipo', isEqualTo: 'reuniao')
-        .get();
-    final totalReunioes = reunioesSnap.size;
-    return {
-      'totalMembros': totalMembros,
-      'aniversariantes': aniversariantes,
-      'totalReunioes': totalReunioes,
-    };
-  }
-
   /// Abre sheet com lista de membros do departamento; permite remover membro (lançado errado).
   Future<void> _verMembrosDoDepartamento({
     required BuildContext context,
@@ -343,6 +323,22 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (!_canWrite) return;
     final name = churchDepartmentNameFromData(doc.data() ?? {},
         docId: doc.id);
+    var vinculados = 0;
+    try {
+      final q = await _membersCol
+          .where('DEPARTAMENTOS', arrayContains: doc.id)
+          .count()
+          .get();
+      vinculados = q.count ?? 0;
+    } catch (_) {
+      try {
+        final snap = await _membersCol
+            .where('DEPARTAMENTOS', arrayContains: doc.id)
+            .limit(500)
+            .get();
+        vinculados = snap.size;
+      } catch (_) {}
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -354,7 +350,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           Text('Excluir departamento')
         ]),
         content: Text(
-            'Excluir o departamento "$name"? Os membros deixarão de estar vinculados a este departamento.'),
+            'Excluir o departamento "$name"?\n\n'
+            '${vinculados > 0 ? 'Há $vinculados membro(s) vinculado(s). ' : ''}'
+            'Os vínculos serão removidos automaticamente.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -586,7 +584,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  bool get _canWrite => AppPermissions.canEditDepartments(widget.role);
+  bool get _canWrite => AppPermissions.canEditDepartments(widget.role,
+      permissions: widget.permissions);
 
   bool _hasDuplicateDepartmentNames(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
@@ -693,6 +692,12 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       'label': 'Financeiro',
       'icon': Icons.account_balance_wallet_rounded,
       'color': 0xFF90A4AE
+    },
+    {
+      'key': 'escola_biblica',
+      'label': 'Escola Bíblica',
+      'icon': Icons.menu_book_rounded,
+      'color': 0xFF00897B
     },
     {
       'key': 'intercessao',
@@ -834,6 +839,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     {'key': 'kids', 'c1': 0xFF00BCD4, 'c2': 0xFF80DEEA},
     {'key': 'diaconal', 'c1': 0xFF5D4037, 'c2': 0xFF8D6E63},
     {'key': 'evangelismo', 'c1': 0xFF6A1B9A, 'c2': 0xFF7B1FA2},
+    {'key': 'escola_biblica', 'c1': 0xFF00695C, 'c2': 0xFF26A69A},
     {'key': 'finance', 'c1': 0xFF546E7A, 'c2': 0xFF90A4AE},
     {'key': 'intercessao', 'c1': 0xFFB71C1C, 'c2': 0xFFD32F2F},
     {'key': 'jovens', 'c1': 0xFF6A1B9A, 'c2': 0xFFAB47BC},
@@ -876,11 +882,123 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Widget _iconChip(String key, {double radius = 20}) {
     final opt = _iconOptions.firstWhere((e) => e['key'] == key,
         orElse: () => _iconOptions.first);
+    final fa = churchDepartmentFaIcon(key);
     return CircleAvatar(
       radius: radius,
       backgroundColor: Color(opt['color'] as int),
-      child: Icon(opt['icon'] as IconData,
-          color: Colors.white, size: radius * 1.15),
+      child: fa != null
+          ? FaIcon(fa, color: Colors.white, size: radius * 1.05)
+          : Icon(opt['icon'] as IconData,
+              color: Colors.white, size: radius * 1.15),
+    );
+  }
+
+  static Map<String, int> _memberCountsFromMembrosSnap(
+      QuerySnapshot<Map<String, dynamic>>? snap) {
+    final counts = <String, int>{};
+    if (snap == null) return counts;
+    for (final doc in snap.docs) {
+      final raw = doc.data()['DEPARTAMENTOS'] ?? doc.data()['departamentosIds'];
+      if (raw is! List) continue;
+      for (final x in raw) {
+        final id = x.toString();
+        if (id.isEmpty) continue;
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  Future<void> _openWhatsAppForMemberData(Map<String, dynamic> d) async {
+    String digits = '';
+    for (final k in [
+      'whatsapp',
+      'WHATSAPP',
+      'whatsappIgreja',
+      'celular',
+      'CELULAR',
+      'telefone',
+      'TELEFONE',
+    ]) {
+      final s = (d[k] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      if (s.length >= 10) {
+        digits = s;
+        break;
+      }
+    }
+    if (digits.length < 10) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Telefone/WhatsApp não encontrado na ficha do membro.'),
+          ),
+        );
+      }
+      return;
+    }
+    final uri = Uri.parse('https://wa.me/$digits');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _openDepartmentHubSheet({
+    required QueryDocumentSnapshot<Map<String, dynamic>> deptDoc,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DepartmentHubSheet(
+        tenantId: _tid,
+        deptId: deptDoc.id,
+        deptName: churchDepartmentNameFromDoc(deptDoc),
+        membersCol: _membersCol,
+        deptRef: _col.doc(deptDoc.id),
+        canWrite: _canWrite,
+        onWhatsApp: _openWhatsAppForMemberData,
+        onEditDepartamento: () {
+          Navigator.pop(ctx);
+          _edit(doc: deptDoc);
+        },
+        onAddMember: () {
+          Navigator.pop(ctx);
+          _vincularMembros(
+            context: context,
+            deptId: deptDoc.id,
+            deptName: churchDepartmentNameFromDoc(deptDoc),
+          );
+        },
+        onAddLeader: () async {
+          final cpf = await _pickMemberCpfDigitsForLeader();
+          if (cpf == null || cpf.length != 11 || !mounted) return;
+          try {
+            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+            final snap = await _col.doc(deptDoc.id).get();
+            final data = snap.data() ?? {};
+            final cur = List<String>.from(
+                ChurchDepartmentLeaders.cpfsFromDepartmentData(data));
+            if (cur.contains(cpf)) return;
+            cur.add(cpf);
+            await _col.doc(deptDoc.id).update({
+              ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(cur),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.successSnackBar('Líder vinculado.'),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Erro ao vincular líder: $e')),
+              );
+            }
+          }
+        },
+      ),
     );
   }
 
@@ -1047,6 +1165,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required EdgeInsets padding,
     required EdgeInsets listPad,
     required bool wide,
+    required Map<String, int> memberCounts,
   }) {
     final presets = ChurchDepartmentsBootstrap.presetsSorted;
     if (presets.isEmpty) return const <Widget>[];
@@ -1072,7 +1191,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Lista sugerida (${presets.length} departamentos)',
+                        'Departamentos sugeridos (${presets.length})',
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
@@ -1085,8 +1204,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 const SizedBox(height: 10),
                 Text(
                   _canWrite
-                      ? 'Estes itens aparecem para todas as igrejas até serem gravados no sistema. Toque em gravar para criar os documentos no Firestore e usar em escalas e membros.'
-                      : 'Referência padrão do sistema. Um gestor ou pastor pode gravar estes departamentos na sua igreja.',
+                      ? 'Lista enxuta para igrejas novas: Pastoral, Louvor, Jovens, Crianças, Evangelismo, Intercessão, Mídia, Recepção, Financeiro, Escola Bíblica e Varões. Toque em gravar para criar no Firestore (escalas e membros).'
+                      : 'Referência do sistema. Um gestor pode gravar estes departamentos na igreja.',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.4,
@@ -1099,7 +1218,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     onPressed: _manualEnsurePresets,
                     icon: const Icon(Icons.cloud_upload_rounded),
                     label: Text(
-                        'Gravar os ${ChurchDepartmentsBootstrap.uniquePresetCount} no sistema'),
+                        'Gravar ${ChurchDepartmentsBootstrap.uniquePresetCount} departamentos base'),
                     style: FilledButton.styleFrom(
                       backgroundColor: ThemeCleanPremium.primary,
                       padding: const EdgeInsets.symmetric(
@@ -1131,7 +1250,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
               childAspectRatio: 1.32,
             ),
             delegate: SliverChildBuilderDelegate(
-              (context, i) => _buildPresetSuggestionCard(presets[i]),
+              (context, i) => _buildPresetSuggestionCard(
+                    presets[i],
+                    memberCounts,
+                  ),
               childCount: presets.length,
             ),
           ),
@@ -1148,7 +1270,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         ? ThemeCleanPremium.spaceSm
                         : 0,
                   ),
-                  child: _buildPresetSuggestionCard(presets[i]),
+                  child: _buildPresetSuggestionCard(
+                    presets[i],
+                    memberCounts,
+                  ),
                 );
               },
               childCount: presets.length,
@@ -1159,7 +1284,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   /// Mesmo visual do card real, para lista padrão quando `departamentos` está vazio (todas as igrejas).
-  Widget _buildPresetSuggestionCard(Map<String, dynamic> preset) {
+  Widget _buildPresetSuggestionCard(
+    Map<String, dynamic> preset,
+    Map<String, int> memberCounts,
+  ) {
     final key = (preset['key'] ?? '').toString();
     final name = (preset['label'] ?? '').toString().trim();
     final desc = (preset['description'] ?? '').toString().trim();
@@ -1167,169 +1295,160 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final themeKey = iconKey;
     final c1 = (preset['c1'] ?? _themeByKey(themeKey)['c1']) as int;
     final c2 = (preset['c2'] ?? _themeByKey(themeKey)['c2']) as int;
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getEngajamento(key),
-      builder: (context, snapEng) {
-        final eng = snapEng.data;
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _deptCardShadow,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 118),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Positioned.fill(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(c1), Color(c2)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
+    final n = memberCounts[key] ?? 0;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: _deptCardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 118),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(c1), Color(c2)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
                       ),
-                      Positioned.fill(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Color(c1).withValues(alpha: 0.78),
-                                Color(c2).withValues(alpha: 0.78),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        left: 12,
-                        top: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.35),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Sugestão',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _iconChip(iconKey, radius: 24),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18,
-                                      color: Colors.white,
-                                      letterSpacing: -0.3,
-                                    ),
-                                  ),
-                                  if (desc.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      desc,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11,
-                                          height: 1.25),
-                                    ),
-                                  ],
-                                  const SizedBox(height: 8),
-                                  if (eng == null)
-                                    const Text(
-                                      'Carregando estatísticas…',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 12),
-                                    )
-                                  else
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 6,
-                                      children: [
-                                        _DeptStatPill(
-                                          icon: Icons.people_rounded,
-                                          text:
-                                              '${eng['totalMembros']} membros',
-                                        ),
-                                        _DeptStatPill(
-                                          icon: Icons.event_rounded,
-                                          text:
-                                              '${eng['totalReunioes']} reuniões',
-                                        ),
-                                        if ((eng['aniversariantes'] as List)
-                                            .isNotEmpty)
-                                          _DeptStatPill(
-                                            icon: Icons.cake_rounded,
-                                            text:
-                                                '${(eng['aniversariantes'] as List).length} aniversariantes',
-                                            highlight: true,
-                                          ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    border: const Border(
-                      top: BorderSide(color: Color(0x33FFFFFF)),
                     ),
                   ),
-                  child: _presetSuggestionActionRow(
-                    context: context,
-                    deptKey: key,
-                    deptName: name,
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Color(c1).withValues(alpha: 0.78),
+                            Color(c2).withValues(alpha: 0.78),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Sugestão',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _iconChip(iconKey, radius: 24),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              if (desc.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  desc,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                      height: 1.25),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.28),
+                border: const Border(
+                  top: BorderSide(color: Color(0x33FFFFFF)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.people_rounded,
+                      color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$n ${n == 1 ? 'membro ativo' : 'membros ativos'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                border: const Border(
+                  top: BorderSide(color: Color(0x33FFFFFF)),
+                ),
+              ),
+              child: _presetSuggestionActionRow(
+                context: context,
+                deptKey: key,
+                deptName: name,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   /// Card temático premium (gradiente + ícone da categoria).
-  Widget _buildDepartmentCard(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+  Widget _buildDepartmentCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+    Map<String, int> memberCounts,
+  ) {
     final m = d.data();
     final name = churchDepartmentNameFromDoc(d);
     final desc = (m['description'] ?? '').toString().trim();
@@ -1339,24 +1458,25 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final bgImageUrl = (m['bgImageUrl'] ?? '').toString();
     final c1 = (m['bgColor1'] ?? _themeByKey(themeKey)['c1']) as int;
     final c2 = (m['bgColor2'] ?? _themeByKey(themeKey)['c2']) as int;
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getEngajamento(d.id),
-      builder: (context, snapEng) {
-        final eng = snapEng.data;
-        final bgSanitized = sanitizeImageUrl(bgImageUrl);
-        final hasBg = isValidImageUrl(bgSanitized);
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _deptCardShadow,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ConstrainedBox(
+    final membrosAtivos = memberCounts[d.id] ?? 0;
+    final bgSanitized = sanitizeImageUrl(bgImageUrl);
+    final hasBg = isValidImageUrl(bgSanitized);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: _deptCardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _openDepartmentHubSheet(deptDoc: d),
+                child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 118),
                   child: Stack(
                     fit: StackFit.expand,
@@ -1487,37 +1607,23 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                     ),
                                   ],
                                   const SizedBox(height: 8),
-                                  if (eng == null)
-                                    const Text(
-                                      'Carregando estatísticas…',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 12),
-                                    )
-                                  else
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 6,
-                                      children: [
-                                        _DeptStatPill(
-                                          icon: Icons.people_rounded,
-                                          text:
-                                              '${eng['totalMembros']} membros',
-                                        ),
-                                        _DeptStatPill(
-                                          icon: Icons.event_rounded,
-                                          text:
-                                              '${eng['totalReunioes']} reuniões',
-                                        ),
-                                        if ((eng['aniversariantes'] as List)
-                                            .isNotEmpty)
-                                          _DeptStatPill(
-                                            icon: Icons.cake_rounded,
-                                            text:
-                                                '${(eng['aniversariantes'] as List).length} aniversariantes',
-                                            highlight: true,
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.touch_app_rounded,
+                                          color: Colors.white70, size: 16),
+                                      const SizedBox(width: 6),
+                                      const Expanded(
+                                        child: Text(
+                                          'Toque para líderes, WhatsApp e equipe',
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                            height: 1.2,
                                           ),
-                                      ],
-                                    ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -1527,23 +1633,48 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     ],
                   ),
                 ),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    border: const Border(
-                      top: BorderSide(color: Color(0x33FFFFFF)),
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.28),
+                border: const Border(
+                  top: BorderSide(color: Color(0x33FFFFFF)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.people_rounded,
+                      color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$membrosAtivos ${membrosAtivos == 1 ? 'membro ativo' : 'membros ativos'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
                     ),
                   ),
-                  child: _departmentActionRow(
-                      context: context, doc: d, deptName: name),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                border: const Border(
+                  top: BorderSide(color: Color(0x33FFFFFF)),
+                ),
+              ),
+              child: _departmentActionRow(
+                  context: context, doc: d, deptName: name),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1566,16 +1697,102 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return ref.getDownloadURL();
   }
 
+  Future<String?> _pickMemberCpfDigitsForLeader() async {
+    final tid = _tid.trim();
+    if (tid.isEmpty || !mounted) return null;
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .limit(450)
+          .get();
+    } catch (_) {
+      return null;
+    }
+    final docs = snap.docs.toList();
+    final qCtrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          final q = qCtrl.text.trim().toLowerCase();
+          final qDigits = q.replaceAll(RegExp(r'\D'), '');
+          final filtered = docs.where((d) {
+            if (q.isEmpty) return true;
+            final nome = (d.data()['NOME_COMPLETO'] ?? d.data()['nome'] ?? '')
+                .toString()
+                .toLowerCase();
+            final cpf =
+                (d.data()['CPF'] ?? d.data()['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+            return nome.contains(q) ||
+                (qDigits.length >= 3 && cpf.contains(qDigits));
+          }).take(120).toList();
+          return AlertDialog(
+            title: const Text('Vincular líder ao departamento'),
+            content: SizedBox(
+              width: 340,
+              height: 420,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: qCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Buscar nome ou CPF',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                    onChanged: (_) => setS(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        final d = filtered[i];
+                        final nom = (d.data()['NOME_COMPLETO'] ??
+                                d.data()['nome'] ??
+                                'Membro')
+                            .toString();
+                        final cpf = (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
+                            .toString()
+                            .replaceAll(RegExp(r'\D'), '');
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.person_rounded),
+                          title: Text(nom,
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                              cpf.length == 11 ? 'CPF $cpf' : 'Sem CPF válido'),
+                          onTap: () =>
+                              Navigator.pop(ctx, cpf.length == 11 ? cpf : null),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _edit({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     if (!_canWrite) return;
     final data = doc?.data() ?? {};
     final nameCtrl = TextEditingController(
         text: churchDepartmentNameFromData(data, docId: doc?.id));
     String iconKey = (data['iconKey'] ?? 'recepcao').toString();
-    final leaderCpfCtrl =
-        TextEditingController(text: (data['leaderCpf'] ?? '').toString());
-    final viceLeaderCpfCtrl =
-        TextEditingController(text: (data['viceLeaderCpf'] ?? '').toString());
+    final leaderCpfs = List<String>.from(
+        ChurchDepartmentLeaders.cpfsFromDepartmentData(data));
     final existingBgUrl = (data['bgImageUrl'] ?? '').toString().trim();
 
     XFile? pickedFile;
@@ -1738,17 +1955,53 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     )),
                   ]),
                   const SizedBox(height: 12),
-                  TextField(
-                      controller: leaderCpfCtrl,
-                      decoration: const InputDecoration(
-                          labelText: 'CPF do líder (opcional)',
-                          prefixIcon: Icon(Icons.person_rounded))),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: viceLeaderCpfCtrl,
-                      decoration: const InputDecoration(
-                          labelText: 'CPF do vice-líder (opcional)',
-                          prefixIcon: Icon(Icons.person_outline_rounded))),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Líderes do departamento',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Podem ser vários. Usados no painel, escalas e permissões de gestão do grupo.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: leaderCpfs
+                        .map(
+                          (cpf) => InputChip(
+                            label: Text(
+                              cpf.length == 11
+                                  ? '${cpf.substring(0, 3)}.${cpf.substring(3, 6)}.${cpf.substring(6, 9)}-${cpf.substring(9)}'
+                                  : cpf,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            onDeleted: () =>
+                                setD(() => leaderCpfs.remove(cpf)),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final c = await _pickMemberCpfDigitsForLeader();
+                      if (c == null || c.length != 11) return;
+                      setD(() {
+                        if (!leaderCpfs.contains(c)) leaderCpfs.add(c);
+                      });
+                    },
+                    icon: const Icon(Icons.person_add_rounded, size: 20),
+                    label: const Text('Adicionar líder (membro com CPF)'),
+                  ),
                   const SizedBox(height: 20),
                   Row(children: [
                     Expanded(
@@ -1795,7 +2048,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
 
     final theme = _themeByKey(iconKey);
-    String normCpfDigits(String raw) => raw.replaceAll(RegExp(r'\D'), '');
     final payload = <String, dynamic>{
       'name': nome,
       'iconKey': iconKey,
@@ -1803,8 +2055,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       'bgColor1': theme['c1'],
       'bgColor2': theme['c2'],
       'bgImageUrl': bgImageUrl,
-      'leaderCpf': normCpfDigits(leaderCpfCtrl.text),
-      'viceLeaderCpf': normCpfDigits(viceLeaderCpfCtrl.text),
+      ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(leaderCpfs),
       'updatedAt': Timestamp.now(),
       'active': true,
     };
@@ -1914,7 +2165,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             Expanded(
               child: Builder(
                 builder: (context) {
-                  if (_deptLoading && _deptSnap == null) {
+                  if (_deptLoading) {
                     return const ChurchPanelLoadingBody();
                   }
                   if (_deptError != null) {
@@ -1932,22 +2183,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                       ),
                     );
                   }
-                  if (!_deptLoading &&
-                      _deptSnap == null &&
-                      _deptError == null) {
-                    return Padding(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: padding.horizontal,
-                          vertical: ThemeCleanPremium.spaceLg),
-                      child: ChurchPanelErrorBody(
-                        title:
-                            'Não foi possível obter a lista de departamentos',
-                        onRetry: () =>
-                            _refreshDepartments(forceServer: true),
-                      ),
-                    );
-                  }
-                  if (_tid.trim().isEmpty && !_deptLoading) {
+                  if (_tid.trim().isEmpty) {
                     return Center(
                       child: Padding(
                         padding: EdgeInsets.symmetric(
@@ -1963,85 +2199,123 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                       ),
                     );
                   }
-                  final snap = _deptSnap!;
-                  int welcomeOrder(
-                      QueryDocumentSnapshot<Map<String, dynamic>> d) {
-                    final m = d.data();
-                    if (m['isWelcomeKit'] == true && m['welcomeKitOrder'] is int) {
-                      return m['welcomeKitOrder'] as int;
-                    }
-                    return 1000;
-                  }
-
-                  var docs = snap.docs;
-                  docs = List.from(docs)
-                    ..sort((a, b) {
-                      final oa = welcomeOrder(a);
-                      final ob = welcomeOrder(b);
-                      if (oa != ob) return oa.compareTo(ob);
-                      return churchDepartmentNameFromDoc(a)
-                          .toLowerCase()
-                          .compareTo(
-                              churchDepartmentNameFromDoc(b).toLowerCase());
-                    });
-                  // Exibir todos os docs: nome vazio + id auto era filtrado e a lista ficava em branco
-                  // mesmo com dados no Firestore (planilha/import sem campo `name`).
-                  final docsVisible = docs;
-                  final orphanNamelessCount = docs
-                      .where((d) =>
-                          !churchDepartmentDocHasExplicitNameField(d.data()))
-                      .length;
-
-                  final listPadOrEmpty = EdgeInsets.fromLTRB(
-                      padding.left,
-                      padding.top,
-                      padding.right,
-                      isMobile ? 88 : padding.bottom);
-                  final wideOrEmpty = MediaQuery.sizeOf(context).width >= 720;
-
-                  if (docs.isEmpty) {
-                    final presets = ChurchDepartmentsBootstrap.presetsSorted;
-                    if (presets.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'Nenhum preset de departamento configurado.',
-                          style: TextStyle(color: ThemeCleanPremium.onSurface),
-                        ),
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: _membersCol.snapshots(),
+                    builder: (context, memSnap) {
+                      final memberCounts = _memberCountsFromMembrosSnap(
+                        memSnap.hasData ? memSnap.data : null,
                       );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (_deptLoading) const LinearProgressIndicator(minHeight: 2),
-                        Expanded(
-                          child: _webSafeDeptScroller(
-                            onRefresh: () =>
-                                _startDeptLoad(forceServer: true),
-                            slivers: _suggestedPresetsSlivers(
-                              padding: padding,
-                              listPad: listPadOrEmpty,
-                              wide: wideOrEmpty,
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  }
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _col.snapshots(),
+                        builder: (context, deptSnap) {
+                          if (deptSnap.hasError) {
+                            return Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: padding.horizontal,
+                                vertical: ThemeCleanPremium.spaceLg),
+                              child: ChurchPanelErrorBody(
+                                title:
+                                    'Não foi possível acompanhar departamentos',
+                                error: deptSnap.error,
+                                onRetry: () =>
+                                    _refreshDepartments(forceServer: true),
+                              ),
+                            );
+                          }
+                          if (deptSnap.connectionState ==
+                                  ConnectionState.waiting &&
+                              !deptSnap.hasData) {
+                            return const ChurchPanelLoadingBody();
+                          }
+                          int welcomeOrder(
+                              QueryDocumentSnapshot<Map<String, dynamic>> d) {
+                            final m = d.data();
+                            if (m['isWelcomeKit'] == true &&
+                                m['welcomeKitOrder'] is int) {
+                              return m['welcomeKitOrder'] as int;
+                            }
+                            return 1000;
+                          }
 
-                  final listPad = EdgeInsets.fromLTRB(padding.left, padding.top,
-                      padding.right, isMobile ? 88 : padding.bottom);
-                  final showDupBanner = _hasDuplicateDepartmentNames(docs);
-                  final wide = MediaQuery.sizeOf(context).width >= 720;
+                          var docs = deptSnap.data?.docs ?? [];
+                          docs = List.from(docs)
+                            ..sort((a, b) {
+                              final oa = welcomeOrder(a);
+                              final ob = welcomeOrder(b);
+                              if (oa != ob) return oa.compareTo(ob);
+                              return churchDepartmentNameFromDoc(a)
+                                  .toLowerCase()
+                                  .compareTo(churchDepartmentNameFromDoc(b)
+                                      .toLowerCase());
+                            });
+                          final docsVisible = docs;
+                          final orphanNamelessCount = docs
+                              .where((d) =>
+                                  !churchDepartmentDocHasExplicitNameField(
+                                      d.data()))
+                              .length;
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_deptLoading) const LinearProgressIndicator(minHeight: 2),
-                      Expanded(
-                        child: _webSafeDeptScroller(
-                          onRefresh: () =>
-                              _startDeptLoad(forceServer: true),
-                          slivers: [
+                          final listPadOrEmpty = EdgeInsets.fromLTRB(
+                              padding.left,
+                              padding.top,
+                              padding.right,
+                              isMobile ? 88 : padding.bottom);
+                          final wideOrEmpty =
+                              MediaQuery.sizeOf(context).width >= 720;
+
+                          if (docs.isEmpty) {
+                            final presets =
+                                ChurchDepartmentsBootstrap.presetsSorted;
+                            if (presets.isEmpty) {
+                              return Center(
+                                child: Text(
+                                  'Nenhum preset de departamento configurado.',
+                                  style: TextStyle(
+                                      color: ThemeCleanPremium.onSurface),
+                                ),
+                              );
+                            }
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_deptLoading)
+                                  const LinearProgressIndicator(minHeight: 2),
+                                Expanded(
+                                  child: _webSafeDeptScroller(
+                                    onRefresh: () =>
+                                        _startDeptLoad(forceServer: true),
+                                    slivers: _suggestedPresetsSlivers(
+                                      padding: padding,
+                                      listPad: listPadOrEmpty,
+                                      wide: wideOrEmpty,
+                                      memberCounts: memberCounts,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+
+                          final listPad = EdgeInsets.fromLTRB(
+                              padding.left,
+                              padding.top,
+                              padding.right,
+                              isMobile ? 88 : padding.bottom);
+                          final showDupBanner =
+                              _hasDuplicateDepartmentNames(docs);
+                          final wide =
+                              MediaQuery.sizeOf(context).width >= 720;
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (_deptLoading)
+                                const LinearProgressIndicator(minHeight: 2),
+                              Expanded(
+                                child: _webSafeDeptScroller(
+                                  onRefresh: () =>
+                                      _startDeptLoad(forceServer: true),
+                                  slivers: [
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: EdgeInsets.fromLTRB(
@@ -2060,7 +2334,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Cards com identidade visual por setor. Edite nome e capa quando quiser.',
+                                  'Estrutura enxuta: líderes em destaque, contagem ao vivo e atalho para WhatsApp. Toque no card para gerir a equipe.',
                                   style: TextStyle(
                                     fontSize: 13,
                                     height: 1.35,
@@ -2091,7 +2365,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        'Quer todos os setores do catálogo? Instale as ${ChurchDepartmentsBootstrap.uniquePresetCount} sugestões oficiais (não remove o kit já criado).',
+                                        'Novas igrejas já recebem os ${ChurchDepartmentsBootstrap.welcomeKitCount} departamentos oficiais no banco. Se faltar algum (igreja antiga ou migração), instale os que faltam — não apaga os existentes.',
                                         style: TextStyle(
                                           fontSize: 13,
                                           height: 1.35,
@@ -2102,7 +2376,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                     ),
                                     TextButton(
                                       onPressed: _manualEnsurePresets,
-                                      child: const Text('Instalar catálogo'),
+                                      child: const Text('Instalar base'),
                                     ),
                                   ],
                                 ),
@@ -2193,8 +2467,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                 childAspectRatio: 1.32,
                               ),
                               delegate: SliverChildBuilderDelegate(
-                                (context, i) =>
-                                    _buildDepartmentCard(docsVisible[i]),
+                                (context, i) => _buildDepartmentCard(
+                                    docsVisible[i], memberCounts),
                                 childCount: docsVisible.length,
                               ),
                             ),
@@ -2211,17 +2485,22 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                           ? ThemeCleanPremium.spaceSm
                                           : 0,
                                     ),
-                                    child: _buildDepartmentCard(docsVisible[i]),
+                                    child: _buildDepartmentCard(
+                                        docsVisible[i], memberCounts),
                                   );
                                 },
                                 childCount: docsVisible.length,
                               ),
                             ),
                           ),
-                      ],
-                        ),
-                      ),
-                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
                   );
                 },
               ),
@@ -2233,44 +2512,526 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 }
 
-/// Chip de estatística no card de departamento (soft UI).
-class _DeptStatPill extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final bool highlight;
+/// Hub do departamento: liderança em destaque, membros em tempo real, WhatsApp.
+class _DepartmentHubSheet extends StatelessWidget {
+  final String tenantId;
+  final String deptId;
+  final String deptName;
+  final CollectionReference<Map<String, dynamic>> membersCol;
+  final DocumentReference<Map<String, dynamic>> deptRef;
+  final bool canWrite;
+  final Future<void> Function(Map<String, dynamic>) onWhatsApp;
+  final VoidCallback onEditDepartamento;
+  final VoidCallback onAddMember;
+  final Future<void> Function() onAddLeader;
 
-  const _DeptStatPill({
-    required this.icon,
-    required this.text,
-    this.highlight = false,
+  const _DepartmentHubSheet({
+    required this.tenantId,
+    required this.deptId,
+    required this.deptName,
+    required this.membersCol,
+    required this.deptRef,
+    required this.canWrite,
+    required this.onWhatsApp,
+    required this.onEditDepartamento,
+    required this.onAddMember,
+    required this.onAddLeader,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: highlight
-            ? const Color(0x4DFFCA28)
-            : Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
+  static String _nomeMembro(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    return (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? doc.id)
+        .toString()
+        .trim();
+  }
+
+  static String _cpfDigits(Map<String, dynamic> d) =>
+      (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+
+  static String _cpfMask(String cpf) {
+    if (cpf.length != 11) return cpf;
+    return '${cpf.substring(0, 3)}.${cpf.substring(3, 6)}.${cpf.substring(6, 9)}-${cpf.substring(9)}';
+  }
+
+  Future<void> _confirmRemoveLeader(BuildContext context, String cpfToRemove) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Remover líder'),
+        content: const Text(
+            'Este CPF deixa de constar como líder do departamento. O vínculo como membro permanece, salvo se você removê-lo da lista abaixo.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remover'),
           ),
         ],
       ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      final dSnap = await deptRef.get();
+      final leaders =
+          ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
+      final next = List<String>.from(leaders)..remove(cpfToRemove);
+      await deptRef.update({
+        ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Líder removido.'),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
+    }
+  }
+
+  Future<void> _removerMembroHub(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final nome = _nomeMembro(doc);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Remover do departamento'),
+        content: Text('Remover "$nome" de $deptName?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626)),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !context.mounted) return;
+    try {
+      await DepartmentMemberIntegrationService.unlinkMember(
+        tenantId: tenantId,
+        departmentId: deptId,
+        memberDocId: doc.id,
+        memberData: doc.data(),
+      );
+      final cpf = _cpfDigits(doc.data());
+      if (cpf.length == 11) {
+        final dSnap = await deptRef.get();
+        final leaders =
+            ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
+        if (leaders.contains(cpf)) {
+          final next = List<String>.from(leaders)..remove(cpf);
+          await deptRef.update({
+            ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$nome" removido.',
+              style: const TextStyle(color: Colors.white)),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro ao remover: $e')));
+      }
+    }
+  }
+
+  Widget _leaderCard({
+    required BuildContext context,
+    required QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  }) {
+    final data = doc.data();
+    final nome = _nomeMembro(doc);
+    final cpf = _cpfDigits(data);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.primary.withValues(alpha: 0.2),
+            const Color(0xFFF59E0B).withValues(alpha: 0.14),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.38)),
+      ),
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        leading: FotoMembroWidget(
+          size: 48,
+          tenantId: tenantId,
+          memberId: doc.id,
+          imageUrl: imageUrlFromMap(data),
+          cpfDigits: cpf,
+          memberData: data,
+        ),
+        title: Row(
+          children: [
+            const FaIcon(FontAwesomeIcons.star,
+                size: 14, color: Color(0xFFD97706)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                nome,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          'Líder',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade800,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'WhatsApp',
+              onPressed: () => onWhatsApp(data),
+              icon: const FaIcon(FontAwesomeIcons.whatsapp,
+                  color: Color(0xFF25D366), size: 22),
+            ),
+            if (canWrite && cpf.length == 11)
+              IconButton(
+                tooltip: 'Remover da liderança',
+                onPressed: () => _confirmRemoveLeader(context, cpf),
+                icon: const Icon(Icons.star_outline_rounded,
+                    color: Color(0xFF92400E)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _orphanLeaderTile(BuildContext context, String cpf) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: ListTile(
+        leading:
+            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+        title: Text(
+          _cpfMask(cpf),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          'Líder gravado, mas sem membro vinculado a este departamento.',
+        ),
+        trailing: canWrite
+            ? IconButton(
+                tooltip: 'Remover da liderança',
+                onPressed: () => _confirmRemoveLeader(context, cpf),
+                icon: const Icon(Icons.close_rounded),
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _memberRow(
+      BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ListTile(
+        leading: FotoMembroWidget(
+          size: 40,
+          tenantId: tenantId,
+          memberId: doc.id,
+          imageUrl: imageUrlFromMap(data),
+          cpfDigits: _cpfDigits(data),
+          memberData: data,
+        ),
+        title: Text(_nomeMembro(doc)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'WhatsApp',
+              onPressed: () => onWhatsApp(data),
+              icon: const FaIcon(FontAwesomeIcons.whatsapp,
+                  color: Color(0xFF25D366), size: 20),
+            ),
+            if (canWrite)
+              IconButton(
+                tooltip: 'Remover do departamento',
+                onPressed: () => _removerMembroHub(context, doc),
+                icon: const Icon(Icons.person_remove_rounded,
+                    color: Color(0xFFDC2626), size: 22),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.68,
+      maxChildSize: 0.94,
+      minChildSize: 0.38,
+      expand: false,
+      builder: (context, scrollController) {
+        return Material(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      deptName,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    Text(
+                      'Hub do departamento',
+                      style:
+                          TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+              if (canWrite)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: onEditDepartamento,
+                        icon: const Icon(Icons.edit_rounded, size: 18),
+                        label: const Text('Editar'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: onAddMember,
+                        icon: const Icon(Icons.person_add_rounded, size: 18),
+                        label: const Text('Membro'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => onAddLeader(),
+                        icon: const Icon(Icons.star_rounded, size: 18),
+                        label: const Text('Líder'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: deptRef.snapshots(),
+                  builder: (context, dSnap) {
+                    if (dSnap.hasError) {
+                      return Center(child: Text('Erro: ${dSnap.error}'));
+                    }
+                    final deptData = dSnap.data?.data();
+                    final leaderCpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(
+                        deptData);
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: membersCol
+                          .where('DEPARTAMENTOS', arrayContains: deptId)
+                          .snapshots(),
+                      builder: (context, mSnap) {
+                        if (mSnap.hasError) {
+                          return Center(child: Text('Erro: ${mSnap.error}'));
+                        }
+                        final loading = (dSnap.connectionState ==
+                                    ConnectionState.waiting &&
+                                !dSnap.hasData) ||
+                            (mSnap.connectionState ==
+                                    ConnectionState.waiting &&
+                                !mSnap.hasData);
+                        if (loading) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        final docs = mSnap.data?.docs ?? [];
+                        String cpfOf(
+                            QueryDocumentSnapshot<Map<String, dynamic>> d) {
+                          return (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
+                              .toString()
+                              .replaceAll(RegExp(r'\D'), '');
+                        }
+
+                        final byCpf =
+                            <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+                        for (final d in docs) {
+                          final c = cpfOf(d);
+                          if (c.length == 11) byCpf[c] = d;
+                        }
+                        final leaderDocs =
+                            <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                        final orphanCpfs = <String>[];
+                        for (final cpf in leaderCpfs) {
+                          final found = byCpf[cpf];
+                          if (found != null) {
+                            leaderDocs.add(found);
+                          } else {
+                            orphanCpfs.add(cpf);
+                          }
+                        }
+                        final leaderSet = leaderCpfs.toSet();
+                        final otherDocs = docs
+                            .where((d) => !leaderSet.contains(cpfOf(d)))
+                            .toList();
+                        otherDocs.sort((a, b) => _nomeMembro(a)
+                            .toLowerCase()
+                            .compareTo(_nomeMembro(b).toLowerCase()));
+
+                        return ListView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                          children: [
+                            Text(
+                              'Liderança',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            if (leaderDocs.isEmpty && orphanCpfs.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  canWrite
+                                      ? 'Nenhum líder. Use o botão “Líder” acima.'
+                                      : 'Nenhum líder definido neste departamento.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                            ...leaderDocs.map(
+                              (doc) => _leaderCard(
+                                context: context,
+                                doc: doc,
+                              ),
+                            ),
+                            ...orphanCpfs.map(
+                              (cpf) => _orphanLeaderTile(context, cpf),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Text(
+                                  'Membros',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${docs.length}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            if (docs.isEmpty)
+                              Text(
+                                'Nenhum membro vinculado.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
+                            ...otherDocs.map(
+                              (doc) => _memberRow(context, doc),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

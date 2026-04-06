@@ -51,6 +51,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
       'members',
       'membros',
       'noticias',
+      'avisos',
       'usersIndex',
       'event_templates',
       'departamentos',
@@ -491,7 +492,8 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
           ),
         if (counts != null) ...[
           _row('Membros', '${membersCount} documentos'),
-          _row('Notícias / Avisos', '${counts['noticias'] ?? 0} documentos'),
+          _row('Notícias (eventos)', '${counts['noticias'] ?? 0} documentos'),
+          _row('Avisos (mural)', '${counts['avisos'] ?? 0} documentos'),
           _row('Índice de usuários', '${counts['usersIndex'] ?? 0} documentos'),
         ],
         const SizedBox(height: 8),

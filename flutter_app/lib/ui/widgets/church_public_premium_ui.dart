@@ -24,9 +24,10 @@ double churchPublicFeedInstagramColumnWidth(double parentMaxWidth) {
       ? (mq.width - 52).clamp(260.0, mq.width)
       : kChurchPublicFeedCardMaxWidth;
   final logicalW = churchPublicFeedInstagramColumnWidth(cardGuess);
-  final logicalH = logicalW;
-  final w = (logicalW * dpr).round().clamp(400, 1000);
-  final h = (logicalH * dpr).round().clamp(400, 1000);
+  // Feed tipo Instagram (~4:5) — mais alto que quadrado para não “achatar” retratos.
+  final logicalH = logicalW * 5 / 4;
+  final w = (logicalW * dpr).round().clamp(400, 1200);
+  final h = (logicalH * dpr).round().clamp(400, 1400);
   return (w, h);
 }
 
@@ -38,7 +39,7 @@ double churchPublicFeedMediaMaxHeight(Size mq) {
   return (mq.shortestSide * 0.36).clamp(200.0, 280.0);
 }
 
-/// Faixa de mídia no feed: 16:9 com altura máxima (evita “tela” gigante vazia no painel/site).
+/// Faixa de mídia no feed: proporção ~4:5 (estilo Instagram), mais alta que 16:9.
 class ChurchPublicConstrainedMedia extends StatelessWidget {
   final Widget child;
 
@@ -50,7 +51,7 @@ class ChurchPublicConstrainedMedia extends StatelessWidget {
       builder: (context, constraints) {
         final fullW = constraints.maxWidth;
         if (fullW <= 0) return const SizedBox.shrink();
-        final targetH = (fullW * 9 / 16).clamp(168.0, 300.0);
+        final targetH = (fullW * 5 / 4).clamp(240.0, 560.0);
         return SizedBox(
           width: fullW,
           height: targetH,

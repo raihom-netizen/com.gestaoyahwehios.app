@@ -7,7 +7,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:barcode/barcode.dart' show BarcodeQRCorrectionLevel;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -20,7 +19,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
         firebaseStorageBytesFromDownloadUrl,
-        FreshFirebaseStorageImage,
         imageUrlFromMap,
         isDataImageUrl,
         isFirebaseStorageHttpUrl,
@@ -29,6 +27,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         refreshFirebaseStorageDownloadUrl,
         SafeNetworkImage,
         sanitizeImageUrl;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
@@ -60,10 +59,20 @@ import 'package:screenshot/screenshot.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart';
 
-/// QR em vetor no PDF — correção alta (melhor leitura em papel comum / A4).
-final pw.Barcode kCarteirinhaPdfQrBarcode = pw.Barcode.qrCode(
-  errorCorrectLevel: BarcodeQRCorrectionLevel.high,
-);
+/// Alinhado a [members_page] / [_memberAuthUidFromData]: foto no Storage pode estar em `membros/{authUid}/`.
+String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
+  for (final k in [
+    'authUid',
+    'firebaseUid',
+    'firebase_uid',
+    'userId',
+    'user_id',
+  ]) {
+    final v = (d[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v;
+  }
+  return null;
+}
 
 /// Layout ao emitir várias carteirinhas (PDF).
 enum _PdfManyLayout {
@@ -2556,7 +2565,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required String sexo,
     required String qr,
 
-    /// QR completo fica no verso do PDF; na frente só referência curta.
+    /// Mesma linha da carteira digital (admissão / batismo).
+    required String admissionLine,
+
+    /// QR fica no verso; mantido na API por compatibilidade.
     bool showFrontQr = false,
     required _CardConfig cfg,
     required PdfColor bgColor,
@@ -2574,196 +2586,178 @@ class _MemberCardPageState extends State<MemberCardPage> {
     double? outerSlotWidth,
     double? outerSlotHeight,
   }) {
-    final vm = cfg.visualModel.toLowerCase().trim();
-    if (vm == 'executiva' || vm == 'pastoral') {
-      return _pdfCardFaceExecutiva(
-        name: name,
-        cargo: cargo,
-        cpf: cpf,
-        nascimento: nascimento,
-        batismo: batismo,
-        validade: validade,
-        nomePai: nomePai,
-        nomeMae: nomeMae,
-        sexo: sexo,
-        qr: qr,
-        showFrontQr: showFrontQr,
-        cfg: cfg,
-        bgColor: bgColor,
-        accentColor: accentColor,
-        logo: logo,
-        photo: photo,
-        signatoryImage: signatoryImage,
-        signatoryNome: signatoryNome,
-        signatoryCargo: signatoryCargo,
-        width: width,
-        outerSlotWidth: outerSlotWidth,
-        outerSlotHeight: outerSlotHeight,
-      );
-    }
-    if (vm == 'elegante' || vm == 'ouro' || vm == 'classica') {
-      return _pdfCardFaceElegante(
-        name: name,
-        cargo: cargo,
-        cpf: cpf,
-        nascimento: nascimento,
-        batismo: batismo,
-        validade: validade,
-        nomePai: nomePai,
-        nomeMae: nomeMae,
-        sexo: sexo,
-        qr: qr,
-        showFrontQr: showFrontQr,
-        cfg: cfg,
-        accentColor: accentColor,
-        logo: logo,
-        photo: photo,
-        signatoryImage: signatoryImage,
-        signatoryNome: signatoryNome,
-        signatoryCargo: signatoryCargo,
-        width: width,
-        outerSlotWidth: outerSlotWidth,
-        outerSlotHeight: outerSlotHeight,
-      );
-    }
-    final hasSignature = (signatoryNome ?? '').trim().isNotEmpty;
-    final paiLinha = nomePai.trim().isEmpty ? '---' : nomePai.trim();
-    final maeLinha = nomeMae.trim().isEmpty ? '---' : nomeMae.trim();
-    // Sempre duas linhas (pai/mãe) para o layout do PDF não “pular” quando um campo vem vazio.
-    final extraFields = 2 + (sexo.isNotEmpty ? 1 : 0);
-    final cardHeight = (hasSignature ? 268.0 : 228.0) + extraFields * 14.0;
+    // Modelo único (igual à carteira digital): degradê, logo em caixa clara, painel vidro.
+    const cardHeight = 228.0;
+    final inkEco = bgColor == PdfColors.white && bgColorSec == null;
+    final pdfGold = PdfColor.fromHex('#E8C478');
+    final secGrad = bgColorSec;
     final deco = pw.BoxDecoration(
-      color: bgColorSec == null ? bgColor : null,
-      gradient: bgColorSec != null
+      color: inkEco
+          ? PdfColors.white
+          : (secGrad == null ? bgColor : null),
+      gradient: !inkEco && secGrad != null
           ? pw.LinearGradient(
               begin: pw.Alignment.topLeft,
               end: pw.Alignment.bottomRight,
-              colors: [bgColor, bgColorSec],
+              colors: [bgColor, secGrad],
             )
           : null,
       borderRadius: pw.BorderRadius.circular(16),
-      border: pw.Border.all(color: accentColor, width: 1.2),
-    );
-    final columnChildren = <pw.Widget>[
-      pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          if (logo != null)
-            pw.Container(
-              width: 48,
-              height: 48,
-              margin: const pw.EdgeInsets.only(right: 12),
-              child: pw.Image(logo, fit: pw.BoxFit.contain),
-            ),
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(cfg.title,
-                    style: pw.TextStyle(
-                        color: textColor,
-                        fontSize: 13,
-                        fontWeight: pw.FontWeight.bold)),
-                pw.Text(cfg.subtitle,
-                    style: pw.TextStyle(color: textColor, fontSize: 9)),
-              ],
-            ),
-          ),
-          pw.Container(
-            width: 56,
-            height: 56,
-            alignment: pw.Alignment.center,
-            child: showFrontQr
-                ? pw.BarcodeWidget(
-                    barcode: kCarteirinhaPdfQrBarcode, data: qr, color: textColor)
-                : pw.Text(
-                    'Valide no\nverso',
-                    textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                        color: textColor,
-                        fontSize: 6.5,
-                        fontWeight: pw.FontWeight.bold),
-                  ),
-          ),
-        ],
+      border: pw.Border.all(
+        color: inkEco ? PdfColors.grey400 : pdfGold,
+        width: 1,
       ),
-      pw.SizedBox(height: 16),
+    );
+    final glassFill = inkEco ? PdfColors.grey200 : PdfColor(1, 1, 1, 0.14);
+    final glassBorder =
+        inkEco ? PdfColors.grey500 : PdfColor(1, 1, 1, 0.24);
+    final adm =
+        admissionLine.trim().isEmpty ? 'Admissão: —' : admissionLine.trim();
+
+    final columnChildren = <pw.Widget>[
       pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          if (cfg.showPhoto)
-            pw.Container(
-              width: 80,
-              height: 80,
-              decoration: pw.BoxDecoration(
-                  color: PdfColors.white,
-                  borderRadius: pw.BorderRadius.circular(40)),
-              child: photo != null
-                  ? pw.ClipRRect(
-                      horizontalRadius: 40,
-                      verticalRadius: 40,
-                      child: pw.Image(photo, fit: pw.BoxFit.cover),
-                    )
-                  : pw.Center(
-                      child: pw.Text('FOTO',
-                          style: pw.TextStyle(
-                              color: PdfColors.grey600, fontSize: 10))),
+          pw.Container(
+            width: 44,
+            height: 44,
+            decoration: pw.BoxDecoration(
+              color: inkEco ? PdfColors.grey100 : PdfColors.white,
+              borderRadius: pw.BorderRadius.circular(10),
             ),
-          if (cfg.showPhoto) pw.SizedBox(width: 16),
+            padding: const pw.EdgeInsets.all(4),
+            child: logo != null
+                ? pw.Center(child: pw.Image(logo, fit: pw.BoxFit.contain))
+                : pw.Center(
+                    child: pw.Text(
+                      'LOGO',
+                      style: pw.TextStyle(
+                        color: PdfColors.grey500,
+                        fontSize: 7,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+          ),
+          pw.SizedBox(width: 10),
           pw.Expanded(
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                if (cargo.isNotEmpty)
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.only(bottom: 4),
-                    child: pw.Text(
-                      cargo.toUpperCase(),
-                      style: pw.TextStyle(
-                          color: textColor,
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold),
-                    ),
+                pw.Text(
+                  cfg.title.toUpperCase(),
+                  maxLines: 2,
+                  style: pw.TextStyle(
+                    color: textColor,
+                    fontSize: 10.5,
+                    fontWeight: pw.FontWeight.bold,
+                    height: 1.1,
                   ),
-                pw.Text(name,
-                    style: pw.TextStyle(
-                        color: textColor,
-                        fontSize: 15,
-                        fontWeight: pw.FontWeight.bold)),
-                pw.SizedBox(height: 8),
-                _field('CPF', cpf, textColor, accentColor),
-                _field('Nascimento', nascimento, textColor, accentColor),
-                if (batismo.isNotEmpty)
-                  _field('Batismo', batismo, textColor, accentColor),
-                _field('Validade', validade, textColor, accentColor),
-                _field('Nome do Pai', paiLinha, textColor, accentColor),
-                _field('Nome da Mãe', maeLinha, textColor, accentColor),
-                if (sexo.isNotEmpty)
-                  _field('Sexo', sexo, textColor, accentColor),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  cfg.subtitle,
+                  maxLines: 1,
+                  style: pw.TextStyle(
+                    color: PdfColor(
+                        textColor.red, textColor.green, textColor.blue, 0.88),
+                    fontSize: 7.5,
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
-      if (hasSignature) ...[
-        pw.Spacer(),
-        pw.Container(width: 180, height: 1, color: textColor),
-        if (signatoryImage != null)
-          pw.Container(
-            width: 100,
-            height: 32,
-            margin: const pw.EdgeInsets.only(top: 4),
-            child: pw.Image(signatoryImage, fit: pw.BoxFit.contain),
-          ),
-        pw.SizedBox(height: 4),
-        pw.Text(signatoryNome!,
-            style: pw.TextStyle(
-                color: textColor,
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold)),
-        pw.Text(signatoryCargo ?? '',
-            style: pw.TextStyle(color: textColor, fontSize: 8)),
-      ],
+      pw.Spacer(),
+      pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          color: glassFill,
+          borderRadius: pw.BorderRadius.circular(14),
+          border: pw.Border.all(color: glassBorder, width: 0.8),
+        ),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            if (cfg.showPhoto) ...[
+              pw.Container(
+                width: 72,
+                height: 72,
+                decoration: pw.BoxDecoration(
+                  borderRadius: pw.BorderRadius.circular(36),
+                  border: pw.Border.all(color: pdfGold, width: 2),
+                  color: inkEco ? PdfColors.white : PdfColor(1, 1, 1, 0.2),
+                ),
+                child: photo != null
+                    ? pw.ClipRRect(
+                        horizontalRadius: 36,
+                        verticalRadius: 36,
+                        child: pw.Image(photo, fit: pw.BoxFit.cover),
+                      )
+                    : pw.Center(
+                        child: pw.Text(
+                          'FOTO',
+                          style: pw.TextStyle(
+                            color: PdfColors.grey500,
+                            fontSize: 9,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ),
+              ),
+              pw.SizedBox(width: 12),
+            ],
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  if (cargo.trim().isNotEmpty)
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColor(pdfGold.red, pdfGold.green, pdfGold.blue,
+                            inkEco ? 0.35 : 0.22),
+                        borderRadius: pw.BorderRadius.circular(8),
+                      ),
+                      child: pw.Text(
+                        cargo.toUpperCase(),
+                        style: pw.TextStyle(
+                          color: textColor,
+                          fontSize: 8,
+                          fontWeight: pw.FontWeight.bold,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  if (cargo.trim().isNotEmpty) pw.SizedBox(height: 6),
+                  pw.Text(
+                    name,
+                    maxLines: 2,
+                    style: pw.TextStyle(
+                      color: textColor,
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      height: 1.12,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text(
+                    adm,
+                    style: pw.TextStyle(
+                      color: PdfColor(
+                          textColor.red, textColor.green, textColor.blue, 0.9),
+                      fontSize: 8.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      pw.SizedBox(height: 8),
     ];
     final ow = outerSlotWidth;
     final oh = outerSlotHeight;
@@ -2803,459 +2797,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// Modelo executivo / pastoral: faixa superior na cor da igreja + corpo branco e tipografia escura.
-  pw.Widget _pdfCardFaceExecutiva({
-    required String name,
-    required String cargo,
-    required String cpf,
-    required String nascimento,
-    required String batismo,
-    required String validade,
-    required String nomePai,
-    required String nomeMae,
-    required String sexo,
-    required String qr,
-    bool showFrontQr = false,
-    required _CardConfig cfg,
-    required PdfColor bgColor,
-    required PdfColor accentColor,
-    pw.ImageProvider? logo,
-    pw.ImageProvider? photo,
-    pw.ImageProvider? signatoryImage,
-    String? signatoryNome,
-    String? signatoryCargo,
-    double width = 360,
-    double? outerSlotWidth,
-    double? outerSlotHeight,
-  }) {
-    final hasSignature = (signatoryNome ?? '').trim().isNotEmpty;
-    final paiLinha = nomePai.trim().isEmpty ? '---' : nomePai.trim();
-    final maeLinha = nomeMae.trim().isEmpty ? '---' : nomeMae.trim();
-    final extraFields = 2 + (sexo.isNotEmpty ? 1 : 0);
-    final cardHeight = (hasSignature ? 268.0 : 228.0) + extraFields * 14.0;
-    const headerH = 52.0;
-    final headerFg = PdfColors.white;
-    final bodyText = PdfColors.grey900;
-    final borderDeco = pw.BoxDecoration(
-      color: PdfColors.white,
-      borderRadius: pw.BorderRadius.circular(16),
-      border: pw.Border.all(color: accentColor, width: 1.2),
-    );
-    pw.Widget core() {
-      return pw.Container(
-        width: width,
-        height: cardHeight,
-        decoration: borderDeco,
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          children: [
-            pw.Container(
-              height: headerH,
-              decoration: pw.BoxDecoration(
-                color: bgColor,
-                borderRadius: const pw.BorderRadius.only(
-                  topLeft: pw.Radius.circular(15),
-                  topRight: pw.Radius.circular(15),
-                ),
-              ),
-              padding:
-                  const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
-                children: [
-                  if (logo != null)
-                    pw.Container(
-                      width: 38,
-                      height: 38,
-                      margin: const pw.EdgeInsets.only(right: 8),
-                      child: pw.Image(logo, fit: pw.BoxFit.contain),
-                    ),
-                  pw.Expanded(
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      mainAxisAlignment: pw.MainAxisAlignment.center,
-                      children: [
-                        pw.Text(
-                          cfg.title,
-                          style: pw.TextStyle(
-                            color: headerFg,
-                            fontSize: 10,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.Text(
-                          cfg.subtitle,
-                          style: pw.TextStyle(color: headerFg, fontSize: 7),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (showFrontQr)
-                    pw.SizedBox(
-                      width: 42,
-                      height: 42,
-                      child: pw.BarcodeWidget(
-                        barcode: kCarteirinhaPdfQrBarcode,
-                        data: qr,
-                        color: headerFg,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            pw.Expanded(
-              child: pw.Padding(
-                padding: const pw.EdgeInsets.all(10),
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Expanded(
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          if (cargo.isNotEmpty)
-                            pw.Text(
-                              cargo.toUpperCase(),
-                              style: pw.TextStyle(
-                                color: accentColor,
-                                fontSize: 8.5,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                          pw.SizedBox(height: 3),
-                          pw.Text(
-                            name,
-                            style: pw.TextStyle(
-                              color: bodyText,
-                              fontSize: 12,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                          pw.SizedBox(height: 5),
-                          _field('CPF', cpf, bodyText, accentColor),
-                          _field('Nascimento', nascimento, bodyText, accentColor),
-                          if (batismo.isNotEmpty)
-                            _field('Batismo', batismo, bodyText, accentColor),
-                          _field('Validade', validade, bodyText, accentColor),
-                          _field('Pai', paiLinha, bodyText, accentColor),
-                          _field('Mãe', maeLinha, bodyText, accentColor),
-                          if (sexo.isNotEmpty)
-                            _field('Sexo', sexo, bodyText, accentColor),
-                          if (hasSignature) ...[
-                            pw.Spacer(),
-                            pw.Container(
-                                width: 140, height: 0.8, color: bodyText),
-                            if (signatoryImage != null)
-                              pw.Container(
-                                width: 88,
-                                height: 26,
-                                margin: const pw.EdgeInsets.only(top: 3),
-                                child: pw.Image(signatoryImage,
-                                    fit: pw.BoxFit.contain),
-                              ),
-                            pw.Text(
-                              signatoryNome!,
-                              style: pw.TextStyle(
-                                color: bodyText,
-                                fontSize: 8.5,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                            pw.Text(
-                              signatoryCargo ?? '',
-                              style: pw.TextStyle(color: bodyText, fontSize: 7),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (cfg.showPhoto) ...[
-                      pw.SizedBox(width: 8),
-                      pw.Container(
-                        width: 64,
-                        height: 86,
-                        decoration: pw.BoxDecoration(
-                          color: PdfColors.grey200,
-                          borderRadius: pw.BorderRadius.circular(8),
-                          border:
-                              pw.Border.all(color: accentColor, width: 0.9),
-                        ),
-                        child: photo != null
-                            ? pw.ClipRRect(
-                                horizontalRadius: 8,
-                                verticalRadius: 8,
-                                child: pw.Image(photo, fit: pw.BoxFit.cover),
-                              )
-                            : pw.Center(
-                                child: pw.Text(
-                                  'FOTO',
-                                  style: pw.TextStyle(
-                                    color: PdfColors.grey600,
-                                    fontSize: 7,
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final ow = outerSlotWidth;
-    final oh = outerSlotHeight;
-    if (ow != null && oh != null) {
-      final fitScale = min(ow / width, oh / cardHeight);
-      return pw.Center(
-        child: pw.Transform.scale(
-          alignment: pw.Alignment.center,
-          scale: fitScale,
-          child: core(),
-        ),
-      );
-    }
-    return core();
-  }
-
-  /// Modelo elegante (referência dourada): faixa em degradê claro + corpo branco.
-  pw.Widget _pdfCardFaceElegante({
-    required String name,
-    required String cargo,
-    required String cpf,
-    required String nascimento,
-    required String batismo,
-    required String validade,
-    required String nomePai,
-    required String nomeMae,
-    required String sexo,
-    required String qr,
-    bool showFrontQr = false,
-    required _CardConfig cfg,
-    required PdfColor accentColor,
-    pw.ImageProvider? logo,
-    pw.ImageProvider? photo,
-    pw.ImageProvider? signatoryImage,
-    String? signatoryNome,
-    String? signatoryCargo,
-    double width = 360,
-    double? outerSlotWidth,
-    double? outerSlotHeight,
-  }) {
-    final hasSignature = (signatoryNome ?? '').trim().isNotEmpty;
-    final paiLinha = nomePai.trim().isEmpty ? '---' : nomePai.trim();
-    final maeLinha = nomeMae.trim().isEmpty ? '---' : nomeMae.trim();
-    final extraFields = 2 + (sexo.isNotEmpty ? 1 : 0);
-    final cardHeight = (hasSignature ? 268.0 : 228.0) + extraFields * 14.0;
-    const headerH = 52.0;
-    final headerFg = PdfColors.grey900;
-    final bodyText = PdfColors.grey900;
-    final borderDeco = pw.BoxDecoration(
-      color: PdfColors.white,
-      borderRadius: pw.BorderRadius.circular(16),
-      border: pw.Border.all(color: accentColor, width: 1.1),
-    );
-    pw.Widget core() {
-      return pw.Container(
-        width: width,
-        height: cardHeight,
-        decoration: borderDeco,
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          children: [
-            pw.Container(
-              height: headerH,
-              decoration: pw.BoxDecoration(
-                gradient: pw.LinearGradient(
-                  begin: pw.Alignment.centerLeft,
-                  end: pw.Alignment.centerRight,
-                  colors: [
-                    PdfColor.fromHex('#E8C478'),
-                    PdfColor.fromHex('#FFF8E7'),
-                  ],
-                ),
-                borderRadius: const pw.BorderRadius.only(
-                  topLeft: pw.Radius.circular(15),
-                  topRight: pw.Radius.circular(15),
-                ),
-              ),
-              padding:
-                  const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
-                children: [
-                  if (logo != null)
-                    pw.Container(
-                      width: 38,
-                      height: 38,
-                      margin: const pw.EdgeInsets.only(right: 8),
-                      child: pw.Image(logo, fit: pw.BoxFit.contain),
-                    ),
-                  pw.Expanded(
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      mainAxisAlignment: pw.MainAxisAlignment.center,
-                      children: [
-                        pw.Text(
-                          cfg.title,
-                          style: pw.TextStyle(
-                            color: headerFg,
-                            fontSize: 10,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.Text(
-                          cfg.subtitle,
-                          style: pw.TextStyle(color: headerFg, fontSize: 7),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (showFrontQr)
-                    pw.SizedBox(
-                      width: 42,
-                      height: 42,
-                      child: pw.BarcodeWidget(
-                        barcode: kCarteirinhaPdfQrBarcode,
-                        data: qr,
-                        color: headerFg,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            pw.Expanded(
-              child: pw.Padding(
-                padding: const pw.EdgeInsets.all(10),
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Expanded(
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          if (cargo.isNotEmpty)
-                            pw.Text(
-                              cargo.toUpperCase(),
-                              style: pw.TextStyle(
-                                color: accentColor,
-                                fontSize: 8.5,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                          pw.SizedBox(height: 3),
-                          pw.Text(
-                            name,
-                            style: pw.TextStyle(
-                              color: bodyText,
-                              fontSize: 12,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                          pw.SizedBox(height: 5),
-                          _field('CPF', cpf, bodyText, accentColor),
-                          _field('Nascimento', nascimento, bodyText, accentColor),
-                          if (batismo.isNotEmpty)
-                            _field('Batismo', batismo, bodyText, accentColor),
-                          _field('Validade', validade, bodyText, accentColor),
-                          _field('Pai', paiLinha, bodyText, accentColor),
-                          _field('Mãe', maeLinha, bodyText, accentColor),
-                          if (sexo.isNotEmpty)
-                            _field('Sexo', sexo, bodyText, accentColor),
-                          if (hasSignature) ...[
-                            pw.Spacer(),
-                            pw.Container(
-                                width: 140, height: 0.8, color: bodyText),
-                            if (signatoryImage != null)
-                              pw.Container(
-                                width: 88,
-                                height: 26,
-                                margin: const pw.EdgeInsets.only(top: 3),
-                                child: pw.Image(signatoryImage,
-                                    fit: pw.BoxFit.contain),
-                              ),
-                            pw.Text(
-                              signatoryNome!,
-                              style: pw.TextStyle(
-                                color: bodyText,
-                                fontSize: 8.5,
-                                fontWeight: pw.FontWeight.bold,
-                              ),
-                            ),
-                            pw.Text(
-                              signatoryCargo ?? '',
-                              style: pw.TextStyle(color: bodyText, fontSize: 7),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (cfg.showPhoto) ...[
-                      pw.SizedBox(width: 8),
-                      pw.Container(
-                        width: 64,
-                        height: 86,
-                        decoration: pw.BoxDecoration(
-                          color: PdfColors.grey100,
-                          borderRadius: pw.BorderRadius.circular(8),
-                          border:
-                              pw.Border.all(color: accentColor, width: 0.9),
-                        ),
-                        child: photo != null
-                            ? pw.ClipRRect(
-                                horizontalRadius: 8,
-                                verticalRadius: 8,
-                                child: pw.Image(photo, fit: pw.BoxFit.cover),
-                              )
-                            : pw.Center(
-                                child: pw.Text(
-                                  'FOTO',
-                                  style: pw.TextStyle(
-                                    color: PdfColors.grey600,
-                                    fontSize: 7,
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final ow = outerSlotWidth;
-    final oh = outerSlotHeight;
-    if (ow != null && oh != null) {
-      final fitScale = min(ow / width, oh / cardHeight);
-      return pw.Center(
-        child: pw.Transform.scale(
-          alignment: pw.Alignment.center,
-          scale: fitScale,
-          child: core(),
-        ),
-      );
-    }
-    return core();
-  }
-
   /// Documento com tema Roboto (UTF-8 / acentos) para frente e verso da carteirinha.
   Future<pw.Document> _newCarteirinhaPdfDoc() async {
     final theme = await CarteirinhaPdfFonts.loadThemeData();
     return theme != null ? pw.Document(theme: theme) : pw.Document();
   }
 
-  pw.Widget _pwVersoCarteirinhaBody(_CardData data, _CardConfig cfg,
-      {bool pdfInkEconomy = false}) {
+  pw.Widget _pwVersoCarteirinhaBody(
+    _CardData data,
+    _CardConfig cfg, {
+    bool pdfInkEconomy = false,
+    pw.ImageProvider? signatoryImage,
+    String? signatoryNome,
+    String? signatoryCargo,
+  }) {
     final validationUrl = _qrPayload(widget.tenantId, data.memberId);
     final barcodeData = '${widget.tenantId}|${data.memberId}';
-    final nome = _memberNomeOrEmpty(data.member);
     final igreja = cfg.title;
     final g1 = _hexToPdfColor(cfg.bgColor, PdfColor.fromHex('#004D40'));
     final g2 = cfg.bgColorSecondary != null
@@ -3265,11 +2822,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final validadePdf = _validityLabel(data.member).trim();
     final cong = _congregacaoFromMember(data.member);
     final frase = cfg.fraseRodape.trim();
+    final cpfFmt = _formatCpfForCard(_memberCpfRaw(data.member));
+    final nasc = _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+    final filiacaoTxt = walletFiliacaoFromMember(data.member);
+    final snIn = (signatoryNome ?? '').trim();
+    final sn = snIn.isNotEmpty
+        ? snIn
+        : (data.member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    final scIn = (signatoryCargo ?? '').trim();
+    final sc = scIn.isNotEmpty
+        ? scIn
+        : (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
     return VersoCarteirinhaPdfWidget(
       validationUrl: validationUrl,
       nomeIgreja: igreja,
       regrasUso: cfg.versoRegrasUso,
-      titularNomeQr: nome.trim().isNotEmpty ? nome.trim() : null,
       validadeDestaque: validadePdf.isNotEmpty ? validadePdf : null,
       barcodeData: barcodeData,
       gradientStart: g1,
@@ -3280,6 +2847,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
       congregacao: cong.isNotEmpty ? cong : null,
       fraseInstitucional: frase.isNotEmpty ? frase : null,
       pdfInkEconomy: pdfInkEconomy,
+      cpfDoc: cpfFmt,
+      nascimentoDoc: nasc,
+      filiacaoPaiMaeDoc: filiacaoTxt,
+      assinaturaImage: signatoryImage,
+      signatoryNome: sn,
+      signatoryCargo: sc,
     );
   }
 
@@ -3315,9 +2888,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       bool pvcCropMarks = false,
       bool pdfInkEconomy = false}) async {
     final name = _memberNome(data.member);
-    final cfgFace =
-        pdfInkEconomy ? cfg.copyWith(visualModel: 'modern') : cfg;
-    final cargo = _cargoDisplay(data.member, cfgFace);
+    final cargo = _cargoDisplay(data.member, cfg);
     final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
     final nascimento =
         _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
@@ -3332,7 +2903,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ? '---'
         : _memberMotherName(data.member);
     final sexo = _memberSexo(data.member);
-    final photoUrl = cfgFace.showPhoto
+    final admissionLinePdf = () {
+      final s = _admissionBatismoLine(data.member).trim();
+      return s.isEmpty ? 'Admissão: —' : s;
+    }();
+    pw.ImageProvider? sigImgVerso = signatoryImage;
+    if (sigImgVerso == null) {
+      final su =
+          (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+      if (su.isNotEmpty) {
+        sigImgVerso = await _pdfImageProviderFromUrlCached(su);
+      }
+    }
+    final photoUrl = cfg.showPhoto
         ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member)
         : '';
     final brandAccent = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
@@ -3368,7 +2951,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       nomeMae: nomeMae,
       sexo: sexo,
       qr: qr,
-      cfg: cfgFace,
+      admissionLine: admissionLinePdf,
+      cfg: cfg,
       bgColor: bgColor,
       bgColorSec: bgColorSec,
       textColor: textColor,
@@ -3385,7 +2969,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final versoSlot = pw.SizedBox(
       width: _pdfCardSlotW,
       height: _pdfCardSlotH,
-      child: _pwVersoCarteirinhaBody(data, cfg, pdfInkEconomy: pdfInkEconomy),
+      child: _pwVersoCarteirinhaBody(
+        data,
+        cfg,
+        pdfInkEconomy: pdfInkEconomy,
+        signatoryImage: sigImgVerso,
+        signatoryNome: signatoryNome,
+        signatoryCargo: signatoryCargo,
+      ),
     );
     if (pvcCropMarks) {
       final pf = CarteirinhaPvcMarks.pageFormat();
@@ -3683,7 +3274,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           if (k < chunk.length) {
             final data = chunk[k];
             final cfgRaw = _cardConfigForPdf(data);
-            final cfg = inkEconomy ? cfgRaw.copyWith(visualModel: 'modern') : cfgRaw;
+            final cfg = cfgRaw;
             final name = _memberNome(data.member);
             final cargo = _cargoDisplay(data.member, cfg);
             final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
@@ -3728,6 +3319,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
               photo = await _pdfImageProviderFromUrlCached(photoUrl);
             }
             final qr = _qrPayload(widget.tenantId, data.memberId);
+            final admissionLinePdf = () {
+              final s = _admissionBatismoLine(data.member).trim();
+              return s.isEmpty ? 'Admissão: —' : s;
+            }();
             final face = _pdfCardFace(
               name: name,
               cargo: cargo,
@@ -3739,6 +3334,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               nomeMae: nomeMae,
               sexo: sexo,
               qr: qr,
+              admissionLine: admissionLinePdf,
               cfg: cfg,
               bgColor: bgColor,
               bgColorSec: bgColorSec,
@@ -3815,6 +3411,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
           if (k < chunk.length) {
             final data = chunk[k];
             final cfgRaw = _cardConfigForPdf(data);
+            pw.ImageProvider? sigIV = signatoryImage;
+            if (sigIV == null) {
+              final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
+                  .toString()
+                  .trim();
+              if (su.isNotEmpty) {
+                sigIV = await _pdfImageProviderFromUrlCached(su);
+              }
+            }
             versoCells.add(
               pw.Center(
                 child: pw.Transform.scale(
@@ -3823,8 +3428,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   child: pw.SizedBox(
                     width: _pdfCardSlotW,
                     height: _pdfCardSlotH,
-                    child: _pwVersoCarteirinhaBody(data, cfgRaw,
-                        pdfInkEconomy: inkEconomy),
+                    child: _pwVersoCarteirinhaBody(
+                      data,
+                      cfgRaw,
+                      pdfInkEconomy: inkEconomy,
+                      signatoryImage: sigIV,
+                      signatoryNome: signatoryNome,
+                      signatoryCargo: signatoryCargo,
+                    ),
                   ),
                 ),
               ),
@@ -3880,28 +3491,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } finally {
       _clearPdfImageSessionCache();
     }
-  }
-
-  pw.Widget _field(
-      String label, String value, PdfColor valueColor, PdfColor labelColor) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.RichText(
-        text: pw.TextSpan(
-          children: [
-            pw.TextSpan(
-                text: '$label: ',
-                style: pw.TextStyle(
-                    color: labelColor,
-                    fontSize: 9,
-                    fontWeight: pw.FontWeight.bold)),
-            pw.TextSpan(
-                text: value.isEmpty ? '-' : value,
-                style: pw.TextStyle(color: valueColor, fontSize: 9)),
-          ],
-        ),
-      ),
-    );
   }
 
   String _val(Map<String, dynamic> data, String key, {String fallback = ''}) {
@@ -4063,7 +3652,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           if (!mounted) return;
           if (!isValidImageUrl(resolved)) return;
-          await precacheImage(NetworkImage(resolved), context);
+          await preloadNetworkImages(context, [resolved], maxItems: 1);
         } catch (_) {}
       }
 
@@ -4728,6 +4317,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                               : null,
                                           memberData:
                                               m.data.isNotEmpty ? m.data : null,
+                                          authUid: _memberAuthUidForCarteiraFoto(
+                                              m.data),
                                           size: 44,
                                           backgroundColor: ThemeCleanPremium
                                               .primary
@@ -4987,7 +4578,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Visual estilo cartão com vidro (glass), selo metálico e QR para o site público. '
+                      'Visual estilo cartão com vidro (glass) e QR para o site público. '
+                      'Gestor: ícone da paleta no topo altera cores da carteirinha. '
                       'Inclua a assinatura em Configurar carteirinha ou em `igrejas/{id}/configuracoes/assinatura.png`.',
                       style: TextStyle(
                         fontSize: 12,
@@ -5058,11 +4650,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           cpfDigits:
                               cpfDigits.length == 11 ? cpfDigits : null,
                           memberData: data.member,
+                          authUid: _memberAuthUidForCarteiraFoto(data.member),
                           size: 72,
                         );
                         final cpfFmt = _formatCpfForCard(cpf);
-                        final rgTxt = walletRgFromMember(data.member);
-                        final sangue = walletBloodFromMember(data.member);
+                        final filiacaoTxt =
+                            walletFiliacaoFromMember(data.member);
                         return Column(
                           children: [
                             Screenshot(
@@ -5115,11 +4708,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         accentGold: accentGold,
                                         churchTitle: cfg.title,
                                         cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
-                                        rg: rgTxt,
                                         nascimento: nascimento.isEmpty
                                             ? '—'
                                             : nascimento,
-                                        sangue: sangue.isEmpty ? '—' : sangue,
+                                        filiacaoPaiMae: filiacaoTxt.isEmpty
+                                            ? '—'
+                                            : filiacaoTxt,
                                         validade: validade.isEmpty
                                             ? '—'
                                             : validade,
@@ -5526,7 +5120,7 @@ class _CardConfig {
   /// Firestore: `regrasVerso`, `carteiraRegrasVerso` ou `regrasUsoVerso` (lista ou texto com linhas).
   final List<String>? versoRegrasUso;
 
-  /// `modern` | `executiva` | `elegante` (aliases: pastoral, ouro, classica).
+  /// Legado Firestore; o app usa um único modelo visual (`padrao`).
   final String visualModel;
 
   /// Frase no rodapé do verso (PDF e carteira digital).
@@ -5543,7 +5137,7 @@ class _CardConfig {
     this.cargoLabel = '',
     this.showPhoto = true,
     this.versoRegrasUso,
-    this.visualModel = 'modern',
+    this.visualModel = 'padrao',
     this.fraseRodape = '',
   });
 
@@ -5564,12 +5158,7 @@ class _CardConfig {
     );
   }
 
-  static String _normVisualModel(dynamic v) {
-    final s = (v ?? 'modern').toString().toLowerCase().trim();
-    if (s == 'executiva' || s == 'pastoral') return 'executiva';
-    if (s == 'elegante' || s == 'ouro' || s == 'classica') return 'elegante';
-    return 'modern';
-  }
+  static String _normVisualModel(dynamic _) => 'padrao';
 
   static List<String>? _parseVersoRegras(dynamic v) {
     if (v == null) return null;
@@ -5652,7 +5241,7 @@ const _carteiraCores = [
   Color(0xFFF3F4F6),
 ];
 
-/// Logo da carteirinha — Firebase Storage usa [FreshFirebaseStorageImage]; demais URLs usam [SafeNetworkImage].
+/// Logo da carteirinha — mesmo pipeline que o restante do app para URLs Firebase Storage ([SafeNetworkImage]).
 class _CarteiraLogoImage extends StatefulWidget {
   final String imageUrl;
   final double width;
@@ -5725,21 +5314,19 @@ class _CarteiraLogoImageState extends State<_CarteiraLogoImage> {
       builder: (context, snap) {
         final u = snap.data ?? '';
         if (u.isEmpty) return err;
-        if (isFirebaseStorageHttpUrl(u)) {
-          return FreshFirebaseStorageImage(
-            imageUrl: u,
-            fit: widget.fit,
-            width: widget.width,
-            height: widget.height,
-            placeholder: widget.placeholder ?? err,
-            errorWidget: err,
-          );
-        }
+        final mcW = (widget.width * MediaQuery.devicePixelRatioOf(context))
+            .round()
+            .clamp(48, 512);
+        final mcH = (widget.height * MediaQuery.devicePixelRatioOf(context))
+            .round()
+            .clamp(48, 512);
         return SafeNetworkImage(
           imageUrl: u,
           fit: widget.fit,
           width: widget.width,
           height: widget.height,
+          memCacheWidth: mcW,
+          memCacheHeight: mcH,
           placeholder: widget.placeholder,
           errorWidget: err,
         );
@@ -5783,8 +5370,6 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
   String? _tenantLogoUrl;
   Map<String, dynamic> _tenantData = {};
 
-  /// `modern` | `executiva` | `elegante` (PDF frente).
-  String _visualModel = 'modern';
   bool _uploadingLogo = false;
   bool _uploadingCert = false;
 
@@ -5819,7 +5404,13 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     if (file == null || !mounted) return;
     setState(() => _uploadingLogo = true);
     try {
-      final bytes = await file.readAsBytes();
+      final raw = await file.readAsBytes();
+      final compressed = await ImageHelper.compressImage(
+        raw,
+        minWidth: 800,
+        minHeight: 600,
+        quality: 70,
+      );
       await FirebaseAuth.instance.currentUser?.getIdToken();
       final prevLogo = (_customLogoUrl ?? '').trim();
       if (prevLogo.isNotEmpty) {
@@ -5827,12 +5418,22 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
             sanitizeImageUrl(prevLogo));
       }
       await FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix(
+          ChurchStorageLayout.cartaoMembroMediaPrefix(widget.tenantId));
+      await FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix(
           'carteira_logos/${widget.tenantId}');
-      final url = await MediaUploadService.uploadBytesWithRetry(
-        storagePath: 'carteira_logos/${widget.tenantId}/logo.jpg',
-        bytes: bytes,
+      final upload = await MediaUploadService.uploadBytesDetailed(
+        storagePath: ChurchStorageLayout.cartaoMembroLogoPath(widget.tenantId),
+        bytes: compressed,
         contentType: 'image/jpeg',
+        skipClientPrepare: true,
       );
+      final url = upload.downloadUrl;
+      FirebaseStorageCleanupService.scheduleCleanupAfterCartaoMembroLogoUpload(
+        tenantId: widget.tenantId,
+      );
+      await CachedNetworkImage.evictFromCache(url);
+      AppStorageImageService.instance.invalidateStoragePrefix(
+          ChurchStorageLayout.cartaoMembroMediaPrefix(widget.tenantId));
       if (!mounted) return;
       setState(() {
         _customLogoUrl = url;
@@ -5897,20 +5498,6 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     _bgColorSecondary = sec.length == 6 ? sec : null;
     final savedDef = (cfg['defaultSignatoryMemberId'] ?? '').toString().trim();
     _defaultSignatoryMemberId = savedDef.isEmpty ? null : savedDef;
-
-    final vmRaw = (cfg['visualModel'] ?? cfg['carteiraVisualModel'] ?? 'modern')
-        .toString()
-        .toLowerCase()
-        .trim();
-    if (vmRaw == 'executiva' || vmRaw == 'pastoral') {
-      _visualModel = 'executiva';
-    } else if (vmRaw == 'elegante' ||
-        vmRaw == 'ouro' ||
-        vmRaw == 'classica') {
-      _visualModel = 'elegante';
-    } else {
-      _visualModel = 'modern';
-    }
 
     _signatoryChoices = [];
     try {
@@ -6019,7 +5606,8 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
                 ? _bgColorSecondary
                 : null,
         'showPhoto': _showPhoto,
-        'visualModel': _visualModel,
+        'visualModel': 'padrao',
+        'carteiraVisualModel': 'padrao',
         'updatedAt': FieldValue.serverTimestamp(),
       };
       if (_defaultSignatoryMemberId != null &&
@@ -6199,48 +5787,6 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
               ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _buildPremiumCard(
-                title: 'Modelo visual (frente do PDF)',
-                icon: Icons.style_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Três estilos para a frente da carteirinha. Cores continuam personalizáveis abaixo.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          height: 1.35),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: const Text('Moderna'),
-                          selected: _visualModel == 'modern',
-                          onSelected: (_) =>
-                              setState(() => _visualModel = 'modern'),
-                        ),
-                        ChoiceChip(
-                          label: const Text('Executiva'),
-                          selected: _visualModel == 'executiva',
-                          onSelected: (_) =>
-                              setState(() => _visualModel = 'executiva'),
-                        ),
-                        ChoiceChip(
-                          label: const Text('Elegante'),
-                          selected: _visualModel == 'elegante',
-                          onSelected: (_) =>
-                              setState(() => _visualModel = 'elegante'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
                 title: 'Texto da carteirinha',
                 icon: Icons.text_fields_rounded,
                 child: Column(
@@ -6388,6 +5934,15 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      'Quem pode gerir a igreja define aqui as cores da carteirinha digital e do PDF.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     _buildLabel('Cor de fundo'),
                     const SizedBox(height: 10),
                     Wrap(

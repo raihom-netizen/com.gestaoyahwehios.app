@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/ui/web/open_external_url.dart';
 
 String _mapsLineForLocation(String location, {double? lat, double? lng}) {
   final loc = location.trim();
@@ -21,6 +22,81 @@ class EventoCalendarIntegration {
 
   static DateTime _defaultEnd(DateTime start) =>
       start.add(const Duration(hours: 2));
+
+  static String _googleCalendarUtcCompact(DateTime d) {
+    final u = d.toUtc();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final y = u.year.toString().padLeft(4, '0');
+    return '$y${two(u.month)}${two(u.day)}T${two(u.hour)}${two(u.minute)}${two(u.second)}Z';
+  }
+
+  /// Web: abre o Google Calendar numa nova aba. Mobile: mesma lógica que [addEventToDeviceCalendar].
+  static Uri googleCalendarTemplateUri({
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    String details = '',
+    String location = '',
+  }) {
+    final dates =
+        '${_googleCalendarUtcCompact(start)}/${_googleCalendarUtcCompact(end)}';
+    return Uri(
+      scheme: 'https',
+      host: 'www.google.com',
+      path: '/calendar/render',
+      queryParameters: {
+        'action': 'TEMPLATE',
+        'text': title,
+        'dates': dates,
+        'details': details,
+        'location': location,
+      },
+    );
+  }
+
+  /// Inclui web (template Google Calendar) e nativo ([addEventToDeviceCalendar]).
+  static Future<bool> addToCalendarAdaptive({
+    required String title,
+    required DateTime start,
+    DateTime? end,
+    String location = '',
+    String description = '',
+    double? locationLat,
+    double? locationLng,
+  }) async {
+    final t = title.trim();
+    if (t.isEmpty) return false;
+    var fin = end ?? _defaultEnd(start);
+    if (!fin.isAfter(start)) {
+      fin = start.add(const Duration(hours: 2));
+    }
+    final locText = location.trim();
+    final desc = [
+      description.trim(),
+      _mapsLineForLocation(locText, lat: locationLat, lng: locationLng),
+    ].where((s) => s.isNotEmpty).join('\n');
+
+    if (kIsWeb) {
+      final uri = googleCalendarTemplateUri(
+        title: t,
+        start: start,
+        end: fin,
+        details: desc,
+        location: locText,
+      );
+      return openExternalApplicationUrl(uri);
+    }
+
+    return addEventToDeviceCalendar(
+      title: t,
+      start: start,
+      end: fin,
+      location: locText,
+      description: description.trim(),
+      locationLat: locationLat,
+      locationLng: locationLng,
+    );
+  }
 
   /// Abre o fluxo nativo (Google Calendar / Apple Calendar) com lembrete ~1h antes.
   static Future<bool> addEventToDeviceCalendar({

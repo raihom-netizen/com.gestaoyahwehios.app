@@ -184,16 +184,27 @@ class FirebaseStorageService {
     _pastorSigConfigUrlCache.remove(t);
   }
 
-  /// Caminho canónico: `igrejas/{tenant}/membros/{idDocumento}/foto_perfil.jpg` (sobrescreve ao trocar foto).
-  /// [nomeCompleto] / [authUid] ignorados — mantidos só para compatibilidade de chamadas antigas.
+  /// Pasta no Storage: **authUid** quando existir (conta Firebase do membro/gestor); senão id do doc em `membros/`.
+  static String memberProfileStorageFolderId(
+    String memberDocId,
+    String? authUid,
+  ) {
+    final au = (authUid ?? '').trim();
+    if (au.isNotEmpty) return au;
+    return memberDocId.trim();
+  }
+
+  /// Caminho canónico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).
+  /// [pasta] = [authUid] se preenchido; caso contrário [memberDocId] (ex. CPF ou id auto).
   static String memberProfilePhotoPath({
     required String tenantId,
     required String memberDocId,
     String? nomeCompleto,
     String? authUid,
   }) {
+    final folder = memberProfileStorageFolderId(memberDocId, authUid);
     return ChurchStorageLayout.memberCanonicalProfilePhotoPath(
-        tenantId, memberDocId);
+        tenantId, folder);
   }
 
   /// URL com token para a foto padrão do membro em Storage (`igrejas/{tenant}/membros/{id}.jpg` legado
@@ -246,12 +257,21 @@ class FirebaseStorageService {
       addStem(authNorm);
     }
 
+    final paths = <String>[];
+    if (authNorm.isNotEmpty) {
+      final cAuth = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tid, authNorm);
+      paths.addAll([
+        cAuth,
+        '${cAuth.substring(0, cAuth.length - 4)}.jpeg',
+        '${cAuth.substring(0, cAuth.length - 4)}.png',
+      ]);
+    }
     final canon = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tid, mid);
-    final paths = <String>[
+    paths.addAll([
       canon,
       '${canon.substring(0, canon.length - 4)}.jpeg',
       '${canon.substring(0, canon.length - 4)}.png',
-    ];
+    ]);
     for (final stem in orderedStems) {
       paths.addAll([
         'igrejas/$tid/membros/$stem/foto_perfil.jpg',
@@ -297,13 +317,19 @@ class FirebaseStorageService {
   static void invalidateMemberPhotoCache({
     required String tenantId,
     String? memberId,
+    String? authUid,
   }) {
     final t = tenantId.trim();
     if (t.isEmpty) return;
     final m = memberId?.trim();
+    final a = authUid?.trim();
     if (m != null && m.isNotEmpty) {
       _memberPhotoUrlCache.removeWhere((k, _) => k.startsWith('$t:$m:'));
-    } else {
+    }
+    if (a != null && a.isNotEmpty && a != m) {
+      _memberPhotoUrlCache.removeWhere((k, _) => k.startsWith('$t:$a:'));
+    }
+    if ((m == null || m.isEmpty) && (a == null || a.isEmpty)) {
       _memberPhotoUrlCache.removeWhere((k, _) => k.startsWith('$t:'));
     }
   }

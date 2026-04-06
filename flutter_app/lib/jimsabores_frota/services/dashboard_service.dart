@@ -1,5 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
+
 class DashboardResumo {
   DashboardResumo({
     required this.totalDiario,
@@ -26,8 +28,6 @@ class DashboardResumo {
 }
 
 class DashboardService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-
   double _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     if (value is String) {
@@ -40,7 +40,7 @@ class DashboardService {
   Stream<double> streamTotalDiario() {
     DateTime hoje = DateTime.now();
     DateTime inicioDia = DateTime(hoje.year, hoje.month, hoje.day);
-    return _db.collection('abastecimentos')
+    return FrotaFirestorePaths.abastecimentos()
         .where('data_hora', isGreaterThanOrEqualTo: inicioDia)
         .snapshots()
         .map((snap) {
@@ -53,7 +53,7 @@ class DashboardService {
   }
 
   Stream<Map<String, double>> streamDadosGrafico() {
-    return _db.collection('abastecimentos').snapshots().map((snap) {
+    return FrotaFirestorePaths.abastecimentos().snapshots().map((snap) {
       double gasolina = 0;
       double etanol = 0;
       for (var doc in snap.docs) {
@@ -105,7 +105,7 @@ class DashboardService {
   }
 
   Stream<DashboardResumo> streamResumoDashboard() {
-    return _db.collection('abastecimentos').snapshots().map((snap) {
+    return FrotaFirestorePaths.abastecimentos().snapshots().map((snap) {
       final agora = DateTime.now();
 
       double totalDiario = 0;

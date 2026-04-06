@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/pages/completar_cadastro_membro_page.dart';
@@ -46,6 +48,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool _sugestaoEnviando = false;
   bool _sugestaoEnviada = false;
   bool _bulkAuthLoading = false;
+  final _biometricService = BiometricService();
+  bool _bioCapable = false;
+  bool _bioEnabled = false;
+  bool _bioToggling = false;
 
   bool get _podeCriarLoginsEmMassa {
     final r = widget.role.toLowerCase();
@@ -70,6 +76,13 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     final prefs = await SharedPreferences.getInstance();
     final minutos = prefs.getString(_keyNotifMinutos) ?? '60';
     _notifMinutosCtrl.text = minutos;
+    var capable = false;
+    var bioOn = false;
+    if (!kIsWeb) {
+      capable = await _biometricService.isDeviceBiometricCapable();
+      bioOn = await _biometricService.isEnabled();
+    }
+    if (!mounted) return;
     setState(() {
       _notifAvisos = prefs.getBool(_keyNotifAvisos) ?? true;
       _notifEscalas = prefs.getBool(_keyNotifEscalas) ?? true;
@@ -80,8 +93,45 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifWeb = prefs.getBool(_keyNotifWeb) ?? true;
       _notif1Dia = prefs.getBool(_keyNotif1Dia) ?? true;
       _notif60Min = prefs.getBool(_keyNotif60Min) ?? true;
+      _bioCapable = capable;
+      _bioEnabled = bioOn;
       _loading = false;
     });
+  }
+
+  Future<void> _onBiometricSwitch(bool wantOn) async {
+    if (kIsWeb || _bioToggling) return;
+    if (!wantOn) {
+      setState(() => _bioToggling = true);
+      await _biometricService.disableForThisDevice();
+      if (mounted) {
+        setState(() {
+          _bioEnabled = false;
+          _bioToggling = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Desbloqueio por digital/Face ID desativado neste aparelho.')),
+        );
+      }
+      return;
+    }
+    setState(() => _bioToggling = true);
+    final ok = await _biometricService.enableUnlockWithBiometrics();
+    if (!mounted) return;
+    setState(() => _bioToggling = false);
+    if (ok) {
+      setState(() => _bioEnabled = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digital/Face ID ativado. Na entrada do app, marque também «Lembrar usuário e senha» para usar o acesso rápido.'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível confirmar a biometria. Tente de novo ou verifique as configurações do aparelho.')),
+      );
+    }
   }
 
   Future<void> _saveNotif(String key, dynamic value) async {
@@ -190,6 +240,50 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                               ),
                             ),
                           ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),
+                  _Card(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (kIsWeb)
+                          Text(
+                            'Desbloqueio por digital ou Face ID está disponível no aplicativo instalado (Android e iOS), na tela de login e aqui em Configurações.',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
+                          )
+                        else if (!_bioCapable)
+                          Text(
+                            'Este aparelho não tem biometria configurada ou o sensor não está disponível para o app.',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
+                          )
+                        else ...[
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            secondary: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.fingerprint_rounded, color: ThemeCleanPremium.primary),
+                            ),
+                            title: const Text('Desbloquear com digital / Face ID', style: TextStyle(fontWeight: FontWeight.w700)),
+                            subtitle: const Text(
+                              'Ao abrir o app, pede digital ou rosto antes do painel — igual à opção da tela Entrar. Para login rápido com um toque, use também «Lembrar usuário e senha» no login.',
+                              style: TextStyle(fontSize: 12.5),
+                            ),
+                            value: _bioEnabled,
+                            onChanged: _bioToggling ? null : _onBiometricSwitch,
+                          ),
+                          if (_bioToggling)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: LinearProgressIndicator(minHeight: 3),
+                            ),
+                        ],
                       ],
                     ),
                   ),

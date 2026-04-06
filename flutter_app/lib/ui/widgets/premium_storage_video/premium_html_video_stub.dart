@@ -7,6 +7,7 @@ Widget buildPremiumHtmlVideo(
   bool loop = false,
   bool muted = false,
   bool controls = true,
+  bool objectFitContain = false,
 }) {
   return const SizedBox.shrink();
 }

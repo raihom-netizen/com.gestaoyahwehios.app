@@ -1,5 +1,11 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'
+    show
+        PlatformDispatcher,
+        TargetPlatform,
+        defaultTargetPlatform,
+        kIsWeb,
+        kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -38,6 +44,7 @@ import 'package:gestao_yahweh/window_close_handler_stub.dart'
     if (dart.library.io) 'package:gestao_yahweh/window_close_handler_io.dart'
     as window_close_handler;
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/services/public_site_analytics.dart';
 
 /// Salva a rota atual para, ao reabrir o app pelo ícone, abrir onde parou (evita tela preta).
 class _LastRouteObserver extends NavigatorObserver {
@@ -346,6 +353,7 @@ void main() async {
   } catch (e) {
     // Firebase já inicializado
   }
+  await PublicSiteAnalytics.ensureInitialized();
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -423,8 +431,20 @@ void main() async {
             initialRoute = last;
           }
         }
+      } else if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS)) {
+        // Android/iOS: sem rota salva → só tela de login (planos e site ficam na web).
+        initialRoute = '/login';
       }
     } catch (_) {}
+    // Fallback se SharedPreferences falhar no app móvel.
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) &&
+        (initialRoute == '/' || initialRoute.isEmpty)) {
+      initialRoute = '/login';
+    }
   }
   runApp(UpdateChecker(
     child: _AppWithTheme(initialRoute: initialRoute),
@@ -483,7 +503,11 @@ class _AppWithThemeState extends State<_AppWithTheme> {
           ],
           home: _StartupSplashGate(targetRoute: widget.initialRoute),
           debugShowCheckedModeBanner: false,
-          navigatorObservers: [_LastRouteObserver()],
+          navigatorObservers: [
+            _LastRouteObserver(),
+            if (PublicSiteAnalytics.navigatorObserver != null)
+              PublicSiteAnalytics.navigatorObserver!,
+          ],
           builder: (context, child) {
             // Evita tela preta ao voltar de outro app ou ao abrir pelo ícone: fundo sempre visível
             final c = child ?? const SizedBox.shrink();
@@ -614,6 +638,7 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                     title: 'Entrar — Painel da Igreja',
                     afterLoginRoute: '/painel',
                     showFleetBranding: false,
+                    showGoogleLogin: true,
                     backRoute: '/',
                   );
                   break;

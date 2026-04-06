@@ -1586,86 +1586,34 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final phase = ValueNotifier<String>('Preparando…');
     final total = selectedDocs.length;
     final cur = ValueNotifier<int>(total > 0 ? 1 : 0);
+    final layoutBatch = _layoutForTemplate(template);
+    final galaSingle = singlePdf && layoutBatch == _certPdfLayoutId;
+    final prog01 = ValueNotifier<double>(total > 0 ? 0.04 : 0.02);
+    final titleNv = ValueNotifier<String>(
+      galaSingle
+          ? 'PDF único — $total página(s)'
+          : 'Certificado ${cur.value}/$total',
+    );
+    final batchAccent = _corForTemplate(template);
 
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       useRootNavigator: true,
       builder: (dialogCtx) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            ),
-            content: ValueListenableBuilder<String>(
-              valueListenable: phase,
-              builder: (_, msg, __) {
-                return ValueListenableBuilder<int>(
-                  valueListenable: cur,
-                  builder: (_, at, __) {
-                    final v = total > 0 ? at / total : 0.0;
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            minHeight: 8,
-                            value: v >= 1.0 ? null : v.clamp(0.02, 0.99),
-                            backgroundColor: Colors.grey.shade200,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          singlePdf && _layoutForTemplate(template) == _certPdfLayoutId
-                              ? 'Gerando PDF único ($total página(s))'
-                              : 'Gerando certificado ${at.clamp(0, total)}/$total',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 15),
-                        ),
-                        if (useDigital) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'Assinando digitalmente…',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.blue.shade700,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 8),
-                        Text(
-                          msg,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 13, color: Colors.grey.shade800),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Fotos até 800 px de largura e ≤500 KB na memória…',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade600),
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-          ),
+        return _CertificatePdfProgressShell(
+          phase: phase,
+          progress01: prog01,
+          title: titleNv,
+          accent: batchAccent,
+          showDigitalSigningLine: useDigital,
         );
       },
     );
 
     final zipEntries = <String, Uint8List>{};
     try {
-      final layoutLote = _layoutForTemplate(template);
+      final layoutLote = layoutBatch;
       if (singlePdf && layoutLote == _certPdfLayoutId) {
         final dataHoje = _formatDateBr(DateTime.now());
         final localTxt = _tenantData?['cidade'] != null
@@ -1722,6 +1670,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
           sliceRows.add((nome: nome, cpf: cpf, texto: textoFinal));
         }
         cur.value = total;
+        titleNv.value = 'PDF único — $total página(s)';
+        prog01.value = 0.08;
         phase.value = 'A registar protocolos (${snapshots.length})…';
         final protocolIds = await CertificateEmitidoService.registerEmissaoBatch(
           tenantId: widget.tenantId,
@@ -1738,6 +1688,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             ),
         ];
         phase.value = 'A gerar PDF único (${slices.length} páginas)…';
+        prog01.value = 0.12;
         final first = selectedDocs.first.data();
         final firstNome =
             (first['NOME_COMPLETO'] ?? first['nome'] ?? '').toString();
@@ -1784,10 +1735,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
           members: slices,
           onProgress: (m, p) {
             phase.value = m;
+            prog01.value = p.clamp(0.0, 1.0);
             cur.value = (p * total).ceil().clamp(1, total);
+            titleNv.value = 'PDF único — ${cur.value}/$total';
           },
         );
         phase.value = 'A preparar partilha…';
+        prog01.value = 0.98;
         final pdfFname =
             'certificados_lote_${selectedDocs.length}_${DateTime.now().millisecondsSinceEpoch}.pdf';
         if (mounted && nav.canPop()) nav.pop();
@@ -1844,6 +1798,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
         final layoutLoteZip = _layoutForTemplate(template);
 
         cur.value = i + 1;
+        titleNv.value = 'Certificado ${i + 1}/$total';
+        prog01.value = ((i + 0.08) / total).clamp(0.04, 0.96);
         phase.value =
             'Certificado ${i + 1} de $total — registo e PDF…';
 
@@ -1929,6 +1885,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           ),
           onProgress: (m, p) {
             phase.value = m;
+            prog01.value = ((i + p) / total).clamp(0.0, 1.0);
           },
           currentIndex: i + 1,
           totalCount: total,
@@ -1938,6 +1895,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
 
       cur.value = total;
+      titleNv.value = 'Compactando arquivo…';
+      prog01.value = 0.92;
       phase.value = 'Compactando ZIP…';
 
       if (zipEntries.isEmpty) {
@@ -1984,6 +1943,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
     } finally {
       phase.dispose();
       cur.dispose();
+      prog01.dispose();
+      titleNv.dispose();
       if (mounted) {
         imageCache.clear();
       }
@@ -2123,6 +2084,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           ),
                           const SizedBox(height: 6),
                           Text(
+                            'Logo dedicada (opcional): igrejas/{id}/certificados/logo_atual.jpg. '
                             'Fundos em alta resolução: igrejas/{id}/templates/certificados/'
                             '(ex.: modelo_classico_dourado.png). Impressão: PDF em alta definição; '
                             'CMYK depende da gráfica.',
@@ -2555,7 +2517,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             ? Map<String, dynamic>.from(widget.certConfig!)
             : null,
       );
-      final basePath = 'certificado_logos/${widget.tenantId}/logo_atual';
+      final basePath = ChurchStorageLayout.certificadoDedicatedLogoBaseWithoutExt(
+          widget.tenantId);
       final upload = await MediaUploadService.uploadBytesDetailed(
         storagePath: '$basePath.jpg',
         bytes: bytes,
@@ -3193,6 +3156,190 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   }
 }
 
+/// Diálogo de progresso ao gerar PDF(s) — etapas claras, percentual e ícone por fase.
+class _CertificatePdfProgressShell extends StatelessWidget {
+  const _CertificatePdfProgressShell({
+    required this.phase,
+    required this.progress01,
+    required this.title,
+    required this.accent,
+    this.showDigitalSigningLine = false,
+  });
+
+  final ValueNotifier<String> phase;
+  final ValueNotifier<double> progress01;
+  final ValueNotifier<String> title;
+  final Color accent;
+  final bool showDigitalSigningLine;
+
+  static IconData _iconForPhase(String msg) {
+    final m = msg.toLowerCase();
+    if (m.contains('fonte') || m.contains('mídia') || m.contains('midia')) {
+      return Icons.text_fields_rounded;
+    }
+    if (m.contains('baixando') || m.contains('paralelo')) {
+      return Icons.cloud_sync_rounded;
+    }
+    if (m.contains('otimiz')) {
+      return Icons.auto_fix_high_rounded;
+    }
+    if (m.contains('montando') || m.contains('página') || m.contains('pagina')) {
+      return Icons.layers_rounded;
+    }
+    if (m.contains('compact')) {
+      return Icons.folder_zip_rounded;
+    }
+    if (m.contains('concluí') || m.contains('concluido')) {
+      return Icons.check_circle_rounded;
+    }
+    if (m.contains('regist') || m.contains('protocol')) {
+      return Icons.verified_rounded;
+    }
+    if (m.contains('partilha') || m.contains('preparar')) {
+      return Icons.share_rounded;
+    }
+    return Icons.picture_as_pdf_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+            child: ValueListenableBuilder<String>(
+              valueListenable: title,
+              builder: (context, titleText, _) {
+                return ValueListenableBuilder<String>(
+                  valueListenable: phase,
+                  builder: (context, msg, __) {
+                    return ValueListenableBuilder<double>(
+                      valueListenable: progress01,
+                      builder: (context, v, ___) {
+                        final ind = v.clamp(0.0, 1.0);
+                        final pctLabel = (ind * 100).clamp(0, 100).round();
+                        final icon = _iconForPhase(msg);
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: accent.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(icon, color: accent, size: 26),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        titleText,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '$pctLabel% concluído',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: accent,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: LinearProgressIndicator(
+                                minHeight: 10,
+                                value: ind >= 0.995
+                                    ? null
+                                    : ind.clamp(0.03, 0.99),
+                                backgroundColor: Colors.grey.shade200,
+                                color: accent,
+                              ),
+                            ),
+                            if (showDigitalSigningLine) ...[
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Icon(Icons.draw_rounded,
+                                      size: 16, color: Colors.blue.shade700),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Incluindo assinaturas no PDF',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 200),
+                              child: Text(
+                                msg,
+                                key: ValueKey<String>(msg),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.35,
+                                  color: Colors.grey.shade800,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Rede otimizada: fontes, logo, fundo e assinaturas em paralelo.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Página de Edição do Certificado
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3710,6 +3857,30 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Wrap(
+                        spacing: 2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => setState(() {
+                              _selectedSignatoryIds
+                                ..clear()
+                                ..addAll(widget.signatoryOptions
+                                    .map((e) => e.memberId));
+                            }),
+                            icon: const Icon(Icons.done_all_rounded, size: 18),
+                            label: const Text('Marcar todos'),
+                          ),
+                          TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _selectedSignatoryIds.clear()),
+                            icon: const Icon(Icons.layers_clear_rounded,
+                                size: 18),
+                            label: const Text('Limpar seleção'),
+                          ),
+                        ],
+                      ),
+                      Divider(height: 16, color: Colors.grey.shade300),
                       ...widget.signatoryOptions.map((o) {
                         final selected =
                             _selectedSignatoryIds.contains(o.memberId);
@@ -3861,83 +4032,19 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     final phase = ValueNotifier<String>(
         'Processando certificado 1 de 1 — preparando…');
     final pct = ValueNotifier<double>(0.02);
+    final titleNv = ValueNotifier<String>('Gerando certificado');
     final nav = Navigator.of(context, rootNavigator: true);
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       useRootNavigator: true,
       builder: (dialogCtx) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            ),
-            content: ValueListenableBuilder<String>(
-              valueListenable: phase,
-              builder: (_, msg, __) {
-                return ValueListenableBuilder<double>(
-                  valueListenable: pct,
-                  builder: (_, v, __) {
-                    final ind = v.clamp(0.0, 1.0);
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            minHeight: 8,
-                            value: ind >= 0.995 ? null : ind.clamp(0.02, 1.0),
-                            backgroundColor: Colors.grey.shade200,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Gerando certificado 1/1',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
-                        ),
-                        if (_signatureMode == 'digital') ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'Assinando digitalmente…',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 8),
-                        Text(
-                          msg,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Fotos até 800 px e ≤500 KB — montando o PDF…',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
-          ),
+        return _CertificatePdfProgressShell(
+          phase: phase,
+          progress01: pct,
+          title: titleNv,
+          accent: _cor,
+          showDigitalSigningLine: _signatureMode == 'digital',
         );
       },
     );
@@ -3977,6 +4084,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       if (mounted && nav.canPop()) nav.pop();
       phase.dispose();
       pct.dispose();
+      titleNv.dispose();
       if (mounted) setState(() => _generating = false);
     }
   }

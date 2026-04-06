@@ -22,30 +22,19 @@ abstract final class DigitalWalletCardLayout {
   static double cardHeight(double width) => width / aspect;
 }
 
-String walletRgFromMember(Map<String, dynamic> member) {
-  const keys = ['RG', 'rg', 'DOCUMENTO_RG', 'documentoRg', 'identidade', 'RG_NUMERO'];
-  for (final k in keys) {
-    final s = (member[k] ?? '').toString().trim();
-    if (s.isNotEmpty) return s;
+/// Filiação para o verso da carteirinha (mesma lógica usada no cadastro de membros).
+String walletFiliacaoFromMember(Map<String, dynamic> member) {
+  final pai =
+      (member['FILIACAO_PAI'] ?? member['filiacaoPai'] ?? '').toString().trim();
+  final mae =
+      (member['FILIACAO_MAE'] ?? member['filiacaoMae'] ?? '').toString().trim();
+  final leg = (member['FILIACAO'] ?? member['filiacao'] ?? '').toString().trim();
+  if (pai.isNotEmpty && mae.isNotEmpty) {
+    return 'Pai: $pai / Mãe: $mae';
   }
-  return '';
-}
-
-String walletBloodFromMember(Map<String, dynamic> member) {
-  const keys = [
-    'TIPO_SANGUE',
-    'tipoSangue',
-    'tipo_sangue',
-    'TIPO_SANGUINEO',
-    'tipoSanguineo',
-    'sangue',
-    'bloodType',
-  ];
-  for (final k in keys) {
-    final s = (member[k] ?? '').toString().trim();
-    if (s.isNotEmpty) return s;
-  }
-  return '';
+  if (pai.isNotEmpty) return 'Pai: $pai';
+  if (mae.isNotEmpty) return 'Mãe: $mae';
+  return leg;
 }
 
 /// Selo metálico / holográfico (gradiente) contra falsificações simples.
@@ -95,67 +84,6 @@ class _SubtleCredentialWatermark extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class WalletAuthenticitySeal extends StatelessWidget {
-  final double size;
-
-  const WalletAuthenticitySeal({super.key, this.size = 56});
-
-  @override
-  Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: -0.18,
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFC9A227),
-              Color(0xFFE8D5A3),
-              Color(0xFF7DD3FC),
-              Color(0xFFC084FC),
-              Color(0xFFFDE68A),
-            ],
-            stops: [0.0, 0.25, 0.5, 0.72, 1.0],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFC9A227).withValues(alpha: 0.35),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: Text(
-              'AUTÊNTICO',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                fontSize: size * 0.16,
-                fontWeight: FontWeight.w800,
-                color: Colors.white.withValues(alpha: 0.95),
-                height: 1.05,
-                shadows: const [
-                  Shadow(
-                    color: Color(0x66000000),
-                    blurRadius: 2,
-                    offset: Offset(0, 1),
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -252,11 +180,6 @@ class MemberDigitalWalletFront extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.06),
               ),
             ),
-            Positioned(
-              right: 10,
-              top: 10,
-              child: WalletAuthenticitySeal(size: width * 0.14),
-            ),
             const _SubtleCredentialWatermark(),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -266,20 +189,37 @@ class MemberDigitalWalletFront extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(width: 44, height: 44, child: logoSlot),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.94),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.12),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(4),
+                        child: Center(child: logoSlot),
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              churchTitle,
+                              churchTitle.toUpperCase(),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.poppins(
                                 color: textColor,
                                 fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.2,
                               ),
                             ),
                             Text(
@@ -492,9 +432,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final Color accentGold;
   final String churchTitle;
   final String cpfOrDoc;
-  final String rg;
   final String nascimento;
-  final String sangue;
+  final String filiacaoPaiMae;
   final String validade;
   final String validationUrl;
   final String? signatureImageUrl;
@@ -512,9 +451,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.accentGold,
     required this.churchTitle,
     required this.cpfOrDoc,
-    required this.rg,
     required this.nascimento,
-    required this.sangue,
+    required this.filiacaoPaiMae,
     required this.validade,
     required this.validationUrl,
     required this.signatureImageUrl,
@@ -545,11 +483,6 @@ class MemberDigitalWalletBack extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Positioned(
-              left: 8,
-              bottom: 8,
-              child: WalletAuthenticitySeal(size: width * 0.12),
-            ),
             const _SubtleCredentialWatermark(),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -611,10 +544,10 @@ class MemberDigitalWalletBack extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _miniField('CPF / Doc.', cpfOrDoc, textColor),
-                              _miniField('RG', rg, textColor),
+                              _miniField('CPF', cpfOrDoc, textColor),
                               _miniField('Nascimento', nascimento, textColor),
-                              _miniField('Tipagem', sangue, textColor),
+                              _miniField(
+                                  'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),
                               _miniField('Congregação', congregacao, textColor),
                               const Spacer(),
                               WalletSignatureStrip(

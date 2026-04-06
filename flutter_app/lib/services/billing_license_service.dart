@@ -255,12 +255,17 @@ class BillingLicenseService {
 
     final root = ref;
 
-    await deleteCollection(root.collection('noticias'), beforeDeleteDoc: (docRef) async {
-      await deleteCollection(docRef.collection('comentarios'));
-      await deleteCollection(docRef.collection('comments'));
-      await deleteCollection(docRef.collection('curtidas'));
-      await deleteCollection(docRef.collection('confirmacoes'));
-    });
+    Future<void> deleteNoticiasLike(CollectionReference<Map<String, dynamic>> col) async {
+      await deleteCollection(col, beforeDeleteDoc: (docRef) async {
+        await deleteCollection(docRef.collection('comentarios'));
+        await deleteCollection(docRef.collection('comments'));
+        await deleteCollection(docRef.collection('curtidas'));
+        await deleteCollection(docRef.collection('confirmacoes'));
+      });
+    }
+
+    await deleteNoticiasLike(root.collection('noticias'));
+    await deleteNoticiasLike(root.collection('avisos'));
     await deleteCollection(root.collection('visitantes'), beforeDeleteDoc: (docRef) async {
       await deleteCollection(docRef.collection('followups'));
     });
@@ -273,6 +278,8 @@ class BillingLicenseService {
       'finance', 'categorias_receitas', 'categorias_despesas', 'contas', 'despesas_fixas',
       'usersIndex', 'users', 'fleet_vehicles', 'fleet_fuelings', 'fleet_documents',
       'eventos', 'pedidosOracao',
+      'abastecimentos', 'combustiveis', 'veiculos',
+      'certificados_emitidos', 'certificados_historico',
     ]) {
       await deleteCollection(root.collection(name));
     }

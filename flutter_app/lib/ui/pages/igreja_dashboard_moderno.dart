@@ -28,6 +28,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaPhotoUrls,
@@ -46,6 +47,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
         showYahwehFullscreenZoomableImage,
         resolveNoticiaSharePreviewImageUrl,
         YahwehPremiumFeedShimmer;
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage, resolveNoticiaHostedVideoShareUrl;
@@ -68,11 +70,14 @@ import 'events_manager_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'prayer_requests_page.dart';
 import 'visitors_page.dart';
-import 'calendar_page.dart';
 import '../../services/app_permissions.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
+    show kChurchShellIndexMySchedules;
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
 /// Membros em tempo real via `snapshots()` (um stream ou merge de vários tenants com mesmo slug).
@@ -86,6 +91,14 @@ class IgrejaDashboardModerno extends StatefulWidget {
   /// Abre o módulo Membros no shell (atalho a partir do painel de saúde ministerial).
   final VoidCallback? onNavigateToMembers;
 
+  /// Mesmas flags do shell — financeiro e patrimônio só no painel para quem pode ver.
+  final bool? podeVerFinanceiro;
+  final bool? podeVerPatrimonio;
+  final List<String>? permissions;
+
+  /// Abre módulo pelo índice do menu [IgrejaCleanShell] (1 = cadastro, 2 = membros, …).
+  final ValueChanged<int> onNavigateToShellModule;
+
   const IgrejaDashboardModerno({
     super.key,
     required this.tenantId,
@@ -93,6 +106,10 @@ class IgrejaDashboardModerno extends StatefulWidget {
     required this.cpf,
     this.onNavigateToEventos,
     this.onNavigateToMembers,
+    this.podeVerFinanceiro,
+    this.podeVerPatrimonio,
+    this.permissions,
+    required this.onNavigateToShellModule,
   });
 
   @override
@@ -104,6 +121,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _financeStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _avisosStream;
   /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
   String _effectiveTenantId = '';
   String _churchSlug = '';
@@ -127,6 +145,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
   /// Resolve o ID do tenant (documento em tenants): por id, slug ou alias (com normalização) — membros no mesmo path.
   Future<String> _resolveEffectiveTenantId() async =>
       TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+
+  bool get _dashCanFinance => AppPermissions.canViewFinance(
+        widget.role,
+        memberCanViewFinance: widget.podeVerFinanceiro,
+        permissions: widget.permissions,
+      );
 
   Future<void> _loadStreams() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
@@ -152,7 +176,16 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
       _deptStream = tenantRef.collection('departamentos').snapshots();
       // Menos documentos em tempo real no painel — suficiente para o gráfico e menos carga no celular.
       _financeStream = tenantRef.collection('finance').limit(100).snapshots();
-      _noticiasStream = tenantRef.collection('noticias').orderBy('createdAt', descending: true).limit(10).snapshots();
+      _noticiasStream = tenantRef
+          .collection(ChurchTenantPostsCollections.noticias)
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .snapshots();
+      _avisosStream = tenantRef
+          .collection(ChurchTenantPostsCollections.avisos)
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .snapshots();
     });
   }
 
@@ -218,7 +251,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
 
   @override
   Widget build(BuildContext context) {
-    if (_membersStream == null || _deptStream == null || _noticiasStream == null) {
+    if (_membersStream == null ||
+        _deptStream == null ||
+        _noticiasStream == null ||
+        _avisosStream == null) {
       return SafeArea(
         child: Container(
           color: ThemeCleanPremium.surfaceVariant,
@@ -259,46 +295,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                       child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (!AppPermissions.isRestrictedMember(widget.role)) ...[
-                          ChurchMinistryHealthPanel(
-                            tenantId: _effectiveTenantId,
-                            memberDocs: mergedSnap.data?.docs ?? const [],
-                            canViewFinance:
-                                AppPermissions.canViewFinance(widget.role),
-                            onNavigateToMembers: widget.onNavigateToMembers,
-                            onRefreshDashboard: _loadStreams,
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        ],
                         _AniversariantesCard(
                           snap: mergedSnap,
                           tenantId: _effectiveTenantId,
                           engagement: _engagementCtrl,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _DashboardInstitutionalVideoStrip(tenantId: widget.tenantId),
-                        const SizedBox(height: ThemeCleanPremium.spaceSm),
-                        _LinksPublicosStrip(tenantId: widget.tenantId, role: widget.role),
-                        const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _AtalhosStrip(
-                          tenantId: widget.tenantId,
-                          role: widget.role,
-                          cpf: widget.cpf,
-                          isNarrow: isNarrow,
-                        ),
-                        const SizedBox(height: ThemeCleanPremium.spaceSm),
-                        _AtalhosNovosModulos(
-                          tenantId: widget.tenantId,
-                          role: widget.role,
-                          cpf: widget.cpf,
-                        ),
+                        _LideresGaleria(membersSnap: mergedSnap, deptStream: _deptStream!, tenantId: _effectiveTenantId),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _DestaqueEventos(
                           tenantId: _effectiveTenantId,
                           role: widget.role,
                           churchSlug: _churchSlug,
                           nomeIgreja: _churchNome,
-                          stream: _noticiasStream!,
+                          stream: _avisosStream!,
                           typeFilter: _DestaqueTipo.aviso,
                           onRetryStream: _loadStreams,
                         ),
@@ -312,14 +322,55 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                           typeFilter: _DestaqueTipo.evento,
                           onRetryStream: _loadStreams,
                         ),
+                        const SizedBox(height: ThemeCleanPremium.spaceXl),
+                        if (!AppPermissions.isRestrictedMember(widget.role)) ...[
+                          ChurchMinistryHealthPanel(
+                            tenantId: _effectiveTenantId,
+                            role: widget.role,
+                            memberDocs: mergedSnap.data?.docs ?? const [],
+                            canViewFinance: _dashCanFinance,
+                            onNavigateToMembers: widget.onNavigateToMembers,
+                            onRefreshDashboard: _loadStreams,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        ],
+                        if (ChurchRolePermissions.shellAllowsNavIndex(
+                          widget.role,
+                          kChurchShellIndexMySchedules,
+                          memberCanViewFinance: widget.podeVerFinanceiro,
+                          memberCanViewPatrimonio: widget.podeVerPatrimonio,
+                          permissions: widget.permissions,
+                        )) ...[
+                          _DashboardLiderOnboardingBanner(
+                            role: widget.role,
+                            podeVerFinanceiro: widget.podeVerFinanceiro,
+                            podeVerPatrimonio: widget.podeVerPatrimonio,
+                            permissions: widget.permissions,
+                            onNavigateToShellModule: widget.onNavigateToShellModule,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          _DashboardVoluntariadoAtalhoCard(
+                            tenantId: _effectiveTenantId,
+                            cpf: widget.cpf,
+                            role: widget.role,
+                            podeVerFinanceiro: widget.podeVerFinanceiro,
+                            podeVerPatrimonio: widget.podeVerPatrimonio,
+                            permissions: widget.permissions,
+                            onOpenMinhaEscala: () => widget.onNavigateToShellModule(
+                              kChurchShellIndexMySchedules,
+                            ),
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        ],
+                        _DashboardInstitutionalVideoStrip(tenantId: widget.tenantId),
+                        const SizedBox(height: ThemeCleanPremium.spaceSm),
+                        _LinksPublicosStrip(tenantId: widget.tenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _ProgramacaoDiasCard(tenantId: widget.tenantId, role: widget.role, onNavigateToEventos: widget.onNavigateToEventos),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _StatsCards(snap: mergedSnap, tenantId: widget.tenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
-                        const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _LideresGaleria(membersSnap: mergedSnap, deptStream: _deptStream!, tenantId: _effectiveTenantId),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _CorpoAdministrativoGaleria(membersSnap: mergedSnap, deptStream: _deptStream!, tenantId: _effectiveTenantId),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
@@ -329,11 +380,24 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                           width: isNarrow ? double.infinity : 380,
                           child: _GraficoMembros(snap: mergedSnap),
                         ),
-                        if (AppPermissions.canViewFinance(widget.role)) ...[
+                        if (_dashCanFinance) ...[
                           const SizedBox(height: ThemeCleanPremium.spaceXl),
                           SizedBox(
                             width: isNarrow ? double.infinity : 380,
                             child: _GraficoFinanceiro(stream: _financeStream!),
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          SizedBox(
+                            width: isNarrow ? double.infinity : 380,
+                            child: _PainelDespesasDashboard(
+                              stream: _financeStream!,
+                              tenantId: _effectiveTenantId,
+                              role: widget.role,
+                              cpf: widget.cpf,
+                              podeVerFinanceiro: widget.podeVerFinanceiro,
+                              permissions: widget.permissions,
+                              isNarrow: isNarrow,
+                            ),
                           ),
                         ],
                         const SizedBox(height: 32),
@@ -396,114 +460,6 @@ class _TapScaleTileState extends State<_TapScaleTile> with SingleTickerProviderS
           child: child,
         ),
         child: widget.child,
-      ),
-    );
-  }
-}
-
-/// Atalhos rápidos: Ver membros, Financeiro, Mural, Eventos — com feedback tátil.
-class _AtalhosStrip extends StatelessWidget {
-  final String tenantId;
-  final String role;
-  final String cpf;
-  final bool isNarrow;
-
-  const _AtalhosStrip({
-    required this.tenantId,
-    required this.role,
-    required this.cpf,
-    required this.isNarrow,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final atalhos = [
-      if (!AppPermissions.isRestrictedMember(role))
-        (icon: Icons.people_rounded, label: 'Membros', onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(MembersPage(tenantId: tenantId, role: role)))),
-      if (AppPermissions.canViewFinance(role))
-        (icon: Icons.account_balance_wallet_rounded, label: 'Financeiro', onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(FinancePage(tenantId: tenantId, role: role, cpf: cpf)))),
-      (icon: Icons.campaign_rounded, label: 'Mural', onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(MuralPage(tenantId: tenantId, role: role)))),
-      (icon: Icons.event_rounded, label: 'Eventos', onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(EventsManagerPage(tenantId: tenantId, role: role)))),
-    ];
-    final pastelColors = [
-      const Color(0xFFEFF6FF),
-      const Color(0xFFF0FDF4),
-      const Color(0xFFFDF4FF),
-      const Color(0xFFFEF3C7),
-    ];
-    final iconColors = [
-      const Color(0xFF2563EB),
-      const Color(0xFF16A34A),
-      const Color(0xFFDB2777),
-      const Color(0xFFD97706),
-    ];
-    Widget atalhoTile(int i) {
-      return _TapScaleTile(
-        onTap: atalhos[i].onTap,
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFF8FAFC), width: 1),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: pastelColors[i % pastelColors.length],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(atalhos[i].icon, color: iconColors[i % iconColors.length], size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    atalhos[i].label,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: ThemeCleanPremium.onSurface,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (isNarrow) {
-      return GridView.builder(
-        itemCount: atalhos.length,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          childAspectRatio: 2.1,
-        ),
-        itemBuilder: (context, i) => atalhoTile(i),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (var i = 0; i < atalhos.length; i++) ...[
-            if (i > 0) const SizedBox(width: 12),
-            SizedBox(width: 220, child: atalhoTile(i)),
-          ],
-        ],
       ),
     );
   }
@@ -1750,17 +1706,16 @@ class _LideresGaleria extends StatelessWidget {
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: deptStream,
         builder: (context, deptSnap) {
-          if (deptSnap.connectionState == ConnectionState.waiting && !deptSnap.hasData) {
+          if (deptSnap.connectionState == ConnectionState.waiting &&
+              !deptSnap.hasData) {
             return const Padding(
-              padding: EdgeInsets.all(20),
-              child: Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  _SkeletonBox(height: 140, width: 140),
-                  _SkeletonBox(height: 140, width: 140),
-                  _SkeletonBox(height: 140, width: 140),
-                ],
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
               ),
             );
           }
@@ -1779,13 +1734,29 @@ class _LideresGaleria extends StatelessWidget {
           final deptDocs = deptSnap.data!.docs;
           final membersByCpf = <String, Map<String, dynamic>>{};
           final memberDocIdByCpf = <String, String>{};
+          final authUidToCanonicalCpf = <String, String>{};
           if (membersSnap.hasData && membersSnap.data != null) {
             for (final d in membersSnap.data!.docs) {
               final data = d.data();
-              final cpf = _normalizeCpf((data['CPF'] ?? data['cpf'] ?? '').toString());
-              if (cpf.isNotEmpty) {
-                membersByCpf[cpf] = data;
-                memberDocIdByCpf[cpf] = d.id;
+              var cpf = _normalizeCpf(
+                  (data['CPF'] ?? data['cpf'] ?? '').toString());
+              if (cpf.length < 9) {
+                final idDigits = _normalizeCpf(d.id);
+                if (idDigits.length >= 9 && idDigits.length <= 11) {
+                  cpf = idDigits;
+                }
+              }
+              if (cpf.length >= 9 && cpf.length <= 11) {
+                final key = ChurchDepartmentLeaders.canonicalCpfDigits(cpf);
+                membersByCpf[key] = data;
+                memberDocIdByCpf[key] = d.id;
+                final uid =
+                    (data['authUid'] ?? data['uid'] ?? data['userId'] ?? '')
+                        .toString()
+                        .trim();
+                if (uid.length >= 8) {
+                  authUidToCanonicalCpf[uid] = key;
+                }
               }
             }
           }
@@ -1794,13 +1765,40 @@ class _LideresGaleria extends StatelessWidget {
           final leaderToMember = <String, Map<String, dynamic>>{};
           for (final d in deptDocs) {
             final data = d.data();
-            final leaderCpf = _normalizeCpf((data['leaderCpf'] ?? '').toString());
             final deptName = (data['name'] ?? data['nome'] ?? d.id).toString();
-            if (leaderCpf.isEmpty) continue;
-            leaderToDepts.putIfAbsent(leaderCpf, () => []).add(deptName);
-            if (membersByCpf.containsKey(leaderCpf)) leaderToMember[leaderCpf] = membersByCpf[leaderCpf]!;
+            for (final leaderCpf
+                in ChurchDepartmentLeaders.cpfsFromDepartmentData(data)) {
+              leaderToDepts.putIfAbsent(leaderCpf, () => []).add(deptName);
+              final m = membersByCpf[leaderCpf];
+              if (m != null) {
+                leaderToMember[leaderCpf] = m;
+              }
+            }
+            for (final uid
+                in ChurchDepartmentLeaders.leaderUidsFromDepartmentData(data)) {
+              final ck = authUidToCanonicalCpf[uid];
+              if (ck != null && ck.isNotEmpty) {
+                leaderToDepts.putIfAbsent(ck, () => []).add(deptName);
+                final m = membersByCpf[ck];
+                if (m != null) {
+                  leaderToMember[ck] = m;
+                }
+              }
+            }
           }
-          final entries = leaderToDepts.entries.where((e) => e.value.isNotEmpty).toList();
+          final entries =
+              leaderToDepts.entries.where((e) => e.value.isNotEmpty).toList();
+
+          if (entries.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Nenhum líder vinculado aos departamentos. Em Departamentos, abra cada ministério e '
+                'defina a liderança (CPF ou conta do app).',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14, height: 1.35),
+              ),
+            );
+          }
 
           return Wrap(
             spacing: 16,
@@ -2877,85 +2875,298 @@ class _GraficoFinanceiro extends StatelessWidget {
   }
 }
 
-class _AtalhosNovosModulos extends StatelessWidget {
+/// Gráfico de barras (despesas) + últimas saídas com abertura direta no editor do lançamento.
+class _PainelDespesasDashboard extends StatelessWidget {
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
   final String tenantId;
   final String role;
   final String cpf;
-  const _AtalhosNovosModulos({required this.tenantId, required this.role, required this.cpf});
+  final bool? podeVerFinanceiro;
+  final List<String>? permissions;
+  final bool isNarrow;
+
+  const _PainelDespesasDashboard({
+    required this.stream,
+    required this.tenantId,
+    required this.role,
+    required this.cpf,
+    this.podeVerFinanceiro,
+    this.permissions,
+    required this.isNarrow,
+  });
+
+  static bool _ehDespesa(Map<String, dynamic> data) {
+    final t = (data['tipo'] ?? data['type'] ?? '').toString().toLowerCase();
+    return t.contains('saida') ||
+        t.contains('despesa') ||
+        t.contains('saída') ||
+        t == 'saida';
+  }
+
+  static DateTime? _dataDoc(Map<String, dynamic> data) {
+    final raw = data['createdAt'] ?? data['date'] ?? data['data'];
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is Map) {
+      final sec = raw['seconds'] ?? raw['_seconds'];
+      if (sec != null) {
+        return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+      }
+    }
+    return null;
+  }
+
+  static double _valorAbs(Map<String, dynamic> data) {
+    final valor = data['amount'] ?? data['valor'] ?? data['value'] ?? 0;
+    final v = valor is num
+        ? valor.toDouble()
+        : double.tryParse(valor.toString()) ?? 0;
+    return v.abs();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isNarrow = ThemeCleanPremium.isNarrow(context);
-    final items = [
-      (icon: Icons.volunteer_activism_rounded, label: 'Oração', color: const Color(0xFFE11D48), bg: const Color(0xFFFFF1F2),
-       onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(PrayerRequestsPage(tenantId: tenantId, role: role)))),
-      (icon: Icons.person_add_rounded, label: 'Visitantes', color: const Color(0xFF0891B2), bg: const Color(0xFFECFEFF),
-       onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(VisitorsPage(tenantId: tenantId, role: role)))),
-      (icon: Icons.calendar_month_rounded, label: 'Agenda', color: const Color(0xFFCA8A04), bg: const Color(0xFFFEFCE8),
-       onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(CalendarPage(tenantId: tenantId, role: role)))),
-    ];
-    Widget moduloTile(int i) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: items[i].onTap,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-              border: Border.all(color: items[i].bg, width: 1.5),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snap) {
+        if (snap.hasError ||
+            snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const SizedBox.shrink();
+        }
+        final docs = snap.data?.docs ?? [];
+        final despesasDocs =
+            docs.where((d) => _ehDespesa(d.data())).toList();
+        if (despesasDocs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final now = DateTime.now();
+        final byMonth = <int, double>{};
+        for (var i = 5; i >= 0; i--) {
+          final d = DateTime(now.year, now.month - i, 1);
+          byMonth[d.month + d.year * 100] = 0;
+        }
+        for (final doc in despesasDocs) {
+          final data = doc.data();
+          final dt = _dataDoc(data);
+          if (dt == null) continue;
+          final k = dt.month + dt.year * 100;
+          if (!byMonth.containsKey(k)) continue;
+          byMonth[k] = (byMonth[k] ?? 0) + _valorAbs(data);
+        }
+        final ord = byMonth.keys.toList()..sort();
+        final maxY = byMonth.values.fold<double>(
+            0, (a, b) => a > b ? a : b);
+        final capY = maxY <= 0 ? 1.0 : maxY * 1.15;
+
+        despesasDocs.sort((a, b) {
+          final da = _dataDoc(a.data());
+          final db = _dataDoc(b.data());
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da);
+        });
+        final recent = despesasDocs.take(8).toList();
+
+        void openFinanceiro({String? openId, int? tab}) {
+          Navigator.push(
+            context,
+            ThemeCleanPremium.fadeSlideRoute(
+              FinancePage(
+                tenantId: tenantId,
+                role: role,
+                cpf: cpf,
+                podeVerFinanceiro: podeVerFinanceiro,
+                permissions: permissions,
+                initialTabIndex: tab,
+                openLancamentoId: openId,
+              ),
             ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: items[i].bg, borderRadius: BorderRadius.circular(10)),
-                  child: Icon(items[i].icon, color: items[i].color, size: 20),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    items[i].label,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: ThemeCleanPremium.onSurface),
+          );
+        }
+
+        return _CleanCard(
+          title: 'Despesas (painel)',
+          icon: Icons.trending_down_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: isNarrow ? 200 : 220,
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: capY,
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      getDrawingHorizontalLine: (_) => FlLine(
+                        color: Colors.grey.shade200,
+                        strokeWidth: 1,
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 36,
+                          getTitlesWidget: (v, _) => Text(
+                            'R\$${v.toInt()}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          getTitlesWidget: (v, _) {
+                            final i = v.toInt();
+                            if (i >= 0 && i < ord.length) {
+                              final m = ord[i] % 100;
+                              const ab = [
+                                'Jan',
+                                'Fev',
+                                'Mar',
+                                'Abr',
+                                'Mai',
+                                'Jun',
+                                'Jul',
+                                'Ago',
+                                'Set',
+                                'Out',
+                                'Nov',
+                                'Dez'
+                              ];
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  ab[m - 1],
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              );
+                            }
+                            return const SizedBox();
+                          },
+                        ),
+                      ),
+                      topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false)),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    barGroups: ord.asMap().entries.map((e) {
+                      final val = byMonth[e.value] ?? 0;
+                      return BarChartGroupData(
+                        x: e.key,
+                        barRods: [
+                          BarChartRodData(
+                            toY: val,
+                            color: const Color(0xFFDC2626),
+                            width: 14,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Últimas despesas — toque para editar ou anexar comprovante',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...recent.map((doc) {
+                final data = doc.data();
+                final desc = (data['descricao'] ??
+                        data['anotacoes'] ??
+                        data['categoria'] ??
+                        'Despesa')
+                    .toString();
+                final val = _valorAbs(data);
+                final dt = _dataDoc(data);
+                final ds = dt != null
+                    ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}'
+                    : '';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => openFinanceiro(openId: doc.id),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        child: Row(
+                          children: [
+                            Icon(Icons.receipt_long_rounded,
+                                color: Colors.red.shade700, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    desc,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  if (ds.isNotEmpty)
+                                    Text(
+                                      ds,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              'R\$ ${val.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: Colors.red.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => openFinanceiro(tab: 1),
+                icon: const Icon(Icons.list_alt_rounded, size: 20),
+                label: const Text('Ver todos os lançamentos'),
+              ),
+            ],
           ),
-        ),
-      );
-    }
-
-    if (isNarrow) {
-      return GridView.builder(
-        itemCount: items.length,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          childAspectRatio: 2.2,
-        ),
-        itemBuilder: (context, i) => moduloTile(i),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            SizedBox(width: 180, child: moduloTile(i)),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -3298,10 +3509,21 @@ class _DestaqueEventos extends StatelessWidget {
 
 enum _DestaqueTipo { aviso, evento }
 
-/// Altura da faixa de mídia no painel (16:9, limitada).
-double _painelDestaqueMediaHeight(double width) {
+/// Altura da faixa de mídia no painel (~4:5 tipo Instagram; usa [media_info] se existir).
+double _painelDestaqueMediaHeight(double width,
+    [Map<String, dynamic>? postData]) {
   final w = width > 0 ? width : 360.0;
-  return (w * 9 / 16).clamp(168.0, 288.0);
+  var ar = 4 / 5;
+  if (postData != null) {
+    final mi = postData['media_info'];
+    if (mi is Map) {
+      final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
+      if (oar is num) {
+        ar = oar.toDouble().clamp(0.56, 1.85);
+      }
+    }
+  }
+  return (w / ar).clamp(220.0, 540.0);
 }
 
 /// Retorna datas expandidas de um template (evento fixo) dentro do intervalo.
@@ -3574,6 +3796,304 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Onboarding curto para quem lidera departamentos / escalas (uma vez, dispensável).
+class _DashboardLiderOnboardingBanner extends StatefulWidget {
+  final String role;
+  final bool? podeVerFinanceiro;
+  final bool? podeVerPatrimonio;
+  final List<String>? permissions;
+  final ValueChanged<int> onNavigateToShellModule;
+
+  const _DashboardLiderOnboardingBanner({
+    required this.role,
+    required this.podeVerFinanceiro,
+    required this.podeVerPatrimonio,
+    required this.permissions,
+    required this.onNavigateToShellModule,
+  });
+
+  @override
+  State<_DashboardLiderOnboardingBanner> createState() =>
+      _DashboardLiderOnboardingBannerState();
+}
+
+class _DashboardLiderOnboardingBannerState
+    extends State<_DashboardLiderOnboardingBanner> {
+  static const _prefKey = 'church_dashboard_lider_onboarding_v1_dismissed';
+  bool _loading = true;
+  bool _dismissed = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (!mounted) return;
+      setState(() {
+        _dismissed = p.getBool(_prefKey) == true;
+        _loading = false;
+      });
+    });
+  }
+
+  bool get _eligible {
+    if (AppPermissions.isRestrictedMember(widget.role)) return false;
+    final s = ChurchRolePermissions.snapshotFor(widget.role);
+    return s.editDepartments || s.editSchedulesAll;
+  }
+
+  Future<void> _dismiss() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_prefKey, true);
+    if (mounted) setState(() => _dismissed = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading || _dismissed || !_eligible) return const SizedBox.shrink();
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              ThemeCleanPremium.primary.withValues(alpha: 0.12),
+              const Color(0xFFE8EEF5),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flag_rounded, color: ThemeCleanPremium.primary, size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Primeiros passos como líder',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.blueGrey.shade900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Não mostrar de novo',
+                  onPressed: _dismiss,
+                  icon: Icon(Icons.close_rounded, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Três atalhos para organizar ministério e escala com poucos toques.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (ChurchRolePermissions.shellAllowsNavIndex(
+                  widget.role,
+                  3,
+                  memberCanViewFinance: widget.podeVerFinanceiro,
+                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
+                  permissions: widget.permissions,
+                ))
+                  ActionChip(
+                    avatar: Icon(Icons.groups_rounded, size: 18, color: ThemeCleanPremium.primary),
+                    label: const Text('1. Departamentos'),
+                    onPressed: () => widget.onNavigateToShellModule(3),
+                  ),
+                if (ChurchRolePermissions.shellAllowsNavIndex(
+                  widget.role,
+                  11,
+                  memberCanViewFinance: widget.podeVerFinanceiro,
+                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
+                  permissions: widget.permissions,
+                ))
+                  ActionChip(
+                    avatar: Icon(Icons.event_available_rounded, size: 18, color: ThemeCleanPremium.primary),
+                    label: const Text('2. Escala geral'),
+                    onPressed: () => widget.onNavigateToShellModule(11),
+                  ),
+                if (ChurchRolePermissions.shellAllowsNavIndex(
+                  widget.role,
+                  2,
+                  memberCanViewFinance: widget.podeVerFinanceiro,
+                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
+                  permissions: widget.permissions,
+                ))
+                  ActionChip(
+                    avatar: Icon(Icons.people_rounded, size: 18, color: ThemeCleanPremium.primary),
+                    label: const Text('3. Membros / convites'),
+                    onPressed: () => widget.onNavigateToShellModule(2),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Atalho para Minha escala + destaque de convites de troca pendentes.
+class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
+  final String tenantId;
+  final String cpf;
+  final String role;
+  final bool? podeVerFinanceiro;
+  final bool? podeVerPatrimonio;
+  final List<String>? permissions;
+  final VoidCallback onOpenMinhaEscala;
+
+  const _DashboardVoluntariadoAtalhoCard({
+    required this.tenantId,
+    required this.cpf,
+    required this.role,
+    required this.podeVerFinanceiro,
+    required this.podeVerPatrimonio,
+    required this.permissions,
+    required this.onOpenMinhaEscala,
+  });
+
+  String get _cpfDigits {
+    var d = cpf.replaceAll(RegExp(r'\D'), '');
+    if (d.length == 10) d = '0$d';
+    return d;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!ChurchRolePermissions.shellAllowsNavIndex(
+      role,
+      kChurchShellIndexMySchedules,
+      memberCanViewFinance: podeVerFinanceiro,
+      memberCanViewPatrimonio: podeVerPatrimonio,
+      permissions: permissions,
+    )) {
+      return const SizedBox.shrink();
+    }
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const SizedBox.shrink();
+
+    Widget incomingBadge = const SizedBox.shrink();
+    if (_cpfDigits.length == 11) {
+      incomingBadge = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(tid)
+            .collection('escala_trocas')
+            .where('alvoCpf', isEqualTo: _cpfDigits)
+            .snapshots(),
+        builder: (context, snap) {
+          if (!snap.hasData) return const SizedBox.shrink();
+          final n = snap.data!.docs
+              .where((d) => (d.data()['status'] ?? '').toString() == 'pendente_alvo')
+              .length;
+          if (n == 0) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(
+              children: [
+                Icon(Icons.mail_outline_rounded, size: 18, color: Colors.deepPurple.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$n convite(s) de troca aguardando sua resposta',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.deepPurple.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x0A000000), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.calendar_today_rounded, color: ThemeCleanPremium.primary, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Minha escala — hoje e próximos dias',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.blueGrey.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Confirme presença, peça troca e responda convites em um só lugar.',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            incomingBadge,
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: onOpenMinhaEscala,
+                icon: const Icon(Icons.touch_app_rounded, size: 20),
+                label: const Text('Abrir Minha escala'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4125,6 +4645,8 @@ Future<void> _painelDestaqueToggleLike(
       memberName: name.isEmpty ? 'Membro' : name,
       photoUrl: photo,
       currentlyLiked: liked,
+      parentCollection:
+          ChurchTenantPostsCollections.segmentFromPostRef(doc.reference),
     );
   } catch (_) {
     if (context.mounted) {
@@ -4346,6 +4868,9 @@ class _DestaqueCard extends StatelessWidget {
     final title = (data['title'] ?? '').toString();
     final text = (data['text'] ?? '').toString();
     final type = (data['type'] ?? 'aviso').toString();
+    final fromAvisosCol = ChurchTenantPostsCollections.segmentFromPostRef(
+            doc.reference) ==
+        ChurchTenantPostsCollections.avisos;
     final galleryRefs = yahwehPostGalleryRefs(data);
     var firstImg = '';
     for (final raw in galleryRefs) {
@@ -4387,7 +4912,7 @@ class _DestaqueCard extends StatelessWidget {
     final timeStr = dt != null
         ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
         : '';
-    final isEvento = type == 'evento';
+    final isEvento = !fromAvisosCol && type == 'evento';
 
     String? gsForStable;
     var pathForStable = storagePathPrimary;
@@ -4547,7 +5072,7 @@ class _DestaqueCard extends StatelessWidget {
             LayoutBuilder(
               builder: (context, c) {
                 final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
-                final mediaH = _painelDestaqueMediaHeight(mw);
+                final mediaH = _painelDestaqueMediaHeight(mw, data);
                 return SizedBox(
                   width: double.infinity,
                   height: mediaH,
@@ -4684,6 +5209,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
         memberName: m.name,
         photoUrl: m.photo,
         currentlyLiked: liked,
+        parentCollection:
+            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
       if (mounted) setState(() {});
     } catch (_) {
@@ -4710,6 +5237,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
         memberName: m.name,
         photoUrl: m.photo,
         currentlyConfirmed: rsvp,
+        parentCollection:
+            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
       if (mounted) setState(() {});
     } catch (_) {

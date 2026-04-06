@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+
+import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 
@@ -17,6 +20,8 @@ class VideoHandlerService implements IVideoHandlerService {
   @override
   Future<VideoUploadResult?> pickCompressAndUpload({
     required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
     Duration maxDuration = const Duration(seconds: 60),
   }) async {
     final xfile = await _picker.pickVideo(
@@ -45,20 +50,30 @@ class VideoHandlerService implements IVideoHandlerService {
       } catch (_) {}
 
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+      final slot = videoSlotIndex.clamp(0, 1);
+      await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
+        tenantId: tenantId,
+        postDocId: eventPostDocId,
+        videoSlot: slot,
+      );
 
-      // 3. Upload do vídeo comprimido
+      final videoPath =
+          ChurchStorageLayout.eventHostedVideoMp4Path(tenantId, eventPostDocId, slot);
+      final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
+          tenantId, eventPostDocId, slot);
+
+      // 3. Upload do vídeo comprimido (path estável por evento + slot — substitui anterior)
       final videoUrl = await MediaUploadService.uploadFileWithRetry(
-        storagePath: 'igrejas/$tenantId/eventos/videos/$timestamp.mp4',
+        storagePath: videoPath,
         file: mediaInfo.file!,
         contentType: 'video/mp4',
       );
 
-      // 4. Upload da miniatura
+      // 4. Miniatura no mesmo prefixo `eventos/videos/` (sem pasta `thumbs/`)
       String thumbUrl = '';
       if (thumbFile != null && thumbFile.existsSync()) {
         thumbUrl = await MediaUploadService.uploadFileWithRetry(
-          storagePath: 'igrejas/$tenantId/eventos/thumbs/$timestamp.jpg',
+          storagePath: thumbPath,
           file: thumbFile,
           contentType: 'image/jpeg',
         );

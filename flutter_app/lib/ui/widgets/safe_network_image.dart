@@ -95,6 +95,8 @@ String normalizeFirebaseStorageDownloadUrl(String raw) {
           low.contains('patrimonio/') ||
           low.contains('certificado_logos/') ||
           low.contains('carteira_logos/') ||
+          low.contains('cartao_membro/') ||
+          low.contains('cartao_membro%2f') ||
           low.contains('noticias/') ||
           low.contains('avisos/') ||
           low.contains('eventos/') ||
@@ -289,6 +291,8 @@ bool firebaseStorageMediaUrlLooksLike(String url) {
           low.contains('certificado_logos%2f') ||
           low.contains('carteira_logos/') ||
           low.contains('carteira_logos%2f') ||
+          low.contains('cartao_membro/') ||
+          low.contains('cartao_membro%2f') ||
           low.contains('patrimonio/') ||
           low.contains('patrimonio%2f') ||
           low.contains('departamentos/') ||
@@ -319,12 +323,29 @@ String appendFirebaseMediaCacheBust(String httpsUrl) {
   return u.contains('?') ? '$u&gy_cb=$b' : '$u?gy_cb=$b';
 }
 
+/// URL https do Storage já retornada por [Reference.getDownloadURL] (query `token=...`).
+/// Evita [getDownloadURL] redundante no SDK — ganho perceptível no painel (logo, foto do gestor).
+bool firebaseStorageDownloadUrlLooksTokenized(String rawUrl) {
+  final u = sanitizeImageUrl(rawUrl).trim();
+  if (u.isEmpty || !u.startsWith('http')) return false;
+  if (!firebaseStorageMediaUrlLooksLike(u)) return false;
+  try {
+    final q = Uri.parse(u).queryParameters['token'];
+    return q != null && q.length >= 12;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Renova token / resolve caminho — **única fonte** para painel, avisos, site público, patrimônio e vídeos.
 /// Nunca lança: em timeout ou falha do SDK, devolve a URL já sanitizada (a que abre no navegador).
 Future<String> freshFirebaseStorageDisplayUrl(String rawUrl) async {
   final u = sanitizeImageUrl(rawUrl).trim();
   if (u.isEmpty) return u;
   if (!firebaseStorageMediaUrlLooksLike(u)) return u;
+  if (firebaseStorageDownloadUrlLooksTokenized(u)) {
+    return u;
+  }
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
@@ -418,6 +439,54 @@ String? firebaseStorageObjectPathFromHttpUrl(String rawUrl) {
     }
   } catch (_) {}
   return null;
+}
+
+/// Chave estável para deduplicar a mesma imagem quando o Firestore guarda `imageUrl` + `imageUrls`
+/// com tokens ou parâmetros de query diferentes (evita fotos duplicadas no carrossel).
+String? imageRefDedupeKey(String raw) {
+  final s = sanitizeImageUrl(raw);
+  if (s.isEmpty) return null;
+  final path = firebaseStorageObjectPathFromHttpUrl(s);
+  if (path != null && path.isNotEmpty) {
+    return normalizeFirebaseStorageObjectPath(path).toLowerCase();
+  }
+  final low = s.toLowerCase();
+  if (low.startsWith('gs://')) {
+    final rest = s.substring(5);
+    final idx = rest.indexOf('/');
+    if (idx > 0 && idx + 1 < rest.length) {
+      return normalizeFirebaseStorageObjectPath(rest.substring(idx + 1))
+          .toLowerCase();
+    }
+    return low;
+  }
+  if (firebaseStorageMediaUrlLooksLike(s) &&
+      !low.startsWith('http://') &&
+      !low.startsWith('https://')) {
+    return normalizeFirebaseStorageObjectPath(s.replaceFirst(RegExp(r'^/+'), ''))
+        .toLowerCase();
+  }
+  try {
+    final u = Uri.parse(s);
+    if (u.hasAuthority) {
+      return '${u.scheme}://${u.host}${u.path}'.toLowerCase();
+    }
+  } catch (_) {}
+  return s.toLowerCase();
+}
+
+/// Mantém a primeira ocorrência de cada foto (por objeto no Storage ou URL sem query).
+List<String> dedupeImageRefsByStorageIdentity(Iterable<String> refs) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final r in refs) {
+    final clean = sanitizeImageUrl(r);
+    if (clean.isEmpty) continue;
+    final key = imageRefDedupeKey(clean) ?? clean.toLowerCase();
+    if (key.isEmpty) continue;
+    if (seen.add(key)) out.add(clean);
+  }
+  return out;
 }
 
 /// URLs em mapas `photoVariants` / `imageVariants` / `logoVariants`.
@@ -2281,13 +2350,19 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
 }
 
 /// Pré-carrega imagens para evitar "carregando" ao rolar listas grandes.
-/// Usa limite de concorrência e evita repetir URL já aquecida.
+///
+/// **Preferir sempre isto** em vez de `precacheImage(NetworkImage(url), context)` com URLs
+/// que podem ser Firebase Storage: na **web**, [NetworkImage] não usa o SDK e falha com
+/// token/CORS — aqui essas URLs são ignoradas (a exibição continua em [SafeNetworkImage] /
+/// [FreshFirebaseStorageImage] / [StableStorageImage]).
+///
+/// Uso: logo, mural, avisos, património, carteirinha, site público.
 Future<void> preloadNetworkImages(
   BuildContext context,
   List<String> urls, {
   int maxItems = 16,
 }) async {
-  final cleaned = urls
+  final cleaned = dedupeImageRefsByStorageIdentity(urls)
       .map(sanitizeImageUrl)
       .where((u) => isValidImageUrl(u) && !_preloadedMediaUrls.contains(u))
       .take(maxItems)

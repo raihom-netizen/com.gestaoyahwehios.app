@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Interações sociais em `igrejas/{tenantId}/noticias/{postId}`:
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+
+/// Interações sociais em `igrejas/{tenantId}/noticias|avisos/{postId}`:
 /// — subcoleções `curtidas` e `confirmacoes` (documento por uid)
 /// — campos legados no pai: `likes`, `rsvp`, contadores `likesCount`, `rsvpCount`
 class NoticiaSocialService {
@@ -8,12 +10,13 @@ class NoticiaSocialService {
 
   static DocumentReference<Map<String, dynamic>> _post(
     String tenantId,
-    String postId,
-  ) =>
+    String postId, {
+    String parentCollection = ChurchTenantPostsCollections.noticias,
+  }) =>
       FirebaseFirestore.instance
           .collection('igrejas')
           .doc(tenantId)
-          .collection('noticias')
+          .collection(parentCollection)
           .doc(postId);
 
   /// Alterna curtida (otimista: atualize UI antes/depois do await).
@@ -24,8 +27,9 @@ class NoticiaSocialService {
     required String memberName,
     String photoUrl = '',
     required bool currentlyLiked,
+    String parentCollection = ChurchTenantPostsCollections.noticias,
   }) async {
-    final postRef = _post(tenantId, postId);
+    final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final likeRef = postRef.collection('curtidas').doc(uid);
     final batch = FirebaseFirestore.instance.batch();
     if (currentlyLiked) {
@@ -59,8 +63,9 @@ class NoticiaSocialService {
     required String memberName,
     String photoUrl = '',
     required bool currentlyConfirmed,
+    String parentCollection = ChurchTenantPostsCollections.noticias,
   }) async {
-    final postRef = _post(tenantId, postId);
+    final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final confRef = postRef.collection('confirmacoes').doc(uid);
     final batch = FirebaseFirestore.instance.batch();
     if (currentlyConfirmed) {

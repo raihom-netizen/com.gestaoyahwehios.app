@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 
@@ -277,7 +278,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               ),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('abastecimentos').orderBy('data_hora', descending: true).snapshots(),
+                  stream: FrotaFirestorePaths.abastecimentos()
+                      .orderBy('data_hora', descending: true)
+                      .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     

@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
@@ -52,13 +50,25 @@ class MarketingGestaoYahwehGallerySection extends StatefulWidget {
   /// Painel master: checkboxes, respeita [adminConfig] (período + seleção).
   final InstitutionalMediaAdminConfig? adminConfig;
 
+  /// Site público: quantos itens mostrar antes de «Veja mais» (por filtro: Tudo, Vídeos, etc.).
+  static const int publicPreviewCount = 3;
+
   /// Limite de ficheiros na varredura do Storage (modo admin pode subir).
   final int maxStorageFiles;
+
+  /// Incrementar (ex.: após apagar no Storage) para voltar a listar o Storage —
+  /// a varredura inicial só corre uma vez por defeito.
+  final int storageRefreshToken;
+
+  /// Site público: não lista nem filtra PDFs na galeria (só vídeo + imagem).
+  final bool excludePdfFromPublicGallery;
 
   const MarketingGestaoYahwehGallerySection({
     super.key,
     this.adminConfig,
     this.maxStorageFiles = 36,
+    this.storageRefreshToken = 0,
+    this.excludePdfFromPublicGallery = false,
   });
 
   @override
@@ -75,6 +85,8 @@ class _MarketingGestaoYahwehGallerySectionState
   bool _firestoreWaitExceeded = false;
   _PublicTypeFilter _typeFilter = _PublicTypeFilter.all;
   String _lastVisiblePathsKey = '';
+  /// Só site público: expande lista da galeria após «Veja mais».
+  bool _showAllPublicGallery = false;
 
   @override
   void dispose() {
@@ -88,6 +100,23 @@ class _MarketingGestaoYahwehGallerySectionState
     if (oldWidget.adminConfig?.onVisiblePathsUpdated !=
         widget.adminConfig?.onVisiblePathsUpdated) {
       _lastVisiblePathsKey = '';
+    }
+    if (widget.storageRefreshToken != oldWidget.storageRefreshToken) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadFromStorage(force: true);
+      });
+    }
+    if (widget.excludePdfFromPublicGallery &&
+        widget.adminConfig == null &&
+        _typeFilter == _PublicTypeFilter.pdf) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _typeFilter = _PublicTypeFilter.all;
+            _showAllPublicGallery = false;
+          });
+        }
+      });
     }
   }
 
@@ -168,31 +197,37 @@ class _MarketingGestaoYahwehGallerySectionState
     if (raw is! List) return [];
     final out = <_GalleryEntry>[];
     for (final e in raw) {
-      if (e is! Map) continue;
-      final m = Map<String, dynamic>.from(e);
-      final path = MarketingStorageLayout.normalizeObjectPath(
-        (m['path'] ?? m['storagePath'] ?? '').toString(),
-      );
-      if (path.isEmpty) continue;
-      final title = (m['title'] ?? m['name'] ?? _basename(path)).toString().trim();
-      final desc = (m['description'] ?? m['shortDescription'] ?? '').toString().trim();
-      final rawCat = (m['category'] ?? '').toString().trim();
-      final cat = rawCat.isEmpty
-          ? ''
-          : MarketingGalleryCms.normalizeCategory(rawCat);
-      final featured = MarketingGalleryCms.truthy(m['featured']);
-      final kind = _kindFromString(m['kind']?.toString(), path.toLowerCase());
-      final uploaded = institutionalMediaDateFromItem(m, storagePath: path);
-      out.add(_GalleryEntry(
-        title: title,
-        description: desc,
-        category: cat,
-        featured: featured,
-        storagePath: path,
-        kind: kind,
-        uploadedAt: uploaded,
-        downloadUrl: _pickDownloadUrl(m),
-      ));
+      try {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e);
+        final path = MarketingStorageLayout.normalizeObjectPath(
+          (m['path'] ?? m['storagePath'] ?? '').toString(),
+        );
+        if (path.isEmpty) continue;
+        final title =
+            (m['title'] ?? m['name'] ?? _basename(path)).toString().trim();
+        final desc =
+            (m['description'] ?? m['shortDescription'] ?? '').toString().trim();
+        final rawCat = (m['category'] ?? '').toString().trim();
+        final cat = rawCat.isEmpty
+            ? ''
+            : MarketingGalleryCms.normalizeCategory(rawCat);
+        final featured = MarketingGalleryCms.truthy(m['featured']);
+        final kind = _kindFromString(m['kind']?.toString(), path.toLowerCase());
+        final uploaded = institutionalMediaDateFromItem(m, storagePath: path);
+        out.add(_GalleryEntry(
+          title: title,
+          description: desc,
+          category: cat,
+          featured: featured,
+          storagePath: path,
+          kind: kind,
+          uploadedAt: uploaded,
+          downloadUrl: _pickDownloadUrl(m),
+        ));
+      } catch (err, st) {
+        debugPrint('MarketingGestaoYahwehGallerySection item CMS inválido: $err\n$st');
+      }
     }
     return out;
   }
@@ -224,25 +259,44 @@ class _MarketingGestaoYahwehGallerySectionState
     }
   }
 
-  Future<void> _loadFromStorage() async {
-    if (_storageLoading) return;
+  /// Site público com [MarketingGestaoYahwehGallerySection.excludePdfFromPublicGallery].
+  List<_GalleryEntry> _publicBaseWithoutPdfs(List<_GalleryEntry> list) {
+    if (widget.adminConfig != null || !widget.excludePdfFromPublicGallery) {
+      return list;
+    }
+    return list.where((e) => e.kind != _GalleryKind.pdf).toList();
+  }
+
+  Future<void> _loadFromStorage({bool force = false}) async {
+    if (_storageLoading && !force) return;
     if (!mounted) return;
     setState(() => _storageLoading = true);
     try {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
-      final root =
-          FirebaseStorage.instance.ref(MarketingStorageLayout.storageRoot);
-      final refs = await _listFilesRecursive(root, maxFiles: widget.maxStorageFiles)
-          .timeout(
-        const Duration(seconds: 22),
-        onTimeout: () {
-          debugPrint(
-              'MarketingGestaoYahwehGallerySection: list timeout ${MarketingStorageLayout.storageRoot}');
-          return <Reference>[];
-        },
-      );
+      final prefixes = <String>[
+        MarketingStorageLayout.institutionalFotosPrefix,
+        MarketingStorageLayout.institutionalVideosPrefix,
+        if (!(widget.excludePdfFromPublicGallery && widget.adminConfig == null))
+          MarketingStorageLayout.institutionalPdfPrefix,
+      ];
+      final refs = <Reference>[];
+      for (final p in prefixes) {
+        if (refs.length >= widget.maxStorageFiles) break;
+        final sub = await _listFilesRecursive(
+          FirebaseStorage.instance.ref(p),
+          maxFiles: widget.maxStorageFiles - refs.length,
+        ).timeout(
+          const Duration(seconds: 22),
+          onTimeout: () {
+            debugPrint(
+                'MarketingGestaoYahwehGallerySection: list timeout $p');
+            return <Reference>[];
+          },
+        );
+        refs.addAll(sub);
+      }
       final entries = <_GalleryEntry>[];
       for (final r in refs) {
         final name = r.name.toLowerCase();
@@ -335,15 +389,18 @@ class _MarketingGestaoYahwehGallerySectionState
   }
 
   Widget _buildTypeFilterChips() {
+    final chips = <Widget>[
+      _filterChip('Tudo', _PublicTypeFilter.all),
+      _filterChip('Vídeos', _PublicTypeFilter.video),
+      _filterChip('Imagens', _PublicTypeFilter.image),
+    ];
+    if (!(widget.excludePdfFromPublicGallery && widget.adminConfig == null)) {
+      chips.add(_filterChip('PDFs', _PublicTypeFilter.pdf));
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: [
-        _filterChip('Tudo', _PublicTypeFilter.all),
-        _filterChip('Vídeos', _PublicTypeFilter.video),
-        _filterChip('Imagens', _PublicTypeFilter.image),
-        _filterChip('PDFs', _PublicTypeFilter.pdf),
-      ],
+      children: chips,
     );
   }
 
@@ -352,7 +409,10 @@ class _MarketingGestaoYahwehGallerySectionState
     return FilterChip(
       label: Text(label),
       selected: sel,
-      onSelected: (_) => setState(() => _typeFilter = value),
+      onSelected: (_) => setState(() {
+        _typeFilter = value;
+        _showAllPublicGallery = false;
+      }),
       selectedColor: const Color(0xFFBFDBFE),
       checkmarkColor: const Color(0xFF1E5AA8),
       labelStyle: TextStyle(
@@ -364,6 +424,42 @@ class _MarketingGestaoYahwehGallerySectionState
         color: sel ? const Color(0xFF93C5FD) : const Color(0xFFE2E8F0),
       ),
     );
+  }
+
+  /// Site: no máximo [MarketingGestaoYahwehGallerySection.publicPreviewCount] + botão; painel: lista completa.
+  List<Widget> _buildPublicGalleryBody(
+      BuildContext context, List<_GalleryEntry> full) {
+    if (widget.adminConfig != null) {
+      return [_buildMediaGrid(context, full)];
+    }
+    final cap = MarketingGestaoYahwehGallerySection.publicPreviewCount;
+    final expanded = _showAllPublicGallery;
+    final slice =
+        (!expanded && full.length > cap) ? full.take(cap).toList() : full;
+    final out = <Widget>[_buildMediaGrid(context, slice)];
+    if (full.length > cap) {
+      out.add(const SizedBox(height: 16));
+      out.add(
+        Center(
+          child: FilledButton.tonalIcon(
+            onPressed: () =>
+                setState(() => _showAllPublicGallery = !expanded),
+            icon: Icon(
+              expanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              size: 22,
+            ),
+            label: Text(expanded ? 'Ver menos' : 'Veja mais'),
+            style: FilledButton.styleFrom(
+              foregroundColor: const Color(0xFF1E5AA8),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+            ),
+          ),
+        ),
+      );
+    }
+    return out;
   }
 
   Widget _buildMediaGrid(BuildContext context, List<_GalleryEntry> entries) {
@@ -388,7 +484,9 @@ class _MarketingGestaoYahwehGallerySectionState
             .toList(),
       );
     }
-    final cross = isMobile ? 2 : 3;
+    // Telefones estreitos: 1 coluna = vídeo/texto com largura útil (Android/iPhone).
+    final w = MediaQuery.sizeOf(context).width;
+    final cross = isMobile ? (w < 400 ? 1 : 2) : 3;
     return MasonryGridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -426,12 +524,13 @@ class _MarketingGestaoYahwehGallerySectionState
           var ordered = _sortFeaturedFirst(fromFs);
           final filtered = _filterByAdmin(ordered);
           final forPublic = widget.adminConfig == null
-              ? _applyTypeFilter(filtered, _typeFilter)
+              ? _applyTypeFilter(_publicBaseWithoutPdfs(filtered), _typeFilter)
               : filtered;
           if (filtered.isEmpty && widget.adminConfig != null) {
             _reportAdminVisiblePaths([]);
             return _GalleryChrome(
               adminConfig: widget.adminConfig,
+              excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
               showPublicFilters: false,
               typeFilterChips: null,
               children: [
@@ -453,6 +552,7 @@ class _MarketingGestaoYahwehGallerySectionState
           if (forPublic.isEmpty && widget.adminConfig == null) {
             return _GalleryChrome(
               adminConfig: widget.adminConfig,
+              excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
               showPublicFilters: true,
               typeFilterChips: _buildTypeFilterChips(),
               children: [
@@ -473,11 +573,10 @@ class _MarketingGestaoYahwehGallerySectionState
               widget.adminConfig != null ? forPublic : const []);
           return _GalleryChrome(
             adminConfig: widget.adminConfig,
+            excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
             showPublicFilters: widget.adminConfig == null,
             typeFilterChips: widget.adminConfig == null ? _buildTypeFilterChips() : null,
-            children: [
-              _buildMediaGrid(context, forPublic),
-            ],
+            children: _buildPublicGalleryBody(context, forPublic),
           );
         }
 
@@ -488,6 +587,7 @@ class _MarketingGestaoYahwehGallerySectionState
           _reportAdminVisiblePaths([]);
           return _GalleryChrome(
             adminConfig: widget.adminConfig,
+            excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
             showPublicFilters: false,
             typeFilterChips: null,
             children: [
@@ -510,6 +610,7 @@ class _MarketingGestaoYahwehGallerySectionState
           _reportAdminVisiblePaths([]);
           return _GalleryChrome(
             adminConfig: widget.adminConfig,
+            excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
             showPublicFilters: false,
             typeFilterChips: null,
             children: [
@@ -527,7 +628,7 @@ class _MarketingGestaoYahwehGallerySectionState
         var ordered = _sortFeaturedFirst(rawStorage);
         final list = _filterByAdmin(ordered);
         final forPublic = widget.adminConfig == null
-            ? _applyTypeFilter(list, _typeFilter)
+            ? _applyTypeFilter(_publicBaseWithoutPdfs(list), _typeFilter)
             : list;
         if (list.isEmpty) {
           _reportAdminVisiblePaths([]);
@@ -536,6 +637,7 @@ class _MarketingGestaoYahwehGallerySectionState
               widget.adminConfig!.period != InstitutionalMediaPeriod.all;
           return _GalleryChrome(
             adminConfig: widget.adminConfig,
+            excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
             showPublicFilters: widget.adminConfig == null,
             typeFilterChips: widget.adminConfig == null ? _buildTypeFilterChips() : null,
             children: [
@@ -549,12 +651,20 @@ class _MarketingGestaoYahwehGallerySectionState
                           ? 'Não foi possível carregar a lista da galeria agora. '
                               'As mídias em ${MarketingStorageLayout.storageRoot}/ no Storage '
                               'continuam disponíveis para o painel master.'
-                          : 'Nenhuma mídia na galeria no momento. '
-                              'No Firebase Storage, adicione imagens, vídeos ou PDFs em '
-                              '${MarketingStorageLayout.storageRoot}/ (pastas videos, fotos ou pdf). '
-                              'Opcionalmente ordene os itens no Firestore em '
-                              '${MarketingStorageLayout.firestoreCollection}/'
-                              '${MarketingStorageLayout.firestoreGalleryDocId}.',
+                          : (widget.excludePdfFromPublicGallery &&
+                                  widget.adminConfig == null
+                              ? 'Nenhuma mídia na galeria no momento. '
+                                  'No Firebase Storage, adicione imagens e vídeos em '
+                                  '${MarketingStorageLayout.storageRoot}/ (pastas videos ou fotos). '
+                                  'Opcionalmente ordene os itens no Firestore em '
+                                  '${MarketingStorageLayout.firestoreCollection}/'
+                                  '${MarketingStorageLayout.firestoreGalleryDocId}.'
+                              : 'Nenhuma mídia na galeria no momento. '
+                                  'No Firebase Storage, adicione imagens, vídeos ou PDFs em '
+                                  '${MarketingStorageLayout.storageRoot}/ (pastas videos, fotos ou pdf). '
+                                  'Opcionalmente ordene os itens no Firestore em '
+                                  '${MarketingStorageLayout.firestoreCollection}/'
+                                  '${MarketingStorageLayout.firestoreGalleryDocId}.'),
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.45,
@@ -568,6 +678,7 @@ class _MarketingGestaoYahwehGallerySectionState
         if (forPublic.isEmpty && widget.adminConfig == null) {
           return _GalleryChrome(
             adminConfig: widget.adminConfig,
+            excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
             showPublicFilters: true,
             typeFilterChips: _buildTypeFilterChips(),
             children: [
@@ -585,11 +696,10 @@ class _MarketingGestaoYahwehGallerySectionState
             widget.adminConfig != null ? forPublic : const []);
         return _GalleryChrome(
           adminConfig: widget.adminConfig,
+          excludePdfFromPublicGallery: widget.excludePdfFromPublicGallery,
           showPublicFilters: widget.adminConfig == null,
           typeFilterChips: widget.adminConfig == null ? _buildTypeFilterChips() : null,
-          children: [
-            _buildMediaGrid(context, forPublic),
-          ],
+          children: _buildPublicGalleryBody(context, forPublic),
         );
       },
     );
@@ -601,12 +711,14 @@ class _GalleryChrome extends StatelessWidget {
   final InstitutionalMediaAdminConfig? adminConfig;
   final bool showPublicFilters;
   final Widget? typeFilterChips;
+  final bool excludePdfFromPublicGallery;
 
   const _GalleryChrome({
     required this.children,
     this.adminConfig,
     required this.showPublicFilters,
     this.typeFilterChips,
+    this.excludePdfFromPublicGallery = false,
   });
 
   @override
@@ -617,22 +729,44 @@ class _GalleryChrome extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Galeria Gestão YAHWEH',
-          style: TextStyle(
-            fontSize: isMobile ? 19 : 22,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.3,
-            color: const Color(0xFF0F172A),
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              width: 4,
+              height: 28,
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.primary,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Galeria Gestão YAHWEH',
+                style: TextStyle(
+                  fontSize: isMobile ? 20 : 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5,
+                  color: const Color(0xFF0F172A),
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Text(
-          'Vídeos, imagens e PDFs — materiais de apoio e divulgação (CMS no Painel Master).',
+          cfg == null
+              ? (excludePdfFromPublicGallery
+                  ? 'Vídeos em reprodução direta (web) e imagens — mostramos ${MarketingGestaoYahwehGallerySection.publicPreviewCount} itens por filtro; «Veja mais» abre o restante.'
+                  : 'Vídeos em reprodução direta (web), imagens e PDFs — mostramos ${MarketingGestaoYahwehGallerySection.publicPreviewCount} itens por filtro; «Veja mais» abre o restante.')
+              : 'Vídeos, imagens e PDFs — CMS (período e seleção abaixo).',
           style: TextStyle(
             fontSize: 14,
-            height: 1.4,
+            height: 1.45,
             color: Colors.grey.shade700,
+            fontWeight: FontWeight.w500,
           ),
         ),
         if (showPublicFilters && typeFilterChips != null) ...[
@@ -692,7 +826,7 @@ class _MediaCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             switch (entry.kind) {
-              _GalleryKind.video => _VideoPosterCard(
+              _GalleryKind.video => _GalleryInlineVideoCard(
                   path: entry.storagePath,
                   title: entry.title,
                   playUrl: entry.downloadUrl,
@@ -770,10 +904,17 @@ class _MediaCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: sel ? const Color(0xFFF0FDF4) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0A3D91).withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+          ...ThemeCleanPremium.softUiCardShadow,
+        ],
         border: Border.all(
-          color: sel ? _selGreen : const Color(0xFFE8ECF4),
+          color: sel ? _selGreen : const Color(0xFFE2E8F0),
           width: sel ? 2.5 : 1,
         ),
       ),
@@ -860,11 +1001,12 @@ class _MediaCard extends StatelessWidget {
                     )
                   else
                     Text(
-                      'Toque no vídeo para assistir',
+                      'Vídeo carregado acima — use play, volume e tela cheia nos controles do navegador.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
                         fontWeight: FontWeight.w600,
+                        height: 1.35,
                       ),
                     ),
                 ],
@@ -1035,12 +1177,13 @@ class _MarketingImageLightboxDialogState
   }
 }
 
-class _VideoPosterCard extends StatelessWidget {
+/// Vídeo visível no card (web: `<video preload=auto>`), enquadramento [letterbox] para 9:16 sem corte.
+class _GalleryInlineVideoCard extends StatelessWidget {
   final String path;
   final String title;
   final String? playUrl;
 
-  const _VideoPosterCard({
+  const _GalleryInlineVideoCard({
     required this.path,
     required this.title,
     this.playUrl,
@@ -1048,114 +1191,21 @@ class _VideoPosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final trimmed = playUrl?.trim() ?? '';
+    final w = MediaQuery.sizeOf(context).width;
+    final videoH = math.min(460.0, math.max(300.0, w * 0.58));
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _openVideoModal(context, path, title, playUrl),
-          borderRadius: BorderRadius.circular(16),
-          child: AspectRatio(
-            aspectRatio: 16 / 10,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF0F172A),
-                          Color(0xFF312E81),
-                          Color(0xFF5B21B6),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: Icon(
-                      Icons.play_circle_filled_rounded,
-                      size: 68,
-                      color: Colors.white.withValues(alpha: 0.95),
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(14, 28, 14, 14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.78),
-                          ],
-                        ),
-                      ),
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+      child: PremiumInstitutionalVideoCard(
+        key: ValueKey<String>('marketing_gallery_vid_${trimmed}_$path'),
+        videoUrl: trimmed.isNotEmpty ? trimmed : null,
+        storagePath: trimmed.isEmpty ? path : null,
+        height: videoH,
+        caption: '',
+        hintBelow: null,
+        heroAutoplay: false,
+        letterbox: true,
       ),
-    );
-  }
-
-  static void _openVideoModal(
-    BuildContext context,
-    String storagePath,
-    String caption,
-    String? playUrl,
-  ) {
-    final h = MediaQuery.sizeOf(context).height;
-    final trimmed = playUrl?.trim() ?? '';
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.65),
-      builder: (ctx) {
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 920,
-              maxHeight: h * 0.88,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(12),
-              child: PremiumInstitutionalVideoCard(
-                videoUrl: trimmed.isNotEmpty ? trimmed : null,
-                storagePath: trimmed.isEmpty ? storagePath : null,
-                height: math.min(400, h * 0.42),
-                caption: caption,
-                hintBelow: null,
-                heroAutoplay: false,
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

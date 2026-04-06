@@ -13,7 +13,15 @@ class AdminDashboardPage extends StatefulWidget {
   final bool embedInPanel;
   final void Function(AdminMenuItem item)? onNavigateTo;
 
-  const AdminDashboardPage({super.key, this.embedInPanel = false, this.onNavigateTo});
+  /// Quando o dashboard está embutido no Painel Master: filtra módulos (RBAC), alinhado ao menu lateral.
+  final bool Function(AdminMenuItem item)? masterModuleVisible;
+
+  const AdminDashboardPage({
+    super.key,
+    this.embedInPanel = false,
+    this.onNavigateTo,
+    this.masterModuleVisible,
+  });
 
   @override
   State<AdminDashboardPage> createState() => _AdminDashboardPageState();
@@ -292,6 +300,13 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _WelcomeStrip(),
+            if (widget.embedInPanel && widget.onNavigateTo != null) ...[
+              const SizedBox(height: ThemeCleanPremium.spaceXl),
+              _MasterPanelModulesSection(
+                itemVisible: widget.masterModuleVisible ?? (_) => true,
+                onOpen: widget.onNavigateTo!,
+              ),
+            ],
             const SizedBox(height: ThemeCleanPremium.spaceXl),
             _ChartCard(
               title: 'Dashboard de crescimento (BI)',
@@ -959,6 +974,271 @@ class _AcessosCard extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Lista completa de módulos do Painel Master em grelha largura total (web / Android / iPhone).
+class _MasterModDef {
+  final AdminMenuItem item;
+  final IconData icon;
+  final String label;
+  const _MasterModDef(this.item, this.icon, this.label);
+}
+
+class _MasterPanelModulesSection extends StatelessWidget {
+  final bool Function(AdminMenuItem item) itemVisible;
+  final void Function(AdminMenuItem item) onOpen;
+
+  const _MasterPanelModulesSection({
+    required this.itemVisible,
+    required this.onOpen,
+  });
+
+  static const List<_MasterModDef> _igrejas = [
+    _MasterModDef(AdminMenuItem.igrejasDashboard, Icons.dashboard_rounded, 'Painel Igrejas'),
+    _MasterModDef(AdminMenuItem.igrejasLista, Icons.church_rounded, 'Lista Igrejas'),
+    _MasterModDef(AdminMenuItem.igrejasPlanos, Icons.credit_card_rounded, 'Planos & Cobranças'),
+    _MasterModDef(AdminMenuItem.igrejasUsuarios, Icons.people_rounded, 'Usuários'),
+    _MasterModDef(AdminMenuItem.igrejasMercadoPago, Icons.payment_rounded, 'Mercado Pago'),
+    _MasterModDef(AdminMenuItem.igrejasRecebimentos, Icons.receipt_long_rounded, 'Recebimentos Licenças'),
+    _MasterModDef(AdminMenuItem.igrejasGestores, Icons.person_add_rounded, 'Ativar mais gestores'),
+    _MasterModDef(AdminMenuItem.igrejasTorreComando, Icons.hub_rounded, 'Torre SaaS'),
+  ];
+
+  static const List<_MasterModDef> _sistema = [
+    _MasterModDef(AdminMenuItem.sistemaDashboard, Icons.analytics_rounded, 'Dashboard Geral'),
+    _MasterModDef(AdminMenuItem.sistemaAlertas, Icons.notifications_rounded, 'Alertas'),
+    _MasterModDef(AdminMenuItem.sistemaAuditoria, Icons.history_rounded, 'Auditoria'),
+    _MasterModDef(AdminMenuItem.sistemaCustomizacao, Icons.settings_rounded, 'Customização'),
+    _MasterModDef(AdminMenuItem.sistemaSuporte, Icons.support_agent_rounded, 'Suporte'),
+    _MasterModDef(AdminMenuItem.sistemaMultiAdmin, Icons.admin_panel_settings_rounded, 'Multi-Admin'),
+    _MasterModDef(AdminMenuItem.sistemaPrecos, Icons.edit_note_rounded, 'Editar Preços'),
+    _MasterModDef(AdminMenuItem.sistemaNiveisAcesso, Icons.security_rounded, 'Níveis de Acesso'),
+    _MasterModDef(AdminMenuItem.sistemaSugestoes, Icons.feedback_rounded, 'Sugestões / Críticas'),
+    _MasterModDef(AdminMenuItem.sistemaDivulgacao, Icons.perm_media_rounded, 'Mídias Divulgação'),
+    _MasterModDef(AdminMenuItem.sistemaAcessos, Icons.show_chart_rounded, 'Acessos ao domínio'),
+    _MasterModDef(AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded, 'Armazenamento'),
+    _MasterModDef(AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded, 'Aviso global / Manutenção'),
+    _MasterModDef(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded, 'Forçar atualização'),
+    _MasterModDef(AdminMenuItem.sistemaMigrarMembros, Icons.people_alt_rounded, 'Migrar membros'),
+    _MasterModDef(AdminMenuItem.sistemaHome, Icons.home_rounded, 'Voltar ao Início'),
+  ];
+
+  static const _pastelBg = [
+    Color(0xFFEFF6FF),
+    Color(0xFFF0FDF4),
+    Color(0xFFE8F5E9),
+    Color(0xFFFDF4FF),
+    Color(0xFFFEF3C7),
+    Color(0xFFECFEFF),
+    Color(0xFFFFF7ED),
+    Color(0xFFF5F3FF),
+  ];
+  static const _accentFg = [
+    Color(0xFF2563EB),
+    Color(0xFF16A34A),
+    Color(0xFF2E7D32),
+    Color(0xFFDB2777),
+    Color(0xFFD97706),
+    Color(0xFF0891B2),
+    Color(0xFFEA580C),
+    Color(0xFF7C3AED),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              width: 4,
+              height: 28,
+              decoration: BoxDecoration(
+                color: primary,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Módulos do Painel Master',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                  color: ThemeCleanPremium.onSurface,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.devices_rounded, color: primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Mesmos módulos no navegador (web), no Android e no iPhone — '
+                  'use a mesma conta em qualquer dispositivo.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    color: primary.withValues(alpha: 0.95),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        _buildSection(context, 'Igrejas', _igrejas),
+        _buildSection(context, 'Sistema', _sistema),
+      ],
+    );
+  }
+
+  Widget _buildSection(BuildContext context, String title, List<_MasterModDef> defs) {
+    final visible = defs.where((d) => itemVisible(d.item)).toList();
+    if (visible.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              title.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+                color: ThemeCleanPremium.onSurfaceVariant,
+              ),
+            ),
+          ),
+          LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth;
+              final cols = w >= 1000
+                  ? 4
+                  : w >= 680
+                      ? 3
+                      : w >= 400
+                          ? 2
+                          : 1;
+              final ratio = cols == 1 ? 2.85 : (cols == 4 ? 3.05 : 2.9);
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: visible.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: ratio,
+                ),
+                itemBuilder: (context, j) {
+                  final def = visible[j];
+                  final pal = j % _pastelBg.length;
+                  return _MasterModuleTile(
+                    icon: def.icon,
+                    label: def.label,
+                    pastelBg: _pastelBg[pal],
+                    iconColor: _accentFg[pal],
+                    onTap: () => onOpen(def.item),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MasterModuleTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color pastelBg;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _MasterModuleTile({
+    required this.icon,
+    required this.label,
+    required this.pastelBg,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: pastelBg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                    height: 1.25,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.grey.shade400,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
+import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 
 /// Evita maps read-only do snapshot e falhas de interop na web ao gravar `items`.
 List<Map<String, dynamic>> _cloneGalleryItemMaps(List<Map<String, dynamic>> items) {
@@ -53,7 +54,22 @@ class _CmsMaterialFormValues {
   });
 }
 
-class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
+class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   bool _uploading = false;
   /// 0–1 durante envio ao Storage; null quando inativo.
   double? _uploadProgress;
@@ -67,6 +83,14 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
   final Set<String> _selectedPaths = <String>{};
   /// Paths normalizados atualmente visíveis na grelha (callback da galeria).
   List<String> _visibleGalleryPaths = const [];
+
+  /// Força nova varredura do Storage na grelha (após apagar ou se a lista ficou desatualizada).
+  int _marketingGalleryStorageRefreshToken = 0;
+
+  void _bumpMarketingGalleryStorageRefresh() {
+    if (!mounted) return;
+    setState(() => _marketingGalleryStorageRefreshToken++);
+  }
 
   DocumentReference<Map<String, dynamic>> get _docRef => FirebaseFirestore.instance
       .collection(MarketingStorageLayout.firestoreCollection)
@@ -317,14 +341,11 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
     );
     if (!mounted || form == null) return;
 
-    final folder = switch (kind) {
-      'video' => 'videos',
-      'pdf' => 'pdf',
-      _ => 'fotos',
-    };
     final safeName = _slugifyFileName(picked.name);
-    final storagePath =
-        '${MarketingStorageLayout.storageRoot}/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName';
+    final storagePath = MarketingStorageLayout.institutionalUploadPath(
+      kind,
+      '${DateTime.now().millisecondsSinceEpoch}_$safeName',
+    );
 
     setState(() {
       _uploading = true;
@@ -558,6 +579,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
       try {
         await FirebaseStorage.instance.ref(path).delete();
       } catch (_) {}
+      _bumpMarketingGalleryStorageRefresh();
     }
     if (!mounted) return;
     setState(() => _selectedPaths.remove(path));
@@ -690,6 +712,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
           debugPrint('AdminDivulgacao Storage delete failed ($p): $e');
         }
       }
+      _bumpMarketingGalleryStorageRefresh();
     }
 
     if (!mounted) return;
@@ -876,29 +899,77 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
         _period == InstitutionalMediaPeriod.all && !_selectionMode;
 
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: ThemeCleanPremium.pagePadding(context),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.white,
+            elevation: 0,
+            child: TabBar(
+              controller: _tabController,
+              labelColor: ThemeCleanPremium.primary,
+              unselectedLabelColor: Colors.grey.shade600,
+              indicatorColor: ThemeCleanPremium.primary,
+              indicatorWeight: 3,
+              indicatorSize: TabBarIndicatorSize.tab,
+              labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              unselectedLabelStyle:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              tabs: const [
+                Tab(
+                  height: 52,
+                  icon: Icon(Icons.auto_awesome_rounded, size: 22),
+                  text: 'Galeria',
+                ),
+                Tab(
+                  height: 52,
+                  icon: Icon(Icons.volunteer_activism_rounded, size: 22),
+                  text: 'Igrejas cliente',
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                SingleChildScrollView(
+                  padding: ThemeCleanPremium.pagePadding(context),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                border: Border.all(color: const Color(0xFFE5EAF3)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFF8FAFF),
+                    Color(0xFFEFF6FF),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0A3D91).withValues(alpha: 0.07),
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+                border: Border.all(color: const Color(0xFFBFDBFE).withValues(alpha: 0.8)),
               ),
               child: Wrap(
                 spacing: 12,
                 runSpacing: 10,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Icon(Icons.perm_media_rounded, color: Color(0xFF2563EB)),
+                  Icon(Icons.auto_awesome_rounded,
+                      color: ThemeCleanPremium.primary, size: 26),
                   const Text(
-                    'Mídias da página de divulgação',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    'Divulgação — Super Premium',
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, letterSpacing: -0.3),
                   ),
                   FilledButton.icon(
                     onPressed: _uploading ? null : _pickAndUpload,
@@ -912,9 +983,11 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
                     label: const Text('Adicionar foto/vídeo/PDF'),
                   ),
                   Text(
-                    'Galeria em ${MarketingStorageLayout.storageRoot} — '
-                    'CMS: título, descrição, categoria e destaque. Exclua da lista e, se quiser, apague o ficheiro no Storage.',
-                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                    'Storage: ${MarketingStorageLayout.institutionalVideosPrefix}/ (vídeos), '
+                    '${MarketingStorageLayout.institutionalFotosPrefix}/, '
+                    '${MarketingStorageLayout.institutionalPdfPrefix}/. '
+                    'Sem miniatura automática thumb_* nestas pastas — um ficheiro canónico por upload.',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12, height: 1.35),
                   ),
                 ],
               ),
@@ -1029,171 +1102,226 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
                                   width: selected ? 2.5 : 1,
                                 ),
                               ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (_selectionMode)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 8, top: 4),
-                                      child: SizedBox(
-                                        width: 48,
-                                        height: 48,
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            onTap: () => setState(() {
-                                              if (selected) {
-                                                _selectedPaths.remove(path);
-                                              } else {
-                                                _selectedPaths.add(path);
-                                              }
-                                            }),
-                                            borderRadius: BorderRadius.circular(12),
-                                            child: Icon(
-                                              selected
-                                                  ? Icons.check_box_rounded
-                                                  : Icons.check_box_outline_blank_rounded,
-                                              color: selected
-                                                  ? _selectionGreen
-                                                  : Colors.grey.shade700,
-                                              size: 28,
+                              child: LayoutBuilder(
+                                builder: (context, lc) {
+                                  // Uma linha: ícones + Excluir consomem ~260–300dp; o Expanded ficava com largura ~0 no telefone.
+                                  const narrowBreak = 560.0;
+                                  final narrow = lc.maxWidth < narrowBreak;
+
+                                  final leadingChildren = <Widget>[
+                                    if (_selectionMode)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(right: 8, top: 4),
+                                        child: SizedBox(
+                                          width: 48,
+                                          height: 48,
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              onTap: () => setState(() {
+                                                if (selected) {
+                                                  _selectedPaths.remove(path);
+                                                } else {
+                                                  _selectedPaths.add(path);
+                                                }
+                                              }),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: Icon(
+                                                selected
+                                                    ? Icons.check_box_rounded
+                                                    : Icons
+                                                        .check_box_outline_blank_rounded,
+                                                color: selected
+                                                    ? _selectionGreen
+                                                    : Colors.grey.shade700,
+                                                size: 28,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
+                                    _GalleryRowThumb(
+                                      kind: kind,
+                                      path: path,
+                                      imageUrl: downloadUrl.isEmpty
+                                          ? null
+                                          : downloadUrl,
                                     ),
-                                  _GalleryRowThumb(
-                                    kind: kind,
-                                    path: path,
-                                    imageUrl:
-                                        downloadUrl.isEmpty ? null : downloadUrl,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Wrap(
-                                          spacing: 6,
-                                          runSpacing: 4,
-                                          crossAxisAlignment:
-                                              WrapCrossAlignment.center,
-                                          children: [
-                                            if (feat)
-                                              Chip(
-                                                visualDensity: VisualDensity.compact,
-                                                label: const Text('Destaque'),
-                                                avatar: Icon(Icons.star_rounded,
-                                                    size: 16,
-                                                    color: Colors.amber.shade800),
-                                                backgroundColor:
-                                                    Colors.amber.shade50,
-                                                side: BorderSide.none,
-                                                labelStyle: TextStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: Colors.amber.shade900,
-                                                ),
+                                  ];
+
+                                  final textColumn = Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
+                                        children: [
+                                          if (feat)
+                                            Chip(
+                                              visualDensity: VisualDensity.compact,
+                                              label: const Text('Destaque'),
+                                              avatar: Icon(Icons.star_rounded,
+                                                  size: 16,
+                                                  color: Colors.amber.shade800),
+                                              backgroundColor:
+                                                  Colors.amber.shade50,
+                                              side: BorderSide.none,
+                                              labelStyle: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.amber.shade900,
                                               ),
-                                            if (catKey.isNotEmpty)
-                                              Chip(
-                                                visualDensity: VisualDensity.compact,
-                                                label: Text(
-                                                  MarketingGalleryCms
-                                                      .categoryLabel(catKey),
-                                                  style: const TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.w600),
-                                                ),
-                                                backgroundColor:
-                                                    const Color(0xFFEFF6FF),
-                                                side: const BorderSide(
-                                                    color: Color(0xFFBFDBFE)),
+                                            ),
+                                          if (catKey.isNotEmpty)
+                                            Chip(
+                                              visualDensity: VisualDensity.compact,
+                                              label: Text(
+                                                MarketingGalleryCms.categoryLabel(
+                                                    catKey),
+                                                style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600),
                                               ),
-                                          ],
-                                        ),
+                                              backgroundColor:
+                                                  const Color(0xFFEFF6FF),
+                                              side: const BorderSide(
+                                                  color: Color(0xFFBFDBFE)),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        title.isEmpty
+                                            ? _baseNameNoExt(path)
+                                            : title,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15),
+                                      ),
+                                      if (desc.isNotEmpty) ...[
                                         const SizedBox(height: 4),
                                         Text(
-                                          title.isEmpty ? _baseNameNoExt(path) : title,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 15),
-                                        ),
-                                        if (desc.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            desc,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              height: 1.3,
-                                              color: Colors.grey.shade700,
-                                            ),
-                                          ),
-                                        ],
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          path,
-                                          maxLines: 1,
+                                          desc,
+                                          maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                              fontSize: 11, color: Colors.grey.shade500),
+                                            fontSize: 12,
+                                            height: 1.3,
+                                            color: Colors.grey.shade700,
+                                          ),
                                         ),
                                       ],
-                                    ),
-                                  ),
-                                  if (!_selectionMode) ...[
-                                    IconButton(
-                                      tooltip: feat
-                                          ? 'Remover destaque'
-                                          : 'Destacar no site',
-                                      onPressed: () => _toggleFeatured(items, i),
-                                      icon: Icon(
-                                        feat
-                                            ? Icons.star_rounded
-                                            : Icons.star_outline_rounded,
-                                        color: feat
-                                            ? Colors.amber.shade800
-                                            : Colors.grey.shade600,
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        path,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade500),
                                       ),
+                                    ],
+                                  );
+
+                                  final actions = <Widget>[
+                                    if (!_selectionMode) ...[
+                                      IconButton(
+                                        tooltip: feat
+                                            ? 'Remover destaque'
+                                            : 'Destacar no site',
+                                        onPressed: () =>
+                                            _toggleFeatured(items, i),
+                                        icon: Icon(
+                                          feat
+                                              ? Icons.star_rounded
+                                              : Icons.star_outline_rounded,
+                                          color: feat
+                                              ? Colors.amber.shade800
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Editar CMS',
+                                        onPressed: () => _editItem(items, i),
+                                        icon: const Icon(Icons.edit_outlined),
+                                      ),
+                                    ],
+                                    IconButton(
+                                      tooltip: 'Subir',
+                                      onPressed: !canReorder || vi == 0
+                                          ? null
+                                          : () => _moveItem(items, i,
+                                              visible[vi - 1].originalIndex),
+                                      icon: const Icon(Icons.arrow_upward_rounded),
                                     ),
                                     IconButton(
-                                      tooltip: 'Editar CMS',
-                                      onPressed: () => _editItem(items, i),
-                                      icon: const Icon(Icons.edit_outlined),
+                                      tooltip: 'Descer',
+                                      onPressed: !canReorder ||
+                                              vi >= visible.length - 1
+                                          ? null
+                                          : () => _moveItem(items, i,
+                                              visible[vi + 1].originalIndex),
+                                      icon:
+                                          const Icon(Icons.arrow_downward_rounded),
                                     ),
-                                  ],
-                                  IconButton(
-                                    tooltip: 'Subir',
-                                    onPressed: !canReorder || vi == 0
-                                        ? null
-                                        : () => _moveItem(
-                                            items, i, visible[vi - 1].originalIndex),
-                                    icon: const Icon(Icons.arrow_upward_rounded),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Descer',
-                                    onPressed: !canReorder || vi >= visible.length - 1
-                                        ? null
-                                        : () => _moveItem(
-                                            items, i, visible[vi + 1].originalIndex),
-                                    icon: const Icon(Icons.arrow_downward_rounded),
-                                  ),
-                                  if (!_selectionMode) ...[
-                                    OutlinedButton.icon(
-                                      onPressed: () => _removeItem(items, i),
-                                      icon: const Icon(Icons.delete_outline_rounded,
-                                          size: 18, color: Color(0xFFDC2626)),
-                                      label: const Text('Excluir'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFFDC2626),
-                                        side: const BorderSide(color: Color(0xFFFECACA)),
-                                        minimumSize: const Size(48, 48),
+                                    if (!_selectionMode)
+                                      OutlinedButton.icon(
+                                        onPressed: () => _removeItem(items, i),
+                                        icon: const Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 18,
+                                            color: Color(0xFFDC2626)),
+                                        label: const Text('Excluir'),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor:
+                                              const Color(0xFFDC2626),
+                                          side: const BorderSide(
+                                              color: Color(0xFFFECACA)),
+                                          minimumSize: const Size(48, 48),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ],
+                                  ];
+
+                                  if (narrow) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            ...leadingChildren,
+                                            const SizedBox(width: 10),
+                                            Expanded(child: textColumn),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Wrap(
+                                          alignment: WrapAlignment.end,
+                                          spacing: 4,
+                                          runSpacing: 8,
+                                          children: actions,
+                                        ),
+                                      ],
+                                    );
+                                  }
+
+                                  return Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      ...leadingChildren,
+                                      const SizedBox(width: 10),
+                                      Expanded(child: textColumn),
+                                      ...actions,
+                                    ],
+                                  );
+                                },
                               ),
                             );
                           }),
@@ -1204,12 +1332,44 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage> {
               },
             ),
             const SizedBox(height: 18),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4, right: 8),
+                    child: Text(
+                      'Grelha abaixo: ficheiros no Storage. Itens só no Storage não aparecem na lista CMS — '
+                      'ative seleção, marque o cartão e use «Excluir selecionados» com «Apagar Storage» ligado.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Recarregar lista do Storage',
+                  onPressed: _bumpMarketingGalleryStorageRefresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             MarketingGestaoYahwehGallerySection(
               adminConfig: _adminGalleryConfig,
               maxStorageFiles: 200,
+              storageRefreshToken: _marketingGalleryStorageRefreshToken,
             ),
-          ],
-        ),
+                    ],
+                  ),
+                ),
+                const AdminMarketingClientesTab(),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

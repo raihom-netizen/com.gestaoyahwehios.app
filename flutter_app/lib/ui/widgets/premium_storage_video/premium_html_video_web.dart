@@ -20,6 +20,7 @@ Widget buildPremiumHtmlVideo(
   bool loop = false,
   bool muted = false,
   bool controls = true,
+  bool objectFitContain = false,
 }) {
   return _PremiumHtmlVideoPlayer(
     url: url,
@@ -27,6 +28,7 @@ Widget buildPremiumHtmlVideo(
     loop: loop,
     muted: muted,
     controls: controls,
+    objectFitContain: objectFitContain,
   );
 }
 
@@ -36,6 +38,8 @@ class _PremiumHtmlVideoPlayer extends StatefulWidget {
   final bool loop;
   final bool muted;
   final bool controls;
+  /// Galeria divulgação: vídeos verticais (9:16) sem cortar — `contain` + fundo escuro.
+  final bool objectFitContain;
 
   const _PremiumHtmlVideoPlayer({
     required this.url,
@@ -43,6 +47,7 @@ class _PremiumHtmlVideoPlayer extends StatefulWidget {
     required this.loop,
     required this.muted,
     required this.controls,
+    this.objectFitContain = false,
   });
 
   @override
@@ -66,7 +71,7 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
       ..preload = 'auto'
       ..style.width = '100%'
       ..style.height = '100%'
-      ..style.objectFit = 'cover';
+      ..style.objectFit = widget.objectFitContain ? 'contain' : 'cover';
 
     _video.setAttribute('playsinline', 'true');
     _video.setAttribute('webkit-playsinline', 'true');
@@ -109,11 +114,13 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
     } else if (oldWidget.controls != widget.controls ||
         oldWidget.autoplay != widget.autoplay ||
         oldWidget.loop != widget.loop ||
-        oldWidget.muted != widget.muted) {
+        oldWidget.muted != widget.muted ||
+        oldWidget.objectFitContain != widget.objectFitContain) {
       _video.controls = widget.controls;
       _video.autoplay = widget.autoplay;
       _video.loop = widget.loop;
       _video.muted = widget.muted;
+      _video.style.objectFit = widget.objectFitContain ? 'contain' : 'cover';
     }
   }
 

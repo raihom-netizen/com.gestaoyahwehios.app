@@ -19,24 +19,55 @@ class FcmService {
     if (_configured || kIsWeb) return;
     _configured = true;
 
+    try {
+      await _configureImpl(
+        uid: uid,
+        tenantId: tenantId,
+        cpf: cpf,
+        role: role,
+        onForegroundMessage: onForegroundMessage,
+      );
+    } catch (e, st) {
+      // Evita Future rejeitado não tratado (Crashlytics fatal) se Firestore/rede falhar.
+      debugPrint('FcmService.configure: $e\n$st');
+    }
+  }
+
+  Future<void> _configureImpl({
+    required String uid,
+    required String tenantId,
+    required String cpf,
+    required String role,
+    void Function(RemoteMessage message)? onForegroundMessage,
+  }) async {
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission();
 
     final token = await messaging.getToken();
     if (token != null && token.isNotEmpty) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('fcmTokens')
-          .doc(token)
-          .set({
-        'token': token,
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('fcmTokens')
+            .doc(token)
+            .set({
+          'token': token,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {
+        // Regras/permissão ou offline: notificações ainda podem funcionar parcialmente.
+      }
     }
 
-    final deptIds = await _loadMemberDepartments(tenantId, cpf);
-    final cargoLabel = await _loadMemberCargoLabel(tenantId, cpf);
+    List<String> deptIds = <String>[];
+    var cargoLabel = '';
+    try {
+      deptIds = await _loadMemberDepartments(tenantId, cpf);
+      cargoLabel = await _loadMemberCargoLabel(tenantId, cpf);
+    } catch (_) {
+      // Firestore offline/regras: ainda inscreve em tópicos da igreja/admin abaixo.
+    }
     final cargoSlug = slugTopicPart(cargoLabel);
     final tid = tenantId.trim();
     final deptTopics = deptIds.map((id) => 'dept_$id').toList();

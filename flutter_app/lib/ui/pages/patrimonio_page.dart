@@ -991,8 +991,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
           builder: (ctx, scrollCtrl) {
             final dprD = MediaQuery.devicePixelRatioOf(ctx);
             final sheetW = MediaQuery.sizeOf(ctx).width;
-            final memDetailW = (sheetW * dprD).round().clamp(240, 1920);
-            final memDetailH = (220 * dprD).round().clamp(200, 1920);
+            // Decode proporcional ao carrossel (220px altura) — evita decodificar largura total em 4K.
+            final memDetailW = (sheetW * dprD).round().clamp(240, 960);
+            final memDetailH = (220 * dprD).round().clamp(200, 720);
             return SingleChildScrollView(
               controller: scrollCtrl,
               padding: EdgeInsets.fromLTRB(
@@ -2118,6 +2119,7 @@ class _BensTabState extends State<_BensTab> {
                                       : 2;
                               if (!_galleryView) {
                                 return ListView.builder(
+                                  cacheExtent: 520,
                                   padding: const EdgeInsets.fromLTRB(
                                       16, 0, 16, 88),
                                   itemCount: docs.length,
@@ -2144,6 +2146,7 @@ class _BensTabState extends State<_BensTab> {
                                 );
                               }
                               return GridView.builder(
+                                cacheExtent: 420,
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 0, 16, 88),
                                 gridDelegate:
@@ -2240,7 +2243,7 @@ class _PatrimonioCard extends StatelessWidget {
         slots.paths.isNotEmpty ? slots.paths.first : null;
     final dprList = MediaQuery.devicePixelRatioOf(context);
     const thumbSize = 76.0;
-    final memListThumb = (thumbSize * dprList).round().clamp(160, 900);
+    final memListThumb = (thumbSize * dprList).round().clamp(160, 320);
 
     // Alerta de manutenção próxima / vencida
     final proxManut = m['proximaManutencao'];
@@ -2551,7 +2554,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final thumbPath = slots.paths.isNotEmpty ? slots.paths.first : null;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     const thumbH = 120.0;
-    final memThumb = (thumbH * dpr).round().clamp(200, 1200);
+    final memThumb = (thumbH * dpr).round().clamp(200, 480);
 
     Widget photoLoading() => Container(
           height: thumbH,
@@ -3917,9 +3920,7 @@ class _PatrimonioFormPage extends StatefulWidget {
 }
 
 class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
-  static const int _maxFotosPorItem = 3;
-  /// Limpar slots antigos (ex.: itens com até 5 fotos em versões anteriores).
-  static const int _legacyPatrimonioSlotSweep = 8;
+  static const int _maxFotosPorItem = 5;
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nome,
       _desc,
@@ -4030,8 +4031,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
   void _showLimiteFotosSnack() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Limite de 3 fotos por item (inventário digital)')),
+      SnackBar(
+          content: Text(
+              'Limite de $_maxFotosPorItem fotos por item (inventário digital)')),
     );
   }
 
@@ -4070,31 +4072,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         _newNames.add(file.name);
       });
     }
-  }
-
-  Future<MediaUploadResult> _uploadToSlot(
-    String tenantId,
-    String itemDocId,
-    int slot,
-    Uint8List bytes, {
-    void Function(double progress)? onProgress,
-  }) async {
-    await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-        tenantId: tenantId, itemDocId: itemDocId, slot: slot);
-    final path =
-        ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, slot);
-    final compressed = await ImageHelper.compressImage(
-      bytes,
-      minWidth: 800,
-      minHeight: 600,
-      quality: 70,
-    );
-    return MediaUploadService.uploadBytesDetailed(
-      storagePath: path,
-      bytes: compressed,
-      contentType: 'image/jpeg',
-      onProgress: onProgress,
-    );
   }
 
   Future<void> _save() async {
@@ -4146,39 +4123,63 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
-      Map<String, dynamic>? imageVariantsPayload =
-          prev != null && prev['imageVariants'] is Map
-              ? Map<String, dynamic>.from(prev['imageVariants'] as Map)
-              : null;
-
-      for (var j = 0; j < _newImages.length; j++) {
-        final slot = allUrls.length;
-        if (slot >= _maxFotosPorItem) break;
-        final total = _newImages.length;
-        final result = await _uploadToSlot(
-          tenantId,
-          itemId,
-          slot,
-          _newImages[j],
-          onProgress: (p) {
-            if (!mounted || total <= 0) return;
-            final combined =
-                ((j + p.clamp(0.0, 1.0)) / total).clamp(0.0, 1.0);
-            setState(() => _uploadProgress = combined);
-          },
+      final startSlot = allUrls.length;
+      final vagas = (_maxFotosPorItem - startSlot).clamp(0, _maxFotosPorItem);
+      final nBatch = _newImages.length < vagas ? _newImages.length : vagas;
+      if (nBatch > 0) {
+        await Future.wait(
+          List.generate(
+            nBatch,
+            (j) => FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+                  tenantId: tenantId,
+                  itemDocId: itemId,
+                  slot: startSlot + j,
+                ),
+          ),
         );
-        allUrls.add(result.downloadUrl);
-        await CachedNetworkImage.evictFromCache(result.downloadUrl);
-        allPaths.add(result.storagePath);
-        if (slot == 0) {
-          final variants = await MediaUploadService.uploadImageVariants(
-            basePathWithoutExt:
-                ChurchStorageLayout.patrimonioPhotoBaseWithoutExt(
-                    tenantId, itemId, 0),
-            imageBytes: _newImages[j],
-          );
-          imageVariantsPayload =
-              variants.map((k, v) => MapEntry(k, v.toJson()));
+        final compressed = await Future.wait(
+          List.generate(
+            nBatch,
+            (j) => ImageHelper.compressImage(
+                  _newImages[j],
+                  minWidth: 800,
+                  minHeight: 600,
+                  quality: 70,
+                ),
+          ),
+        );
+        final progresses = List<double>.filled(nBatch, 0);
+        void bumpUploadProgress() {
+          if (!mounted || nBatch <= 0) {
+            return;
+          }
+          final sum = progresses.fold<double>(0, (a, b) => a + b) / nBatch;
+          setState(() => _uploadProgress = sum.clamp(0.0, 1.0));
+        }
+
+        final results = await Future.wait(
+          List.generate(nBatch, (j) {
+            final slot = startSlot + j;
+            final path =
+                ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
+            return MediaUploadService.uploadBytesDetailed(
+              storagePath: path,
+              bytes: compressed[j],
+              contentType: 'image/jpeg',
+              skipClientPrepare: true,
+              onProgress: (p) {
+                progresses[j] = p.clamp(0.0, 1.0);
+                bumpUploadProgress();
+              },
+            );
+          }),
+        );
+        for (final r in results) {
+          allUrls.add(r.downloadUrl);
+          allPaths.add(r.storagePath);
+        }
+        for (final r in results) {
+          await CachedNetworkImage.evictFromCache(r.downloadUrl);
         }
       }
 
@@ -4216,10 +4217,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         for (var s = L; s < _maxFotosPorItem; s++)
           FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
               tenantId: tenantId, itemDocId: itemId, slot: s),
-        for (var s = _maxFotosPorItem; s < _legacyPatrimonioSlotSweep; s++)
-          FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-              tenantId: tenantId, itemDocId: itemId, slot: s),
       ]);
+      await FirebaseStorageCleanupService.deleteGeneratedPatrimonioItemThumbnails(
+          tenantId: tenantId, itemDocId: itemId);
+      await FirebaseStorageCleanupService.deleteFlatLegacyPatrimonioDerivativesForItem(
+          tenantId: tenantId, itemDocId: itemId);
 
       if (mounted) {
         setState(() => _uploadProgress = 0.97);
@@ -4248,16 +4250,22 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         if (allUrls.isNotEmpty) 'imageUrl': allUrls.first,
         if (allUrls.isNotEmpty) 'defaultImageUrl': allUrls.first,
         if (allPaths.isNotEmpty) 'imageStoragePath': allPaths.first,
-        if (imageVariantsPayload != null && allUrls.isNotEmpty)
-          'imageVariants': imageVariantsPayload,
         'atualizadoEm': FieldValue.serverTimestamp(),
       };
+      if (widget.doc != null) {
+        payload['imageVariants'] = FieldValue.delete();
+        payload['fotoVariants'] = FieldValue.delete();
+      }
       if (widget.doc == null) {
         payload['criadoEm'] = FieldValue.serverTimestamp();
         await itemRef.set(payload);
       } else {
         await itemRef.set(payload, SetOptions(merge: true));
       }
+      FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
+        tenantId: tenantId,
+        itemDocId: itemId,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(widget.doc == null

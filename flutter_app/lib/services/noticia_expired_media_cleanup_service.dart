@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -111,11 +112,9 @@ class NoticiaExpiredMediaCleanupService {
     }
   }
 
-  static Future<void> _run(String tenantId) async {
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
-        .collection('noticias');
+  static Future<void> _purgeCollection(
+    CollectionReference<Map<String, dynamic>> col,
+  ) async {
     final now = Timestamp.now();
 
     Future<void> handle(
@@ -136,5 +135,12 @@ class NoticiaExpiredMediaCleanupService {
       await handle(q1, seen);
       await handle(q2, seen);
     }
+  }
+
+  static Future<void> _run(String tenantId) async {
+    final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
+    await _purgeCollection(
+        base.collection(ChurchTenantPostsCollections.noticias));
+    await _purgeCollection(base.collection(ChurchTenantPostsCollections.avisos));
   }
 }

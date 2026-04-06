@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
@@ -208,6 +210,11 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
             final filiacaoMae = (data['FILIACAO_MAE'] ?? data['filiacaoMae'] ?? '').toString().trim();
             final filiacaoLegado = (data['FILIACAO'] ?? '').toString().trim();
             final dataCadastro = (data['createdAt'] ?? '').toString();
+            final authUidProf = (data['authUid'] ?? '').toString();
+            final currentUid = FirebaseAuth.instance.currentUser?.uid;
+            final canEditAvailabilityCalendar = currentUid != null &&
+                authUidProf.isNotEmpty &&
+                authUidProf == currentUid;
 
             return RefreshIndicator(
               onRefresh: _reload,
@@ -415,6 +422,72 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                         ),
                       );
                     }),
+                  if (canEditAvailabilityCalendar) ...[
+                    const SizedBox(height: 20),
+                    _sectionTitle(
+                        context, Icons.event_busy_rounded, 'Disponibilidade em escalas'),
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        onTap: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => MemberScheduleAvailabilityPage(
+                                tenantId: widget.tenantId,
+                                memberDocId: widget.memberId,
+                              ),
+                            ),
+                          );
+                          if (context.mounted) await _reload();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          child: Row(
+                            children: [
+                              Icon(Icons.calendar_month_rounded,
+                                  color: ThemeCleanPremium.primary),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Marcar dias indisponíveis',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Viagens e folgas: o líder verá um aviso ao montar a escala.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.chevron_right_rounded,
+                                  color: Colors.grey.shade400),
+                            ],
+                          ),
+                        ),
+                      ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   _InfoCard(children: [
                     _InfoRow(icon: Icons.cake_rounded, label: 'Nascimento', value: nascimento),

@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-// ...restante do código copiado do JIM SABORES...
+import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
 
 class CombustiveisPage extends StatefulWidget {
   const CombustiveisPage({super.key});
@@ -53,15 +53,13 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
   }
 
   Future<bool> _combustivelEmUso(String nomeCombustivel) async {
-    final usoEmCombustivel = await _db
-        .collection('abastecimentos')
+    final usoEmCombustivel = await FrotaFirestorePaths.abastecimentos()
         .where('combustivel', isEqualTo: nomeCombustivel)
         .limit(1)
         .get();
     if (usoEmCombustivel.docs.isNotEmpty) return true;
 
-    final usoEmTipoCombustivel = await _db
-        .collection('abastecimentos')
+    final usoEmTipoCombustivel = await FrotaFirestorePaths.abastecimentos()
         .where('tipo_combustivel', isEqualTo: nomeCombustivel)
         .limit(1)
         .get();
@@ -79,7 +77,8 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
     final updates = <DocumentReference<Map<String, dynamic>>, Map<String, dynamic>>{};
 
     Future<void> coletar(String campo) async {
-      final snap = await _db.collection('abastecimentos').where(campo, isEqualTo: oldValue).get();
+      final snap =
+          await FrotaFirestorePaths.abastecimentos().where(campo, isEqualTo: oldValue).get();
       for (final doc in snap.docs) {
         final atual = updates[doc.reference] ?? <String, dynamic>{};
         atual[campo] = newValue;
@@ -173,7 +172,7 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
     };
 
     if (doc == null) {
-      await _db.collection('combustiveis').add({
+      await FrotaFirestorePaths.combustiveis().add({
         ...payload,
         'created_at': FieldValue.serverTimestamp(),
       });
@@ -284,7 +283,9 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(10),
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: _db.collection('combustiveis').orderBy('nome_lower').snapshots(),
+                      stream: FrotaFirestorePaths.combustiveis()
+                          .orderBy('nome_lower')
+                          .snapshots(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
                           return const Center(child: CircularProgressIndicator());

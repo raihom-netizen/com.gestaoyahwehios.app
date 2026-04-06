@@ -6,23 +6,27 @@ import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
 ///
 /// ## Padrão
 /// Toda mídia da igreja fica sob **`igrejas/{igrejaDocId}/`**, com estas pastas (PT-BR):
-/// - **[membros]** — fotos de membros, gestor, assinatura, digital, variantes.
-/// - **[noticias]** — legado: uploads antigos do mural (timestamp no nome).
-/// - **[avisos]** — canónico: `avisos/{postId}/capa_aviso.jpg` (+ `galeria_XX.jpg`).
-/// - **[eventos]** — canónico: `eventos/{postId}/banner_evento.jpg` (+ `galeria_XX.jpg`); vídeos em `eventos/videos/`, thumbs, **templates** em `eventos/templates/`.
-/// - **[patrimonio]** — canónico: `patrimonio/{itemId}/foto_item.jpg` (+ `galeria_XX.jpg`).
+/// - **[membros]/{idDocumentoMembro}/foto_perfil.jpg** — foto de perfil canónica (id = doc em `igrejas/{tenant}/membros/`, ex. CPF); sempre este nome de ficheiro. Outros ficheiros: gestor, assinatura, digital, variantes legadas.
+/// - **[noticias]** — legado Storage + **Firestore** `igrejas/{id}/noticias` (eventos no mural).
+/// - **[avisos]** — canónico Storage `avisos/{postId}/…` + **Firestore** `igrejas/{id}/avisos` (só avisos do mural).
+/// - **[eventos]** — canónico: `eventos/{postId}/banner_evento.jpg` (+ `galeria_XX.jpg`); vídeos hospedados só em `eventos/videos/` (`{postId}_v0.mp4` + `{postId}_v0_thumb.jpg`, slots 0–1); **templates** em `eventos/templates/`.
+/// - **[patrimonio]** — canónico: pasta por bem `patrimonio/{itemId}/` com até **5** fotos:
+///   só `galeria_01.jpg` … `galeria_05.jpg` (sem `foto_item` nem `thumb_*` no modelo).
 /// Padrão geral: `igrejas/{id_igreja}/{modulo}/{id_item}/arquivo.jpg` (IDs estáveis do Firestore quando aplicável).
-/// - **[configuracoes]** — identidade: `configuracoes/logo_igreja.png` (único, sobrescrito ao trocar);
+/// - **[configuracoes]** — identidade: `configuracoes/logo_igreja.png` (único, sobrescrito ao trocar; sem `thumb_*`);
 ///   assinatura do pastor em `assinatura.png` / `.jpg`.
+/// - **[cartao_membro]** — logo dedicada da carteirinha: `logo.jpg` (substitui o legado `carteira_logos/{tenant}/`).
+/// - **[certificados]** — logo dedicada dos certificados PDF (`logo_atual.jpg` etc.; substitui `certificado_logos/{tenant}/`).
 /// - **[templates/certificados]** — fundos de certificado em alta resolução: `modelo_*.png` ou `.jpg`.
 /// - **[logo]** — legado: `logo/logo_{nomeIgreja}_{id}.jpg`, `logo_principal.jpg`, `branding/` (migração).
 ///
 /// Outros nós sob `igrejas/{id}/` (ex.: `comprovantes`, `departamentos`, `certificados_gestor`) são
 /// módulos operacionais; continuam **dentro** do prefixo da igreja.
 ///
-/// ## Gestão YAHWEH (institucional / divulgação)
-/// Conteúdo do **site do produto** e materiais que **não** pertencem a uma igreja cliente deve ficar
-/// **fora** de `igrejas/…` (ex.: pastas do app público no bucket), para não misturar com dados das igrejas.
+  /// ## Gestão YAHWEH (institucional / divulgação)
+  /// Galeria institucional e PDFs do produto ficam em `public/gestao_yahweh/…` (sem `igrejas/`).
+  /// A **capa «cliente em destaque»** no site de divulgação usa [kSegMarketingDestaque] **dentro** de `igrejas/{tenantId}/`
+  /// (ID do documento em `igrejas/`), alinhado ao restante Storage da igreja.
 ///
 /// ## Pastas virtuais (GCS / Firebase Storage)
 /// Não existem diretórios vazios: `configuracoes/` só aparece no console após o primeiro objeto
@@ -59,6 +63,10 @@ abstract final class ChurchStorageLayout {
   static const String kSegMembros = 'membros';
   static const String kSegNoticias = 'noticias';
   static const String kSegAvisos = 'avisos';
+  /// Cartão de membro (logo própria da carteirinha, não a logo institucional em `configuracoes/`).
+  static const String kSegCartaoMembro = 'cartao_membro';
+  /// Mídia dedicada ao módulo de certificados (logo própria; fundos HD ficam em [kSegCertificadosTemplates]).
+  static const String kSegCertificadosMidia = 'certificados';
   static const String kSegEventos = 'eventos';
   static const String kSegPatrimonio = 'patrimonio';
   static const String kSegLogo = 'logo';
@@ -66,7 +74,17 @@ abstract final class ChurchStorageLayout {
   /// Configurações diversas (ex.: assinatura do pastor para carteirinha digital).
   static const String kSegConfiguracoes = 'configuracoes';
 
+  /// Capa no site de divulgação (aba Master «Igrejas cliente») — mesmo prefixo `igrejas/{tenantId}/` que o painel da igreja.
+  static const String kSegMarketingDestaque = 'marketing_destaque';
+
   static String churchRoot(String tenantId) => 'igrejas/${tenantId.trim()}';
+
+  /// `igrejas/{tenantId}/marketing_destaque/capa.jpg` (único ficheiro; sem `thumb_*`).
+  static String marketingClienteShowcaseCapaPath(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return '';
+    return '${churchRoot(tid)}/$kSegMarketingDestaque/capa.jpg';
+  }
 
   static String _safeDocId(String id) {
     var s = id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_').trim();
@@ -93,7 +111,26 @@ abstract final class ChurchStorageLayout {
     return '$root/galeria_$n.jpg';
   }
 
-  /// Post **aviso** em [noticias]: capa `capa_aviso.jpg`, mais fotos `galeria_01.jpg`…
+  /// Vídeo MP4 no Storage ligado ao doc do evento em [noticias] — [videoSlot] 0 ou 1 (máx. 2 vídeos).
+  /// Sobrescreve o mesmo path ao trocar o ficheiro (evita “cemitério” de objetos).
+  static String eventHostedVideoMp4Path(
+      String tenantId, String postDocId, int videoSlot) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final s = videoSlot.clamp(0, 1);
+    return '${churchRoot(tid)}/$kSegEventos/videos/${pid}_v$s.mp4';
+  }
+
+  /// Miniatura JPEG do vídeo — mesmo prefixo `eventos/videos/` (sem pasta `thumbs/`).
+  static String eventHostedVideoThumbPath(
+      String tenantId, String postDocId, int videoSlot) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final s = videoSlot.clamp(0, 1);
+    return '${churchRoot(tid)}/$kSegEventos/videos/${pid}_v${s}_thumb.jpg';
+  }
+
+  /// Post **aviso**: capa canónica `capa_aviso.jpg` (Firestore usa só `url_original`; derivados `thumb_*` da extensão Storage são limpos em background).
   static String avisoPostPhotoPath(
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
@@ -204,13 +241,22 @@ abstract final class ChurchStorageLayout {
   static String gestorPublicProfilePhotoPath(String tenantId) =>
       '${churchRoot(tenantId)}/gestor/foto_perfil.jpg';
 
-  /// Foto do patrimônio por **slot** (0–4): pasta por item — `foto_item.jpg` e `galeria_XX.jpg`.
+  /// ID sanitizado usado na pasta `patrimonio/{safeId}/` (igual ao doc Firestore quando já é seguro).
+  static String patrimonioStorageSafeItemId(String itemDocId) =>
+      _safeDocId(itemDocId);
+
+  /// Prefixo `igrejas/{tenant}/patrimonio/{safeItemId}` (pasta do bem).
+  static String patrimonioItemFolderPrefix(String tenantId, String itemDocId) {
+    final safeId = _safeDocId(itemDocId);
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
+  }
+
+  /// Foto do patrimônio por **slot** (0–4 = 5 fotos): `galeria_01.jpg` … `galeria_05.jpg`.
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
-    if (s == 0) return '$root/foto_item.jpg';
-    final n = s.toString().padLeft(2, '0');
+    final n = (s + 1).toString().padLeft(2, '0');
     return '$root/galeria_$n.jpg';
   }
 
@@ -220,8 +266,7 @@ abstract final class ChurchStorageLayout {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
-    if (s == 0) return '$root/foto_item';
-    final n = s.toString().padLeft(2, '0');
+    final n = (s + 1).toString().padLeft(2, '0');
     return '$root/galeria_$n';
   }
 
@@ -230,6 +275,22 @@ abstract final class ChurchStorageLayout {
         '${churchRoot(tenantId)}/branding/logo_igreja.jpg',
         '${churchRoot(tenantId)}/branding/logo_igreja.png',
       ];
+
+  /// Logo fixa da carteirinha (sobrescreve no mesmo path).
+  static String cartaoMembroLogoPath(String tenantId) =>
+      '${churchRoot(tenantId)}/$kSegCartaoMembro/logo.jpg';
+
+  /// Prefixo para limpar uploads da logo da carteirinha (`cartao_membro/`).
+  static String cartaoMembroMediaPrefix(String tenantId) =>
+      '${churchRoot(tenantId)}/$kSegCartaoMembro';
+
+  /// Base sem extensão da logo dedicada dos certificados (`.jpg` / variantes).
+  static String certificadoDedicatedLogoBaseWithoutExt(String tenantId) =>
+      '${churchRoot(tenantId)}/$kSegCertificadosMidia/logo_atual';
+
+  /// Prefixo da pasta de mídia dos certificados (logo dedicada, etc.).
+  static String certificadoDedicatedMediaPrefix(String tenantId) =>
+      '${churchRoot(tenantId)}/$kSegCertificadosMidia';
 
   /// Fundos luxo para PDF: `igrejas/{id}/templates/certificados/{stem}.png|.jpg`.
   static const String kSegCertificadosTemplates = 'templates/certificados';

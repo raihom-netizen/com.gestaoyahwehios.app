@@ -494,6 +494,53 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return '${digits.substring(0, 3)}.${digits.substring(3, 6)}.${digits.substring(6, 9)}-${digits.substring(9)}';
   }
 
+  /// CPF canônico (11 dígitos) a partir dos campos do membro.
+  static String _cpfDigitsFromMemberData(Map<String, dynamic>? d) {
+    if (d == null) return '';
+    final raw =
+        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    return raw.length == 11 ? raw : '';
+  }
+
+  /// Mesma lógica do cadastro interno de membros: ID do documento = CPF quando possível;
+  /// se já existir ficha com este CPF sob outro ID (legado), reutiliza esse documento (evita duplicata).
+  Future<String> _resolveGestorMembroDocumentId(
+      String resolvedId, String cpfDigits) async {
+    if (cpfDigits.length != 11) return cpfDigits;
+    final col = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(resolvedId)
+        .collection('membros');
+
+    final hinted = (_gestorMemberDocId ?? '').trim();
+    if (hinted.isNotEmpty) {
+      try {
+        final snap = await col.doc(hinted).get();
+        if (snap.exists) {
+          final d = snap.data();
+          if (_cpfDigitsFromMemberData(d) == cpfDigits) return hinted;
+        }
+      } catch (_) {}
+    }
+
+    final byId = await col.doc(cpfDigits).get();
+    if (byId.exists) return cpfDigits;
+
+    for (final pair in [
+      ('CPF', cpfDigits),
+      ('cpf', cpfDigits),
+      ('CPF', _cpfFormattedBr11(cpfDigits)),
+      ('cpf', _cpfFormattedBr11(cpfDigits)),
+    ]) {
+      try {
+        final q =
+            await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
+        if (q.docs.isNotEmpty) return q.docs.first.id;
+      } catch (_) {}
+    }
+    return cpfDigits;
+  }
+
   Future<void> _hydrateGestorFromMembros(String resolvedId,
       {bool force = false}) async {
     final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
@@ -640,7 +687,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (_gestorNomeCtrl.text.trim().isEmpty)
       return 'Preencha o nome completo do gestor.';
     final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
-    if (cpf.length != 11) return 'CPF do gestor deve ter 11 dígitos.';
+    if (cpf.isNotEmpty && cpf.length != 11) {
+      return 'CPF do gestor deve ter 11 dígitos ou ficar em branco.';
+    }
+    final uidGestorVal = (_gestorMemberData?['authUid'] ?? '').toString().trim();
+    final curUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final podeSemCpf = uidGestorVal.isNotEmpty ||
+        (curUid.isNotEmpty && widget.role.toLowerCase() != 'master');
+    if (cpf.length != 11 && !podeSemCpf) {
+      return 'Informe o CPF do gestor (11 dígitos) ou edite este cadastro com a conta do gestor.';
+    }
     if (_gestorEmailCtrl.text.trim().isEmpty)
       return 'E-mail do gestor é obrigatório.';
     if (_gestorTelefoneCtrl.text.trim().isEmpty)
@@ -665,7 +721,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || !_canEdit) return;
     final cpfDigits = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
-    if (cpfDigits.length != 11) return;
+    final dataAuth =
+        (_gestorMemberData?['authUid'] ?? '').toString().trim();
+    if (cpfDigits.length != 11 &&
+        dataAuth.isEmpty &&
+        (uid.isEmpty || widget.role.toLowerCase() == 'master')) {
+      return;
+    }
 
     final slugRaw = _slugCtrl.text
         .trim()
@@ -682,10 +744,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         .collection('igrejas')
         .doc(resolvedId)
         .collection('membros');
-    final docId =
-        (_gestorMemberDocId != null && _gestorMemberDocId!.trim().isNotEmpty)
-            ? _gestorMemberDocId!.trim()
-            : cpfDigits;
+    late final String docId;
+    if (cpfDigits.length == 11) {
+      docId = await _resolveGestorMembroDocumentId(resolvedId, cpfDigits);
+    } else if (dataAuth.isNotEmpty) {
+      docId = dataAuth;
+    } else {
+      docId = uid;
+    }
     final ref = col.doc(docId);
     final existingSnap = await ref.get();
 
@@ -720,28 +786,39 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(
             sanitizeImageUrl(oldGestorPhoto));
       }
+      final pathMembro =
+          ChurchStorageLayout.gestorMemberPhotoPath(resolvedId, docId);
+      final pathEspelho =
+          ChurchStorageLayout.gestorPublicProfilePhotoPath(resolvedId);
       photoUrl = await MediaUploadService.uploadBytesWithRetry(
-        storagePath:
-            ChurchStorageLayout.gestorMemberPhotoPath(resolvedId, docId),
+        storagePath: pathMembro,
         bytes: jpg,
         contentType: 'image/jpeg',
       );
-      try {
-        await MediaUploadService.uploadBytesWithRetry(
-          storagePath:
-              ChurchStorageLayout.gestorPublicProfilePhotoPath(resolvedId),
+      unawaited(
+        MediaUploadService.uploadBytesWithRetry(
+          storagePath: pathEspelho,
           bytes: jpg,
           contentType: 'image/jpeg',
-        );
-      } catch (_) {}
+        ).catchError((Object _, StackTrace __) => ''),
+      );
+      FirebaseStorageCleanupService.scheduleCleanupAfterGestorProfilePhotoUpload(
+        tenantId: resolvedId,
+      );
       if (mounted) {
         setState(() {
           _gestorExistingPhotoUrl = photoUrl;
           _gPhotoBytes = null;
         });
+        final cacheAuthGestor = cpfDigits.length == 11
+            ? (dataAuth.isNotEmpty ? dataAuth : uid)
+            : docId;
         FirebaseStorageService.invalidateMemberPhotoCache(
           tenantId: resolvedId,
           memberId: docId,
+          authUid: cacheAuthGestor.isNotEmpty && cacheAuthGestor != docId
+              ? cacheAuthGestor
+              : null,
         );
         AppStorageImageService.instance
             .invalidateStoragePrefix('igrejas/$resolvedId/membros/$docId');
@@ -766,7 +843,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final cargoLabel = isMaster ? 'Master' : 'Administrador';
 
     final payload = <String, dynamic>{
-      'MEMBER_ID': cpfDigits,
+      'MEMBER_ID': docId,
       'CREATED_BY_CPF': cpfDigits,
       'alias': alias,
       'slug': slug,
@@ -810,31 +887,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     await ref.set(payload, SetOptions(merge: true));
 
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
-        'role': funcaoKey,
-        'roles': funcoes,
-        'nome': nome,
-        'displayName': nome,
-        'name': nome,
-        'email': email,
-        'tenantId': resolvedId,
-        'igrejaId': resolvedId,
-        'FUNCOES': funcoes,
-        'funcao': funcaoKey,
-        'cargo': cargoLabel,
-        'CARGO': cargoLabel,
-        'photoURL': photoUrl,
-        'fotoUrl': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-      }, SetOptions(merge: true));
-    } catch (_) {
-      // Regras podem bloquear create em /users; a sincronização na igreja continua.
-    }
-
-    await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(resolvedId)
+    // Gravações em paralelo (menos tempo em "Salvando...").
+    final rootUserWrite = FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .set({
@@ -842,7 +896,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'roles': funcoes,
       'nome': nome,
       'displayName': nome,
+      'name': nome,
       'email': email,
+      'tenantId': resolvedId,
+      'igrejaId': resolvedId,
       'FUNCOES': funcoes,
       'funcao': funcaoKey,
       'cargo': cargoLabel,
@@ -850,30 +907,59 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'photoURL': photoUrl,
       'fotoUrl': photoUrl,
       'FOTO_URL_OU_ID': photoUrl,
-    }, SetOptions(merge: true));
-
-    await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(resolvedId)
-        .collection('usersIndex')
-        .doc(cpfDigits)
-        .set({
-      'email': email,
-      'cpf': cpfDigits,
-      'nome': nome,
-      'name': nome,
-      'tenantId': resolvedId,
-      'role': funcaoKey,
-      'cargo': cargoLabel,
-      'CARGO': cargoLabel,
-      'FUNCOES': funcoes,
-      'authUid': uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    }, SetOptions(merge: true)).catchError((Object _, StackTrace __) {});
+    await Future.wait<void>([
+      rootUserWrite,
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(resolvedId)
+          .collection('users')
+          .doc(uid)
+          .set({
+        'role': funcaoKey,
+        'roles': funcoes,
+        'nome': nome,
+        'displayName': nome,
+        'email': email,
+        'FUNCOES': funcoes,
+        'funcao': funcaoKey,
+        'cargo': cargoLabel,
+        'CARGO': cargoLabel,
+        'photoURL': photoUrl,
+        'fotoUrl': photoUrl,
+        'FOTO_URL_OU_ID': photoUrl,
+      }, SetOptions(merge: true)),
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(resolvedId)
+          .collection('usersIndex')
+          .doc(cpfDigits)
+          .set({
+        'email': email,
+        'cpf': cpfDigits,
+        'nome': nome,
+        'name': nome,
+        'tenantId': resolvedId,
+        'role': funcaoKey,
+        'cargo': cargoLabel,
+        'CARGO': cargoLabel,
+        'FUNCOES': funcoes,
+        'authUid': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)),
+    ]);
 
     if (mounted) {
       _gestorHydrateSeq++;
-      await _hydrateGestorFromMembros(resolvedId, force: true);
+      setState(() {
+        _gestorMemberDocId = docId;
+        _lastHydratedCpf = cpfDigits;
+        _gestorMemberData = Map<String, dynamic>.from(payload);
+        final pu = (photoUrl ?? '').trim();
+        if (pu.isNotEmpty) {
+          _gestorExistingPhotoUrl = pu;
+        }
+      });
     }
   }
 
@@ -970,6 +1056,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           await FirebaseStorage.instance.ref('$base$suffix').delete();
         } catch (_) {}
       }
+      // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
+      final slash = p.lastIndexOf('/');
+      if (slash >= 0 && dot > slash) {
+        final dir = p.substring(0, slash);
+        final fileBase = p.substring(slash + 1, dot);
+        if (fileBase.isNotEmpty) {
+          try {
+            await FirebaseStorage.instance
+                .ref('$dir/thumb_$fileBase.jpg')
+                .delete();
+          } catch (_) {}
+        }
+      }
     }
   }
 
@@ -1024,6 +1123,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         url,
         storagePath: upload.storagePath,
         removeLogoVariants: true,
+      );
+      FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
+        tenantId: resolvedId,
       );
       if (!mounted) return;
       setState(() {});
@@ -1202,6 +1304,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       FirebaseStorageService.invalidatePastorSignatureCache(resolvedId);
       AppStorageImageService.instance
           .invalidateStoragePrefix('igrejas/$resolvedId/configuracoes');
+      FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
+        tenantId: resolvedId,
+      );
       if (!mounted) return;
       setState(() {
         _uploadingPastorSig = false;
@@ -1686,8 +1791,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     ThemeCleanPremium.hapticAction();
     setState(() => _saving = true);
     try {
-      // Atualiza token para Firestore/Storage enxergarem role e tenantId nas claims
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      // Token em cache (sem forçar refresh) — mais rápido; claims costumam já estar válidas.
+      await FirebaseAuth.instance.currentUser?.getIdToken();
       final resolvedId = await _resolvedTenantId;
       final slugRaw = _slugCtrl.text
           .trim()
@@ -1836,11 +1941,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           .set(data, SetOptions(merge: true));
       if (!mounted) return;
       try {
-        final tenantSnap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(resolvedId)
-            .get();
-        await _syncGestorToMembros(resolvedId, tenantSnap.data());
+        final slugLive = slugRaw.isEmpty ? resolvedId : slugRaw;
+        await _syncGestorToMembros(resolvedId, {
+          'alias': slugLive,
+          'slug': slugLive,
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(

@@ -63,6 +63,9 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
   /// Hero: autoplay silencioso em loop (web). Conteúdo: use false.
   final bool heroAutoplay;
 
+  /// Galeria pública: mostra o vídeo inteiro (vertical 9:16) sem cortar — fundo escuro + `contain`.
+  final bool letterbox;
+
   const PremiumInstitutionalVideoCard({
     super.key,
     this.videoUrl,
@@ -71,6 +74,7 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
     this.caption = 'VÍDEO INSTITUCIONAL',
     this.hintBelow,
     this.heroAutoplay = true,
+    this.letterbox = false,
   });
 
   /// Monta a partir do documento da igreja (painel / site público da igreja).
@@ -229,29 +233,44 @@ class _PremiumInstitutionalVideoCardState
       return const SizedBox.shrink();
     }
     final url = _resolved!;
+    final fit = widget.letterbox ? BoxFit.contain : BoxFit.cover;
 
     final videoChild = kIsWeb
         ? SizedBox(
             height: widget.height,
             width: double.infinity,
-            child: buildPremiumHtmlVideo(
-              url,
-              autoplay: widget.heroAutoplay,
-              loop: widget.heroAutoplay,
-              muted: widget.heroAutoplay,
-              controls: true,
+            child: ColoredBox(
+              color: widget.letterbox
+                  ? const Color(0xFF0B1120)
+                  : Colors.transparent,
+              child: buildPremiumHtmlVideo(
+                url,
+                autoplay: widget.heroAutoplay,
+                loop: widget.heroAutoplay,
+                muted: widget.heroAutoplay,
+                controls: true,
+                objectFitContain: widget.letterbox,
+              ),
             ),
           )
         : _mobile != null && _mobile!.value.isInitialized
             ? SizedBox(
                 height: widget.height,
                 width: double.infinity,
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _mobile!.value.size.width,
-                    height: _mobile!.value.size.height,
-                    child: VideoPlayer(_mobile!),
+                child: ColoredBox(
+                  color: widget.letterbox
+                      ? const Color(0xFF0B1120)
+                      : Colors.transparent,
+                  child: Center(
+                    child: FittedBox(
+                      fit: fit,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        width: _mobile!.value.size.width,
+                        height: _mobile!.value.size.height,
+                        child: VideoPlayer(_mobile!),
+                      ),
+                    ),
                   ),
                 ),
               )
@@ -302,17 +321,19 @@ class _PremiumInstitutionalVideoCardState
           const SizedBox(height: 10),
         ],
         _shell(child: ClipRRect(borderRadius: BorderRadius.circular(16), child: videoChild)),
-        const SizedBox(height: 8),
-        Text(
-          widget.caption,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.6,
-            color: ThemeCleanPremium.onSurfaceVariant,
+        if (widget.caption.trim().isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            widget.caption,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

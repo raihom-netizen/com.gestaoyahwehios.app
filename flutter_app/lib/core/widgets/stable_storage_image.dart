@@ -134,7 +134,7 @@ class _StableStorageImageState extends State<StableStorageImage> {
             memCacheHeight: widget.memCacheHeight,
             placeholder: ph,
             errorWidget: err,
-            skipFreshDisplayUrl: false,
+            skipFreshDisplayUrl: true,
             onLoadError: widget.onLoadError,
           );
           if (widget.borderRadius != null) {
@@ -300,7 +300,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
               memCacheHeight: widget.memCacheHeight,
               placeholder: ph,
               errorWidget: _fallback(),
-              skipFreshDisplayUrl: false,
+              skipFreshDisplayUrl: true,
             ),
           );
         },
@@ -426,7 +426,7 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
               memCacheHeight: cacheSize,
               placeholder: fallback,
               errorWidget: fallback,
-              skipFreshDisplayUrl: false,
+              skipFreshDisplayUrl: true,
             ),
           ),
         );

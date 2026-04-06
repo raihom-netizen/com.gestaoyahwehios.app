@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
 const int kChurchShellIndexMembers = 2;
 const int kChurchShellIndexMural = 6;
 const int kChurchShellIndexEvents = 7;
+const int kChurchShellIndexMySchedules = 10;
 const int kChurchShellIndexPatrimonio = 15;
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
@@ -73,6 +75,22 @@ String _avisoSearchBlob(Map<String, dynamic> m) {
   return '$t $body'.toLowerCase();
 }
 
+String _trocaSearchBlob(Map<String, dynamic> m) {
+  final title = _fieldStr(m, ['escalaTitle']);
+  final date = _fieldStr(m, ['escalaDateLabel']);
+  final sol = _fieldStr(m, ['solicitanteNome']);
+  final st = _fieldStr(m, ['status']);
+  return '$title $date $sol $st'.toLowerCase();
+}
+
+bool _trocaDocStillPendingForUser(Map<String, dynamic> m, String cpf11) {
+  final st = (m['status'] ?? '').toString();
+  if (st == 'aprovada' || st == 'recusada') return false;
+  final alvo = (m['alvoCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+  final sol = (m['solicitanteCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+  return alvo == cpf11 || sol == cpf11;
+}
+
 bool _noticiaDocIsAviso(Map<String, dynamic> m) =>
     (m['type'] ?? 'aviso').toString().toLowerCase() == 'aviso';
 
@@ -80,6 +98,8 @@ bool _noticiaDocIsAviso(Map<String, dynamic> m) =>
 class ChurchGlobalSearchDialog extends StatefulWidget {
   final String tenantId;
   final String userRole;
+  /// CPF só dígitos (11) — habilita resultados em «trocas de escala» envolvendo o usuário.
+  final String? userCpfDigits;
   final bool Function(int shellIndex) canAccessShellIndex;
   final void Function(ChurchGlobalSearchSelection selection) onSelect;
 
@@ -87,6 +107,7 @@ class ChurchGlobalSearchDialog extends StatefulWidget {
     super.key,
     required this.tenantId,
     required this.userRole,
+    this.userCpfDigits,
     required this.canAccessShellIndex,
     required this.onSelect,
   });
@@ -108,6 +129,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _noticiasDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _avisoDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _patrimonioDocs = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _trocaDocs = [];
 
   String _debouncedQ = '';
 
@@ -166,7 +188,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       if (widget.canAccessShellIndex(kChurchShellIndexEvents)) {
         futures.add(
           base
-              .collection('noticias')
+              .collection(ChurchTenantPostsCollections.noticias)
               .orderBy('startAt', descending: true)
               .limit(160)
               .get(),
@@ -178,10 +200,25 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       if (widget.canAccessShellIndex(kChurchShellIndexMural)) {
         futures.add(
           base
-              .collection('noticias')
-              .where('type', isEqualTo: 'aviso')
+              .collection(ChurchTenantPostsCollections.avisos)
               .orderBy('createdAt', descending: true)
               .limit(120)
+              .get(),
+        );
+      }
+
+      final cpfTroca = (widget.userCpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
+      final loadTrocas = widget.canAccessShellIndex(kChurchShellIndexMySchedules) &&
+          cpfTroca.length == 11;
+      if (loadTrocas) {
+        futures.add(
+          base.collection('escala_trocas').where('alvoCpf', isEqualTo: cpfTroca).limit(40).get(),
+        );
+        futures.add(
+          base
+              .collection('escala_trocas')
+              .where('solicitanteCpf', isEqualTo: cpfTroca)
+              .limit(40)
               .get(),
         );
       }
@@ -209,6 +246,18 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       }
       if (widget.canAccessShellIndex(kChurchShellIndexMural)) {
         _avisoDocs = snaps[i++].docs;
+      }
+
+      if (loadTrocas) {
+        final a = snaps[i++].docs;
+        final b = snaps[i++].docs;
+        final seen = <String>{};
+        _trocaDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        for (final d in [...a, ...b]) {
+          if (seen.add(d.id)) _trocaDocs.add(d);
+        }
+      } else {
+        _trocaDocs = [];
       }
 
       if (mounted) setState(() => _loading = false);
@@ -276,6 +325,17 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
     }
   }
 
+  void _pickTroca(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final m = d.data();
+    final title = _fieldStr(m, ['escalaTitle']);
+    final q = title.isNotEmpty ? title : d.id;
+    Navigator.of(context).pop();
+    widget.onSelect(ChurchGlobalSearchSelection(
+      shellIndex: kChurchShellIndexMySchedules,
+      query: q,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
@@ -306,7 +366,9 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
                         focusNode: _focus,
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         decoration: InputDecoration(
-                          hintText: 'Membro, evento, aviso ou patrimônio…',
+                          hintText: (widget.userCpfDigits ?? '').replaceAll(RegExp(r'\D'), '').length == 11
+                              ? 'Membro, evento, aviso, patrimônio ou troca de escala…'
+                              : 'Membro, evento, aviso ou patrimônio…',
                           border: InputBorder.none,
                           isDense: true,
                           hintStyle: TextStyle(
@@ -488,6 +550,36 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       }
     }
 
+    final cpfQ = (widget.userCpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
+    if (widget.canAccessShellIndex(kChurchShellIndexMySchedules) &&
+        cpfQ.length == 11 &&
+        _trocaDocs.isNotEmpty) {
+      final matched = _trocaDocs
+          .where((d) => _trocaDocStillPendingForUser(d.data(), cpfQ))
+          .where((d) => _trocaSearchBlob(d.data()).contains(q))
+          .take(_maxHits)
+          .toList();
+      if (matched.isNotEmpty) {
+        addHeader('TROCAS DE ESCALA');
+        for (final d in matched) {
+          final m = d.data();
+          final title = _fieldStr(m, ['escalaTitle']);
+          final date = _fieldStr(m, ['escalaDateLabel']);
+          final st = _fieldStr(m, ['status']);
+          hits.add(_resultTile(
+            icon: Icons.swap_horiz_rounded,
+            iconColor: const Color(0xFF7C3AED),
+            title: title.isEmpty ? 'Troca' : title,
+            subtitle: [
+              if (date.isNotEmpty) date,
+              if (st.isNotEmpty) st,
+            ].join(' · '),
+            onTap: () => _pickTroca(d),
+          ));
+        }
+      }
+    }
+
     if (hits.isEmpty) {
       return Center(
         child: Padding(
@@ -571,6 +663,7 @@ Future<void> showChurchGlobalSearchDialog({
   required BuildContext context,
   required String tenantId,
   required String userRole,
+  String? userCpfDigits,
   required bool Function(int shellIndex) canAccessShellIndex,
   required void Function(ChurchGlobalSearchSelection selection) onSelect,
 }) {
@@ -580,6 +673,7 @@ Future<void> showChurchGlobalSearchDialog({
     builder: (ctx) => ChurchGlobalSearchDialog(
       tenantId: tenantId,
       userRole: userRole,
+      userCpfDigits: userCpfDigits,
       canAccessShellIndex: canAccessShellIndex,
       onSelect: onSelect,
     ),

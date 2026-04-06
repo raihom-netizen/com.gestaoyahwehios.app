@@ -12,8 +12,17 @@ plugins {
 
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
+var hasValidReleaseKeystore = false
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    val alias = keystoreProperties.getProperty("keyAlias")?.trim().orEmpty()
+    val keyPass = keystoreProperties.getProperty("keyPassword")?.trim().orEmpty()
+    val storePass = keystoreProperties.getProperty("storePassword")?.trim().orEmpty()
+    val storePath = keystoreProperties.getProperty("storeFile")?.trim().orEmpty()
+    if (alias.isNotEmpty() && keyPass.isNotEmpty() && storePass.isNotEmpty() && storePath.isNotEmpty()) {
+        val storeFile = rootProject.file(storePath)
+        hasValidReleaseKeystore = storeFile.isFile
+    }
 }
 
 android {
@@ -42,32 +51,26 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            if (keystorePropertiesFile.exists()) {
-                val alias = keystoreProperties.getProperty("keyAlias")?.trim().orEmpty()
-                val keyPass = keystoreProperties.getProperty("keyPassword")?.trim().orEmpty()
-                val storePass = keystoreProperties.getProperty("storePassword")?.trim().orEmpty()
-                val storePath = keystoreProperties.getProperty("storeFile")?.trim().orEmpty()
-                require(alias.isNotEmpty() && keyPass.isNotEmpty() && storePass.isNotEmpty() && storePath.isNotEmpty()) {
-                    "android/key.properties: preencha keyAlias, keyPassword, storePassword e storeFile (veja key.properties.example)."
-                }
-                keyAlias = alias
-                keyPassword = keyPass
-                storePassword = storePass
-                storeFile = rootProject.file(storePath)
+        if (hasValidReleaseKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")!!.trim()
+                keyPassword = keystoreProperties.getProperty("keyPassword")!!.trim()
+                storePassword = keystoreProperties.getProperty("storePassword")!!.trim()
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile")!!.trim())
             }
         }
     }
 
     buildTypes {
         release {
-            // Com key.properties: assinatura release (Play Store). Sem: debug — a Play rejeita.
-            signingConfig =
-                if (keystorePropertiesFile.exists()) {
-                    signingConfigs.getByName("release")
-                } else {
-                    signingConfigs.getByName("debug")
-                }
+            // Play App Signing: Google re-assina depois, mas o .aab tem de vir assinado com a chave de UPLOAD (release).
+            // Sem keystore valido, o Gradle falha aqui em vez de gerar bundle DEBUG (rejeitado pela Play).
+            check(hasValidReleaseKeystore) {
+                "Gestao YAHWEH: falta android/key.properties + .jks de release validos. " +
+                    "Sem isso o AAB seria assinado em DEBUG e a Play Console rejeita. " +
+                    "Na raiz do repo: .\\scripts\\build_android_play_store_aab.ps1"
+            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
