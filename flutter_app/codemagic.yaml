@@ -27,6 +27,27 @@ workflows:
           : "${APP_STORE_CONNECT_ISSUER_ID:?Issuer UUID}"
           : "${CM_CERTIFICATE:?CM_CERTIFICATE (P12 Apple Distribution Base64)}"
           : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE (perfil App Store Base64)}"
+          _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
+          if [ -z "${_CM_PROV_COMPACT}" ]; then
+            echo "ERRO: CM_PROVISIONING_PROFILE vazio apos normalizar."
+            exit 1
+          fi
+          if ! printf '%s' "${_CM_PROV_COMPACT}" | base64 -D > /tmp/_cm_verify_prov.bin 2>/tmp/_cm_verify_prov.err; then
+            echo "ERRO: CM_PROVISIONING_PROFILE nao e Base64 valido."
+            cat /tmp/_cm_verify_prov.err 2>/dev/null || true
+            echo "Mac: base64 -i perfil.mobileprovision | tr -d '\n' | pbcopy"
+            exit 1
+          fi
+          [ -s /tmp/_cm_verify_prov.bin ] || { echo "ERRO: provisioning decodificado vazio."; exit 1; }
+          _CM_P12_COMPACT="$(printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r\t ')"
+          [ -n "${_CM_P12_COMPACT}" ] || { echo "ERRO: CM_CERTIFICATE vazio apos normalizar."; exit 1; }
+          if ! printf '%s' "${_CM_P12_COMPACT}" | base64 -D > /tmp/_cm_verify_p12.bin 2>/tmp/_cm_verify_p12.err; then
+            echo "ERRO: CM_CERTIFICATE nao e Base64 valido."
+            cat /tmp/_cm_verify_p12.err 2>/dev/null || true
+            exit 1
+          fi
+          [ -s /tmp/_cm_verify_p12.bin ] || { echo "ERRO: P12 decodificado vazio."; exit 1; }
+          echo "OK: P12 + provisioning Base64 validos (prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin) bytes)."
       - name: CocoaPods
         script: |
           cd ios
@@ -63,7 +84,7 @@ workflows:
             {
               echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
               cat /tmp/_asc_ok.pem
-              echo 'CM_YAHWEH_ASC_PEM'
+              printf '\n%s\n' 'CM_YAHWEH_ASC_PEM'
             } >> "$CM_ENV"
           }
           _norm_api
@@ -77,6 +98,7 @@ workflows:
           if ! printf '%s' "${_CM_PROV_COMPACT}" | base64 -D > /tmp/cm_raw.mobileprovision 2>/tmp/_prov_b64.err; then
             echo "ERRO: CM_PROVISIONING_PROFILE Base64 invalido."
             cat /tmp/_prov_b64.err 2>/dev/null || true
+            echo "Regrave o secret: Base64 do .mobileprovision (binario), uma linha."
             exit 1
           fi
           if [ ! -s /tmp/cm_raw.mobileprovision ]; then

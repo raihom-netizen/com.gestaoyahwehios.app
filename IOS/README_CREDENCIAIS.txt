@@ -193,20 +193,40 @@ No Mac:
   cat gestaoyahwehiosapp.mobileprovision | base64 | pbcopy
 
 Erro Codemagic: "base64: stdin: (null): error decoding base64 input stream"
+        ou "CM_PROVISIONING_PROFILE nao decodifica em Base64 valido"
 ---------------------------------------------------------------------------
-Significa que CM_PROVISIONING_PROFILE ou CM_CERTIFICATE (ou o .p8) chegou vazio ao
-script — o secret nao esta no grupo certo, nome errado, ou colou so espacos/linhas vazias.
-Confirma: Environment variables > grupo appstore_credentials ligado ao workflow;
-nomes exactos CM_PROVISIONING_PROFILE e CM_CERTIFICATE; valor = UMA linha Base64 (comando
-cat ... | base64 | pbcopy). O YAML do repo agora falha com mensagem explicita em vez do
-erro generico do macOS base64.
+Quase sempre e o secret CM_PROVISIONING_PROFILE (por vezes CM_CERTIFICATE):
 
-No Windows (PowerShell, na pasta dos ficheiros):
+  - Valor NAO e Base64 do ficheiro .mobileprovision BINARIO (ex.: colou o XML/plist
+    que aparece se abrires o ficheiro como texto no editor — isso NAO serve).
+  - Secret cortado ou com aspas/linhas a mais; ou nome da variavel diferente de
+    CM_PROVISIONING_PROFILE.
+  - Grupo appstore_credentials nao ligado ao workflow da app na Codemagic.
+
+Correcao: gera de novo o Base64 a partir do ficheiro descarregado (.mobileprovision).
+
+  Mac:  base64 -i caminho/PerfilAppStore.mobileprovision | tr -d '\n' | pbcopy
+
+  Windows (PowerShell — caminho completo ou .\\ficheiro):
+
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes("D:\temporarios\perfil.mobileprovision")) | Set-Clipboard
+
+Cola UMA linha continua no secret CM_PROVISIONING_PROFILE (grupo appstore_credentials).
+O codemagic.yaml valida P12 + provisioning no passo "Verificar variaveis Apple" antes
+do CocoaPods para falhar mais cedo com mensagem clara.
+
+No Windows (P12), mesmo padrao:
 
   [Convert]::ToBase64String([IO.File]::ReadAllBytes("AppleDistribution.p12")) | Set-Clipboard
 
 Remove ou deixa vazio CERTIFICATE_PRIVATE_KEY quando usares este modo (o workflow
 nao o exige se CM_CERTIFICATE estiver definido).
+
+Erro Codemagic: "Multiline variable APP_STORE_CONNECT_PRIVATE_KEY is not closed with delimiter CM_YAHWEH_ASC_PEM"
+------------------------------------------------------------------------------------------------------------------
+Corrigido no codemagic.yaml do repo: ao gravar o .p8 no ficheiro CM_ENV entre passos,
+e obrigatorio um newline antes da linha de fecho CM_YAHWEH_ASC_PEM. Atualize o main
+(git pull) e volte a correr o build.
 
 Alinhar .p8 da API com chaves ATIVAS na Apple
 ----------------------------------------------

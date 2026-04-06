@@ -76,7 +76,7 @@ _persist_asc_pem_to_cm_env() {
   {
     echo 'APP_STORE_CONNECT_PRIVATE_KEY<<CM_YAHWEH_ASC_PEM'
     cat /tmp/_asc_ok.pem
-    echo 'CM_YAHWEH_ASC_PEM'
+    printf '\n%s\n' 'CM_YAHWEH_ASC_PEM'
   } >> "$CM_ENV"
 }
 _norm_api
