@@ -194,6 +194,24 @@ workflows:
         script: |
           cd flutter_app
           flutter build ipa --release --export-options-plist=/tmp/ExportOptions.plist
+      # O publicador ASC da Codemagic procura *.ipa nos artefactos; em monorepo o IPA fica
+      # em flutter_app/build/ios/ipa/. Alguns fluxos só consideram build/ios/ipa na RAIZ do
+      # clone — copiar evita "Publishing" <1s / "no IPAs or PKGs found".
+      - name: IPA para publicação ASC (cópia na raiz do repo)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-$(pwd)}"
+          cd "$ROOT"
+          mkdir -p build/ios/ipa
+          if ! ls flutter_app/build/ios/ipa/*.ipa >/dev/null 2>&1; then
+            echo "ERRO: nenhum .ipa em flutter_app/build/ios/ipa (o build IPA falhou ou mudou o caminho)."
+            find flutter_app/build/ios -name "*.ipa" 2>/dev/null || true
+            exit 1
+          fi
+          cp -f flutter_app/build/ios/ipa/*.ipa build/ios/ipa/
+          echo "IPAs prontos para artefactos / App Store Connect:"
+          ls -la build/ios/ipa/
+          ls -la flutter_app/build/ios/ipa/
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
@@ -214,8 +232,51 @@ workflows:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
+      # Upload real ao App Store Connect: o bloco publishing.app_store_connect da Codemagic
+      # por vezes termina em <1s (sem IPA nos artefactos esperados / env PEM no pos-processamento).
+      # Este passo usa a mesma CLI dos comandos keychain/xcode-project e --path explícito.
+      - name: Enviar IPA ao App Store Connect (app-store-connect publish)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-$(pwd)}"
+          cd "$ROOT"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?Grupo appstore_credentials: APP_STORE_CONNECT_ISSUER_ID}"
+          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Grupo appstore_credentials: APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
+          if [ ! -f /tmp/_asc_ok.pem ]; then
+            echo "ERRO: /tmp/_asc_ok.pem ausente — o passo JWT deve correr antes e criar a chave API."
+            exit 1
+          fi
+          IPA=""
+          for cand in build/ios/ipa/*.ipa flutter_app/build/ios/ipa/*.ipa; do
+            if [ -f "$cand" ]; then IPA="$cand"; break; fi
+          done
+          if [ -z "$IPA" ]; then
+            IPA=$(find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$IPA" ] || [ ! -f "$IPA" ]; then
+            echo "ERRO: nenhum .ipa encontrado para publicar."
+            find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null || true
+            exit 1
+          fi
+          echo "=== app-store-connect publish ==="
+          echo "IPA: $IPA ($(wc -c < "$IPA" | tr -d ' ') bytes)"
+          if ! command -v app-store-connect >/dev/null 2>&1; then
+            echo "A instalar codemagic-cli-tools (app-store-connect)..."
+            python3 -m pip install --user -q codemagic-cli-tools
+            export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          fi
+          app-store-connect publish \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --private-key "@file:/tmp/_asc_ok.pem" \
+            --path "$IPA" \
+            --testflight \
+            --expire-build-submitted-for-review \
+            --max-find-build-wait 30 \
+            --max-build-processing-wait 45
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
+      - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
@@ -224,20 +285,11 @@ workflows:
         notify:
           success: true
           failure: true
-      # Upload do .ipa + pos-processamento Apple (Magic Actions).
-      # Automatico: envio ao App Store Connect, submit_to_testflight (revisao beta TestFlight).
-      # Continua MANUAL no portal: textos da ficha (nome/subtitulo), capturas, privacidade,
-      # escolher build na versao "Preparar para envio", enviar para revisao da LOJA — salvo que
-      # active submit_to_app_store (avaliar risco; requer ficha completa).
-      app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true
-        # Novo build substitui revisao beta anterior em fila (evita bloqueio entre versoes).
-        expire_build_submitted_for_review: true
-        # Descomente e use nomes EXACTOS dos grupos em TestFlight > Testadores > Grupos:
-        # beta_groups:
-        #   - NomeDoGrupo1
+      # Envio ao ASC + submit TestFlight: passo de script "Enviar IPA ao App Store Connect".
+      # (O bloco app_store_connect aqui foi removido para evitar upload fantasma <1s.)
+      #
+      # LOJA App Store publica: no ASC, apos build em TestFlight — "Preparar para envio" +
+      # metadata (capturas, privacidade, etc.) + enviar revisao. Opcional no YAML antigo:
+      # submit_to_app_store: true (só com ficha completa).
 
 # Android AAB local: .\scripts\build_android_play_store_aab.ps1
