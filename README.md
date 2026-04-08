@@ -1,7 +1,7 @@
 # Gestao YAHWEH (V7) — Pronto pra subir
 
 - Flutter Web buildado em `flutter_app/build/web`
-- Cloud Functions (Node 20)
+- Cloud Functions (Node 22)
 - Firestore Rules
 - Site publico: `/igreja/<slug>`
 - Admin: `/admin/painel`

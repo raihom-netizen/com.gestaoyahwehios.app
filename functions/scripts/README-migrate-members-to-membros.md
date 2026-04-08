@@ -4,7 +4,7 @@ Roda **fora** das Cloud Functions. Corrige dados quando o painel mostra `Erro: i
 
 ## Pré-requisito
 
-- Node 20+ na pasta `functions` (`npm install` já feito).
+- Node 22+ na pasta `functions` (`npm install` já feito).
 - Uma destas opções:
   1. **Conta de serviço** (recomendado): no Firebase Console → Configurações do projeto → Contas de serviço → gerar chave JSON. Depois:
      - Windows PowerShell:
