@@ -27,6 +27,17 @@
 #
 # IMPORTANTE: no Codemagic, use "codemagic.yaml no repositório" (não duplicar estes passos no editor
 # da web); senão o CI corre scripts antigos e falha com "nenhum .ipa em flutter_app/build/ios/ipa".
+#
+# ─── Erro: exportArchive Provisioning profile "..." doesn't include signing certificate "Apple Distribution: ..." ───
+# Não é bug de versão Flutter: o .mobileprovision foi gerado sem o mesmo certificado "Apple Distribution"
+# que está no P12 (CM_CERTIFICATE), ou o P12 foi renovado e o perfil ficou antigo.
+# Corrigir em developer.apple.com:
+#   1) Profiles → perfil App Store de com.gestaoyahwehios.app → Edit → em "Certificates" marque o
+#      Apple Distribution que corresponde ao .p12 exportado do Keychain (equipa 82RC6YL7KL).
+#   2) Save → Download → novo ficheiro .mobileprovision.
+#   3) Codemagic → Secrets (appstore_credentials) → CM_PROVISIONING_PROFILE = Base64 do NOVO perfil (uma linha).
+# Se criou novo certificado Distribution: exporte novo .p12 e atualize CM_CERTIFICATE também.
+# Versão/build no IPA vêm do pubspec (passo "flutter build ipa" usa --build-name / --build-number).
 
 workflows:
   ios-release:
