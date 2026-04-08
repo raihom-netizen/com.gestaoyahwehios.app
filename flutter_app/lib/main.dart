@@ -43,8 +43,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/window_close_handler_stub.dart'
     if (dart.library.io) 'package:gestao_yahweh/window_close_handler_io.dart'
     as window_close_handler;
+import 'package:gestao_yahweh/core/app_scroll_behavior.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 
 /// Salva a rota atual para, ao reabrir o app pelo ícone, abrir onde parou (evita tela preta).
 class _LastRouteObserver extends NavigatorObserver {
@@ -383,8 +386,12 @@ void main() async {
   try {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: 100 * 1024 * 1024,
+      // Cache maior = mais dados disponíveis offline e menos leituras repetidas (painel / relatórios).
+      cacheSizeBytes: 150 * 1024 * 1024,
     );
+  } catch (_) {}
+  try {
+    await AppConnectivityService.instance.start();
   } catch (_) {}
   String initialRoute =
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';
@@ -428,7 +435,15 @@ void main() async {
           // PWA/ícone costuma abrir em `/`; aí restauramos painel onde parou.
           final keepCurrent = kIsWeb && initialRoute != '/' && initialRoute != '';
           if (!keepCurrent) {
-            initialRoute = last;
+            // Web/PWA: restaurar última rota. App nativo: só se já houver sessão —
+            // senão /painel abre AuthGate com user==null e fica preso no loading.
+            if (kIsWeb) {
+              initialRoute = last;
+            } else if (FirebaseAuth.instance.currentUser != null) {
+              initialRoute = last;
+            } else {
+              initialRoute = '/login';
+            }
           }
         }
       } else if (!kIsWeb &&
@@ -487,6 +502,7 @@ class _AppWithThemeState extends State<_AppWithTheme> {
         notifier: _themeProvider,
         child: MaterialApp(
           navigatorKey: _navigatorKey,
+          scrollBehavior: const GestaoYahwehScrollBehavior(),
           title: 'Gestão YAHWEH',
           theme: ThemeCleanPremium.themeData,
           darkTheme: ThemeCleanPremium.themeDataDark,
@@ -514,10 +530,60 @@ class _AppWithThemeState extends State<_AppWithTheme> {
             final bg = Theme.of(context).scaffoldBackgroundColor;
             return Container(
               color: bg,
-              child: MediaQuery(
-                data: MediaQuery.of(context)
-                    .copyWith(alwaysUse24HourFormat: true),
-                child: c,
+              child: Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(alwaysUse24HourFormat: true),
+                    child: c,
+                  ),
+                  ValueListenableBuilder<GlobalUploadProgressState?>(
+                    valueListenable: GlobalUploadProgress.instance.state,
+                    builder: (context, state, _) {
+                      if (state == null) return const SizedBox.shrink();
+                      return Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: SafeArea(
+                          bottom: false,
+                          child: Material(
+                            elevation: 4,
+                            color: Theme.of(context).colorScheme.surface,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                LinearProgressIndicator(
+                                  value: state.progress >= 1
+                                      ? null
+                                      : state.progress,
+                                  minHeight: 3,
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
+                                  child: Text(
+                                    state.label,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             );
           },
@@ -578,7 +644,11 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                 );
               } else if (pathSegments.length >= 3 &&
                   pathSegments[2] == 'cadastro') {
-                pagina = const SignupPage();
+                final em = uri.queryParameters['email']?.trim();
+                pagina = SignupPage(
+                  initialEmail:
+                      (em != null && em.isNotEmpty) ? em : null,
+                );
               } else {
                 pagina = ChurchPublicPage(slug: slug);
               }
@@ -603,7 +673,11 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                   protocolo: uri.queryParameters['protocolo'] ?? '',
                 );
               } else if (low == 'cadastro') {
-                pagina = const SignupPage();
+                final em = uri.queryParameters['email']?.trim();
+                pagina = SignupPage(
+                  initialEmail:
+                      (em != null && em.isNotEmpty) ? em : null,
+                );
               } else {
                 pagina = ChurchPublicPage(slug: slug, openNoticiaId: second);
               }
@@ -630,27 +704,40 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                     showFleetBranding: false,
                   );
                   break;
-                case '/login':
-                  pagina = const LoginPageNovo();
+                case '/login': {
+                  final em = uri.queryParameters['email']?.trim();
+                  pagina = LoginPageNovo(
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                  );
                   break;
-                case '/igreja/login':
-                  pagina = const LoginPage(
+                }
+                case '/igreja/login': {
+                  final em = uri.queryParameters['email']?.trim();
+                  pagina = LoginPage(
                     title: 'Entrar — Painel da Igreja',
                     afterLoginRoute: '/painel',
                     showFleetBranding: false,
-                    showGoogleLogin: true,
                     backRoute: '/',
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
                   );
                   break;
+                }
                 case '/planos':
                   pagina = const LandingPage();
                   break;
                 case '/pagamento':
                   pagina = const RenewPlanPage();
                   break;
-                case '/signup':
-                  pagina = const SignupPage();
+                case '/signup': {
+                  final em = uri.queryParameters['email']?.trim();
+                  pagina = SignupPage(
+                    initialEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                  );
                   break;
+                }
                 case '/signup/completar-dados':
                   pagina = const SignupCompletarGestorPage();
                   break;

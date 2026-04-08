@@ -13,6 +13,7 @@ import 'package:printing/printing.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -755,6 +756,7 @@ class _ResumoTabState extends State<_ResumoTab> {
           final data = d.data();
           final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
           if (tipo == 'transferencia') continue;
+          if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
           final valor = _parseValor(data['amount'] ?? data['valor']);
           final dt = _parseDate(data['createdAt'] ?? data['date']);
           final cat = (data['categoria'] ?? 'Outros').toString().trim();
@@ -790,6 +792,7 @@ class _ResumoTabState extends State<_ResumoTab> {
         }
         for (final d in allDocs) {
           final data = d.data();
+          if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
           final tipo = (data['type'] ?? '').toString().toLowerCase();
           final valor = _parseValor(data['amount'] ?? data['valor']);
           if (tipo == 'transferencia') {
@@ -1249,8 +1252,28 @@ class _ContaSaldoCard extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Movimentações da conta (entradas e saídas — transferências que envolvem a conta)
+// Movimentações da conta: receitas (conta destino), despesas (conta origem) e transferências.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+bool _financeLancamentoEnvolveConta(Map<String, dynamic> data, String contaId) {
+  if (contaId.isEmpty) return false;
+  final origem = (data['contaOrigemId'] ?? '').toString();
+  final destino = (data['contaDestinoId'] ?? '').toString();
+  final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
+  if (tipo == 'transferencia') {
+    return origem == contaId || destino == contaId;
+  }
+  if (tipo.contains('entrada') || tipo.contains('receita')) {
+    return destino == contaId;
+  }
+  if (tipo.contains('saida') ||
+      tipo.contains('saída') ||
+      tipo.contains('despesa')) {
+    return origem == contaId;
+  }
+  return origem == contaId || destino == contaId;
+}
+
 class _MovimentacoesContaPage extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> financeCol;
   final String tenantId;
@@ -1312,7 +1335,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
         builder: (context, snap) {
           if (snap.hasError) {
             return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar as transferências',
+              title: 'Não foi possível carregar os lançamentos',
               error: snap.error,
               onRetry: _refresh,
             );
@@ -1321,31 +1344,32 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
             return const ChurchPanelLoadingBody();
           }
           var docs = snap.data?.docs ?? [];
-          docs = docs.where((d) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (tipo != 'transferencia') return false;
-            final origem = (data['contaOrigemId'] ?? '').toString();
-            final destino = (data['contaDestinoId'] ?? '').toString();
-            return origem == widget.contaId || destino == widget.contaId;
-          }).toList();
+          docs = docs
+              .where((d) =>
+                  _financeLancamentoEnvolveConta(d.data() ?? {}, widget.contaId))
+              .toList();
 
           if (docs.isEmpty) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.swap_horiz_rounded,
+                  Icon(Icons.receipt_long_rounded,
                       size: 64, color: Colors.grey.shade400),
                   const SizedBox(height: ThemeCleanPremium.spaceMd),
-                  Text('Nenhuma movimentação nesta conta.',
+                  Text('Nenhum lançamento nesta conta.',
                       style:
                           TextStyle(fontSize: 16, color: Colors.grey.shade600)),
                   const SizedBox(height: ThemeCleanPremium.spaceSm),
-                  Text(
-                      'As transferências que envolvem esta conta aparecem aqui.',
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      'Receitas, despesas e transferências vinculadas a esta conta aparecem aqui. Toque em um lançamento para ver detalhes; use editar, excluir ou o ícone de comprovante para trocar o arquivo.',
+                      textAlign: TextAlign.center,
                       style:
-                          TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                          TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                    ),
+                  ),
                 ],
               ),
             );
@@ -1410,7 +1434,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
           ],
         ),
         content:
-            const Text('Tem certeza que deseja excluir esta transferência?'),
+            const Text('Tem certeza que deseja excluir este lançamento?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -1538,6 +1562,8 @@ class _ListaLancamentosPorTipoPageState
             );
           }
 
+          final rows = _buildLancamentosGroupedByDay(docs);
+
           return Column(
             children: [
               Padding(
@@ -1556,21 +1582,29 @@ class _ListaLancamentosPorTipoPageState
                     await _future;
                   },
                   child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: EdgeInsets.fromLTRB(
                         ThemeCleanPremium.spaceLg,
                         ThemeCleanPremium.spaceSm,
                         ThemeCleanPremium.spaceLg,
                         80),
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) => _LancamentoCard(
-                      doc: docs[i],
-                      tenantId: widget.tenantId,
-                      onEdit: () async {
-                        await widget.onEdit(context, docs[i]);
-                        if (mounted) _refresh();
-                      },
-                      onDelete: () => _excluirLancamento(docs[i]),
-                    ),
+                    itemCount: rows.length,
+                    itemBuilder: (context, i) {
+                      final row = rows[i];
+                      if (row.isHeader) {
+                        return _FinanceDayHeaderTile(day: row.day!);
+                      }
+                      final doc = row.doc!;
+                      return _LancamentoCard(
+                        doc: doc,
+                        tenantId: widget.tenantId,
+                        onEdit: () async {
+                          await widget.onEdit(context, doc);
+                          if (mounted) _refresh();
+                        },
+                        onDelete: () => _excluirLancamento(doc),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -1711,6 +1745,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
               .toList();
         }
 
+        final rows = _buildLancamentosGroupedByDay(docs);
+
         return Column(
           children: [
             // Filtros — card premium
@@ -1807,15 +1843,29 @@ class _LancamentosTabState extends State<_LancamentosTab> {
             ),
             const SizedBox(height: 4),
             Expanded(
-              child: ListView.builder(
-                padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 4,
-                    ThemeCleanPremium.spaceLg, 100),
-                itemCount: docs.length,
-                itemBuilder: (context, i) => _LancamentoCard(
-                  doc: docs[i],
-                  tenantId: widget.tenantId,
-                  onEdit: () => _editarLancamento(docs[i]),
-                  onDelete: () => _excluirLancamento(docs[i]),
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  _refresh();
+                  await _future;
+                },
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 4,
+                      ThemeCleanPremium.spaceLg, 100),
+                  itemCount: rows.length,
+                  itemBuilder: (context, i) {
+                    final row = rows[i];
+                    if (row.isHeader) {
+                      return _FinanceDayHeaderTile(day: row.day!);
+                    }
+                    final doc = row.doc!;
+                    return _LancamentoCard(
+                      doc: doc,
+                      tenantId: widget.tenantId,
+                      onEdit: () => _editarLancamento(doc),
+                      onDelete: () => _excluirLancamento(doc),
+                    );
+                  },
                 ),
               ),
             ),
@@ -3887,6 +3937,10 @@ Future<void> showFinanceLancamentoEditorForTenant(
   String? coId = contaOrigemId;
   String? cdId = contaDestinoId;
   DateTime dataSelLocal = dataSel;
+  var recebimentoConfirmado =
+      isEdit ? (data?['recebimentoConfirmado'] != false) : true;
+  var pagamentoConfirmado =
+      isEdit ? (data?['pagamentoConfirmado'] != false) : true;
   XFile? comprovanteFile;
   String nomeConta(String? id) {
     if (id == null) return '';
@@ -4011,6 +4065,11 @@ Future<void> showFinanceLancamentoEditorForTenant(
                     final prev = t;
                     t = s.first;
                     cat = '';
+                    if (t == 'entrada') {
+                      recebimentoConfirmado = true;
+                    } else if (t == 'saida') {
+                      pagamentoConfirmado = true;
+                    }
                     if (t == 'transferencia' || prev == 'transferencia') {
                       coId = null;
                       cdId = null;
@@ -4113,6 +4172,76 @@ Future<void> showFinanceLancamentoEditorForTenant(
                         ],
                       ),
                     ),
+                  if (t == 'entrada') ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      'Situação da receita',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: true,
+                          label: Text('Recebido'),
+                          icon: Icon(Icons.check_circle_outline_rounded),
+                        ),
+                        ButtonSegment(
+                          value: false,
+                          label: Text('Pendente'),
+                          icon: Icon(Icons.schedule_rounded),
+                        ),
+                      ],
+                      selected: {recebimentoConfirmado},
+                      onSelectionChanged: (s) =>
+                          setDlgState(() => recebimentoConfirmado = s.first),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Só entra no saldo da conta quando estiver Recebido.',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ],
+                  if (t == 'saida') ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      'Situação da despesa',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: true,
+                          label: Text('Pago'),
+                          icon: Icon(Icons.check_circle_outline_rounded),
+                        ),
+                        ButtonSegment(
+                          value: false,
+                          label: Text('Pendente'),
+                          icon: Icon(Icons.schedule_rounded),
+                        ),
+                      ],
+                      selected: {pagamentoConfirmado},
+                      onSelectionChanged: (s) =>
+                          setDlgState(() => pagamentoConfirmado = s.first),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Só sai do saldo da conta quando estiver Pago.',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                 ],
                 if (isTransfer) ...[
@@ -4372,6 +4501,15 @@ Future<void> showFinanceLancamentoEditorForTenant(
                                   Timestamp.fromDate(dataSelLocal),
                             };
                             if (!isTransfer) map['categoria'] = cat;
+                            if (!isTransfer) {
+                              if (t == 'entrada') {
+                                map['recebimentoConfirmado'] =
+                                    recebimentoConfirmado;
+                              } else {
+                                map['pagamentoConfirmado'] =
+                                    pagamentoConfirmado;
+                              }
+                            }
                             if (isTransfer) {
                               map['contaOrigemId'] = coId;
                               map['contaDestinoId'] = cdId;
@@ -4440,9 +4578,14 @@ Future<void> showFinanceLancamentoEditorForTenant(
       if (tt == 'entrada') {
         patch['contaOrigemId'] = FieldValue.delete();
         patch['contaOrigemNome'] = FieldValue.delete();
+        patch['pagamentoConfirmado'] = FieldValue.delete();
       } else if (tt == 'saida') {
         patch['contaDestinoId'] = FieldValue.delete();
         patch['contaDestinoNome'] = FieldValue.delete();
+        patch['recebimentoConfirmado'] = FieldValue.delete();
+      } else if (tt == 'transferencia') {
+        patch['pagamentoConfirmado'] = FieldValue.delete();
+        patch['recebimentoConfirmado'] = FieldValue.delete();
       }
       await existingDoc.reference.update(patch);
       if (context.mounted) {
@@ -4493,12 +4636,17 @@ Future<void> uploadFinanceComprovanteForLancamento(
   required DocumentSnapshot<Map<String, dynamic>> doc,
 }) async {
   final picker = ImagePicker();
+  final jaTem = ((doc.data()?['comprovanteUrl'] ?? '') as Object?)
+          ?.toString()
+          .trim()
+          .isNotEmpty ==
+      true;
   final source = await showDialog<ImageSource>(
     context: context,
     builder: (ctx) => SimpleDialog(
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-      title: const Text('Anexar comprovante'),
+      title: Text(jaTem ? 'Trocar comprovante' : 'Anexar comprovante'),
       children: [
         if (!kIsWeb)
           SimpleDialogOption(
@@ -4546,9 +4694,10 @@ Future<void> uploadFinanceComprovanteForLancamento(
     final url = await ref.getDownloadURL();
     await doc.reference.update({'comprovanteUrl': url});
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Comprovante anexado!',
-              style: TextStyle(color: Colors.white)),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
+              style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.green));
     }
   } catch (e) {
@@ -4677,19 +4826,46 @@ void showFinanceLancamentoDetailsBottomSheet(
                   fontWeight: FontWeight.w600,
                   color: Colors.grey.shade600)),
           Text(dataStr, style: const TextStyle(fontSize: 15)),
-          if (data['pagamentoConfirmado'] == true) ...[
+          if (!isTransfer) ...[
             const SizedBox(height: 12),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.verified_rounded,
-                    size: 20, color: Colors.green.shade700),
+                Icon(
+                  isEntrada
+                      ? (data['recebimentoConfirmado'] == false
+                          ? Icons.schedule_rounded
+                          : Icons.verified_rounded)
+                      : (data['pagamentoConfirmado'] == false
+                          ? Icons.schedule_rounded
+                          : Icons.verified_rounded),
+                  size: 20,
+                  color: (isEntrada
+                          ? (data['recebimentoConfirmado'] == false)
+                          : (data['pagamentoConfirmado'] == false))
+                      ? Colors.amber.shade800
+                      : Colors.green.shade700,
+                ),
                 const SizedBox(width: 8),
-                Text(
-                  'Pagamento confirmado',
-                  style: TextStyle(
+                Expanded(
+                  child: Text(
+                    isEntrada
+                        ? (data['recebimentoConfirmado'] == false
+                            ? 'Receita pendente (ainda não entra no saldo da conta).'
+                            : 'Receita recebida (entra no saldo da conta).')
+                        : (data['pagamentoConfirmado'] == false
+                            ? 'Despesa pendente (ainda não sai do saldo da conta).'
+                            : 'Despesa paga (sai do saldo da conta).'),
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: Colors.green.shade800),
+                      color: (isEntrada
+                              ? (data['recebimentoConfirmado'] == false)
+                              : (data['pagamentoConfirmado'] == false))
+                          ? Colors.amber.shade900
+                          : Colors.green.shade800,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -4736,4 +4912,95 @@ DateTime _parseDate(dynamic raw) {
       return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
   }
   return DateTime.now();
+}
+
+/// Data do lançamento (mesma lógica do card: createdAt ou date).
+DateTime _financeLancamentoInstant(Map<String, dynamic> data) =>
+    _parseDate(data['createdAt'] ?? data['date']);
+
+DateTime _financeLancamentoDiaSomente(Map<String, dynamic> data) {
+  final d = _financeLancamentoInstant(data);
+  return DateTime(d.year, d.month, d.day);
+}
+
+int _compareFinanceDocsChrono(
+  DocumentSnapshot<Map<String, dynamic>> a,
+  DocumentSnapshot<Map<String, dynamic>> b,
+) {
+  final da = _financeLancamentoInstant(a.data() ?? {});
+  final db = _financeLancamentoInstant(b.data() ?? {});
+  final c = da.compareTo(db);
+  if (c != 0) return c;
+  return a.id.compareTo(b.id);
+}
+
+/// Linha da lista: cabeçalho de dia ou cartão de lançamento.
+class _FinanceLancamentoListRow {
+  const _FinanceLancamentoListRow.header(DateTime d)
+      : isHeader = true,
+        day = d,
+        doc = null;
+
+  const _FinanceLancamentoListRow.item(DocumentSnapshot<Map<String, dynamic>> d)
+      : isHeader = false,
+        day = null,
+        doc = d;
+
+  final bool isHeader;
+  final DateTime? day;
+  final DocumentSnapshot<Map<String, dynamic>>? doc;
+}
+
+List<_FinanceLancamentoListRow> _buildLancamentosGroupedByDay(
+  List<DocumentSnapshot<Map<String, dynamic>>> docs,
+) {
+  if (docs.isEmpty) return [];
+  final sorted = List<DocumentSnapshot<Map<String, dynamic>>>.from(docs)
+    ..sort(_compareFinanceDocsChrono);
+  final rows = <_FinanceLancamentoListRow>[];
+  DateTime? prevDia;
+  for (final d in sorted) {
+    final data = d.data() ?? {};
+    final dia = _financeLancamentoDiaSomente(data);
+    if (prevDia == null ||
+        dia.year != prevDia.year ||
+        dia.month != prevDia.month ||
+        dia.day != prevDia.day) {
+      prevDia = dia;
+      rows.add(_FinanceLancamentoListRow.header(dia));
+    }
+    rows.add(_FinanceLancamentoListRow.item(d));
+  }
+  return rows;
+}
+
+class _FinanceDayHeaderTile extends StatelessWidget {
+  const _FinanceDayHeaderTile({required this.day});
+
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final s =
+        '${day.day.toString().padLeft(2, '0')}/${day.month.toString().padLeft(2, '0')}/${day.year}';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 4, bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Text(
+        s,
+        style: const TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 13,
+          color: Color(0xFF1E3A8A),
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
 }

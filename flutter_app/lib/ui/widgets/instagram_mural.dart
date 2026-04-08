@@ -13,6 +13,9 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show bytesLookLikeWebp, kAvisoFeedWebpQuality, kHighResWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
@@ -35,7 +38,9 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         postFeedCarouselAspectRatioForIndex,
         youtubeThumbnailUrlForVideoUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage, resolveNoticiaHostedVideoShareUrl;
+    show
+        buildNoticiaInviteShareMessage,
+        resolveNoticiaShareSheetMedia;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -61,9 +66,8 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show
         YahwehInstagramHoverCard,
         YahwehPremiumFeedShimmer,
-        resolveNoticiaSharePreviewImageUrl,
         scheduleFeedMediaWarmup;
-import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/mural_inline_native_video.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
@@ -505,12 +509,8 @@ class _InstagramMuralState extends State<InstagramMural> {
                                 } catch (_) {}
                                 final lat = d['locationLat'];
                                 final lng = d['locationLng'];
-                                final coverUrl =
-                                    await resolveNoticiaSharePreviewImageUrl(
-                                        d);
-                                final videoShareUrl =
-                                    await resolveNoticiaHostedVideoShareUrl(
-                                        d);
+                                final shareMedia =
+                                    await resolveNoticiaShareSheetMedia(d);
                                 final texto = (d['text'] ?? d['body'] ?? '')
                                     .toString();
                                 final slug = widget.churchSlug.trim();
@@ -552,8 +552,8 @@ class _InstagramMuralState extends State<InstagramMural> {
                                   shareLink: inviteCardUrl,
                                   shareMessage: msg,
                                   shareSubject: 'Convite — $churchName',
-                                  previewImageUrl: coverUrl,
-                                  videoPlayUrl: videoShareUrl,
+                                  previewImageUrl: shareMedia.previewImageUrl,
+                                  videoPlayUrl: shareMedia.videoPlayUrl,
                                   sharePositionOrigin: shareOrigin,
                                 );
                               },
@@ -1427,25 +1427,36 @@ class _PostCardState extends State<_PostCard>
                                       final h = c.maxHeight;
                                       final dpr =
                                           MediaQuery.devicePixelRatioOf(ctx);
-                                      return StableStorageImage(
-                                        storagePath: pathForSlide,
-                                        imageUrl: ps.imageUrl,
-                                        gsUrl: ps.gsUrl,
-                                        width: w,
-                                        height: h,
-                                        fit: BoxFit.cover,
-                                        memCacheWidth:
-                                            (w * dpr).round().clamp(64, 1400),
-                                        memCacheHeight:
-                                            (h * dpr).round().clamp(64, 1400),
-                                        placeholder: YahwehPremiumFeedShimmer
-                                            .mediaCover(),
-                                        errorWidget:
-                                            _brokenMuralMediaFallback(
-                                                title,
-                                                isEvento ? eventDateStr : '',
-                                                isEvento),
-                                        onLoadError: _muralImageLoadError,
+                                      return LazyViewportBuilder(
+                                        visibilityKey:
+                                            'mural-${widget.doc.id}-slide-$idx',
+                                        placeholder: SizedBox.expand(
+                                          child: YahwehPremiumFeedShimmer
+                                              .mediaCover(),
+                                        ),
+                                        builder: () => StableStorageImage(
+                                          storagePath: pathForSlide,
+                                          imageUrl: ps.imageUrl,
+                                          gsUrl: ps.gsUrl,
+                                          width: w,
+                                          height: h,
+                                          fit: BoxFit.cover,
+                                          memCacheWidth: (w * dpr)
+                                              .round()
+                                              .clamp(64, 2048),
+                                          memCacheHeight: (h * dpr)
+                                              .round()
+                                              .clamp(64, 2048),
+                                          placeholder:
+                                              YahwehPremiumFeedShimmer
+                                                  .mediaCover(),
+                                          errorWidget:
+                                              _brokenMuralMediaFallback(
+                                                  title,
+                                                  isEvento ? eventDateStr : '',
+                                                  isEvento),
+                                          onLoadError: _muralImageLoadError,
+                                        ),
                                       );
                                     },
                                   );
@@ -1774,30 +1785,40 @@ class _PostCardState extends State<_PostCard>
                                       builder: (ctx, box) {
                                         final w = box.maxWidth;
                                         final h = box.maxHeight;
-                                        final dpr = MediaQuery.devicePixelRatioOf(
-                                            ctx);
-                                        return StableStorageImage(
-                                          storagePath: pathForSlide,
-                                          imageUrl: ps.imageUrl,
-                                          gsUrl: ps.gsUrl,
-                                          width: w,
-                                          height: h,
-                                          fit: BoxFit.contain,
-                                          memCacheWidth: (w * dpr)
-                                              .round()
-                                              .clamp(64, 1440),
-                                          memCacheHeight: (h * dpr)
-                                              .round()
-                                              .clamp(64, 1440),
-                                          placeholder: YahwehPremiumFeedShimmer
-                                              .mediaCover(),
-                                          errorWidget:
-                                              _brokenMuralMediaFallback(
-                                            title,
-                                            isEvento ? eventDateStr : '',
-                                            isEvento,
+                                        final dpr =
+                                            MediaQuery.devicePixelRatioOf(
+                                                ctx);
+                                        return LazyViewportBuilder(
+                                          visibilityKey:
+                                              'mural-fs-${widget.doc.id}-$i',
+                                          placeholder: SizedBox.expand(
+                                            child: YahwehPremiumFeedShimmer
+                                                .mediaCover(),
                                           ),
-                                          onLoadError: _muralImageLoadError,
+                                          builder: () => StableStorageImage(
+                                            storagePath: pathForSlide,
+                                            imageUrl: ps.imageUrl,
+                                            gsUrl: ps.gsUrl,
+                                            width: w,
+                                            height: h,
+                                            fit: BoxFit.contain,
+                                            memCacheWidth: (w * dpr)
+                                                .round()
+                                                .clamp(64, 1440),
+                                            memCacheHeight: (h * dpr)
+                                                .round()
+                                                .clamp(64, 1440),
+                                            placeholder:
+                                                YahwehPremiumFeedShimmer
+                                                    .mediaCover(),
+                                            errorWidget:
+                                                _brokenMuralMediaFallback(
+                                              title,
+                                              isEvento ? eventDateStr : '',
+                                              isEvento,
+                                            ),
+                                            onLoadError: _muralImageLoadError,
+                                          ),
                                         );
                                       },
                                     );
@@ -1971,13 +1992,6 @@ class _PostCardState extends State<_PostCard>
     }
     final thumb = sanitizeImageUrl(thumbRaw);
     final hasThumb = isValidImageUrl(thumb);
-    /// Web: MP4/Storage no feed — pré-carrega como no site público (URL ou caminho Storage).
-    final webHostedPreview = kIsWeb &&
-        openUrl.isNotEmpty &&
-        (looksLikeHostedVideoFileUrl(openUrl) ||
-            (!openUrl.startsWith('http://') &&
-                !openUrl.startsWith('https://') &&
-                firebaseStorageMediaUrlLooksLike(openUrl)));
 
     bool isYoutubeOrVimeo(String u) {
       final low = u.toLowerCase();
@@ -2035,50 +2049,7 @@ class _PostCardState extends State<_PostCard>
             normalized.contains('firebasestorage.googleapis.com') ||
             normalized.contains('.firebasestorage.app'));
 
-    if (webHostedPreview) {
-      return ChurchPublicConstrainedMedia(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            PremiumHtmlFeedVideo(
-              videoUrl: openUrl,
-              visibilityKey: '${widget.doc.id}_v$slot',
-              showControls: true,
-              posterUrl: hasThumb ? thumb : null,
-              startLoadingImmediately: true,
-              onMostlyVisible: _onFeedVideoMostlyVisible,
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: openVideo,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                      'Toque para tela cheia no app/navegador',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.white.withValues(alpha: 0.95),
-                        fontWeight: FontWeight.w600,
-                        shadows: const [
-                          Shadow(blurRadius: 8, color: Colors.black54)
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
+    /// Web: não embutir `<video>` no feed — só capa + play; download/stream ao toque (dialog/tela cheia).
     if (!kIsWeb && isHostedFile) {
       return ChurchPublicConstrainedMedia(
         child: ClipRRect(
@@ -2947,8 +2918,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _pickImages() async {
     setState(() => _mediaPicking = true);
     try {
-      final files =
-          await MediaHandlerService.instance.pickAndProcessMultipleImages();
+      final webpQ = widget.type == 'aviso'
+          ? kAvisoFeedWebpQuality
+          : kHighResWebpQuality;
+      final files = await MediaHandlerService.instance
+          .pickMultiCropEncodeFeedWebpFromGallery(
+        context,
+        webpOutputQuality: webpQ,
+      );
       for (final f in files) {
         final bytes = await f.readAsBytes();
         if (!mounted) return;
@@ -2965,8 +2942,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _pickCamera() async {
     setState(() => _mediaPicking = true);
     try {
-      final file = await MediaHandlerService.instance.pickAndProcessImage(
+      final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
+        webCropContext: context,
+        webpOutputQuality: widget.type == 'aviso'
+            ? kAvisoFeedWebpQuality
+            : kHighResWebpQuality,
       );
       if (file != null) {
         final bytes = await file.readAsBytes();
@@ -2993,7 +2974,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return paths;
   }
 
-  Future<String> _upload(Uint8List bytes, String postId, int slotIndex) async {
+  Future<String> _upload(
+    Uint8List bytes,
+    String postId,
+    int slotIndex, {
+    void Function(double progress)? onProgress,
+  }) async {
     final storagePath = widget.type == 'evento'
         ? ChurchStorageLayout.eventPostPhotoPath(
             widget.tenantId, postId, slotIndex)
@@ -3002,7 +2988,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return MediaUploadService.uploadBytesWithRetry(
       storagePath: storagePath,
       bytes: bytes,
-      contentType: 'image/jpeg',
+      contentType:
+          bytesLookLikeWebp(bytes) ? 'image/webp' : 'image/jpeg',
+      onProgress: onProgress,
+      skipClientPrepare: bytesLookLikeWebp(bytes),
     );
   }
 
@@ -3029,13 +3018,24 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       var allUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       if (_newImages.isNotEmpty) {
         final startSlot = allUrls.length;
-        final uploaded = await Future.wait(
-          List.generate(
-            _newImages.length,
-            (i) => _upload(_newImages[i], postId, startSlot + i),
-          ),
-        );
-        allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
+        final n = _newImages.length;
+        GlobalUploadProgress.instance.start('A enviar imagens…');
+        try {
+          final uploaded = <String>[];
+          for (var i = 0; i < n; i++) {
+            final u = await _upload(
+              _newImages[i],
+              postId,
+              startSlot + i,
+              onProgress: (p) =>
+                  GlobalUploadProgress.instance.update((i + p) / n),
+            );
+            uploaded.add(u);
+          }
+          allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
+        } finally {
+          GlobalUploadProgress.instance.end();
+        }
       }
       var aspectRatio = 1.0;
       if (_newImages.isNotEmpty) {

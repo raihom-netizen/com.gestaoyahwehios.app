@@ -8,6 +8,8 @@ Widget buildPremiumHtmlVideo(
   bool muted = false,
   bool controls = true,
   bool objectFitContain = false,
+  String? posterUrl,
+  String preload = 'metadata',
 }) {
   return const SizedBox.shrink();
 }

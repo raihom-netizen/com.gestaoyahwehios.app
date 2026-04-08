@@ -34,11 +34,15 @@ class FirebaseStorageCleanupService {
   }
 
   /// Apaga o objeto referenciado por uma URL de download do Firebase Storage (token).
+  /// Falhas `object-not-found` são ignoradas (troca de foto / URL já removida).
   static Future<void> deleteObjectAtDownloadUrl(String? downloadUrl) async {
     final u = sanitizeImageUrl((downloadUrl ?? '').trim());
     if (u.isEmpty || !isFirebaseStorageHttpUrl(u)) return;
     try {
       await FirebaseStorage.instance.refFromURL(u).delete();
+    } on FirebaseException catch (e) {
+      if (e.code == 'object-not-found') return;
+      debugPrint('FirebaseStorageCleanupService.deleteObjectAtDownloadUrl: $e');
     } catch (e) {
       debugPrint('FirebaseStorageCleanupService.deleteObjectAtDownloadUrl: $e');
     }
@@ -120,6 +124,10 @@ class FirebaseStorageCleanupService {
     }
   }
 
+  /// **Delete-before-update** da foto de perfil: apaga URL/path antigos no Storage antes do novo `put`
+  /// no caminho canónico (`…/foto_perfil.jpg`), evitando “cemitério” de ficheiros e variantes.
+  /// Erros de objeto inexistente são ignorados em cada tentativa.
+  ///
   /// Só **foto de perfil** (principal + variantes + URLs no map). Não remove assinatura/digital.
   static Future<void> deleteMemberProfilePhotoArtifactsBeforeReplace({
     required String tenantId,
@@ -161,6 +169,7 @@ class FirebaseStorageCleanupService {
 
     Iterable<String> membrosFixedPaths(String stem) => <String>[
       'igrejas/$tid/membros/$stem/foto_perfil.jpg',
+      'igrejas/$tid/membros/$stem/foto_perfil.webp',
       'igrejas/$tid/membros/$stem/foto_perfil.jpeg',
       'igrejas/$tid/membros/$stem/foto_perfil.png',
       'igrejas/$tid/membros/$stem/foto_perfil_thumb.jpg',
@@ -1018,9 +1027,13 @@ class FirebaseStorageCleanupService {
     final safe = ChurchStorageLayout.patrimonioStorageSafeItemId(iid);
     final paths = <String>[
       '$base.jpg',
+      '$base.webp',
       '${base}_thumb.jpg',
+      '${base}_thumb.webp',
       '${base}_card.jpg',
+      '${base}_card.webp',
       '${base}_full.jpg',
+      '${base}_full.webp',
       // Legado: ficheiros planos `igrejas/.../patrimonio/{id}_{slot}*.jpg`
       'igrejas/$tid/patrimonio/${iid}_$slot.jpg',
       'igrejas/$tid/patrimonio/${iid}_${slot}_thumb.jpg',
@@ -1058,7 +1071,7 @@ class FirebaseStorageCleanupService {
         n == 'foto_item.png') {
       return true;
     }
-    return RegExp(r'^galeria_0[1-5]\.(jpg|jpeg|png)$').hasMatch(n);
+    return RegExp(r'^galeria_0[1-5]\.(jpg|jpeg|png|webp)$').hasMatch(n);
   }
 
   /// Derivados típicos da extensão **Resize Images** junto a `galeria_01.jpg` … `galeria_05.jpg`.

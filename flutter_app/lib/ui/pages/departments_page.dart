@@ -59,6 +59,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   bool _deptLoading = true;
   Object? _deptError;
 
+  /// Snapshot do último `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
+  /// popular — evita hub sem cards até o stream alinhar.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _hydratedDeptDocs;
+
   /// ID do documento da igreja (resolve slug/alias) — mesmo path do dashboard.
   String _effectiveTenantId = '';
 
@@ -77,6 +81,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _effectiveTenantId = widget.tenantId;
+      _hydratedDeptDocs = null;
       _startDeptLoad(forceServer: true);
     }
   }
@@ -88,11 +93,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       _deptError = null;
     });
     try {
-      await _resolveTenantAndLoad(forceServer: forceServer);
+      final loaded = await _resolveTenantAndLoad(forceServer: forceServer);
       if (!mounted) return;
       setState(() {
         _deptLoading = false;
         _deptError = null;
+        _hydratedDeptDocs = loaded.docs.isNotEmpty
+            ? List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                loaded.docs)
+            : null;
       });
     } catch (e, st) {
       debugPrint('DepartmentsPage._startDeptLoad: $e\n$st');
@@ -100,53 +109,24 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       setState(() {
         _deptLoading = false;
         _deptError = e;
+        _hydratedDeptDocs = null;
       });
     }
   }
 
-  /// Resolve tenant; se a subcoleção estiver vazia, **kit de boas-vindas** (11 departamentos base).
-  /// O catálogo base (11) continua disponível pelo botão “Gravar no sistema”.
+  /// Resolve tenant; para quem pode editar: kit vazio + **presets em falta** + backfill de metadados.
+  /// O botão “Gravar no sistema” continua útil para forçar sincronização manual.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
       {bool forceServer = false}) async {
     try {
-      _effectiveTenantId = await TenantResolverService
-          .resolveChurchDocIdPreferringNonEmptyDepartments(widget.tenantId);
+      _effectiveTenantId = await TenantResolverService.resolveEffectiveTenantId(
+          widget.tenantId);
     } catch (_) {
       _effectiveTenantId = widget.tenantId;
     }
     final tid = _tid.trim();
-    if (tid.isNotEmpty &&
-        AppPermissions.canEditDepartments(widget.role,
-            permissions: widget.permissions)) {
-      try {
-        await ChurchDepartmentsBootstrap.ensureWelcomeKitDocuments(
-          FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
-              .collection('departamentos'),
-          refreshToken: true,
-          onError: (e) {
-            if (!mounted) return;
-            if (e is FirebaseException && e.code == 'permission-denied') {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      'Sem permissão para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    backgroundColor: const Color(0xFFB45309),
-                    duration: const Duration(seconds: 8),
-                  ),
-                );
-              });
-            }
-          },
-        );
-      } catch (e) {
-        debugPrint('DepartmentsPage.ensureWelcomeKitDocuments: $e');
-      }
+    if (tid.isNotEmpty) {
+      await _bootstrapDefaultDepartmentsIfAllowed(tid);
     }
     var loaded = await _loadDepartments(forceServer: forceServer);
     // Na web/PWA o cache pode estar vazio enquanto o servidor já tem os docs; o retry
@@ -158,48 +138,139 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         debugPrint('DepartmentsPage fallback servidor (cache vazio): $e');
       }
     }
-    if (loaded.docs.isEmpty &&
-        tid.isNotEmpty &&
-        AppPermissions.canEditDepartments(widget.role,
-            permissions: widget.permissions)) {
+    // Igreja “irmã” (ex.: mesmo slug, doc _sistema/_bpc) pode ser onde os departamentos foram gravados.
+    if (loaded.docs.isEmpty && tid.isNotEmpty) {
       try {
-        await ChurchDepartmentsBootstrap.ensureWelcomeKitDocuments(
-          FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
-              .collection('departamentos'),
-          refreshToken: true,
-        );
+        final alt = await TenantResolverService
+            .resolveChurchDocIdPreferringNonEmptyDepartments(tid);
+        if (alt.isNotEmpty && alt != tid) {
+          _effectiveTenantId = alt;
+          loaded = await _loadDepartments(forceServer: true);
+        }
+      } catch (e) {
+        debugPrint('DepartmentsPage resolve id com departamentos: $e');
+      }
+    }
+    if (loaded.docs.isEmpty && tid.isNotEmpty) {
+      final bootstrapTid = _tid.trim();
+      if (bootstrapTid.isNotEmpty) {
+        await _bootstrapDefaultDepartmentsIfAllowed(bootstrapTid);
+      }
+      try {
         loaded = await _loadDepartments(forceServer: true);
       } catch (e) {
-        debugPrint('DepartmentsPage segunda tentativa kit: $e');
+        debugPrint('DepartmentsPage segunda tentativa após bootstrap: $e');
       }
     }
     return loaded;
   }
 
+  CollectionReference<Map<String, dynamic>> _departamentosCol(String tid) =>
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('departamentos');
+
+  void _onDepartmentsBootstrapError(Object e) {
+    if (!mounted) return;
+    if (e is FirebaseException && e.code == 'permission-denied') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Sem permissão para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFFB45309),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      });
+    }
+  }
+
+  /// Garante os 11 padrões no servidor: subcoleção vazia (welcome kit) + ids de preset em falta + metadados.
+  Future<void> _bootstrapDefaultDepartmentsIfAllowed(String tid) async {
+    if (!AppPermissions.canEditDepartments(widget.role,
+        permissions: widget.permissions)) {
+      return;
+    }
+    final col = _departamentosCol(tid);
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (_) {}
+    try {
+      await ChurchDepartmentsBootstrap.ensureWelcomeKitDocuments(
+        col,
+        refreshToken: false,
+        onError: _onDepartmentsBootstrapError,
+      );
+    } catch (e) {
+      debugPrint('DepartmentsPage.ensureWelcomeKitDocuments: $e');
+    }
+    try {
+      await ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(
+        col,
+        refreshToken: false,
+        onError: _onDepartmentsBootstrapError,
+      );
+    } catch (e) {
+      debugPrint('DepartmentsPage.ensureMissingPresetDocuments: $e');
+    }
+    try {
+      await ChurchDepartmentsBootstrap.backfillPresetMetadataWhereMissing(
+        col,
+        refreshToken: false,
+      );
+    } catch (e) {
+      debugPrint('DepartmentsPage.backfillPresetMetadata: $e');
+    }
+  }
+
   /// Cria no Firestore cada preset cujo id ainda não existe (lógica compartilhada com Escalas).
   Future<bool> _ensureMissingPresetDocuments() async {
     if (!_canWrite) return false;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (_) {}
     return ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(_col,
         refreshToken: false);
   }
 
-  /// Sem `orderBy` no Firestore: evita falha quando o índice composto não existe; ordena no cliente.
-  /// Por padrão lê do **servidor**: após criar presets o cache local pode ainda estar vazio e a lista vinha em branco.
-  /// Timeout evita tela cinza indefinida em rede lenta; fallback tenta cache.
+  /// Sem `orderBy` no Firestore: evita índice composto; ordena no cliente.
+  /// Primeiro cache (rápido na reabertura); se vazio ou [forceServer], confirma no servidor.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
       {bool forceServer = true}) async {
-    final opt = GetOptions(
-        source: forceServer ? Source.server : Source.serverAndCache);
+    if (!forceServer) {
+      try {
+        return await _col
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 20));
+      } on TimeoutException catch (e) {
+        debugPrint('DepartmentsPage._loadDepartments cache-only timeout: $e');
+        return _col.get(const GetOptions(source: Source.serverAndCache));
+      }
+    }
     try {
-      return await _col.get(opt).timeout(const Duration(seconds: 45));
+      final cached = await _col
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 14));
+      if (cached.docs.isNotEmpty) return cached;
     } on TimeoutException catch (e) {
-      debugPrint('DepartmentsPage._loadDepartments timeout: $e');
+      debugPrint('DepartmentsPage._loadDepartments cache-first timeout: $e');
+    } catch (e) {
+      debugPrint('DepartmentsPage._loadDepartments cache-first: $e');
+    }
+    try {
+      return await _col
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 28));
+    } on TimeoutException catch (e) {
+      debugPrint('DepartmentsPage._loadDepartments server timeout: $e');
       return _col
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 20));
     }
   }
 
@@ -258,7 +329,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   Future<void> _manualEnsurePresets() async {
     if (!_canWrite || !mounted) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {}
     final added = await _ensureMissingPresetDocuments();
     final patched =
         await ChurchDepartmentsBootstrap.backfillPresetMetadataWhereMissing(
@@ -879,6 +952,30 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
+  /// Evita cast `as int` quebrar o card (Firestore às vezes devolve String ou double).
+  (int, int) _deptCardGradientInts(Map<String, dynamic> m, String themeKey) {
+    final th = _themeByKey(themeKey);
+    final fallback1 = th['c1'] as int;
+    final fallback2 = th['c2'] as int;
+    int parse(dynamic v, int fallback) {
+      if (v == null) return fallback;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      final s = v.toString().trim();
+      if (s.isEmpty) return fallback;
+      if (s.startsWith('0x') || s.startsWith('0X')) {
+        return int.tryParse(s.replaceFirst(RegExp(r'^0x', caseSensitive: false), ''), radix: 16) ??
+            fallback;
+      }
+      return int.tryParse(s) ?? fallback;
+    }
+
+    return (
+      parse(m['bgColor1'], fallback1),
+      parse(m['bgColor2'], fallback2),
+    );
+  }
+
   Widget _iconChip(String key, {double radius = 20}) {
     final opt = _iconOptions.firstWhere((e) => e['key'] == key,
         orElse: () => _iconOptions.first);
@@ -1456,8 +1553,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final iconKey = (m['iconKey'] ?? 'welcome').toString();
     final themeKey = (m['themeKey'] ?? iconKey).toString();
     final bgImageUrl = (m['bgImageUrl'] ?? '').toString();
-    final c1 = (m['bgColor1'] ?? _themeByKey(themeKey)['c1']) as int;
-    final c2 = (m['bgColor2'] ?? _themeByKey(themeKey)['c2']) as int;
+    final (c1, c2) = _deptCardGradientInts(m, themeKey);
     final membrosAtivos = memberCounts[d.id] ?? 0;
     final bgSanitized = sanitizeImageUrl(bgImageUrl);
     final hasBg = isValidImageUrl(bgSanitized);
@@ -2199,34 +2295,43 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                       ),
                     );
                   }
+                  // Departamentos por fora: se a stream de membros atrasar (web/cache), o hub não fica em branco.
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _membersCol.snapshots(),
-                    builder: (context, memSnap) {
-                      final memberCounts = _memberCountsFromMembrosSnap(
-                        memSnap.hasData ? memSnap.data : null,
-                      );
+                    key: ValueKey<String>('dept_stream_$_tid'),
+                    stream: _col.snapshots(),
+                    builder: (context, deptSnap) {
+                      if (deptSnap.hasError) {
+                        return Padding(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: padding.horizontal,
+                              vertical: ThemeCleanPremium.spaceLg),
+                          child: ChurchPanelErrorBody(
+                            title:
+                                'Não foi possível acompanhar departamentos',
+                            error: deptSnap.error,
+                            onRetry: () =>
+                                _refreshDepartments(forceServer: true),
+                          ),
+                        );
+                      }
+                      final hasHydrated =
+                          _hydratedDeptDocs != null &&
+                              _hydratedDeptDocs!.isNotEmpty;
+                      if (deptSnap.connectionState ==
+                              ConnectionState.waiting &&
+                          !deptSnap.hasData &&
+                          !hasHydrated) {
+                        return const ChurchPanelLoadingBody();
+                      }
                       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _col.snapshots(),
-                        builder: (context, deptSnap) {
-                          if (deptSnap.hasError) {
-                            return Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: padding.horizontal,
-                                vertical: ThemeCleanPremium.spaceLg),
-                              child: ChurchPanelErrorBody(
-                                title:
-                                    'Não foi possível acompanhar departamentos',
-                                error: deptSnap.error,
-                                onRetry: () =>
-                                    _refreshDepartments(forceServer: true),
-                              ),
-                            );
-                          }
-                          if (deptSnap.connectionState ==
-                                  ConnectionState.waiting &&
-                              !deptSnap.hasData) {
-                            return const ChurchPanelLoadingBody();
-                          }
+                        key: ValueKey<String>('mem_stream_$_tid'),
+                        stream: _membersCol.snapshots(),
+                        builder: (context, memSnap) {
+                          final memberCounts = _memberCountsFromMembrosSnap(
+                            memSnap.hasData && !memSnap.hasError
+                                ? memSnap.data
+                                : null,
+                          );
                           int welcomeOrder(
                               QueryDocumentSnapshot<Map<String, dynamic>> d) {
                             final m = d.data();
@@ -2237,7 +2342,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                             return 1000;
                           }
 
-                          var docs = deptSnap.data?.docs ?? [];
+                          final streamDocs = deptSnap.data?.docs ?? [];
+                          final meta = deptSnap.data?.metadata;
+                          final serverSaysEmpty = deptSnap.hasData &&
+                              streamDocs.isEmpty &&
+                              meta != null &&
+                              !meta.isFromCache;
+                          var docs = streamDocs.isNotEmpty
+                              ? streamDocs
+                              : (!serverSaysEmpty && hasHydrated)
+                                  ? List<QueryDocumentSnapshot<
+                                          Map<String, dynamic>>>.from(
+                                      _hydratedDeptDocs!)
+                                  : streamDocs;
                           docs = List.from(docs)
                             ..sort((a, b) {
                               final oa = welcomeOrder(a);
@@ -2319,37 +2436,171 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: EdgeInsets.fromLTRB(
-                                padding.left, 0, padding.right, 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Hub de departamentos',
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                    color: ThemeCleanPremium.onSurface,
-                                    letterSpacing: -0.5,
-                                  ),
+                                padding.left, 0, padding.right, 16),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.07),
+                                    ThemeCleanPremium.cardBackground,
+                                    ThemeCleanPremium.primaryLighter
+                                        .withValues(alpha: 0.14),
+                                  ],
+                                  stops: const [0.0, 0.45, 1.0],
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Estrutura enxuta: líderes em destaque, contagem ao vivo e atalho para WhatsApp. Toque no card para gerir a equipe.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    height: 1.35,
-                                    color: ThemeCleanPremium.onSurfaceVariant,
-                                  ),
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusLg),
+                                border: Border.all(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.14),
                                 ),
-                              ],
+                                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                              ),
+                              padding: const EdgeInsets.fromLTRB(
+                                  20, 18, 20, 18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              ThemeCleanPremium.primary,
+                                              ThemeCleanPremium.primaryLight,
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: ThemeCleanPremium.primary
+                                                  .withValues(alpha: 0.35),
+                                              blurRadius: 12,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(11),
+                                          child: Icon(
+                                            Icons.hub_rounded,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Hub de departamentos',
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.w800,
+                                                color: ThemeCleanPremium
+                                                    .onSurface,
+                                                letterSpacing: -0.5,
+                                                height: 1.15,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Estrutura enxuta: líderes em destaque, contagem ao vivo e atalho para WhatsApp. Toque no card para gerir a equipe.',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                height: 1.4,
+                                                color: ThemeCleanPremium
+                                                    .onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
+                        if (wide)
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(
+                              listPad.left,
+                              0,
+                              listPad.right,
+                              ThemeCleanPremium.spaceSm,
+                            ),
+                            sliver: SliverToBoxAdapter(
+                              child: LayoutBuilder(
+                                builder: (context, c) {
+                                  const gap = 14.0;
+                                  final w = c.maxWidth;
+                                  final half = w > gap
+                                      ? (w - gap) / 2
+                                      : w;
+                                  return Wrap(
+                                    spacing: gap,
+                                    runSpacing: gap,
+                                    children: [
+                                      for (var i = 0;
+                                          i < docsVisible.length;
+                                          i++)
+                                        SizedBox(
+                                          width: half,
+                                          child: _buildDepartmentCard(
+                                            docsVisible[i],
+                                            memberCounts,
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          )
+                        else
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(
+                              listPad.left,
+                              0,
+                              listPad.right,
+                              ThemeCleanPremium.spaceSm,
+                            ),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, i) {
+                                  return Padding(
+                                    padding: EdgeInsets.only(
+                                      bottom: i < docsVisible.length - 1
+                                          ? ThemeCleanPremium.spaceSm
+                                          : 0,
+                                    ),
+                                    child: _buildDepartmentCard(
+                                        docsVisible[i], memberCounts),
+                                  );
+                                },
+                                childCount: docsVisible.length,
+                              ),
+                            ),
+                          ),
                         if (_canWrite)
                           SliverToBoxAdapter(
                             child: Padding(
                               padding: EdgeInsets.fromLTRB(
-                                  padding.left, 0, padding.right, 12),
+                                  padding.left, 8, padding.right, 12),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 14, vertical: 12),
@@ -2443,7 +2694,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
-                                        '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — abaixo aparecem com rótulo temporário; toque para editar e preencher o nome.',
+                                        '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — aparecem na lista com rótulo temporário; toque para editar e preencher o nome.',
                                         style: TextStyle(
                                             fontSize: 13,
                                             height: 1.35,
@@ -2455,44 +2706,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                               ),
                             ),
                           ),
-                        if (wide)
-                          SliverPadding(
-                            padding: listPad,
-                            sliver: SliverGrid(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 14,
-                                mainAxisSpacing: 14,
-                                childAspectRatio: 1.32,
-                              ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) => _buildDepartmentCard(
-                                    docsVisible[i], memberCounts),
-                                childCount: docsVisible.length,
-                              ),
-                            ),
-                          )
-                        else
-                          SliverPadding(
-                            padding: listPad,
-                            sliver: SliverList(
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) {
-                                  return Padding(
-                                    padding: EdgeInsets.only(
-                                      bottom: i < docsVisible.length - 1
-                                          ? ThemeCleanPremium.spaceSm
-                                          : 0,
-                                    ),
-                                    child: _buildDepartmentCard(
-                                        docsVisible[i], memberCounts),
-                                  );
-                                },
-                                childCount: docsVisible.length,
-                              ),
-                            ),
-                          ),
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: listPad.bottom),
+                        ),
                                   ],
                                 ),
                               ),

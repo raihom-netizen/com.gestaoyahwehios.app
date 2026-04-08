@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Dados visuais da igreja para PDFs de relatórios (logo + nome + cor de destaque).
@@ -74,14 +75,19 @@ Future<Uint8List?> _fetchOneLogoCandidate(String raw) async {
 
 /// Carrega nome, cor e bytes da logo da igreja (Firestore + Storage + config de certificados).
 Future<ReportPdfBranding> loadReportPdfBranding(String tenantId) async {
-  final tid = tenantId.trim();
-  if (tid.isEmpty) {
+  final seed = tenantId.trim();
+  if (seed.isEmpty) {
     return ReportPdfBranding(
       churchName: '',
       logoBytes: null,
       accent: ReportPdfBranding.defaultAccent,
     );
   }
+  var tid = seed;
+  try {
+    final r = (await TenantResolverService.resolveEffectiveTenantId(seed)).trim();
+    if (r.isNotEmpty) tid = r;
+  } catch (_) {}
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {

@@ -1,11 +1,16 @@
 # Codemagic — Flutter na RAIZ do repo (sem pasta flutter_app nos scripts).
 # Assinatura: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — ver codemagic.yaml do monorepo.
+# Preferir o workflow em ../codemagic.yaml (monorepo com flutter_app/) para o mesmo repositório.
 
 workflows:
   ios-release:
     name: iOS Release (TestFlight)
     max_build_duration: 120
     instance_type: mac_mini_m2
+    cache:
+      cache_paths:
+        - ios/Pods
+        - $HOME/Library/Caches/CocoaPods
     environment:
       groups:
         - appstore_credentials
@@ -151,11 +156,35 @@ workflows:
           _persist_asc_pem_to_cm_env
       - name: Code signing (Xcode)
         script: |
+          set -e
           cd ios
           xcode-project use-profiles
+          echo "--- Identidades de assinatura ---"
+          security find-identity -v -p codesigning | head -40 || true
       - name: Flutter build IPA
         script: |
-          flutter build ipa --release --export-options-plist=/tmp/ExportOptions.plist
+          set -e
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
+          BUILD_NAME="${VERSION_LINE%%+*}"
+          if [ -z "$BUILD_NAME" ]; then echo "ERRO: version no pubspec"; exit 1; fi
+          if [ -n "${CM_BUILD_NUMBER:-}" ]; then BN="$CM_BUILD_NUMBER"; else BN="${VERSION_LINE##*+}"; echo "AVISO: CM_BUILD_NUMBER vazio — pubspec +$BN"; fi
+          [ -n "$BN" ] || BN="1"
+          echo "build-name=$BUILD_NAME build-number=$BN"
+          flutter build ipa --release \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BN" \
+            --export-options-plist=/tmp/ExportOptions.plist
+      - name: IPA na raiz do clone (artefactos)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          mkdir -p build/ios/ipa
+          if [ -d build/ios/ipa ]; then
+            find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} "$ROOT/" \; 2>/dev/null || true
+          fi
+          for f in build/ios/ipa/*.ipa; do [ -f "$f" ] && cp -f "$f" "$ROOT/" && break; done
+          ls -la "$ROOT"/*.ipa 2>/dev/null || ls -la build/ios/ipa/ || true
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
@@ -175,6 +204,7 @@ workflows:
             --release-notes "$NOTES"
     artifacts:
       - build/ios/ipa/*.ipa
+      - "*.ipa"
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:

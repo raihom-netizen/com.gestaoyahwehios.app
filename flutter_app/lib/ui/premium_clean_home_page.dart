@@ -244,32 +244,6 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
             'Se você for administrador, após login acesse o Painel ADM para liberar licenças, definir plano Free e configurar pagamentos.',
             style: TextStyle(color: Colors.grey.shade700, height: 1.3, fontSize: 12),
           ),
-          const SizedBox(height: 14),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          Text(
-            'Sou gestor — criar minha igreja',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/signup'),
-              icon: const Icon(Icons.g_mobiledata_rounded, size: 22),
-              label: const Text('Criar conta com Google (30 dias grátis)'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '30 dias para testar. Depois, complete os dados da igreja (logo, endereço, etc.) no painel.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
-          ),
         ],
       ),
     );

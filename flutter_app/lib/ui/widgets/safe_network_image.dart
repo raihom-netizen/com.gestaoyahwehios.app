@@ -1375,6 +1375,8 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
 }
 
 /// Último recurso na web: [Image.network] sem passar por [SafeNetworkImage] (evita recursão).
+/// Com **timeout** — URLs bloqueadas por CORS/rede podem deixar o [loadingBuilder] ativo para sempre;
+/// após [kWebNetworkImageGiveUpSeconds] segundos exibe [errorWidget] (site divulgação / capas).
 Widget _webNetworkImageLastResort({
   required String url,
   required BoxFit fit,
@@ -1386,26 +1388,123 @@ Widget _webNetworkImageLastResort({
   int? cacheHeight,
   void Function(String url, Object error)? onDecodeError,
 }) {
-  final err = errorWidget ?? defaultImageErrorWidget();
-  final ph = placeholder ?? defaultImagePlaceholder();
-  return Image.network(
-    url,
+  return _WebNetworkImageLastResort(
+    url: url,
     fit: fit,
     width: width,
     height: height,
-    gaplessPlayback: true,
+    placeholder: placeholder,
+    errorWidget: errorWidget,
     cacheWidth: cacheWidth,
     cacheHeight: cacheHeight,
-    filterQuality: filterQualityForMemCache(cacheWidth, cacheHeight),
-    loadingBuilder: (_, child, progress) {
-      if (progress == null) return child;
-      return Stack(fit: StackFit.expand, children: [child, ph]);
-    },
-    errorBuilder: (_, error, __) {
-      onDecodeError?.call(url, error);
-      return err;
-    },
+    onDecodeError: onDecodeError,
   );
+}
+
+/// Segundos máximos de espera pelo browser em [Image.network] (evita spinner eterno na web).
+const int kWebNetworkImageGiveUpSeconds = 22;
+
+class _WebNetworkImageLastResort extends StatefulWidget {
+  const _WebNetworkImageLastResort({
+    required this.url,
+    required this.fit,
+    this.width,
+    this.height,
+    this.placeholder,
+    this.errorWidget,
+    this.cacheWidth,
+    this.cacheHeight,
+    this.onDecodeError,
+  });
+
+  final String url;
+  final BoxFit fit;
+  final double? width;
+  final double? height;
+  final Widget? placeholder;
+  final Widget? errorWidget;
+  final int? cacheWidth;
+  final int? cacheHeight;
+  final void Function(String url, Object error)? onDecodeError;
+
+  @override
+  State<_WebNetworkImageLastResort> createState() =>
+      _WebNetworkImageLastResortState();
+}
+
+class _WebNetworkImageLastResortState extends State<_WebNetworkImageLastResort> {
+  Timer? _giveUpTimer;
+  bool _timedOut = false;
+  bool _completed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      _giveUpTimer = Timer(
+        const Duration(seconds: kWebNetworkImageGiveUpSeconds),
+        () {
+          if (!mounted || _completed) return;
+          widget.onDecodeError?.call(
+            widget.url,
+            TimeoutException(
+              'Image.network não concluiu em ${kWebNetworkImageGiveUpSeconds}s',
+            ),
+          );
+          setState(() => _timedOut = true);
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _giveUpTimer?.cancel();
+    super.dispose();
+  }
+
+  void _markComplete() {
+    if (_completed) return;
+    _completed = true;
+    _giveUpTimer?.cancel();
+    _giveUpTimer = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_timedOut) {
+      return widget.errorWidget ?? defaultImageErrorWidget();
+    }
+    final err = widget.errorWidget ?? defaultImageErrorWidget();
+    final ph = widget.placeholder ?? defaultImagePlaceholder();
+    return Image.network(
+      widget.url,
+      fit: widget.fit,
+      width: widget.width,
+      height: widget.height,
+      gaplessPlayback: true,
+      cacheWidth: widget.cacheWidth,
+      cacheHeight: widget.cacheHeight,
+      filterQuality:
+          filterQualityForMemCache(widget.cacheWidth, widget.cacheHeight),
+      loadingBuilder: (_, child, progress) {
+        if (progress == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _markComplete();
+            }
+          });
+          return child;
+        }
+        return Stack(fit: StackFit.expand, children: [child, ph]);
+      },
+      errorBuilder: (_, error, __) {
+        _markComplete();
+        widget.onDecodeError?.call(widget.url, error);
+        return err;
+      },
+    );
+  }
 }
 
 /// Baixa bytes do Firebase Storage na web (token + SDK). [refFromURL] pode falhar em alguns builds;
@@ -1593,11 +1692,35 @@ Future<bool> storageBytesRenderWithImageMemory(Uint8List bytes) async {
   }
 }
 
-/// LRU simples para bytes de fotos de perfil (membros) — evita re-download ao rolar a lista.
+class _MemberProfileBytesEntry {
+  final Uint8List bytes;
+  final DateTime insertedAt;
+  _MemberProfileBytesEntry(this.bytes, this.insertedAt);
+}
+
+/// Bytes em memória para fotos de perfil (Firebase Storage) no painel e listas.
+///
+/// - **Chave estável:** caminho do objeto (`igrejas/.../membros/.../foto_perfil.jpg`), não a URL com
+///   `token=` diferente — evita re-download quando só o token no Firestore muda.
+/// - **TTL:** 30 dias por entrada (após isso, próximo frame volta a buscar bytes).
+/// - **LRU:** até [maxEntries] fotos distintas (listas grandes).
+///
+/// Não substitui o disco do SO; para URLs **não** Storage, [SafeNetworkImage] usa [CachedNetworkImage]
+/// com cache em disco do pacote. **Web + Storage:** continua a usar este LRU + [ImageCache] do Flutter.
 class MemberProfilePhotoBytesCache {
-  static final Map<String, Uint8List> _map = {};
+  static final Map<String, _MemberProfileBytesEntry> _map = {};
   static final List<String> _order = [];
-  static const int maxEntries = 120;
+  static const int maxEntries = 400;
+  static const Duration ttl = Duration(days: 30);
+
+  /// Identifica o mesmo ficheiro após rotação de token na query string.
+  static String _stableKey(String rawUrl) {
+    final u = sanitizeImageUrl(rawUrl);
+    if (u.isEmpty) return '';
+    final path = firebaseStorageObjectPathFromHttpUrl(u);
+    if (path != null && path.isNotEmpty) return 'p:$path';
+    return 'u:$u';
+  }
 
   static void clear() {
     _map.clear();
@@ -1605,23 +1728,34 @@ class MemberProfilePhotoBytesCache {
   }
 
   static Uint8List? get(String rawUrl) {
-    final k = sanitizeImageUrl(rawUrl);
+    final k = _stableKey(rawUrl);
     if (k.isEmpty) return null;
-    return _map[k];
+    final e = _map[k];
+    if (e == null) return null;
+    if (DateTime.now().difference(e.insertedAt) > ttl) {
+      remove(rawUrl);
+      return null;
+    }
+    _order.remove(k);
+    _order.add(k);
+    return e.bytes;
   }
 
   static void remove(String rawUrl) {
-    final k = sanitizeImageUrl(rawUrl);
+    final k = _stableKey(rawUrl);
     if (k.isEmpty) return;
     _map.remove(k);
     _order.remove(k);
   }
 
   static void put(String rawUrl, Uint8List bytes) {
-    final k = sanitizeImageUrl(rawUrl);
+    final k = _stableKey(rawUrl);
     if (k.isEmpty || bytes.length < 24) return;
+    final now = DateTime.now();
     if (_map.containsKey(k)) {
-      _map[k] = bytes;
+      _map[k] = _MemberProfileBytesEntry(bytes, now);
+      _order.remove(k);
+      _order.add(k);
       return;
     }
     while (_order.length >= maxEntries) {
@@ -1629,7 +1763,7 @@ class MemberProfilePhotoBytesCache {
       _map.remove(old);
     }
     _order.add(k);
-    _map[k] = bytes;
+    _map[k] = _MemberProfileBytesEntry(bytes, now);
   }
 }
 
@@ -2036,6 +2170,19 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
 
   /// Web: [http.get] costuma falhar (CORS) em URLs do Storage; o SDK usa credenciais e funciona.
   Future<void> _loadWebBytes() async {
+    try {
+      await _loadWebBytesImpl();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _webAttemptDone = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadWebBytesImpl() async {
     final url = sanitizeImageUrl(widget.imageUrl);
     if (!isValidImageUrl(url) || !kIsWeb) {
       if (mounted) setState(() => _webAttemptDone = true);
@@ -2349,12 +2496,10 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
   }
 }
 
-/// Pré-carrega imagens para evitar "carregando" ao rolar listas grandes.
+/// Pré-carrega imagens para evitar "carregando" ao rolar listas grandes (feed de avisos).
 ///
-/// **Preferir sempre isto** em vez de `precacheImage(NetworkImage(url), context)` com URLs
-/// que podem ser Firebase Storage: na **web**, [NetworkImage] não usa o SDK e falha com
-/// token/CORS — aqui essas URLs são ignoradas (a exibição continua em [SafeNetworkImage] /
-/// [FreshFirebaseStorageImage] / [StableStorageImage]).
+/// URLs do Firebase Storage na **web**: renova token com [freshFirebaseStorageDisplayUrl]
+/// antes do [precacheImage] — assim o pré-carregamento funciona como no app nativo.
 ///
 /// Uso: logo, mural, avisos, património, carteirinha, site público.
 Future<void> preloadNetworkImages(
@@ -2371,9 +2516,13 @@ Future<void> preloadNetworkImages(
   await Future.wait(cleaned.map((u) async {
     await _mediaPreloadLimiter.run(() async {
       try {
-        // Na web, [NetworkImage] não usa o SDK do Storage — falha com URLs tokenizadas / CORS.
-        if (kIsWeb && isFirebaseStorageHttpUrl(u)) return;
-        await precacheImage(NetworkImage(u), context);
+        var use = u;
+        if (kIsWeb && firebaseStorageMediaUrlLooksLike(u)) {
+          use = await freshFirebaseStorageDisplayUrl(u);
+        }
+        if (!isValidImageUrl(use)) return;
+        if (!context.mounted) return;
+        await precacheImage(NetworkImage(use), context);
         _preloadedMediaUrls.add(u);
       } catch (_) {}
     });

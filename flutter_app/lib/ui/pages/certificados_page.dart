@@ -12,7 +12,15 @@ import 'package:pdf/pdf.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart';
+import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
+    show
+        CertPdfGalaBatchMemberSlice,
+        CertPdfPipelineParams,
+        CertPdfPipelineSignatory,
+        resolveCertificatePdfShared,
+        runCertificateGalaLuxoBatchPdfPipeline,
+        runCertificatePdfPipeline,
+        warmCertificatePdfFontAssets;
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
@@ -30,16 +38,14 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         SafeCircleAvatarImage,
+        SafeNetworkImage,
         FreshFirebaseStorageImage,
         churchTenantLogoUrl,
         churchTenantLogoUrlCandidates,
-        firebaseStorageBytesFromDownloadUrl,
         firebaseStorageMediaUrlLooksLike,
         imageUrlFromMap,
-        isFirebaseStorageHttpUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
-        refreshFirebaseStorageDownloadUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
@@ -296,6 +302,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
     _membersFuture = _loadMembers();
     _loadTenant();
     _loadCertConfig();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      warmCertificatePdfFontAssets();
+    });
   }
 
   Future<void> _loadCertConfig() async {
@@ -1777,54 +1786,52 @@ class _CertificadosPageState extends State<CertificadosPage> {
         return;
       }
 
+      final dataHojeZip = _formatDateBr(DateTime.now());
+      final localTxtZip = _tenantData?['cidade'] != null
+          ? '${_tenantData!['cidade']}/${_tenantData?['estado'] ?? ''}'
+          : '';
+      final visualLoteZip = () {
+        final v = (_certConfig?['defaultVisualTemplateId'] ?? 'classico_dourado')
+            .toString()
+            .trim();
+        if (v.isEmpty) return 'classico_dourado';
+        return v;
+      }();
+      final layoutLoteZip = _layoutForTemplate(template);
+
+      final zipSnapshots = <Map<String, dynamic>>[];
+      final zipRows = <
+          ({
+            String docId,
+            String nome,
+            String cpf,
+            String textoFinal,
+          })>[];
       for (var i = 0; i < selectedDocs.length; i++) {
         final doc = selectedDocs[i];
         final data = doc.data();
         final nome =
             (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
         final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-        final dataHoje = _formatDateBr(DateTime.now());
         final textoModelo = _textoModeloForTemplate(template);
         final textoComPlaceholders = textoModelo
             .replaceAll('{NOME}', nome)
             .replaceAll('{CPF}', _formatCpf(cpf));
         final textoFinal = _resolveCertificateText(
           textoComPlaceholders,
-          issuedDate: dataHoje,
+          issuedDate: dataHojeZip,
         );
-        final localTxt = _tenantData?['cidade'] != null
-            ? '${_tenantData!['cidade']}/${_tenantData?['estado'] ?? ''}'
-            : '';
-        final layoutLoteZip = _layoutForTemplate(template);
-
-        cur.value = i + 1;
-        titleNv.value = 'Certificado ${i + 1}/$total';
-        prog01.value = ((i + 0.08) / total).clamp(0.04, 0.96);
-        phase.value =
-            'Certificado ${i + 1} de $total — registo e PDF…';
-
-        final visualLote = () {
-          final v = (_certConfig?['defaultVisualTemplateId'] ?? 'classico_dourado')
-              .toString()
-              .trim();
-          if (v.isEmpty) return 'classico_dourado';
-          return v;
-        }();
-
-        phase.value =
-            'Certificado ${i + 1} de $total — a registar protocolo…';
-        final protocolId = await CertificateEmitidoService.registerEmissao(
-          tenantId: widget.tenantId,
-          snapshot: _certificateProtocolSnapshot(
+        zipSnapshots.add(
+          _certificateProtocolSnapshot(
             memberId: doc.id,
             template: template,
             nomeMembro: nome,
             cpfFormatado: _formatCpf(cpf),
             textoCorpo: textoFinal,
             textoAdicional: '',
-            issuedDateStr: dataHoje,
-            local: localTxt,
-            visualTemplateId: visualLote,
+            issuedDateStr: dataHojeZip,
+            local: localTxtZip,
+            visualTemplateId: visualLoteZip,
             layoutId: layoutLoteZip,
             fontStyleId: _fontStyleForTemplate(template),
             colorPrimaryArgb: _corForTemplate(template).toARGB32(),
@@ -1839,11 +1846,82 @@ class _CertificadosPageState extends State<CertificadosPage> {
             effectiveSignatories: effective,
           ),
         );
-        final qrLote =
-            CertificadoConsultaUrl.protocolValidationUrl(protocolId);
+        zipRows.add((
+          docId: doc.id,
+          nome: nome,
+          cpf: cpf,
+          textoFinal: textoFinal,
+        ));
+      }
 
+      titleNv.value = 'Certificado 1/$total';
+      phase.value = 'A registar protocolos (${zipSnapshots.length})…';
+      prog01.value = 0.06;
+      final protocolIdsZip =
+          await CertificateEmitidoService.registerEmissaoBatch(
+        tenantId: widget.tenantId,
+        snapshots: zipSnapshots,
+      );
+
+      final signatoriesForZip = [
+        for (final s in effective)
+          CertPdfPipelineSignatory(
+            memberId: s.memberId,
+            nome: s.nome,
+            cargo: s.cargo,
+            assinaturaUrlHint:
+                s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+          ),
+      ];
+
+      final firstRow = zipRows.first;
+      phase.value =
+          'A preparar imagens e fontes (uma vez para $total certificados)…';
+      final sharedZipResolved = await resolveCertificatePdfShared(
+        CertPdfPipelineParams(
+          tenantId: widget.tenantId,
+          logoFetchCandidates: _logoCertCandidateUrls,
+          logoUrlFallback: _logoCert,
+          titulo: _tituloForTemplate(template),
+          subtitulo: _subtituloForTemplate(template),
+          texto: firstRow.textoFinal,
+          textoAdicional: '',
+          visualTemplateId: visualLoteZip,
+          includeInstitutionalPastorSignature:
+              includeInstitutionalPastorSignature,
+          institutionalPastorNome: fallbackNome,
+          institutionalPastorCargo: fallbackCargo,
+          nomeMembro: firstRow.nome,
+          cpfFormatado: _formatCpf(firstRow.cpf),
+          nomeIgreja: _nomeIgreja,
+          local: localTxtZip,
+          issuedDate: dataHojeZip,
+          layoutId: layoutLoteZip,
+          fontStyleId: _fontStyleForTemplate(template),
+          colorPrimaryArgb: _corForTemplate(template).toARGB32(),
+          colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+          pastorManual: fallbackNome,
+          cargoManual: fallbackCargo,
+          useDigitalSignature: useDigital,
+          qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
+              protocolIdsZip.first),
+          signatoriesForPdf: signatoriesForZip,
+        ),
+        onProgress: (m, p) {
+          phase.value = m;
+          prog01.value = 0.05 + p * 0.40;
+        },
+        currentIndex: 1,
+        totalCount: total,
+      );
+
+      for (var i = 0; i < zipRows.length; i++) {
+        final row = zipRows[i];
+        cur.value = i + 1;
+        titleNv.value = 'Certificado ${i + 1}/$total';
+        prog01.value = 0.45 + (i + 0.08) / total * 0.47;
         phase.value =
-            'Certificado ${i + 1} de $total — baixando e gerando PDF…';
+            'Certificado ${i + 1} de $total — a gerar PDF…';
 
         final bytes = await runCertificatePdfPipeline(
           CertPdfPipelineParams(
@@ -1852,18 +1930,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
             logoUrlFallback: _logoCert,
             titulo: _tituloForTemplate(template),
             subtitulo: _subtituloForTemplate(template),
-            texto: textoFinal,
+            texto: row.textoFinal,
             textoAdicional: '',
-            visualTemplateId: visualLote,
+            visualTemplateId: visualLoteZip,
             includeInstitutionalPastorSignature:
                 includeInstitutionalPastorSignature,
             institutionalPastorNome: fallbackNome,
             institutionalPastorCargo: fallbackCargo,
-            nomeMembro: nome,
-            cpfFormatado: _formatCpf(cpf),
+            nomeMembro: row.nome,
+            cpfFormatado: _formatCpf(row.cpf),
             nomeIgreja: _nomeIgreja,
-            local: localTxt,
-            issuedDate: dataHoje,
+            local: localTxtZip,
+            issuedDate: dataHojeZip,
             layoutId: layoutLoteZip,
             fontStyleId: _fontStyleForTemplate(template),
             colorPrimaryArgb: _corForTemplate(template).toARGB32(),
@@ -1871,26 +1949,20 @@ class _CertificadosPageState extends State<CertificadosPage> {
             pastorManual: fallbackNome,
             cargoManual: fallbackCargo,
             useDigitalSignature: useDigital,
-            qrValidationUrl: qrLote,
-            signatoriesForPdf: [
-              for (final s in effective)
-                CertPdfPipelineSignatory(
-                  memberId: s.memberId,
-                  nome: s.nome,
-                  cargo: s.cargo,
-                  assinaturaUrlHint:
-                      s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
-                ),
-            ],
+            qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
+                protocolIdsZip[i]),
+            signatoriesForPdf: signatoriesForZip,
           ),
+          preResolvedShared: sharedZipResolved,
           onProgress: (m, p) {
             phase.value = m;
-            prog01.value = ((i + p) / total).clamp(0.0, 1.0);
+            prog01.value =
+                (0.45 + (i + p) / total * 0.47).clamp(0.0, 0.94);
           },
           currentIndex: i + 1,
           totalCount: total,
         );
-        zipEntries['certificado_${_safeCertFileStub(doc.id)}.pdf'] = bytes;
+        zipEntries['certificado_${_safeCertFileStub(row.docId)}.pdf'] = bytes;
         await Future<void>.delayed(Duration.zero);
       }
 
@@ -2524,14 +2596,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
         bytes: bytes,
         contentType: 'image/jpeg',
       );
-      final variants = await MediaUploadService.uploadImageVariants(
-        basePathWithoutExt: basePath,
-        imageBytes: bytes,
-        ext: 'jpg',
-        contentType: 'image/jpeg',
-      );
       if (mounted) {
-        // PDF e web: URL principal em resolução completa (https); variantes só em logoVariants.
+        // Um ficheiro canónico no Storage (estilo ECOFIRE); PDF/web usam logoUrl + logoPath.
         final primaryHttps = upload.downloadUrl;
         setState(() {
           _logoCtrl.text = primaryHttps;
@@ -2545,9 +2611,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             .set({
           'logoUrl': primaryHttps.trim(),
           'logoPath': upload.storagePath,
-          'logoVariants': {
-            for (final e in variants.entries) e.key: e.value.toJson(),
-          },
+          'logoVariants': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2650,7 +2714,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           .set({
         'logoUrl': _logoCtrl.text.trim().isEmpty ? null : _logoCtrl.text.trim(),
         if (_logoCtrl.text.trim().isEmpty) 'logoPath': null,
-        if (_logoCtrl.text.trim().isEmpty) 'logoVariants': null,
+        'logoVariants': FieldValue.delete(),
         'certLayoutId': _certPdfLayoutId,
         'templates': templates,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -3476,11 +3540,27 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   Future<String?> _resolvePreviewDisplayLogoUrl() async {
+    Future<String?> tryHttps(String s) async {
+      final norm = sanitizeImageUrl(s);
+      if (!isValidImageUrl(norm)) return null;
+      if (!(norm.startsWith('http://') || norm.startsWith('https://'))) {
+        return norm;
+      }
+      final r =
+          await AppStorageImageService.instance.resolveImageUrl(imageUrl: norm);
+      final out = r != null ? sanitizeImageUrl(r) : '';
+      if (out.isNotEmpty && isValidImageUrl(out)) return out;
+      return norm;
+    }
+
     for (final u in widget.logoFetchCandidates) {
       final raw = u.trim();
       if (raw.isEmpty) continue;
       final s = sanitizeImageUrl(raw);
-      if (isValidImageUrl(s)) return s;
+      if (isValidImageUrl(s)) {
+        final got = await tryHttps(s);
+        if (got != null) return got;
+      }
       if (firebaseStorageMediaUrlLooksLike(raw) &&
           !raw.toLowerCase().startsWith('http')) {
         final path = normalizeFirebaseStorageObjectPath(
@@ -3496,7 +3576,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       }
     }
     final fb = sanitizeImageUrl(widget.logoUrl);
-    if (isValidImageUrl(fb)) return fb;
+    if (isValidImageUrl(fb)) {
+      final got = await tryHttps(fb);
+      if (got != null) return got;
+    }
     return AppStorageImageService.instance.resolveChurchTenantLogoUrl(
       tenantId: widget.tenantId,
       tenantData: widget.tenantData,
@@ -4109,41 +4192,61 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         : widget.cargoCtrl.text.trim();
 
     Widget miniLogo() {
-      const logoSz = 52.0;
+      const logoSz = 96.0;
+      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final cachePx = (logoSz * dpr).round().clamp(160, 512);
       return FutureBuilder<String?>(
         future: _previewLogoResolvedFuture,
         builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return SizedBox(
+              width: logoSz,
+              height: logoSz,
+              child: Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: _cor.withValues(alpha: 0.75),
+                  ),
+                ),
+              ),
+            );
+          }
           final raw = snap.data;
           final displayUrl =
               raw != null && raw.isNotEmpty ? sanitizeImageUrl(raw) : '';
           final hasUrl =
               displayUrl.isNotEmpty && isValidImageUrl(displayUrl);
           if (!hasUrl) {
-            return Icon(t.icon, size: 32, color: const Color(0xFFB8860B));
+            return Icon(t.icon, size: 40, color: const Color(0xFFB8860B));
           }
+          // URL já veio com token renovado de [AppStorageImageService] — evita segunda fila em [FreshFirebaseStorageImage] (web ficava no spinner).
           return ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
             child: SizedBox(
               width: logoSz,
               height: logoSz,
-              child: FreshFirebaseStorageImage(
+              child: SafeNetworkImage(
                 imageUrl: displayUrl,
                 fit: BoxFit.contain,
                 width: logoSz,
                 height: logoSz,
-                memCacheWidth: 128,
-                memCacheHeight: 128,
-                errorWidget: Icon(t.icon, size: 28),
+                memCacheWidth: cachePx,
+                memCacheHeight: cachePx,
+                skipFreshDisplayUrl: true,
+                errorWidget: Icon(t.icon, size: 36),
                 placeholder: SizedBox(
                   width: logoSz,
                   height: logoSz,
                   child: Center(
                     child: SizedBox(
-                      width: 18,
-                      height: 18,
+                      width: 22,
+                      height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: _cor.withValues(alpha: 0.7),
+                        color: _cor.withValues(alpha: 0.65),
                       ),
                     ),
                   ),
@@ -4255,13 +4358,14 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                             return Center(
                               child: Opacity(
                                 opacity: 0.06,
-                                child: FreshFirebaseStorageImage(
+                                child: SafeNetworkImage(
                                   imageUrl: displayUrl,
                                   fit: BoxFit.contain,
-                                  width: 200,
-                                  height: 200,
-                                  memCacheWidth: 400,
-                                  memCacheHeight: 400,
+                                  width: 220,
+                                  height: 220,
+                                  memCacheWidth: 440,
+                                  memCacheHeight: 440,
+                                  skipFreshDisplayUrl: true,
                                   errorWidget: const SizedBox(),
                                   placeholder: const SizedBox(),
                                 ),

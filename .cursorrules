@@ -1,0 +1,43 @@
+# Gestão YAHWEH — diretrizes do projeto
+
+## Identidade e UI (painéis igreja / master)
+
+- Atuar como Designer UI/UX Senior e Especialista em Flutter.
+- Criar interfaces "Apple Style" e Soft UI / Super Premium: limpas, com muito espaçamento e fontes elegantes.
+- Sempre que criar componentes de UI: use bordas arredondadas de 16px, sombras suaves (ex: 0 10px 30px rgba(0,0,0,0.04)), tipografia Poppins/Inter e evite fundos de cores sólidas vibrantes, preferindo tons de cinza muito claros ou branco (#FFFFFF).
+- Cards: brancos, bordas 16px, box-shadow suave; botões do painel com fundo branco e ícones em tons pastéis quando possível.
+- Listas (ex: membros): cada item como card horizontal flutuante; badges de status sutis (fundo verde claro + texto verde escuro para ativo).
+- Menu lateral: manter estrutura; refinar apenas padding para mais "respiro".
+- Usar widgets modernos: GlassmorphicContainer, CustomPaint para gráficos, e animações do pacote 'animations'.
+- Priorizar Dashboard com cards interativos e feedback tátil/visual imediato.
+- Android e iPhone (todas as versões): telas do painel igreja e painel master devem usar SafeArea no body, padding responsivo (ThemeCleanPremium.pagePadding(context)) e, quando embutidas no shell, esconder AppBar em mobile (ThemeCleanPremium.isMobile(context) ? null : AppBar(...)); botões/IconButton com mínimo 48px de área de toque (ThemeCleanPremium.minTouchTarget) em mobile.
+
+## Protocolo de trabalho — Clean Code, UX e performance (todas as tarefas neste repositório)
+
+### Arquitetura e código
+
+- **Clean Architecture:** separar UI, lógica (controllers/services) e dados (models/repositories) quando criar features novas ou refatorar trechos grandes.
+- **DRY:** se o mesmo padrão aparecer duas vezes, extrair helper/widget/service reutilizável.
+- **Nomenclatura:** nomes claros; no código Dart preferir inglês para APIs internas; textos de UI podem seguir o padrão do produto (pt-BR onde já é o caso).
+
+### UX/UI e responsividade
+
+- **Mobile first:** layout pensado para celular e que escale bem para web/desktop.
+- **Design system:** paddings/margins e raios alinhados ao tema do projeto (ex.: ThemeCleanPremium, múltiplos de 4/8); evitar números mágicos soltos sem justificativa.
+- **Feedback:** ações críticas (salvar, excluir, upload) com estado de carregamento e confirmação (SnackBar/toast ou equivalente), sem deixar o usuário sem retorno.
+
+### Performance e segurança
+
+- **Async:** usar async/await com tratamento de erro; não bloquear a UI desnecessariamente.
+- **Memória:** `dispose()` em controllers/focos/listeners; cancelar ou fechar subscriptions quando não forem mais necessárias.
+- **Segurança:** não commitar chaves secretas; usar variáveis de ambiente / opções seguras do Firebase conforme as regras do projeto.
+
+### Atitude
+
+- **Riscos:** se uma mudança puder quebrar outro fluxo, avisar antes ou ao propor o diff.
+- **Melhorias:** quando houver alternativa mais simples, rápida ou alinhada ao stack atual, mencionar brevemente.
+- **Comentários:** apenas onde a lógica não for óbvia; evitar ruído.
+
+### Coerência com o que já existe
+
+- Manter o código modular e limpo; respeitar `.cursor/rules/` (Firebase/imagens, deploy, versão) quando aplicável.

@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
+import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +20,13 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
   final VoidCallback? onNavigateToMembers;
   final VoidCallback? onRefreshDashboard;
 
+  /// Quando true, o bloco de finanças deste card não é pintado aqui — use
+  /// [ChurchMinistryHealthPanelState.buildDeferredFinanceSection] no final do scroll do painel.
+  final bool deferFinanceBlock;
+
+  /// Disparado após carregar (ou erro) quando [deferFinanceBlock] é true, para o pai dar [setState].
+  final VoidCallback? onDeferredFinanceReady;
+
   const ChurchMinistryHealthPanel({
     super.key,
     required this.tenantId,
@@ -25,14 +35,16 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
     required this.canViewFinance,
     this.onNavigateToMembers,
     this.onRefreshDashboard,
+    this.deferFinanceBlock = false,
+    this.onDeferredFinanceReady,
   });
 
   @override
   State<ChurchMinistryHealthPanel> createState() =>
-      _ChurchMinistryHealthPanelState();
+      ChurchMinistryHealthPanelState();
 }
 
-class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
+class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   bool _loading = true;
   String? _error;
   ChurchMinistryIntel? _intel;
@@ -44,6 +56,13 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  void _notifyDeferredReady() {
+    if (!widget.deferFinanceBlock || !widget.canViewFinance) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onDeferredFinanceReady?.call();
+    });
   }
 
   @override
@@ -65,16 +84,17 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       final base = FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId.trim());
+      // Limites menores: painel usa janela ~45d; menos docs = menos tempo na 1ª pintura.
       final futures = <Future<dynamic>>[
-        base.collection('escalas').orderBy('date', descending: true).limit(400).get(),
-        base.collection('noticias').orderBy('createdAt', descending: true).limit(200).get(),
-        base.collection('visitantes').orderBy('createdAt', descending: true).limit(300).get(),
+        base.collection('escalas').orderBy('date', descending: true).limit(220).get(),
+        base.collection('noticias').orderBy('createdAt', descending: true).limit(120).get(),
+        base.collection('visitantes').orderBy('createdAt', descending: true).limit(200).get(),
       ];
       if (widget.canViewFinance) {
         futures.add(base
             .collection('finance')
             .orderBy('createdAt', descending: true)
-            .limit(1000)
+            .limit(500)
             .get());
         futures.add(base.collection('contas').orderBy('nome').get());
       }
@@ -110,6 +130,7 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           _contasDocs = contasList;
           _loading = false;
         });
+        _notifyDeferredReady();
       }
     } catch (e) {
       if (mounted) {
@@ -117,8 +138,30 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           _error = 'Não foi possível carregar o painel de inteligência.';
           _loading = false;
         });
+        _notifyDeferredReady();
       }
     }
+  }
+
+  /// Bloco de finanças (saldos + intel) para colocar no fim do painel quando [deferFinanceBlock] é true.
+  Widget? buildDeferredFinanceSection(BuildContext context) {
+    if (!widget.canViewFinance || !widget.deferFinanceBlock) return null;
+    if (_loading || _error != null) return null;
+    final fi = _intel?.finance;
+    if (fi == null) return null;
+    final narrow =
+        MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _financeBlock(context, fi, narrow),
+        const SizedBox(height: 12),
+        const Text(
+          'Contribuições por membro: quando os lançamentos financeiros passarem a registrar CPF, o algoritmo poderá incluir esse sinal.',
+          style: TextStyle(fontSize: 10, color: Color(0xFF64748B), height: 1.35),
+        ),
+      ],
+    );
   }
 
   static final _brMoney = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
@@ -206,6 +249,7 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                 label: 'Atenção pastoral',
                 value: '${intel.alerts.length}',
                 subtitle: 'sem engajamento recente',
+                onTap: () => _openPastoralAlertsSheet(context, intel.alerts),
               ),
               _kpiChip(
                 icon: Icons.how_to_reg_rounded,
@@ -213,31 +257,10 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                 label: 'Visitantes (mês)',
                 value: '${intel.funnel.novosNoMes}',
                 subtitle: '${intel.funnel.convertidosNoMes} integrados · ${intel.funnel.emAcompanhamento} em acompanhamento',
+                onTap: () => _openVisitantesKpiSheet(context, intel.funnel),
               ),
             ],
           ),
-          if (intel.alerts.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Membros que precisam de atenção / visita',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                color: Colors.grey.shade800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...intel.alerts.take(8).map((a) => _alertTile(a)),
-            if (intel.alerts.length > 8)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: widget.onNavigateToMembers,
-                  icon: const Icon(Icons.people_rounded, size: 18),
-                  label: Text('Ver todos (${intel.alerts.length})'),
-                ),
-              ),
-          ],
           const SizedBox(height: 20),
           Text(
             'Movimento de membros (12 meses)',
@@ -257,17 +280,21 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             height: narrow ? 200 : 220,
             child: _TriLineChart(flow: intel.last12Months),
           ),
-          const SizedBox(height: 16),
-          _funnelCard(context, intel.funnel, narrow),
-          if (widget.canViewFinance && intel.finance != null) ...[
+          // Funil e listas com nomes de visitantes: só ao tocar em "Visitantes (mês)".
+          if (widget.canViewFinance &&
+              intel.finance != null &&
+              !widget.deferFinanceBlock) ...[
             const SizedBox(height: 20),
             _financeBlock(context, intel.finance!, narrow),
           ],
-          const SizedBox(height: 12),
-          Text(
-            'Contribuições por membro: quando os lançamentos financeiros passarem a registrar CPF, o algoritmo poderá incluir esse sinal.',
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade500, height: 1.35),
-          ),
+          if (widget.canViewFinance && !widget.deferFinanceBlock) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Contribuições por membro: quando os lançamentos financeiros passarem a registrar CPF, o algoritmo poderá incluir esse sinal.',
+              style: TextStyle(
+                  fontSize: 10, color: Colors.grey.shade500, height: 1.35),
+            ),
+          ],
         ],
       ),
     );
@@ -292,8 +319,9 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     required String label,
     required String value,
     required String subtitle,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final inner = Container(
       constraints: const BoxConstraints(minWidth: 160, maxWidth: 320),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
@@ -315,34 +343,519 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
               ],
             ),
           ),
+          if (onTap != null)
+            Icon(Icons.chevron_right_rounded, size: 22, color: color.withValues(alpha: 0.45)),
         ],
+      ),
+    );
+    if (onTap == null) return inner;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: inner,
       ),
     );
   }
 
-  Widget _alertTile(MemberPastoralAlert a) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF2F2),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFECACA)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.person_search_rounded, color: Colors.red.shade400, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(a.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                Text(a.summary, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
-              ],
+  Future<void> _openPastoralAlertsSheet(
+      BuildContext context, List<MemberPastoralAlert> alerts) async {
+    final rootCtx = context;
+
+    Widget alertTile(MemberPastoralAlert a, VoidCallback closeModal) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: const Color(0xFFFEF2F2),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () async {
+              closeModal();
+              if (!rootCtx.mounted) return;
+              await Navigator.push(
+                rootCtx,
+                MaterialPageRoute(
+                  builder: (_) => MemberCardPage(
+                    tenantId: widget.tenantId,
+                    role: widget.role,
+                    memberId: a.memberId,
+                    onNavigateToMembers: widget.onNavigateToMembers,
+                  ),
+                ),
+              );
+              widget.onRefreshDashboard?.call();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(Icons.person_search_rounded,
+                      color: Colors.red.shade400, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(a.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text(a.summary,
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey.shade700)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                ],
+              ),
             ),
           ),
-        ],
+        ),
+      );
+    }
+
+    if (kIsWeb) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dCtx) {
+          final mq = MediaQuery.sizeOf(dCtx);
+          final maxH = mq.height * 0.88;
+          final boxW = (mq.width - 40).clamp(280.0, 520.0);
+          void close() => Navigator.pop(dCtx);
+          return Dialog(
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: boxW,
+              height: maxH,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Atenção pastoral (${alerts.length})',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: close,
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Toque para abrir a ficha.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  if (widget.onNavigateToMembers != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          close();
+                          widget.onNavigateToMembers!();
+                        },
+                        icon: const Icon(Icons.people_rounded, size: 18),
+                        label: const Text('Ir para Membros'),
+                      ),
+                    ),
+                  Expanded(
+                    child: alerts.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                'Nenhum membro nesta situação.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                            itemCount: alerts.length,
+                            itemBuilder: (_, i) =>
+                                alertTile(alerts[i], close),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          minChildSize: 0.28,
+          maxChildSize: 0.92,
+          builder: (_, sc) {
+            return Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Atenção pastoral (${alerts.length})',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos — últimos ${ChurchMinistryIntelService.staleDays} dias). Toque para abrir a ficha.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+                if (widget.onNavigateToMembers != null) ...[
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetCtx);
+                        widget.onNavigateToMembers!();
+                      },
+                      icon: const Icon(Icons.people_rounded, size: 18),
+                      label: const Text('Ir para Membros'),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Expanded(
+                  child: alerts.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'Nenhum membro nesta situação.',
+                              style: TextStyle(color: Colors.grey.shade600),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: sc,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                          itemCount: alerts.length,
+                          itemBuilder: (context, i) =>
+                              alertTile(alerts[i], () => Navigator.pop(sheetCtx)),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openVisitantesKpiSheet(
+      BuildContext context, VisitorFunnelSnapshot f) async {
+    final rootCtx = context;
+    final novos = _funnelDocsNovosMes();
+    final acomp = _funnelDocsAcompanhamento();
+    final integ = _funnelDocsIntegradosMes();
+
+    List<Widget> listChildren(BuildContext modalCtx) {
+      final narrow = MediaQuery.sizeOf(modalCtx).width <
+          ThemeCleanPremium.breakpointMobile;
+      return [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _funnelCard(modalCtx, f, narrow),
+        ),
+        _visitantesKpiSectionTitle('Novos no mês', f.novosNoMes),
+        ..._visitorDocTiles(rootCtx, modalCtx, novos),
+        const SizedBox(height: 18),
+        _visitantesKpiSectionTitle('Em acompanhamento', f.emAcompanhamento),
+        ..._visitorDocTiles(rootCtx, modalCtx, acomp),
+        const SizedBox(height: 18),
+        _visitantesKpiSectionTitle('Integrados no mês', f.convertidosNoMes),
+        ..._visitorDocTiles(rootCtx, modalCtx, integ),
+      ];
+    }
+
+    if (kIsWeb) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dCtx) {
+          final mq = MediaQuery.sizeOf(dCtx);
+          final maxH = mq.height * 0.9;
+          final boxW = (mq.width - 40).clamp(300.0, 560.0);
+          void close() => Navigator.pop(dCtx);
+          return Dialog(
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: boxW,
+              height: maxH,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Visitantes (mês) — detalhe',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: close,
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Funil e listas com nomes — só aparecem aqui ao tocar no cartão Visitantes (mês). Toque no nome para a ficha do visitante.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                      children: listChildren(dCtx),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.58,
+          minChildSize: 0.3,
+          maxChildSize: 0.92,
+          builder: (_, sc) {
+            return Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Visitantes (detalhe)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Novos no mês, em acompanhamento e integrados. Toque no nome para a ficha do visitante.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView(
+                    controller: sc,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    children: listChildren(sheetCtx),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _visitantesKpiSectionTitle(String label, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        '$label ($count)',
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 14,
+          color: Colors.grey.shade800,
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _visitorDocTiles(
+    BuildContext rootCtx,
+    BuildContext sheetCtx,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (docs.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            'Nenhum visitante nesta etapa.',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+        ),
+      ];
+    }
+    return docs.map((d) => _visitorDocListTile(rootCtx, sheetCtx, d)).toList();
+  }
+
+  Widget _visitorDocListTile(
+    BuildContext rootCtx,
+    BuildContext sheetCtx,
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) {
+    final m = d.data();
+    final nome = (m['nome'] ?? m['name'] ?? 'Visitante').toString();
+    final tel = (m['telefone'] ?? '').toString();
+    final st = (m['status'] ?? '').toString();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFFF5F3FF),
+        borderRadius: BorderRadius.circular(14),
+        child: ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFF8B5CF6).withValues(alpha: 0.2),
+            child: Text(
+              nome.isNotEmpty ? nome[0].toUpperCase() : '?',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF6D28D9),
+              ),
+            ),
+          ),
+          title: Text(
+            nome,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            tel.isNotEmpty ? tel : st,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () async {
+            Navigator.pop(sheetCtx);
+            if (!rootCtx.mounted) return;
+            await openChurchVisitorFichaFromDashboard(
+              rootCtx,
+              tenantId: widget.tenantId.trim(),
+              role: widget.role,
+              visitorDocId: d.id,
+            );
+            widget.onRefreshDashboard?.call();
+          },
+        ),
       ),
     );
   }
@@ -422,6 +935,91 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   }) async {
     final rootCtx = context;
+
+    if (kIsWeb) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dCtx) {
+          final mq = MediaQuery.sizeOf(dCtx);
+          final maxH = mq.height * 0.88;
+          final boxW = (mq.width - 40).clamp(280.0, 520.0);
+          void close() => Navigator.pop(dCtx);
+          return Dialog(
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: boxW,
+              height: maxH,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: close,
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        height: 1.3,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: docs.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                'Nenhum visitante nesta etapa.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        : ListView(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                            children: docs
+                                .map((d) =>
+                                    _visitorDocListTile(rootCtx, dCtx, d))
+                                .toList(),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -491,68 +1089,12 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                             ),
                           ),
                         )
-                      : ListView.builder(
+                      : ListView(
                           controller: sc,
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                          itemCount: docs.length,
-                          itemBuilder: (context, i) {
-                            final d = docs[i];
-                            final m = d.data();
-                            final nome =
-                                (m['nome'] ?? m['name'] ?? 'Visitante').toString();
-                            final tel = (m['telefone'] ?? '').toString();
-                            final st = (m['status'] ?? '').toString();
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Material(
-                                color: const Color(0xFFF5F3FF),
-                                borderRadius: BorderRadius.circular(14),
-                                child: ListTile(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  leading: CircleAvatar(
-                                    backgroundColor: const Color(0xFF8B5CF6)
-                                        .withValues(alpha: 0.2),
-                                    child: Text(
-                                      nome.isNotEmpty
-                                          ? nome[0].toUpperCase()
-                                          : '?',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: Color(0xFF6D28D9),
-                                      ),
-                                    ),
-                                  ),
-                                  title: Text(
-                                    nome,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                  subtitle: Text(
-                                    tel.isNotEmpty ? tel : st,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                  trailing:
-                                      const Icon(Icons.chevron_right_rounded),
-                                  onTap: () async {
-                                    Navigator.pop(ctx);
-                                    if (!rootCtx.mounted) return;
-                                    await openChurchVisitorFichaFromDashboard(
-                                      rootCtx,
-                                      tenantId: widget.tenantId.trim(),
-                                      role: widget.role,
-                                      visitorDocId: d.id,
-                                    );
-                                    widget.onRefreshDashboard?.call();
-                                  },
-                                ),
-                              ),
-                            );
-                          },
+                          children: docs
+                              .map((d) => _visitorDocListTile(rootCtx, ctx, d))
+                              .toList(),
                         ),
                 ),
               ],
@@ -788,18 +1330,34 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
     for (final d in _financePanelDocs) {
       final data = d.data();
+      if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
       final tipo = (data['type'] ?? '').toString().toLowerCase();
-      if (tipo != 'transferencia') continue;
       final valor =
           _churchPanelParseValor(data['amount'] ?? data['valor']);
-      final origemId = (data['contaOrigemId'] ?? '').toString();
-      final destinoId = (data['contaDestinoId'] ?? '').toString();
-      if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
-        saldoPorConta[destinoId] =
-            (saldoPorConta[destinoId] ?? 0) + valor;
+      if (tipo == 'transferencia') {
+        final origemId = (data['contaOrigemId'] ?? '').toString();
+        final destinoId = (data['contaDestinoId'] ?? '').toString();
+        if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
+          saldoPorConta[destinoId] =
+              (saldoPorConta[destinoId] ?? 0) + valor;
+        }
+        if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
+          saldoPorConta[origemId] = (saldoPorConta[origemId] ?? 0) - valor;
+        }
+        continue;
       }
-      if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
-        saldoPorConta[origemId] = (saldoPorConta[origemId] ?? 0) - valor;
+      if (tipo.contains('entrada') || tipo.contains('receita')) {
+        final destinoId = (data['contaDestinoId'] ?? '').toString();
+        if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
+          saldoPorConta[destinoId] =
+              (saldoPorConta[destinoId] ?? 0) + valor;
+        }
+      } else {
+        final origemId = (data['contaOrigemId'] ?? '').toString();
+        if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
+          saldoPorConta[origemId] =
+              (saldoPorConta[origemId] ?? 0) - valor;
+        }
       }
     }
 
@@ -937,7 +1495,7 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                     ),
                     Text(
-                      'Saldos por conta · toque para ver, editar e anexar comprovantes sem sair do painel.',
+                      'Saldos por conta (receitas recebidas e despesas pagas + transferências). Toque para ver, editar e alterar pendente/recebido.',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade700, height: 1.3),
                     ),
@@ -948,7 +1506,7 @@ class _ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           ),
           const SizedBox(height: 14),
           Text(
-            'Saldos por conta (transferências)',
+            'Saldos por conta',
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 12,
@@ -1170,10 +1728,19 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
     await _afterMutation();
   }
 
-  Future<void> _togglePagamento(DocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _toggleEfetivacao(DocumentSnapshot<Map<String, dynamic>> doc) async {
     final data = doc.data() ?? {};
-    final atual = data['pagamentoConfirmado'] == true;
-    await doc.reference.update({'pagamentoConfirmado': !atual});
+    final tipo = (data['type'] ?? '').toString().toLowerCase();
+    if (tipo == 'transferencia') return;
+    final isEntrada =
+        tipo.contains('entrada') || tipo.contains('receita');
+    if (isEntrada) {
+      final atual = data['recebimentoConfirmado'] != false;
+      await doc.reference.update({'recebimentoConfirmado': !atual});
+    } else {
+      final atual = data['pagamentoConfirmado'] != false;
+      await doc.reference.update({'pagamentoConfirmado': !atual});
+    }
     await _afterMutation();
   }
 
@@ -1268,7 +1835,11 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                               '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
                           final comprovanteUrl =
                               (data['comprovanteUrl'] ?? '').toString();
-                          final confirmado = data['pagamentoConfirmado'] == true;
+                          final efetivado = isTransfer
+                              ? true
+                              : (isEntrada
+                                  ? (data['recebimentoConfirmado'] != false)
+                                  : (data['pagamentoConfirmado'] != false));
                           final color = isTransfer
                               ? const Color(0xFF6366F1)
                               : (isEntrada
@@ -1375,29 +1946,43 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                                                           size: 14,
                                                           color: Colors
                                                               .grey.shade500),
-                                                    if (confirmado)
+                                                    if (!isTransfer)
                                                       Container(
                                                         padding:
                                                             const EdgeInsets.symmetric(
                                                                 horizontal: 8,
                                                                 vertical: 2),
                                                         decoration: BoxDecoration(
-                                                          color: const Color(
-                                                                  0xFFDCFCE7)
-                                                              .withValues(
-                                                                  alpha: 0.9),
+                                                          color: efetivado
+                                                              ? const Color(
+                                                                      0xFFDCFCE7)
+                                                                  .withValues(
+                                                                      alpha: 0.9)
+                                                              : const Color(
+                                                                      0xFFFEF3C7)
+                                                                  .withValues(
+                                                                      alpha: 0.95),
                                                           borderRadius:
                                                               BorderRadius.circular(
                                                                   999),
                                                         ),
-                                                        child: const Text(
-                                                          'Pagamento confirmado',
+                                                        child: Text(
+                                                          isEntrada
+                                                              ? (efetivado
+                                                                  ? 'Recebido'
+                                                                  : 'Pendente')
+                                                              : (efetivado
+                                                                  ? 'Pago'
+                                                                  : 'Pendente'),
                                                           style: TextStyle(
                                                             fontSize: 10,
                                                             fontWeight:
                                                                 FontWeight.w700,
-                                                            color: Color(
-                                                                0xFF166534),
+                                                            color: efetivado
+                                                                ? const Color(
+                                                                    0xFF166534)
+                                                                : const Color(
+                                                                    0xFF92400E),
                                                           ),
                                                         ),
                                                       ),
@@ -1459,18 +2044,24 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                                             ? 'Anexar'
                                             : 'Trocar anexo'),
                                       ),
-                                      FilledButton.tonalIcon(
-                                        onPressed: () => _togglePagamento(doc),
-                                        icon: Icon(
-                                          confirmado
-                                              ? Icons.undo_rounded
-                                              : Icons.verified_rounded,
-                                          size: 18,
+                                      if (!isTransfer)
+                                        FilledButton.tonalIcon(
+                                          onPressed: () =>
+                                              _toggleEfetivacao(doc),
+                                          icon: Icon(
+                                            efetivado
+                                                ? Icons.undo_rounded
+                                                : Icons.verified_rounded,
+                                            size: 18,
+                                          ),
+                                          label: Text(isEntrada
+                                              ? (efetivado
+                                                  ? 'Marcar pendente'
+                                                  : 'Confirmar recebimento')
+                                              : (efetivado
+                                                  ? 'Marcar pendente'
+                                                  : 'Confirmar pagamento')),
                                         ),
-                                        label: Text(confirmado
-                                            ? 'Desfazer confirmação'
-                                            : 'Confirmar pagamento'),
-                                      ),
                                     ],
                                   ),
                                 ],

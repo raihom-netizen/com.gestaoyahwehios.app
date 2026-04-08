@@ -42,6 +42,8 @@ class SafeMemberProfilePhoto extends StatefulWidget {
   final int? memCacheHeight;
   /// Muda após upload (ex.: [memberPhotoDisplayCacheRevision]) para forçar novo decode/cache.
   final int? imageCacheRevision;
+  /// Dados do doc Firestore: extrai pasta `membros/{id}/` de URLs salvas (token expirado / id ≠ doc).
+  final Map<String, dynamic>? memberFirestoreHint;
 
   const SafeMemberProfilePhoto({
     super.key,
@@ -51,6 +53,7 @@ class SafeMemberProfilePhoto extends StatefulWidget {
     this.cpfDigits,
     this.authUid,
     this.nomeCompleto,
+    this.memberFirestoreHint,
     required this.width,
     required this.height,
     this.circular = true,
@@ -94,7 +97,9 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         (oldWidget.authUid ?? '') != (widget.authUid ?? '') ||
         (oldWidget.nomeCompleto ?? '') != (widget.nomeCompleto ?? '') ||
         oldWidget.enableStorageFallback != widget.enableStorageFallback ||
-        oldWidget.imageCacheRevision != widget.imageCacheRevision;
+        oldWidget.imageCacheRevision != widget.imageCacheRevision ||
+        !identical(
+            oldWidget.memberFirestoreHint, widget.memberFirestoreHint);
     if (urlChanged || idsChanged) {
       _resolveDisplayUrl();
     }
@@ -106,17 +111,19 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       if (mounted) setState(() => _displayUrl = null);
       return;
     }
-    setState(() {
-      _resolving = true;
-      _displayUrl = null;
-    });
-    String out;
+    final needsFresh = StorageMediaService.isFirebaseStorageMediaUrl(norm);
+    // Mostrar já a URL conhecida; renovar token em background (lista/detalhe abre mais rápido).
+    if (mounted) {
+      setState(() {
+        _displayUrl = norm;
+        _resolving = needsFresh;
+      });
+    }
+    if (!needsFresh) return;
+    String out = norm;
     try {
-      if (StorageMediaService.isFirebaseStorageMediaUrl(norm)) {
-        out = sanitizeImageUrl(await StorageMediaService.freshPlayableMediaUrl(norm));
-      } else {
-        out = norm;
-      }
+      out = sanitizeImageUrl(
+          await StorageMediaService.freshPlayableMediaUrl(norm));
     } catch (_) {
       out = norm;
     }
@@ -162,6 +169,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           cpfDigits: widget.cpfDigits,
           authUid: widget.authUid,
           nomeCompleto: widget.nomeCompleto,
+          memberFirestoreHint: widget.memberFirestoreHint,
           sourceImageUrl: widget.imageUrl,
           imageCacheRevision: widget.imageCacheRevision,
           width: widget.width,
@@ -191,6 +199,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           cpfDigits: widget.cpfDigits,
           authUid: widget.authUid,
           nomeCompleto: widget.nomeCompleto,
+          memberFirestoreHint: widget.memberFirestoreHint,
           sourceImageUrl: widget.imageUrl,
           imageCacheRevision: widget.imageCacheRevision,
           width: widget.width,
@@ -222,6 +231,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
                 cpfDigits: widget.cpfDigits,
                 authUid: widget.authUid,
                 nomeCompleto: widget.nomeCompleto,
+                memberFirestoreHint: widget.memberFirestoreHint,
                 sourceImageUrl: widget.imageUrl,
                 imageCacheRevision: widget.imageCacheRevision,
                 width: widget.width,
@@ -246,6 +256,7 @@ class SafeMemberCircleAvatar extends StatelessWidget {
   final String? cpfDigits;
   final String? authUid;
   final String? nomeCompleto;
+  final Map<String, dynamic>? memberFirestoreHint;
   final double radius;
   final Color? backgroundColor;
   final IconData fallbackIcon;
@@ -261,6 +272,7 @@ class SafeMemberCircleAvatar extends StatelessWidget {
     this.cpfDigits,
     this.authUid,
     this.nomeCompleto,
+    this.memberFirestoreHint,
     this.radius = 22,
     this.backgroundColor,
     this.fallbackIcon = Icons.person_rounded,
@@ -279,6 +291,7 @@ class SafeMemberCircleAvatar extends StatelessWidget {
       cpfDigits: cpfDigits,
       authUid: authUid,
       nomeCompleto: nomeCompleto,
+      memberFirestoreHint: memberFirestoreHint,
       width: radius * 2,
       height: radius * 2,
       circular: true,
@@ -301,6 +314,7 @@ class _MemberPhotoStorageFallback extends StatefulWidget {
   final String? cpfDigits;
   final String? authUid;
   final String? nomeCompleto;
+  final Map<String, dynamic>? memberFirestoreHint;
   final String? sourceImageUrl;
   final double width;
   final double height;
@@ -317,6 +331,7 @@ class _MemberPhotoStorageFallback extends StatefulWidget {
     this.cpfDigits,
     this.authUid,
     this.nomeCompleto,
+    this.memberFirestoreHint,
     this.sourceImageUrl,
     this.imageCacheRevision,
     required this.width,
@@ -351,7 +366,9 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
         (oldWidget.cpfDigits ?? '') != (widget.cpfDigits ?? '') ||
         (oldWidget.authUid ?? '') != (widget.authUid ?? '') ||
         (oldWidget.nomeCompleto ?? '') != (widget.nomeCompleto ?? '') ||
-        oldWidget.imageCacheRevision != widget.imageCacheRevision;
+        oldWidget.imageCacheRevision != widget.imageCacheRevision ||
+        !identical(
+            oldWidget.memberFirestoreHint, widget.memberFirestoreHint);
     if (sourceChanged || idChanged) {
       _future = _resolveFallbackUrl();
     }
@@ -383,11 +400,13 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
       cpfDigits: widget.cpfDigits,
       authUid: widget.authUid,
       nomeCompleto: widget.nomeCompleto,
+      memberFirestoreHint: widget.memberFirestoreHint,
     );
     }
 
     try {
-      return await inner().timeout(const Duration(seconds: 35), onTimeout: () => null);
+      return await inner().timeout(const Duration(seconds: 12),
+          onTimeout: () => null);
     } catch (_) {
       return null;
     }

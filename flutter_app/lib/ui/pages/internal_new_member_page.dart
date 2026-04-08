@@ -195,8 +195,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   }
 
   Future<void> _pickPhoto({bool fromCamera = false}) async {
-    final picked = await MediaHandlerService.instance.pickAndProcessImage(
+    final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
       source: fromCamera ? ImageSource.camera : ImageSource.gallery,
+      webCropContext: context,
     );
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
@@ -206,6 +207,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     });
   }
 
+  /// Path canónico `foto_perfil.jpg` (sobrescreve). Novo membro: sem artefactos antigos.
   Future<String> _uploadPhoto(String tenantId, String memberDocId, XFile file) async {
     final raw = await file.readAsBytes();
     final bytes = await ImageHelper.compressMemberProfileForUpload(raw);
@@ -419,16 +421,21 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
       try {
         final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-        await functions.httpsCallable('createMemberLoginFromPublic').call({
+        final loginRes =
+            await functions.httpsCallable('createMemberLoginFromPublic').call({
           'tenantId': widget.tenantId,
           'memberId': ref.id,
         });
+        final loginMap =
+            Map<String, dynamic>.from(loginRes.data as Map? ?? {});
+        final membroDocId =
+            (loginMap['membroFirestoreId'] ?? ref.id).toString().trim();
         final senha = _passwordCtrl.text.trim();
         final senhaFinal = senha.length >= 6 ? senha : '123456';
         try {
           await functions.httpsCallable('setMemberPassword').call({
             'tenantId': widget.tenantId,
-            'memberId': ref.id,
+            'memberId': membroDocId,
             'newPassword': senhaFinal,
           });
         } catch (_) {}

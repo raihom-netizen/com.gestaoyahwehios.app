@@ -125,3 +125,90 @@ Uint8List optimizeCertPdfImageBytesMaxMemory(CertPdfImageMaxMemoryMessage args) 
     return args.bytes;
   }
 }
+
+/// Mensagem para [compute] — logo de certificado: mais pixels e PNG quando há transparência.
+class CertPdfLogoOptimizeMessage {
+  final Uint8List bytes;
+  /// Maior lado após redimensionar (ex.: 2400 para impressão nítida).
+  final int maxEdge;
+  final int maxOutputBytes;
+
+  CertPdfLogoOptimizeMessage({
+    required this.bytes,
+    this.maxEdge = 2400,
+    this.maxOutputBytes = 1800000,
+  });
+}
+
+/// Redimensiona logo para PDF; **mantém canal alpha** (PNG) quando existir — evita “fundo branco” do JPEG.
+Uint8List optimizeCertPdfLogoBytes(CertPdfLogoOptimizeMessage args) {
+  try {
+    if (args.bytes.length < 64) return args.bytes;
+    final src = im.decodeImage(args.bytes);
+    if (src == null) return args.bytes;
+    var w = src.width;
+    var h = src.height;
+    if (w <= 0 || h <= 0) return args.bytes;
+
+    im.Image work = src;
+    var nw = w;
+    var nh = h;
+    final maxE = args.maxEdge.clamp(800, 3200);
+    var scale = math.min(maxE / w, maxE / h);
+    if (scale < 1) {
+      nw = math.max(1, (w * scale).round());
+      nh = math.max(1, (h * scale).round());
+      work = im.copyResize(
+        src,
+        width: nw,
+        height: nh,
+        interpolation: im.Interpolation.linear,
+      );
+    }
+
+    if (work.hasAlpha) {
+      var encoded = Uint8List.fromList(im.encodePng(work, level: 4));
+      while (encoded.length > args.maxOutputBytes && nw > 400 && nh > 400) {
+        nw = math.max(400, (nw * 0.85).round());
+        nh = math.max(400, (nh * 0.85).round());
+        final smaller = im.copyResize(
+          src,
+          width: nw,
+          height: nh,
+          interpolation: im.Interpolation.linear,
+        );
+        encoded = Uint8List.fromList(im.encodePng(smaller, level: 4));
+      }
+      return encoded;
+    }
+
+    final pngTry = Uint8List.fromList(im.encodePng(work, level: 5));
+    if (pngTry.length <= args.maxOutputBytes) return pngTry;
+
+    var q = 92;
+    var jpg = Uint8List.fromList(im.encodeJpg(work, quality: q));
+    while (jpg.length > args.maxOutputBytes && q > 55) {
+      q -= 7;
+      jpg = Uint8List.fromList(im.encodeJpg(work, quality: q));
+    }
+    if (jpg.length > args.maxOutputBytes && nw > 480 && nh > 480) {
+      nw = math.max(480, (nw * 0.88).round());
+      nh = math.max(480, (nh * 0.88).round());
+      work = im.copyResize(
+        src,
+        width: nw,
+        height: nh,
+        interpolation: im.Interpolation.linear,
+      );
+      q = 88;
+      jpg = Uint8List.fromList(im.encodeJpg(work, quality: q));
+      while (jpg.length > args.maxOutputBytes && q > 55) {
+        q -= 7;
+        jpg = Uint8List.fromList(im.encodeJpg(work, quality: q));
+      }
+    }
+    return jpg;
+  } catch (_) {
+    return args.bytes;
+  }
+}

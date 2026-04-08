@@ -17,8 +17,9 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart';
-import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
+    show ChurchPublicConstrainedMedia, ChurchPublicPremiumFeedCard, ChurchPublicPremiumPlayOrb;
+import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
@@ -33,12 +34,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
-
-bool _yahwehPostHostedVideoPreloadLayer(String? raw) {
-  if (!kIsWeb || raw == null || raw.trim().isEmpty) return false;
-  final w = sanitizeImageUrl(raw);
-  return looksLikeHostedVideoFileUrl(w);
-}
 
 /// URLs/paths utilizáveis como foto no feed (inclui caminhos Storage sem https — painel fazia drop).
 List<String> yahwehPostGalleryRefs(Map<String, dynamic> p) {
@@ -95,9 +90,9 @@ class YahwehPostCard extends StatelessWidget {
   final Map<String, dynamic>? postFirestoreData;
   /// Exibir faixa de mídia (capa/thumb); calculado no pai com [eventNoticiaPostHasFeedCoverRow].
   final bool showCoverStrip;
-  /// Web: URL de vídeo hospedado (ex. Storage) para preview HTML quando a imagem não resolve.
+  /// Web: URL de vídeo hospedado (ex. Storage) — capa + play; o stream só ao toque.
   final String? webHostedVideoUrl;
-  /// Chave estável para [PremiumHtmlFeedVideo] (ex.: id do documento Firestore).
+  /// Chave estável para visibilidade/lazy (ex.: id do documento Firestore).
   final String feedMediaVisibilityKey;
   /// Ex.: vídeo sem capa ou link externo — botão “Assistir” abaixo do texto.
   final bool showPlayButton;
@@ -251,31 +246,56 @@ class YahwehPostCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (_yahwehPostHostedVideoPreloadLayer(webHostedVideoUrl) &&
-                          !webEmbedVideo)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Opacity(
-                              opacity: 0.02,
-                              child: PremiumHtmlFeedVideo(
-                                videoUrl: sanitizeImageUrl(webHostedVideoUrl!),
-                                visibilityKey:
-                                    '${feedMediaVisibilityKey}_preload',
-                                showControls: false,
-                                startLoadingImmediately: true,
-                              ),
-                            ),
-                          ),
-                        ),
                       if (webEmbedVideo)
                         Positioned.fill(
-                          child: PremiumHtmlFeedVideo(
-                            videoUrl: wvClean,
-                            visibilityKey: feedMediaVisibilityKey,
-                            showControls: true,
-                            posterUrl: _yahwehPostVideoPosterUrl(data),
-                            startLoadingImmediately: true,
-                            videoObjectFitContain: false,
+                          child: Material(
+                            color: const Color(0xFF0F172A),
+                            child: InkWell(
+                              onTap: () => unawaited(onOpenVideo()),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (data != null &&
+                                      _yahwehPostVideoPosterUrl(data) != null)
+                                    FreshFirebaseStorageImage(
+                                      imageUrl:
+                                          _yahwehPostVideoPosterUrl(data)!,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      memCacheWidth: memCacheW,
+                                      memCacheHeight: memCacheH,
+                                      placeholder: YahwehPremiumFeedShimmer
+                                          .mediaCover(),
+                                      errorWidget: Container(
+                                          color: const Color(0xFF0F172A)),
+                                    )
+                                  else if (coverUrl.isNotEmpty)
+                                    _coverImage(coverUrl)
+                                  else
+                                    Container(
+                                        color: const Color(0xFF0F172A)),
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.black
+                                              .withValues(alpha: 0.12),
+                                          Colors.black
+                                              .withValues(alpha: 0.62),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const Center(
+                                    child: ChurchPublicPremiumPlayOrb(
+                                        diameter: 64),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         )
                       else if (gallery.length > 1 && data != null)
@@ -583,7 +603,7 @@ class _ResolvedNoticiaCoverState extends State<_ResolvedNoticiaCover> {
   }
 }
 
-/// Web: `<video>` com [preload=auto] e poster (miniatura) — play imediato como no Instagram.
+/// Web: só miniatura + play — o stream (MP4/HLS) só ao toque ([onOpenVideo]).
 class _HostedVideoTapPoster extends StatelessWidget {
   final Map<String, dynamic> post;
   final int memCacheW;
@@ -611,76 +631,41 @@ class _HostedVideoTapPoster extends StatelessWidget {
     );
     final posterOk = isValidImageUrl(td);
 
-    if (!looksLikeHostedVideoFileUrl(play)) {
-      return Material(
-        color: const Color(0xFF0F172A),
-        child: InkWell(
-          onTap: () => unawaited(onOpenVideo()),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (posterOk)
-                FreshFirebaseStorageImage(
-                  imageUrl: td,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                  memCacheWidth: memCacheW,
-                  memCacheHeight: memCacheH,
-                  placeholder: YahwehPremiumFeedShimmer.mediaCover(),
-                  errorWidget: const SizedBox.shrink(),
-                ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: posterOk ? 0.38 : 0.62),
-                      Colors.black.withValues(alpha: 0.88),
-                    ],
-                  ),
-                ),
+    return Material(
+      color: const Color(0xFF0F172A),
+      child: InkWell(
+        onTap: () => unawaited(onOpenVideo()),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (posterOk)
+              FreshFirebaseStorageImage(
+                imageUrl: td,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                memCacheWidth: memCacheW,
+                memCacheHeight: memCacheH,
+                placeholder: YahwehPremiumFeedShimmer.mediaCover(),
+                errorWidget: const SizedBox.shrink(),
               ),
-              const Center(
-                child: ChurchPublicPremiumPlayOrb(diameter: 62),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final vidKey =
-        visibilityKey.isNotEmpty ? visibilityKey : play.hashCode.toString();
-    return ColoredBox(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PremiumHtmlFeedVideo(
-            videoUrl: play,
-            visibilityKey: vidKey,
-            showControls: true,
-            posterUrl: posterOk ? td : null,
-            startLoadingImmediately: true,
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Material(
-              color: Colors.black45,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: IconButton(
-                tooltip: 'Tela cheia',
-                onPressed: () => unawaited(onOpenVideo()),
-                icon: const Icon(Icons.fullscreen_rounded,
-                    color: Colors.white, size: 22),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: posterOk ? 0.38 : 0.62),
+                    Colors.black.withValues(alpha: 0.88),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            const Center(
+              child: ChurchPublicPremiumPlayOrb(diameter: 62),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -719,19 +704,26 @@ class _YahwehPublicGalleryStackState extends State<_YahwehPublicGalleryStack> {
           itemBuilder: (ctx, idx) {
             final path = eventNoticiaPhotoStoragePathAt(widget.post, idx);
             final url = widget.urls[idx];
-            return StableStorageImage(
-              storagePath: path,
-              imageUrl: url,
-              width: double.infinity,
-              height: double.infinity,
-              fit: BoxFit.cover,
-              memCacheWidth: widget.memCacheW,
-              memCacheHeight: widget.memCacheH,
-              placeholder: YahwehPremiumFeedShimmer.mediaCover(),
-              errorWidget: ColoredBox(
-                color: const Color(0xFFF1F5F9),
-                child: Icon(Icons.image_not_supported_outlined,
-                    color: Colors.grey.shade400, size: 44),
+            final pid = (widget.post['id'] ?? widget.post.hashCode).toString();
+            return LazyViewportBuilder(
+              visibilityKey: 'pub-gal-$pid-$idx',
+              placeholder: SizedBox.expand(
+                child: YahwehPremiumFeedShimmer.mediaCover(),
+              ),
+              builder: () => StableStorageImage(
+                storagePath: path,
+                imageUrl: url,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                memCacheWidth: widget.memCacheW,
+                memCacheHeight: widget.memCacheH,
+                placeholder: YahwehPremiumFeedShimmer.mediaCover(),
+                errorWidget: ColoredBox(
+                  color: const Color(0xFFF1F5F9),
+                  child: Icon(Icons.image_not_supported_outlined,
+                      color: Colors.grey.shade400, size: 44),
+                ),
               ),
             );
           },

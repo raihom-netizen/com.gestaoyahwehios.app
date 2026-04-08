@@ -40,16 +40,10 @@ class ModuleHeaderPremium extends StatelessWidget {
         margin: EdgeInsets.fromLTRB(marginH, marginTop, marginH, 0),
         padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          color: ThemeCleanPremium.cardBackground,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           border: Border.all(color: const Color(0xFFE8EEF4)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0A000000),
-              blurRadius: 20,
-              offset: Offset(0, 6),
-            ),
-          ],
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
         ),
         child: Row(
           children: [

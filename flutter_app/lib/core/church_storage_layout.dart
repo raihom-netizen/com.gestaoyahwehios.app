@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
 ///
 /// ## Padrão
 /// Toda mídia da igreja fica sob **`igrejas/{igrejaDocId}/`**, com estas pastas (PT-BR):
-/// - **[membros]/{idDocumentoMembro}/foto_perfil.jpg** — foto de perfil canónica (id = doc em `igrejas/{tenant}/membros/`, ex. CPF); sempre este nome de ficheiro. Outros ficheiros: gestor, assinatura, digital, variantes legadas.
+/// - **[membros]/{idDocumentoMembro}/foto_perfil.jpg** — foto de perfil canónica (id = doc em `igrejas/{tenant}/membros/`, ex. CPF); **sempre este nome** (novo upload substitui o objeto; pode ser WebP com `contentType: image/webp`). Outros ficheiros: gestor, assinatura, digital, variantes legadas.
 /// - **[noticias]** — legado Storage + **Firestore** `igrejas/{id}/noticias` (eventos no mural).
 /// - **[avisos]** — canónico Storage `avisos/{postId}/…` + **Firestore** `igrejas/{id}/avisos` (só avisos do mural).
 /// - **[eventos]** — canónico: `eventos/{postId}/banner_evento.jpg` (+ `galeria_XX.jpg`); vídeos hospedados só em `eventos/videos/` (`{postId}_v0.mp4` + `{postId}_v0_thumb.jpg`, slots 0–1); **templates** em `eventos/templates/`.
@@ -92,12 +92,21 @@ abstract final class ChurchStorageLayout {
     return s.isEmpty ? 'doc' : s;
   }
 
-  /// Foto de perfil canónica: `membros/{memberDocId}/foto_perfil.jpg` (sobrescreve ao atualizar).
+  /// Foto de perfil canónica: `membros/{memberDocId}/foto_perfil.jpg` (mesmo path em cada troca — sobrescreve).
   static String memberCanonicalProfilePhotoPath(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
     final mid = _safeDocId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/$mid/foto_perfil.jpg';
+  }
+
+  /// Miniatura típica da extensão **Resize Images** (se ativada no projeto): mesma pasta do membro.
+  /// O painel prioriza decode pequeno na lista (`memCache`); pode passar a usar esta URL quando existir.
+  static String memberProfileResizeThumbPath(
+      String tenantId, String memberDocId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(memberDocId);
+    return '${churchRoot(tid)}/$kSegMembros/$mid/thumb_foto_perfil.jpg';
   }
 
   /// Post **evento** em [noticias]: capa `banner_evento.jpg`, mais fotos `galeria_01.jpg`…
@@ -251,13 +260,14 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto do patrimônio por **slot** (0–4 = 5 fotos): `galeria_01.jpg` … `galeria_05.jpg`.
+  /// Foto do patrimônio por **slot** (0–4 = 5 fotos): `galeria_01.webp` … `galeria_05.webp` (upload WebP 80%).
+  /// Ficheiros legados `.jpg` na mesma pasta continuam válidos até substituição.
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
     final n = (s + 1).toString().padLeft(2, '0');
-    return '$root/galeria_$n.jpg';
+    return '$root/galeria_$n.webp';
   }
 
   /// Base sem extensão (limpeza de variantes `_thumb` / `_card` / `_full` e legado `id_slot`).
@@ -284,7 +294,7 @@ abstract final class ChurchStorageLayout {
   static String cartaoMembroMediaPrefix(String tenantId) =>
       '${churchRoot(tenantId)}/$kSegCartaoMembro';
 
-  /// Base sem extensão da logo dedicada dos certificados (`.jpg` / variantes).
+  /// Base sem extensão da logo dedicada dos certificados (ficheiro canónico `logo_atual.jpg`).
   static String certificadoDedicatedLogoBaseWithoutExt(String tenantId) =>
       '${churchRoot(tenantId)}/$kSegCertificadosMidia/logo_atual';
 

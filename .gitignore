@@ -31,3 +31,12 @@ Thumbs.db
 
 # Cursor
 .cursor/
+
+# Raiz — segredos, cache Firebase CLI, artefactos locais, backup
+.env
+.env.*
+secrets/
+.firebase/
+artifacts/
+functions/.env*
+firebase.json.bak

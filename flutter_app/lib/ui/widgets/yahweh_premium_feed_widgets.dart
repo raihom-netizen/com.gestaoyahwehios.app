@@ -8,17 +8,17 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show resolveNoticiaSharePreviewImageUrl;
+export 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show resolveNoticiaSharePreviewImageUrl, resolveNoticiaShareSheetMedia;
+
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
-        eventNoticiaFeedCoverHintUrl,
         eventNoticiaHostedVideoPlayUrl,
-        eventNoticiaImageStoragePath,
-        eventNoticiaPhotoStoragePathAt,
         eventNoticiaPhotoUrls,
-        eventNoticiaThumbStoragePath,
         looksLikeHostedVideoFileUrl;
-import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
@@ -27,10 +27,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         SafeNetworkImage,
         dedupeImageRefsByStorageIdentity,
         firebaseStorageBytesFromDownloadUrl,
-        firebaseStorageMediaUrlLooksLike,
         isFirebaseStorageHttpUrl,
         isValidImageUrl,
-        normalizeFirebaseStorageObjectPath,
         preloadNetworkImages,
         sanitizeImageUrl;
 
@@ -355,42 +353,6 @@ class YahwehPremiumFeedShimmer {
   }
 }
 
-/// Resolve URL https da capa/miniatura para anexar na partilha (foto ou poster de vídeo).
-Future<String?> resolveNoticiaSharePreviewImageUrl(Map<String, dynamic> p) async {
-  Future<String?> fromRef(String? raw) async {
-    final s = sanitizeImageUrl(raw ?? '');
-    if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return null;
-    if (isValidImageUrl(s)) {
-      return AppStorageImageService.instance.resolveImageUrl(imageUrl: s);
-    }
-    final low = s.toLowerCase();
-    if (low.startsWith('gs://')) {
-      return AppStorageImageService.instance.resolveImageUrl(gsUrl: s);
-    }
-    if (firebaseStorageMediaUrlLooksLike(s)) {
-      final bare = s.replaceFirst(RegExp(r'^/+'), '');
-      final path = normalizeFirebaseStorageObjectPath(bare);
-      return AppStorageImageService.instance.resolveImageUrl(storagePath: path);
-    }
-    return null;
-  }
-
-  var url = await fromRef(eventNoticiaFeedCoverHintUrl(p));
-  if (url != null && isValidImageUrl(url)) return url;
-
-  url = await fromRef(eventNoticiaDisplayVideoThumbnailUrl(p));
-  if (url != null && isValidImageUrl(url)) return url;
-
-  final sp = eventNoticiaPhotoStoragePathAt(p, 0) ??
-      eventNoticiaImageStoragePath(p) ??
-      eventNoticiaThumbStoragePath(p);
-  if (sp != null && sp.isNotEmpty) {
-    url = await AppStorageImageService.instance.resolveImageUrl(storagePath: sp);
-    if (url != null && isValidImageUrl(url)) return url;
-  }
-  return null;
-}
-
 /// Partilha link `…/igreja/…/evento/…` (OG na Cloud Function) +, quando possível, **imagem anexa** (estilo WhatsApp/Instagram).
 Future<void> shareChurchNoticiaForOgPreview({
   required String tenantId,
@@ -552,6 +514,7 @@ Future<void> precacheHostedVideosFromFeed(
 }
 
 /// Pré-carrega imagens e aquece primeiros bytes dos vídeos hospedados (feed tipo Instagram).
+/// Os **3 primeiros** posts têm prioridade no pré-fetch de imagens (avisos instantâneos ao abrir).
 Future<void> scheduleFeedMediaWarmup(
   BuildContext context,
   List<Map<String, dynamic>> docMaps, {
@@ -559,21 +522,31 @@ Future<void> scheduleFeedMediaWarmup(
 }) async {
   if (!context.mounted) return;
   final imageUrls = <String>[];
+  final leadImageUrls = <String>[];
   final videoUrls = <String>[];
+  var docIndex = 0;
   for (final m in docMaps.take(maxDocs)) {
-    for (final p in eventNoticiaPhotoUrls(m)) {
-      final s = sanitizeImageUrl(p);
-      if (isValidImageUrl(s) && !looksLikeHostedVideoFileUrl(s)) {
-        imageUrls.add(s);
+    void addPhotosTo(List<String> bucket) {
+      for (final p in eventNoticiaPhotoUrls(m)) {
+        final s = sanitizeImageUrl(p);
+        if (isValidImageUrl(s) && !looksLikeHostedVideoFileUrl(s)) {
+          bucket.add(s);
+        }
+      }
+      final poster = eventNoticiaDisplayVideoThumbnailUrl(m);
+      if (poster != null && poster.isNotEmpty) {
+        final s = sanitizeImageUrl(poster);
+        if (isValidImageUrl(s) && !looksLikeHostedVideoFileUrl(s)) {
+          bucket.add(s);
+        }
       }
     }
-    final poster = eventNoticiaDisplayVideoThumbnailUrl(m);
-    if (poster != null && poster.isNotEmpty) {
-      final s = sanitizeImageUrl(poster);
-      if (isValidImageUrl(s) && !looksLikeHostedVideoFileUrl(s)) {
-        imageUrls.add(s);
-      }
+
+    if (docIndex < 3) {
+      addPhotosTo(leadImageUrls);
     }
+    addPhotosTo(imageUrls);
+
     final hv = eventNoticiaHostedVideoPlayUrl(m);
     if (hv != null && hv.isNotEmpty) {
       final s = sanitizeImageUrl(hv);
@@ -581,7 +554,14 @@ Future<void> scheduleFeedMediaWarmup(
         videoUrls.add(s);
       }
     }
+    docIndex++;
   }
+  await preloadNetworkImages(
+    context,
+    dedupeImageRefsByStorageIdentity(leadImageUrls),
+    maxItems: 12,
+  );
+  if (!context.mounted) return;
   await preloadNetworkImages(
     context,
     dedupeImageRefsByStorageIdentity(imageUrls),

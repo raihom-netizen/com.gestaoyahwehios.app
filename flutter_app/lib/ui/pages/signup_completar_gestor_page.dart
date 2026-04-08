@@ -1,8 +1,9 @@
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart'
+    show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-/// Página para completar cadastro do gestor após login com Google.
+/// Página para completar cadastro do gestor após login com Google ou Apple.
 /// Dados da igreja + dados pessoais → trial 30 dias, acesso total.
 class SignupCompletarGestorPage extends StatefulWidget {
   const SignupCompletarGestorPage({super.key});
@@ -58,7 +59,8 @@ class _SignupCompletarGestorPageState extends State<SignupCompletarGestorPage> {
     });
 
     try {
-      final fn = FirebaseFunctions.instance.httpsCallable('createChurchAndGestorWithGoogle');
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('createChurchAndGestorWithGoogle');
       final res = await fn.call({
         'igrejaNome': _igrejaNome.text.trim(),
         'igrejaDoc': _igrejaDoc.text.trim().isEmpty ? null : _igrejaDoc.text.trim(),

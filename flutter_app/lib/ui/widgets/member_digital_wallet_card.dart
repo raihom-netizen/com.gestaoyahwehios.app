@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -164,7 +165,11 @@ class MemberDigitalWalletFront extends StatelessWidget {
           colors: [colorA, colorB],
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: CarteirinhaVisualTokens.accentGoldFlutter
+              .withValues(alpha: 0.88),
+          width: 1,
+        ),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(DigitalWalletCardLayout.cornerRadius),
@@ -306,7 +311,7 @@ class MemberDigitalWalletFront extends StatelessWidget {
                               Text(
                                 admission.trim().isEmpty
                                     ? 'Admissão: —'
-                                    : 'Admissão: ${admission.trim()}',
+                                    : admission.trim(),
                                 style: GoogleFonts.poppins(
                                   color: textColor.withValues(alpha: 0.88),
                                   fontSize: 9,
@@ -476,7 +481,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
           colors: [colorB, colorA],
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: CarteirinhaVisualTokens.accentGoldFlutter
+              .withValues(alpha: 0.88),
+          width: 1,
+        ),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(DigitalWalletCardLayout.cornerRadius),

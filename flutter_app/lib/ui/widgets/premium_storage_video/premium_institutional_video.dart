@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
@@ -6,7 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show sanitizeImageUrl;
+    show freshFirebaseStorageDisplayUrl, sanitizeImageUrl;
 import 'package:video_player/video_player.dart';
 
 /// Campos opcionais no Firestore (`igrejas/{id}` ou `app_public/site`) para vídeo institucional.
@@ -48,6 +50,33 @@ String? _storagePathFromMap(Map<String, dynamic> data) {
   return null;
 }
 
+String? _posterUrlFromMap(Map<String, dynamic> data) {
+  for (final k in const [
+    'institutionalVideoPosterUrl',
+    'heroVideoPosterUrl',
+    'videoPosterUrl',
+    'institutional_video_poster_url',
+  ]) {
+    final v = (data[k] ?? '').toString().trim();
+    if (v.isEmpty) continue;
+    final s = sanitizeImageUrl(v);
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  }
+  return null;
+}
+
+String? _posterStoragePathFromMap(Map<String, dynamic> data) {
+  for (final k in const [
+    'institutionalVideoPosterStoragePath',
+    'heroVideoPosterStoragePath',
+    'videoPosterStoragePath',
+  ]) {
+    final v = (data[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v.replaceAll('\\', '/');
+  }
+  return null;
+}
+
 /// Card estilo EcoFire: borda 16, sombra suave, legenda abaixo, vídeo HTML na web (PiP / velocidade / download).
 class PremiumInstitutionalVideoCard extends StatefulWidget {
   /// URL direta (https) do vídeo.
@@ -66,6 +95,12 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
   /// Galeria pública: mostra o vídeo inteiro (vertical 9:16) sem cortar — fundo escuro + `contain`.
   final bool letterbox;
 
+  /// Frame estático (web) enquanto o MP4 carrega — URL https ou renovada no Storage.
+  final String? posterUrl;
+
+  /// Alternativa a [posterUrl]: caminho no bucket (ex. `public/.../poster.webp`).
+  final String? posterStoragePath;
+
   const PremiumInstitutionalVideoCard({
     super.key,
     this.videoUrl,
@@ -75,6 +110,8 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
     this.hintBelow,
     this.heroAutoplay = true,
     this.letterbox = false,
+    this.posterUrl,
+    this.posterStoragePath,
   });
 
   /// Monta a partir do documento da igreja (painel / site público da igreja).
@@ -92,6 +129,8 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
       caption: caption,
       hintBelow: hintBelow,
       heroAutoplay: heroAutoplay,
+      posterUrl: _posterUrlFromMap(data),
+      posterStoragePath: _posterStoragePathFromMap(data),
     );
   }
 
@@ -103,6 +142,7 @@ class PremiumInstitutionalVideoCard extends StatefulWidget {
 class _PremiumInstitutionalVideoCardState
     extends State<PremiumInstitutionalVideoCard> {
   String? _resolved;
+  String? _posterResolved;
   String? _err;
   bool _loading = true;
   bool _mobileInitFailed = false;
@@ -118,10 +158,13 @@ class _PremiumInstitutionalVideoCardState
   void didUpdateWidget(covariant PremiumInstitutionalVideoCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoUrl != widget.videoUrl ||
-        oldWidget.storagePath != widget.storagePath) {
+        oldWidget.storagePath != widget.storagePath ||
+        oldWidget.posterUrl != widget.posterUrl ||
+        oldWidget.posterStoragePath != widget.posterStoragePath) {
       _mobile?.dispose();
       _mobile = null;
       _resolved = null;
+      _posterResolved = null;
       _err = null;
       _loading = true;
       _mobileInitFailed = false;
@@ -129,7 +172,36 @@ class _PremiumInstitutionalVideoCardState
     }
   }
 
+  Future<void> _resolvePoster() async {
+    final direct = widget.posterUrl?.trim() ?? '';
+    if (direct.isNotEmpty) {
+      final u = sanitizeImageUrl(direct);
+      if (u.startsWith('http://') || u.startsWith('https://')) {
+        try {
+          final out = await freshFirebaseStorageDisplayUrl(u);
+          if (mounted) setState(() => _posterResolved = out);
+        } catch (_) {
+          if (mounted) setState(() => _posterResolved = u);
+        }
+      }
+      return;
+    }
+    final path = widget.posterStoragePath?.trim() ?? '';
+    if (path.isEmpty) {
+      if (mounted) setState(() => _posterResolved = null);
+      return;
+    }
+    try {
+      final ref = FirebaseStorage.instance.ref(path);
+      final u = await ref.getDownloadURL();
+      if (mounted) setState(() => _posterResolved = u);
+    } catch (_) {
+      if (mounted) setState(() => _posterResolved = null);
+    }
+  }
+
   Future<void> _resolve() async {
+    unawaited(_resolvePoster());
     final direct = widget.videoUrl?.trim() ?? '';
     if (direct.isNotEmpty) {
       final u = sanitizeImageUrl(direct);
@@ -250,6 +322,7 @@ class _PremiumInstitutionalVideoCardState
                 muted: widget.heroAutoplay,
                 controls: true,
                 objectFitContain: widget.letterbox,
+                posterUrl: _posterResolved,
               ),
             ),
           )
@@ -383,6 +456,8 @@ class PremiumMarketingHeroVideo extends StatelessWidget {
         if ((url == null || url.isEmpty) && (path == null || path.isEmpty)) {
           path = defaultStoragePath;
         }
+        final posterU = data != null ? _posterUrlFromMap(data) : null;
+        final posterP = data != null ? _posterStoragePathFromMap(data) : null;
         return PremiumInstitutionalVideoCard(
           key: ValueKey('marketing_${url ?? ''}_$path'),
           videoUrl: url,
@@ -392,6 +467,8 @@ class PremiumMarketingHeroVideo extends StatelessWidget {
           hintBelow:
               'Assista à demonstração em alta qualidade (até 4K quando o arquivo permitir).',
           heroAutoplay: true,
+          posterUrl: posterU,
+          posterStoragePath: posterP,
         );
       },
     );

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/foundation.dart';
@@ -664,6 +663,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       fontSize: 14, color: Colors.grey.shade600, height: 1.4),
                   textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 10),
+                Text(
+                  'Quando o gestor aprovar, sua conta de acesso será criada automaticamente com senha inicial 123456 (você poderá trocar depois ou usar “Esqueci a senha”).',
+                  style: TextStyle(
+                      fontSize: 13, color: Colors.grey.shade600, height: 1.35),
+                  textAlign: TextAlign.center,
+                ),
                 if ((_lastSubmittedDocId ?? '').isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Container(
@@ -800,8 +806,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   Future<void> _pickPhoto({bool fromCamera = false}) async {
-    final picked = await MediaHandlerService.instance.pickAndProcessImage(
+    final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
       source: fromCamera ? ImageSource.camera : ImageSource.gallery,
+      webCropContext: context,
     );
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
@@ -812,7 +819,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       });
   }
 
-  /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — id do documento Firestore.
+  /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — nome fixo (sobrescreve ao trocar).
+  /// Primeiro cadastro: não há foto anterior; não é necessário delete-before-update.
   Future<String> _uploadPhoto(
       String tenantId, String memberDocId, XFile file) async {
     final raw = await file.readAsBytes();
@@ -993,7 +1001,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : _tenantId;
       final slug = _tenantSlug.isNotEmpty ? _tenantSlug : _tenantId;
-      // Grava na igreja correta (igrejas/{tenantId}/membros); status pendente até o gestor aprovar; login já criado abaixo.
+      // Grava na igreja correta (igrejas/{tenantId}/membros); pendente até o gestor aprovar.
+      // Login Firebase (e-mail + senha 123456) é criado na aprovação — callable `setMemberApproved`.
       final data = {
         'MEMBER_ID': ref.id,
         'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : ref.id,
@@ -1046,30 +1055,6 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         await ref.update(updateData);
       } else {
         await ref.set(data);
-      }
-
-      // Cria login do sistema (e-mail + senha 123456) para acessar o painel após aprovação do gestor
-      try {
-        final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-        await functions.httpsCallable('createMemberLoginFromPublic').call({
-          'tenantId': _tenantId,
-          'memberId': ref.id,
-        });
-        try {
-          await functions.httpsCallable('setMemberPassword').call({
-            'tenantId': _tenantId,
-            'memberId': ref.id,
-            'newPassword': '123456',
-          });
-        } catch (_) {}
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'Cadastro salvo na igreja, mas o login pode não ter sido criado. Avise o gestor: $e')),
-          );
-        }
       }
 
       if (!mounted) return;
@@ -1934,12 +1919,20 @@ class PublicSignupStatusPage extends StatelessWidget {
         (churchDoc.data()['name'] ?? churchDoc.data()['nome'] ?? 'Igreja')
             .toString();
 
-    final memberDoc = await db
+    final membrosCol = db
         .collection('igrejas')
         .doc(churchDoc.id)
-        .collection('membros')
-        .doc(protocolo.trim())
-        .get();
+        .collection('membros');
+    var memberDoc = await membrosCol.doc(protocolo.trim()).get();
+    if (!memberDoc.exists) {
+      final byLegacy = await membrosCol
+          .where('legacyMemberDocId', isEqualTo: protocolo.trim())
+          .limit(1)
+          .get();
+      if (byLegacy.docs.isNotEmpty) {
+        memberDoc = byLegacy.docs.first;
+      }
+    }
     if (!memberDoc.exists) {
       return (
         churchName: churchName,

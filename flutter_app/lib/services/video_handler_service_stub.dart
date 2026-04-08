@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
@@ -43,25 +45,29 @@ class VideoHandlerService implements IVideoHandlerService {
     final thumbPath =
         ChurchStorageLayout.eventHostedVideoThumbPath(tenantId, eventPostDocId, slot);
 
-    final videoUrl = await MediaUploadService.uploadBytesWithRetry(
+    final mime = xfile.mimeType ?? 'video/mp4';
+    // Envio do vídeo e extração da miniatura em paralelo (web não comprime no cliente).
+    final videoFuture = MediaUploadService.uploadBytesWithRetry(
       storagePath: videoPath,
       bytes: bytes,
-      contentType: xfile.mimeType ?? 'video/mp4',
+      contentType: mime,
     );
+    final thumbBytesFuture = kIsWeb
+        ? captureVideoFirstFrameJpeg(bytes, mimeType: mime)
+        : Future<Uint8List?>.value(null);
+    final done = await Future.wait<Object?>([videoFuture, thumbBytesFuture]);
+    final videoUrl = done[0]! as String;
+    final thumbBytes = done[1] as Uint8List?;
 
     String thumbUrl = '';
-    if (kIsWeb) {
-      final mime = xfile.mimeType ?? 'video/mp4';
-      final thumbBytes = await captureVideoFirstFrameJpeg(bytes, mimeType: mime);
-      if (thumbBytes != null && thumbBytes.isNotEmpty) {
-        try {
-          thumbUrl = await MediaUploadService.uploadBytesWithRetry(
-            storagePath: thumbPath,
-            bytes: thumbBytes,
-            contentType: 'image/jpeg',
-          );
-        } catch (_) {}
-      }
+    if (thumbBytes != null && thumbBytes.isNotEmpty) {
+      try {
+        thumbUrl = await MediaUploadService.uploadBytesWithRetry(
+          storagePath: thumbPath,
+          bytes: thumbBytes,
+          contentType: 'image/jpeg',
+        );
+      } catch (_) {}
     }
 
     return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);

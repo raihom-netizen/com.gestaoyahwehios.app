@@ -33,6 +33,7 @@ abstract final class MemberImageFields {
     for (final k in [
       'fotoStoragePath',
       'photoStoragePath',
+      'FOTO_STORAGE_PATH',
       'fotoPath',
       'photoPath',
       'foto_storage_path',

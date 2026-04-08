@@ -56,9 +56,14 @@ class ChurchDepartmentsBootstrap {
   }) async {
     try {
       if (refreshToken) {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } catch (_) {}
       }
-      final snap = await col.get(GetOptions(source: Source.server));
+      // Cache primeiro (abertura do módulo); confirma no servidor só se parecer vazio.
+      var snap = await col.get(GetOptions(source: Source.serverAndCache));
+      if (snap.docs.isNotEmpty) return false;
+      snap = await col.get(GetOptions(source: Source.server));
       if (snap.docs.isNotEmpty) return false;
       final now = Timestamp.now();
       final batch = FirebaseFirestore.instance.batch();

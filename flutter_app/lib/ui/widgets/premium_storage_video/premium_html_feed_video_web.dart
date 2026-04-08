@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:js' as js;
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
@@ -63,9 +64,35 @@ class _PremiumHtmlFeedVideoState extends State<PremiumHtmlFeedVideo> {
       }
     }
     if (!mounted) return;
+    _setVideoSource(use);
+    setState(() => _resolvingUrl = false);
+  }
+
+  void _detachHls() {
+    try {
+      final fn = js.context['yahwehDetachHls'];
+      if (fn != null) {
+        js.context.callMethod('yahwehDetachHls', [_video]);
+      }
+    } catch (_) {}
+  }
+
+  void _setVideoSource(String use) {
+    final lower = use.toLowerCase();
+    final looksHls =
+        lower.contains('.m3u8') || lower.contains('application/x-mpegurl');
+    if (looksHls) {
+      try {
+        final fn = js.context['yahwehAttachHls'];
+        if (fn != null) {
+          js.context.callMethod('yahwehAttachHls', [_video, use]);
+          return;
+        }
+      } catch (_) {}
+    }
+    _detachHls();
     _video.src = use;
     _video.load();
-    setState(() => _resolvingUrl = false);
   }
 
   @override
@@ -141,6 +168,7 @@ class _PremiumHtmlFeedVideoState extends State<PremiumHtmlFeedVideo> {
   void dispose() {
     try {
       _video.pause();
+      _detachHls();
       _video.src = '';
       _video.load();
     } catch (_) {}

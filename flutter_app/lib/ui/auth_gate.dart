@@ -108,7 +108,7 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Acesse a página inicial, digite seu CPF ou e-mail (${user.email ?? "cadastrado"}) e clique em "Carregar igreja" para associar sua conta.',
+                      'Acesse a página inicial, digite seu e-mail (${user.email ?? "cadastrado"}) e clique em "Carregar igreja" para associar sua conta.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
@@ -205,7 +205,7 @@ class _AguardandoAprovacaoPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Seu cadastro foi recebido. O gestor da igreja precisa aprovar para você acessar o painel. Após a aprovação, faça login normalmente com seu e-mail e senha.',
+                      'Seu cadastro foi recebido. O gestor da igreja precisa aprovar para criar seu acesso ao painel. Após a aprovação, entre com seu e-mail e a senha inicial 123456 (depois você pode trocar ou usar Esqueci a senha).',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
@@ -313,8 +313,9 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   StreamSubscription<User?>? _authLogoutNavSub;
+  bool _scheduledLoginRedirect = false;
 
-  Future<Map<String, dynamic>?> _loadProfile(User user) async {
+  Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
     try {
       final db = FirebaseFirestore.instance;
 
@@ -340,26 +341,30 @@ class _AuthGateState extends State<AuthGate> {
       // Fallback: resolve igreja pelo e-mail do gestor (ex.: Brasil para Cristo — membros em igrejas/.../membros)
       if (igrejaId.isEmpty && (user.email ?? '').toString().trim().isNotEmpty) {
         try {
-          final tenantByEmail = await db.collection('igrejas')
-              .where('email', isEqualTo: (user.email ?? '').toString().trim().toLowerCase())
-              .limit(1)
-              .get();
-          if (tenantByEmail.docs.isNotEmpty) {
-            igrejaId = tenantByEmail.docs.first.id;
-            if (userDoc.exists) {
-              await db.collection('users').doc(user.uid).update({'igrejaId': igrejaId, 'tenantId': igrejaId}).catchError((_) {});
-            }
-          } else {
-            final byGestor = await db.collection('igrejas')
-                .where('gestorEmail', isEqualTo: (user.email ?? '').toString().trim().toLowerCase())
+          final emailLower = (user.email ?? '').toString().trim().toLowerCase();
+          final pair = await Future.wait([
+            db
+                .collection('igrejas')
+                .where('email', isEqualTo: emailLower)
                 .limit(1)
-                .get();
-            if (byGestor.docs.isNotEmpty) {
-              igrejaId = byGestor.docs.first.id;
-              if (userDoc.exists) {
-                await db.collection('users').doc(user.uid).update({'igrejaId': igrejaId, 'tenantId': igrejaId}).catchError((_) {});
-              }
-            }
+                .get(),
+            db
+                .collection('igrejas')
+                .where('gestorEmail', isEqualTo: emailLower)
+                .limit(1)
+                .get(),
+          ]);
+          if (pair[0].docs.isNotEmpty) {
+            igrejaId = pair[0].docs.first.id;
+          } else if (pair[1].docs.isNotEmpty) {
+            igrejaId = pair[1].docs.first.id;
+          }
+          if (igrejaId.isNotEmpty && userDoc.exists) {
+            await db
+                .collection('users')
+                .doc(user.uid)
+                .update({'igrejaId': igrejaId, 'tenantId': igrejaId})
+                .catchError((_) {});
           }
         } catch (_) {}
       }
@@ -371,24 +376,40 @@ class _AuthGateState extends State<AuthGate> {
       // Garante que igrejaId é o ID do documento em tenants (ex.: Brasil para Cristo → brasilparacristo_sistema)
       igrejaId = await TenantResolverService.resolveEffectiveTenantId(igrejaId);
 
-      // Paraleliza: update do user doc (se necessário) + busca da subscription — reduz tempo de carregamento
+      // Só grava users/{uid} com igrejaId depois de confirmar que `igrejas/{id}` existe (evita fixar ID órfão).
       final hasIgrejaInDoc = (userData['igrejaId'] ?? '').toString().trim().isNotEmpty
           || (userData['tenantId'] ?? '').toString().trim().isNotEmpty;
-      final updateFuture = (!hasIgrejaInDoc && userDoc.exists)
-          ? db.collection('users').doc(user.uid).update({'igrejaId': igrejaId, 'tenantId': igrejaId}).catchError((_) {})
-          : Future<void>.value();
       final subFuture = _fetchSubscription(db, igrejaId);
+      final churchFuture = db.collection('igrejas').doc(igrejaId).get();
 
-      await updateFuture;
-      final subData = await subFuture;
+      final waited = await Future.wait<dynamic>([subFuture, churchFuture]);
+      final subData = waited[0] as Map<String, dynamic>?;
+      final chSnap = waited[1] as DocumentSnapshot<Map<String, dynamic>>;
 
-      Map<String, dynamic>? churchData;
-      if (igrejaId.isNotEmpty) {
-        try {
-          final chSnap = await db.collection('igrejas').doc(igrejaId).get();
-          churchData = chSnap.data();
-        } catch (_) {}
+      if (!chSnap.exists) {
+        if (repairDepth < 1) {
+          try {
+            final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+                .httpsCallable('repairMyChurchBinding');
+            await fn
+                .call(<String, dynamic>{})
+                .timeout(const Duration(seconds: 28));
+            await user.getIdToken(true);
+            return _loadProfile(user, repairDepth: repairDepth + 1);
+          } catch (_) {}
+        }
+        return null;
       }
+
+      if (!hasIgrejaInDoc && userDoc.exists) {
+        await db
+            .collection('users')
+            .doc(user.uid)
+            .update({'igrejaId': igrejaId, 'tenantId': igrejaId})
+            .catchError((_) {});
+      }
+
+      final Map<String, dynamic>? churchData = chSnap.data();
 
       // Membro em igrejas/igrejaId/membros: ativo = acesso ao painel; pendente = aguardando aprovação do gestor
       var active = userData['ativo'] == true;
@@ -544,10 +565,26 @@ class _AuthGateState extends State<AuthGate> {
 
         final user = snap.data;
         if (user == null) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          // Sem sessão: não ficar em spinner infinito (ex.: /painel após logout).
+          if (!_scheduledLoginRedirect) {
+            _scheduledLoginRedirect = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              if (FirebaseAuth.instance.currentUser != null) return;
+              Navigator.of(context, rootNavigator: true)
+                  .pushNamedAndRemoveUntil('/login', (_) => false);
+            });
+          }
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
+        _scheduledLoginRedirect = false;
         return _AuthGateProfileLoader(
           user: user,
           loadProfile: () => _loadProfile(user),

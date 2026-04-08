@@ -44,6 +44,23 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
       LinkedHashMap<int, String>();
   static const int _kMaxResolvedCache = 200;
 
+  /// Evita tentar path/gs antes de uma URL https já exibível na lista.
+  static List<String> _httpsFirstCandidates(List<String> urls) {
+    final https = <String>[];
+    final other = <String>[];
+    for (final raw in urls) {
+      final s = sanitizeImageUrl(raw);
+      if (s.isEmpty) continue;
+      if (isValidImageUrl(s) &&
+          (s.startsWith('https://') || s.startsWith('http://'))) {
+        https.add(raw);
+      } else {
+        other.add(raw);
+      }
+    }
+    return [...https, ...other];
+  }
+
   String? _url;
   bool _resolveFinished = false;
   int _resolveGen = 0;
@@ -95,7 +112,7 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
       if (fromDidUpdate) setState(() {});
       return;
     }
-    for (final raw in widget.candidateUrls) {
+    for (final raw in _httpsFirstCandidates(widget.candidateUrls)) {
       final s = sanitizeImageUrl(raw);
       if (s.isEmpty) continue;
       if (isValidImageUrl(s) &&
@@ -123,7 +140,7 @@ class _FotoPatrimonioWidgetState extends State<FotoPatrimonioWidget> {
       final path = widget.storagePath?.trim();
 
       // Só entra aqui sem https válido: path, gs://, caminho relativo — precisa getDownloadURL.
-      for (final raw in widget.candidateUrls) {
+      for (final raw in _httpsFirstCandidates(widget.candidateUrls)) {
         if (!mounted || gen != _resolveGen) return;
         final s = sanitizeImageUrl(raw);
         if (s.isEmpty) continue;

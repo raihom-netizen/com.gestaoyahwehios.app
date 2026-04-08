@@ -28,6 +28,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
@@ -43,18 +44,16 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/ui/widgets/yahweh_post_card.dart'
     show yahwehPostGalleryRefs;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show
-        showYahwehFullscreenZoomableImage,
-        resolveNoticiaSharePreviewImageUrl,
-        YahwehPremiumFeedShimmer;
+    show showYahwehFullscreenZoomableImage, YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage, resolveNoticiaHostedVideoShareUrl;
+    show buildNoticiaInviteShareMessage, resolveNoticiaShareSheetMedia;
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:gestao_yahweh/ui/widgets/church_ministry_health_panel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
     show ChurchHostedVideoSurface, showChurchHostedVideoDialog;
@@ -117,6 +116,9 @@ class IgrejaDashboardModerno extends StatefulWidget {
 }
 
 class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
+  final GlobalKey<ChurchMinistryHealthPanelState> _ministryHealthKey =
+      GlobalKey<ChurchMinistryHealthPanelState>();
+
   Stream<QuerySnapshot<Map<String, dynamic>>>? _membersStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _financeStream;
@@ -153,7 +155,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
       );
 
   Future<void> _loadStreams() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    // Evita getIdToken(true) a cada abertura/pull: força ida ao servidor e atrasa o painel.
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {}
     final resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
     final tenantRef = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
@@ -186,6 +191,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
           .orderBy('createdAt', descending: true)
           .limit(10)
           .snapshots();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(scheduleYahwehPanelImageWarmup(context, resolved));
     });
   }
 
@@ -325,10 +334,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         if (!AppPermissions.isRestrictedMember(widget.role)) ...[
                           ChurchMinistryHealthPanel(
+                            key: _ministryHealthKey,
                             tenantId: _effectiveTenantId,
                             role: widget.role,
                             memberDocs: mergedSnap.data?.docs ?? const [],
                             canViewFinance: _dashCanFinance,
+                            deferFinanceBlock: _dashCanFinance,
+                            onDeferredFinanceReady: () {
+                              if (mounted) setState(() {});
+                            },
                             onNavigateToMembers: widget.onNavigateToMembers,
                             onRefreshDashboard: _loadStreams,
                           ),
@@ -382,6 +396,26 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                         ),
                         if (_dashCanFinance) ...[
                           const SizedBox(height: ThemeCleanPremium.spaceXl),
+                          if (!AppPermissions.isRestrictedMember(widget.role))
+                            Builder(
+                              builder: (context) {
+                                final extra = _ministryHealthKey.currentState
+                                    ?.buildDeferredFinanceSection(context);
+                                if (extra == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    extra,
+                                    SizedBox(
+                                        height:
+                                            ThemeCleanPremium.spaceLg),
+                                  ],
+                                );
+                              },
+                            ),
                           SizedBox(
                             width: isNarrow ? double.infinity : 380,
                             child: _GraficoFinanceiro(stream: _financeStream!),
@@ -1368,8 +1402,8 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   }
 
   Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri != null && await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    await openHttpsUrlInBrowser(context, url);
   }
 
   void _shareUrl(String url, String label) {
@@ -1552,6 +1586,16 @@ class _LinkPublicoTile extends StatelessWidget {
   }
 }
 
+/// UID Firebase do membro (foto no Storage em `membros/{authUid}/…` quando o doc é CPF).
+String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
+  if (data == null) return null;
+  for (final k in ['authUid', 'uid', 'userId', 'firebaseUid', 'USER_ID']) {
+    final v = (data[k] ?? '').toString().trim();
+    if (v.length >= 8) return v;
+  }
+  return null;
+}
+
 /// Rótulos de função para exibição na tela de detalhe (líder/corpo administrativo).
 String _funcaoDisplayLabel(String v) {
   const labels = {
@@ -1616,6 +1660,7 @@ void _openLiderDetalhe(
                         tenantId: tid,
                         memberId: mid,
                         cpfDigits: cpfDigitsLider,
+                        authUid: _dashboardMemberAuthUid(memberData),
                         size: 128,
                         memCacheWidth: 256,
                         memCacheHeight: 256,
@@ -1847,6 +1892,7 @@ class _LideresGaleria extends StatelessWidget {
                                   tenantId: tenantId,
                                   memberId: memberDocId,
                                   cpfDigits: cpf.length == 11 ? cpf : null,
+                                  authUid: _dashboardMemberAuthUid(memberData),
                                   size: 64,
                                   memCacheWidth: 150,
                                   memCacheHeight: 150,
@@ -1965,6 +2011,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                             tenantId: tenantId,
                             memberId: m.id,
                             cpfDigits: cpfMembro.length == 11 ? cpfMembro : null,
+                            authUid: _dashboardMemberAuthUid(data),
                             size: 64,
                             memCacheWidth: 150,
                             memCacheHeight: 150,
@@ -3370,6 +3417,8 @@ class _PainelDestaqueExpandableTextState
       height: 1.45,
       color: Colors.grey.shade800,
     );
+    final hasLink =
+        RegExp(r'https?://|www\.', caseSensitive: false).hasMatch(t);
     return LayoutBuilder(
       builder: (context, c) {
         final maxW = c.maxWidth;
@@ -3380,16 +3429,32 @@ class _PainelDestaqueExpandableTextState
         )..layout(maxWidth: maxW);
         final overflow = tp.didExceedMaxLines;
         final showButton = _expanded || overflow;
+        final linkStyle = style.copyWith(
+          color: ThemeCleanPremium.primary,
+          fontWeight: FontWeight.w700,
+          decoration: TextDecoration.underline,
+          decorationColor: ThemeCleanPremium.primary,
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              t,
-              style: style,
-              maxLines: _expanded ? null : widget.maxLines,
-              overflow:
-                  _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            ),
+            if (hasLink)
+              SelectableLinkify(
+                text: t,
+                maxLines: _expanded ? null : widget.maxLines,
+                onOpen: (link) => openHttpsUrlInBrowser(context, link.url),
+                style: style,
+                linkStyle: linkStyle,
+                options: const LinkifyOptions(humanize: false),
+              )
+            else
+              Text(
+                t,
+                style: style,
+                maxLines: _expanded ? null : widget.maxLines,
+                overflow:
+                    _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+              ),
             if (showButton)
               Align(
                 alignment: Alignment.centerLeft,
@@ -4452,9 +4517,14 @@ class _PainelDestaqueMediaCarouselState
                   final memH = (h * dpr).round().clamp(64, 1200);
                   final pathFs = eventNoticiaPhotoStoragePathAt(d, idx);
                   final ps = _painelDestaqueStableParamsFromRef(refs[idx]);
+                  // Path derivado do próprio ref tem prioridade — evita misturar imageStoragePaths[0] com foto[1].
+                  final spMerged = (ps.storagePath != null &&
+                          ps.storagePath!.trim().isNotEmpty)
+                      ? ps.storagePath
+                      : pathFs;
                   final img = StableStorageImage(
                     key: ValueKey('painel_ph_${idx}_${refs[idx]}'),
-                    storagePath: pathFs ?? ps.storagePath,
+                    storagePath: spMerged,
                     imageUrl: ps.imageUrl,
                     gsUrl: ps.gsUrl,
                     width: w,
@@ -4462,6 +4532,7 @@ class _PainelDestaqueMediaCarouselState
                     fit: BoxFit.cover,
                     memCacheWidth: memW,
                     memCacheHeight: memH,
+                    skipFreshDisplayUrl: false,
                     placeholder: ColoredBox(
                       color: const Color(0xFFF1F5F9),
                       child: Icon(
@@ -4730,7 +4801,7 @@ class _DestaqueCard extends StatelessWidget {
           height: 32,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: ThemeCleanPremium.primary.withOpacity(0.6),
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.6),
           ),
         ),
       ),
@@ -4763,6 +4834,7 @@ class _DestaqueCard extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: memW,
                   memCacheHeight: memH,
+                  skipFreshDisplayUrl: false,
                   placeholder: ph,
                   errorWidget: videoThumbUrl != null && videoThumbUrl.isNotEmpty
                       ? FreshFirebaseStorageImage(
@@ -4840,12 +4912,69 @@ class _DestaqueCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: isEvento ? [const Color(0xFF1E3A8A), const Color(0xFF3B82F6)] : [const Color(0xFF7C3AED), const Color(0xFFA78BFA)],
+          colors: isEvento
+              ? [
+                  const Color(0xFF0C4A6E),
+                  ThemeCleanPremium.primary,
+                  const Color(0xFF38BDF8),
+                ]
+              : [
+                  const Color(0xFF312E81),
+                  const Color(0xFF4F46E5),
+                  const Color(0xFF818CF8),
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: const [0.0, 0.5, 1.0],
         ),
       ),
-      child: Center(child: Icon(isEvento ? Icons.event_rounded : Icons.campaign_rounded, color: Colors.white54, size: 40)),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            right: -24,
+            bottom: -40,
+            child: Icon(
+              isEvento ? Icons.event_rounded : Icons.campaign_rounded,
+              size: 140,
+              color: Colors.white.withValues(alpha: 0.07),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isEvento
+                      ? Icons.event_available_rounded
+                      : Icons.notifications_active_rounded,
+                  color: Colors.white.withValues(alpha: 0.92),
+                  size: 38,
+                ),
+                if (title.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.96),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -4875,7 +5004,9 @@ class _DestaqueCard extends StatelessWidget {
     var firstImg = '';
     for (final raw in galleryRefs) {
       final s = sanitizeImageUrl(raw);
-      if (isValidImageUrl(s)) {
+      if (isValidImageUrl(s) ||
+          s.toLowerCase().startsWith('gs://') ||
+          firebaseStorageMediaUrlLooksLike(s)) {
         firstImg = s;
         break;
       }
@@ -4890,7 +5021,12 @@ class _DestaqueCard extends StatelessWidget {
     final videoThumb = videoThumbRaw != null && videoThumbRaw.isNotEmpty ? sanitizeImageUrl(videoThumbRaw) : null;
     final videoUrl = (data['videoUrl'] ?? '').toString().trim();
     final vids = eventNoticiaVideosFromDoc(data);
-    final primaryPhotoUrl = isValidImageUrl(firstImg) ? firstImg : '';
+    final primaryPhotoUrl = firstImg.isNotEmpty &&
+            (isValidImageUrl(firstImg) ||
+                firstImg.toLowerCase().startsWith('gs://') ||
+                firebaseStorageMediaUrlLooksLike(firstImg))
+        ? firstImg
+        : '';
     final storagePathPrimary = eventNoticiaImageStoragePath(data);
     final hasVideo = vids.isNotEmpty ||
         videoUrl.isNotEmpty ||
@@ -4965,28 +5101,36 @@ class _DestaqueCard extends StatelessWidget {
         : null;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          color: Colors.white.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-              spreadRadius: 0,
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.10),
+              blurRadius: 36,
+              offset: const Offset(0, 18),
+              spreadRadius: -6,
             ),
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+              color: Colors.black.withValues(alpha: 0.07),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
             ),
           ],
-          border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+          border: Border(
+            top: BorderSide(
+              color: YahwehDesignSystem.brandGold.withValues(alpha: 0.55),
+              width: 3,
+            ),
+            left: const BorderSide(color: Color(0xFFE2E8F0)),
+            right: const BorderSide(color: Color(0xFFE2E8F0)),
+            bottom: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -5115,7 +5259,7 @@ class _DestaqueCard extends StatelessWidget {
               child: InkWell(
                 onTap: openModulo,
                 borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(ThemeCleanPremium.radiusMd)),
+                    bottom: Radius.circular(ThemeCleanPremium.radiusLg)),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
                   child: Column(
@@ -5299,16 +5443,15 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
       publicSiteUrl: publicSite,
       inviteCardUrl: inviteUrl,
     );
-    final coverUrl = await resolveNoticiaSharePreviewImageUrl(data);
-    final videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+    final media = await resolveNoticiaShareSheetMedia(data);
     if (!context.mounted) return;
     await showChurchNoticiaShareSheet(
       context,
       shareLink: inviteUrl,
       shareMessage: msg,
       shareSubject: 'Convite — $churchName',
-      previewImageUrl: coverUrl,
-      videoPlayUrl: videoUrl,
+      previewImageUrl: media.previewImageUrl,
+      videoPlayUrl: media.videoPlayUrl,
       sharePositionOrigin: shareRectFromContext(context),
     );
   }

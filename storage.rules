@@ -1,0 +1,225 @@
+rules_version = '2';
+// Padrão de pastas: mídia de cada igreja cliente sob `igrejas/{igrejaId}/`
+// (membros, noticias, eventos, patrimonio, logo, etc.). Conteúdo institucional
+// da Gestão YAHWEH (divulgação) não deve usar o prefixo `igrejas/`.
+//
+// Leitura pública: já coberta por regras explícitas (membros, notícias, eventos,
+// patrimônio, logos, etc.). NÃO substitua este arquivo por um único
+// `match /{allPaths=**} { allow read: if true; }` — isso expõe qualquer objeto
+// futuro no bucket e, com a semântica OR do Storage, pode anular regras mais restritas.
+//
+// Deploy: na raiz do repo, `.\scripts\deploy_firebase_rules.ps1` (ver regra do projeto).
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Imagem ou vídeo + tipos que Flutter/Web enviam (octet-stream / vazio)
+    function mediaImageVideoOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('video/.*')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    // Só imagem (foto de membro, logo, patrimônio) + octet-stream / vazio
+    function photoImageOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    // Comprovantes: imagem ou PDF + blob
+    function comprovanteOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    function pkcs12OrBlob() {
+      return request.resource.contentType == 'application/x-pkcs12'
+        || request.resource.contentType == 'application/pkcs12'
+        || request.resource.contentType == 'application/octet-stream';
+    }
+
+    function publicMediaPdfOrBlob() {
+      return request.resource.contentType.matches('video/.*')
+        || request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    // Upload público de foto de membro (cadastro sem login) — sem vídeo
+    match /members/{tenantId}/{fileName} {
+      allow write: if request.auth == null
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+      allow read: if true;
+    }
+
+    // Fotos de membros no painel — obriga autenticação (nunca anônimo aqui)
+    match /igrejas/{igrejaId}/membros/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Certificado digital A1 (PKCS#12) — leitura só autenticada
+    match /igrejas/{igrejaId}/certificados_gestor/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && pkcs12OrBlob();
+    }
+
+    // Logo na raiz da igreja (Cadastro: igrejas/{id}/logo_*.jpg etc.)
+    match /igrejas/{igrejaId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 25 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Identidade: `configuracoes/logo_igreja.png` (overwrite no mesmo path), assinatura, etc.
+    // Utilizador autenticado; objeto criado no primeiro put (não há “pasta vazia” no GCS).
+    match /igrejas/{igrejaId}/configuracoes/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Foto do gestor em path estável: igrejas/{id}/gestor/foto_perfil.jpg
+    match /igrejas/{igrejaId}/gestor/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Mural de Avisos — imagem + vídeo; até 60MB (vídeos curtos)
+    match /igrejas/{igrejaId}/noticias/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 60 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /noticias/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 60 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /departamentos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /patrimonio/{tenantId}/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /igrejas/{igrejaId}/comprovantes/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && comprovanteOrBlob();
+    }
+
+    // Mural de Eventos — até 100MB para vídeos maiores
+    match /igrejas/{igrejaId}/eventos/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 100 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    // Avisos (notícias tipo aviso) — capa + galeria sob igrejas/{id}/avisos/{postId}/
+    match /igrejas/{igrejaId}/avisos/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 60 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /eventos/{eventoId}/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 100 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /certificado_logos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /carteira_logos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Cartão de membro — logo dedicada (padrão: igrejas/{id}/cartao_membro/; legado: carteira_logos/).
+    match /igrejas/{igrejaId}/cartao_membro/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Certificados — logo dedicada e mídias do módulo (padrão: igrejas/{id}/certificados/; legado: certificado_logos/).
+    // Fundos HD continuam em igrejas/{id}/templates/certificados/.
+    match /igrejas/{igrejaId}/certificados/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 25 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /igrejas/{igrejaId}/patrimonio/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Divulgação Gestão YAHWEH (`public/gestao_yahweh/...`). Em DELETE, `request.resource` é nulo —
+    // a regra antiga só com `request.resource.size` bloqueava a exclusão pelo painel master.
+    match /public/{path=**} {
+      allow read: if true;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size < 200 * 1024 * 1024
+        && publicMediaPdfOrBlob();
+    }
+
+    // Demais pastas sob igrejas/{id}/... (eventos, notícias, avisos, configuracoes, gestor já cobertos acima).
+    match /igrejas/{igrejaId}/{seg}/{rest=**} {
+      allow read: if seg != 'certificados_gestor';
+      allow write: if request.auth != null
+        && seg != 'eventos'
+        && seg != 'noticias'
+        && seg != 'avisos'
+        && seg != 'configuracoes'
+        && seg != 'gestor'
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

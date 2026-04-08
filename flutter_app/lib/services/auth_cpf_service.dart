@@ -13,6 +13,46 @@ class AuthCpfService {
 
   String _cpfDigits(String cpf) => cpf.replaceAll(RegExp(r'[^0-9]'), '');
 
+  /// Validação simples para login apenas com e-mail.
+  static bool looksLikeEmail(String raw) {
+    final t = raw.trim().toLowerCase();
+    if (!t.contains('@') || t.length < 5) return false;
+    final parts = t.split('@');
+    if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) return false;
+    if (!parts[1].contains('.')) return false;
+    return true;
+  }
+
+  /// Login só com e-mail (app não aceita mais CPF no campo de utilizador).
+  Future<void> signInWithEmail({required String email, required String senha}) async {
+    final e = email.trim().toLowerCase();
+    if (!looksLikeEmail(e)) {
+      throw FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'Digite um e-mail válido.',
+      );
+    }
+    await _auth.signInWithEmailAndPassword(email: e, password: senha);
+  }
+
+  /// Recuperação de senha só com e-mail.
+  Future<void> sendPasswordResetEmailOnly(String email) async {
+    final e = email.trim().toLowerCase();
+    if (!looksLikeEmail(e)) {
+      throw FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'Digite um e-mail válido.',
+      );
+    }
+    await _auth.sendPasswordResetEmail(
+      email: e,
+      actionCodeSettings: ActionCodeSettings(
+        url: '${AppConstants.publicWebBaseUrl}/reset',
+        handleCodeInApp: true,
+      ),
+    );
+  }
+
   Future<String?> resolveEmailByCpf(String cpf) async {
     final cpfLimpo = _cpfDigits(cpf);
     if (cpfLimpo.length != 11) return null;

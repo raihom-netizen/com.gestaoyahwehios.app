@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show BuildContext;
 import 'package:image_picker/image_picker.dart';
 
 // Condicional: mobile usa compressão nativa; web só usa image_picker com qualidade.
 import 'media_handler_service_io.dart'
     if (dart.library.html) 'media_handler_service_web.dart' as impl;
+import 'high_res_image_pipeline.dart';
 
 /// Serviço de mídia para captura e processamento de imagens.
 /// Padrão de performance: comprime antes do upload para reduzir latência.
@@ -94,4 +96,48 @@ class MediaHandlerService {
 
   Future<XFile?> pickAndProcessLogoFromCamera() =>
       pickAndProcessLogoImage(source: ImageSource.camera);
+
+  /// Mural / avisos / eventos: recorte livre + WebP 4K (nativo); na web use [webCropContext].
+  /// [webpOutputQuality]: use [kAvisoFeedWebpQuality] para avisos (arte + texto, ficheiro menor).
+  Future<XFile?> pickCropEncodeFeedImageWebp({
+    required ImageSource source,
+    BuildContext? webCropContext,
+    int webpOutputQuality = kHighResWebpQuality,
+  }) =>
+      pickCropEncodeWebp(
+        source: source,
+        profile: HighResCropProfile.feedFree,
+        webCropContext: webCropContext,
+        webpOutputQuality: webpOutputQuality,
+      );
+
+  /// Foto de membro: quadrado 1:1 + WebP (nativo).
+  Future<XFile?> pickCropEncodeMemberPhotoWebp({
+    required ImageSource source,
+    BuildContext? webCropContext,
+  }) =>
+      pickCropEncodeWebp(
+        source: source,
+        profile: HighResCropProfile.memberSquare,
+        webCropContext: webCropContext,
+      );
+
+  /// Várias imagens da galeria (mural) — recorte por foto + WebP.
+  Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
+    BuildContext? webCropContext, {
+    int webpOutputQuality = kHighResWebpQuality,
+  }) async {
+    final list = await _picker.pickMultiImage(
+      imageQuality: 100,
+      maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : null,
+      maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : null,
+    );
+    if (list.isEmpty) return [];
+    // ignore: use_build_context_synchronously
+    return pickMultiCropEncodeFeedWebp(
+      list,
+      webCropContext: webCropContext,
+      webpOutputQuality: webpOutputQuality,
+    );
+  }
 }

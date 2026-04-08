@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/app_theme.dart';
+import 'package:gestao_yahweh/app_theme.dart' show AppTheme, SaaSContentViewport;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import '../widgets/instagram_mural.dart';
@@ -91,6 +91,7 @@ class _MuralPageState extends State<MuralPage> {
             return RefreshIndicator(
               onRefresh: _onRefresh,
               child: SaaSContentViewport(
+                maxWidthOverride: AppTheme.maxSocialFeedWidthWeb,
                 child: ListView(
                   padding: padding,
                   physics: const AlwaysScrollableScrollPhysics(),

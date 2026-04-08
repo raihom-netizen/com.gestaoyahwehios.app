@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -79,6 +80,254 @@ class _CalendarPageState extends State<CalendarPage>
     'Célula': Color(0xFF16A34A),
     'Reunião': Color(0xFFF59E0B),
   };
+
+  /// Mesma família de cores do módulo Escalas — escolha explícita ao criar evento.
+  static const List<Color> _agendaPaletteColors = [
+    Color(0xFF3B82F6),
+    Color(0xFF16A34A),
+    Color(0xFFE11D48),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFF0891B2),
+    Color(0xFFDB2777),
+    Color(0xFF059669),
+    Color(0xFFEA580C),
+    Color(0xFF6366F1),
+    Color(0xFFCA8A04),
+    Color(0xFF0D9488),
+  ];
+
+  static List<Color> _markerColorsForEvents(List<_CalendarEvent> events) {
+    final out = <Color>[];
+    for (final e in events.take(8)) {
+      final c = _hexToColor(e.eventColorHex) ??
+          _categoryColors[e.categoryKey ?? ''] ??
+          _eventColors[e.type];
+      if (c != null && !out.contains(c)) out.add(c);
+    }
+    if (out.isEmpty) return [ThemeCleanPremium.primary];
+    return out;
+  }
+
+  /// 1 evento: célula na cor do evento (ou verde). 2: diagonal (Controle Total). 3+: faixas verticais. 4+: “+N”.
+  static const Color _singleEventCellGreen = Color(0xFF16A34A);
+  static const Color _singleEventCellText = Colors.white;
+
+  static bool _lightBackground(Color c) => c.computeLuminance() > 0.72;
+
+  bool _sameVisibleMonth(DateTime day, DateTime focusedDay) =>
+      day.year == focusedDay.year && day.month == focusedDay.month;
+
+  /// Fundo da célula quando há eventos; `null` deixa o tema padrão do [TableCalendar].
+  Widget? _buildCalendarDayWithEvents(
+    BuildContext context,
+    DateTime day,
+    DateTime focusedDay, {
+    required bool isToday,
+    required bool isSelected,
+    required bool isOutside,
+  }) {
+    final events = _eventsByDay[_dayKey(day)] ?? [];
+    if (events.isEmpty) return null;
+
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final cellFs = isMobile ? 17.0 : 15.5;
+    final n = events.length;
+    final distinct = _markerColorsForEvents(events);
+    final dim = isOutside ? 0.45 : 1.0;
+
+    List<Color> segmentColors;
+    if (n == 1) {
+      segmentColors = [
+        distinct.isNotEmpty ? distinct.first : _singleEventCellGreen,
+      ];
+    } else if (n == 2) {
+      segmentColors = [
+        distinct.isNotEmpty ? distinct[0] : _singleEventCellGreen,
+        distinct.length > 1 ? distinct[1] : const Color(0xFF2563EB),
+      ];
+    } else {
+      segmentColors = [
+        distinct.isNotEmpty ? distinct[0] : _singleEventCellGreen,
+        distinct.length > 1 ? distinct[1] : const Color(0xFF2563EB),
+        distinct.length > 2 ? distinct[2] : const Color(0xFF9333EA),
+      ];
+    }
+
+    final extra = n > 3 ? n - 3 : 0;
+    final primary = ThemeCleanPremium.primary;
+    final bool multiDay = n >= 2;
+
+    Border border;
+    List<BoxShadow>? cellShadow;
+    if (isSelected) {
+      border = Border.all(color: primary, width: 3.2);
+      cellShadow = [
+        BoxShadow(
+          color: primary.withValues(alpha: 0.38),
+          blurRadius: 10,
+          offset: const Offset(0, 3),
+        ),
+      ];
+    } else if (multiDay && !isOutside) {
+      // Vários eventos no dia: borda forte como Controle Total (duas escalas bem visíveis).
+      border = Border.all(
+        color: isToday ? primary : const Color(0xFF0F172A),
+        width: isToday ? 3.0 : 2.65,
+      );
+      cellShadow = [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.12),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        ),
+      ];
+    } else if (isToday) {
+      border = Border.all(color: primary, width: 2.4);
+    } else {
+      border = Border.all(
+        color: isOutside ? const Color(0xFFCBD5E1) : const Color(0xFF94A3B8),
+        width: n == 1 && !isOutside ? 1.35 : 1,
+      );
+    }
+
+    final dayNum = day.day.toString();
+    final Color fill1 = segmentColors[0];
+    final bool light1 = n == 1 && _lightBackground(fill1.withValues(alpha: 0.92));
+    final List<Shadow>? dayNumShadows = n == 1
+        ? (light1
+            ? null
+            : const [
+                Shadow(
+                  color: Color(0x66000000),
+                  blurRadius: 2.5,
+                  offset: Offset(0, 1),
+                ),
+              ])
+        : const [
+            Shadow(
+              color: Color(0x88000000),
+              blurRadius: 4,
+              offset: Offset(0, 1),
+            ),
+          ];
+    final TextStyle numStyle = GoogleFonts.poppins(
+      fontSize: cellFs,
+      fontWeight: isSelected || isToday || multiDay ? FontWeight.w800 : FontWeight.w700,
+      color: n == 1
+          ? (light1 ? const Color(0xFF0F172A) : _singleEventCellText)
+          : Colors.white,
+      shadows: dayNumShadows,
+    );
+
+    Widget stripes;
+    if (n == 1) {
+      stripes = ColoredBox(
+        color: fill1.withValues(alpha: 0.93 * dim),
+      );
+    } else if (n == 2) {
+      // Duas ocorrências: diagonal (triângulos), igual referência Controle Total / Escalas.
+      stripes = CustomPaint(
+        painter: _AgendaDiagonalSplitPainter(
+          segmentColors[0],
+          segmentColors[1],
+          (0.86 + (isSelected ? 0.05 : 0)) * dim,
+        ),
+        child: const SizedBox.expand(),
+      );
+    } else {
+      final count = n > 3 ? 3 : n;
+      final children = <Widget>[];
+      for (var i = 0; i < count; i++) {
+        if (i > 0) {
+          children.add(
+            Container(
+              width: 1.6,
+              color: Colors.white.withValues(alpha: 0.92),
+            ),
+          );
+        }
+        final c = segmentColors[i];
+        children.add(
+          Expanded(
+            child: ColoredBox(
+              color: c.withValues(
+                alpha: (0.84 + (isSelected ? 0.06 : 0)) * dim,
+              ),
+            ),
+          ),
+        );
+      }
+      stripes = Row(children: children);
+    }
+
+    final markerDots = multiDay
+        ? ControleTotalCalendarTheme.markerRow(
+            colors: distinct.take(n > 3 ? 3 : n).toList(),
+            moreCount: extra,
+            isMobile: isMobile,
+          )
+        : null;
+
+    return Stack(
+      alignment: Alignment.center,
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(ControleTotalCalendarTheme.cellRadius),
+              border: border,
+              boxShadow: cellShadow,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(ControleTotalCalendarTheme.cellRadius - 1),
+              child: stripes,
+            ),
+          ),
+        ),
+        Text(dayNum, style: numStyle),
+        if (markerDots != null)
+          Positioned(
+            left: 2,
+            right: 2,
+            bottom: 3,
+            child: Center(child: markerDots),
+          ),
+        if (extra > 0)
+          Positioned(
+            right: 2,
+            top: 1,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.68),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                '+$extra',
+                style: GoogleFonts.poppins(
+                  fontSize: isMobile ? 9.5 : 8.5,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Altura total aproximada do [TableCalendar] (cabeçalho + DOW + linhas).
+  double _tableCalendarTotalHeight() {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final rowH = isMobile ? 76.0 : 64.0;
+    final dowH = isMobile ? 34.0 : 30.0;
+    const headerH = 52.0;
+    final bodyRows = _agendaView == _AgendaViewKind.week ? 1 : 6;
+    return headerH + dowH + rowH * bodyRows + 24;
+  }
 
   static String _colorToHex(Color c) {
     final r = c.red.toRadixString(16).padLeft(2, '0');
@@ -527,6 +776,15 @@ class _CalendarPageState extends State<CalendarPage>
         _agendaView != _AgendaViewKind.list && (isMobile || wide);
     final showBottomBar =
         isMobile && _agendaView != _AgendaViewKind.list && !_embeddedMobile;
+    final fullBleedAgenda = _embeddedMobile && useSplitCalendar && !wide;
+    final bodyPad = fullBleedAgenda
+        ? EdgeInsets.fromLTRB(
+            8,
+            4,
+            8,
+            0,
+          )
+        : pad;
 
     return Scaffold(
       appBar: !showAppBar
@@ -616,7 +874,7 @@ class _CalendarPageState extends State<CalendarPage>
       body: SafeArea(
         child: useSplitCalendar
             ? Padding(
-                padding: pad,
+                padding: bodyPad,
                 child: _buildSplitCalendarBody(wide: wide, isMobile: isMobile),
               )
             : RefreshIndicator(
@@ -716,11 +974,8 @@ class _CalendarPageState extends State<CalendarPage>
                 _buildCategoryFilterRow(),
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
                 SizedBox(
-                  height: calendarH,
-                  child: SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
-                    child: _buildCalendarTopOnly(),
-                  ),
+                  height: math.max(_tableCalendarTotalHeight(), calendarH),
+                  child: _buildCalendarTopOnly(),
                 ),
               ],
             );
@@ -734,15 +989,6 @@ class _CalendarPageState extends State<CalendarPage>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.only(top: ThemeCleanPremium.spaceSm),
                 children: [
-                  Text(
-                    'Resumo do dia',
-                    style: GoogleFonts.poppins(
-                      fontSize: isMobile ? 17 : 16,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: ThemeCleanPremium.spaceSm),
                   _buildSelectedDayEvents(),
                   const SizedBox(height: ThemeCleanPremium.spaceMd),
                   Text(
@@ -758,6 +1004,96 @@ class _CalendarPageState extends State<CalendarPage>
                   const SizedBox(height: ThemeCleanPremium.spaceMd),
                   HolidayFooter(year: _holidayFooterYear),
                   SizedBox(height: detailsBottomPad),
+                ],
+              ),
+            );
+
+        /// Telefone no shell: um único scroll — calendário + resumos (full screen útil).
+        Widget unifiedMobileScroll() => RefreshIndicator(
+              onRefresh: _loadEvents,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                slivers: [
+                  if (_loadError != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                            bottom: ThemeCleanPremium.spaceSm),
+                        child: ChurchPanelErrorBody(
+                          title:
+                              'Não foi possível carregar alguns eventos',
+                          error: _loadError,
+                          onRetry: _loadEvents,
+                        ),
+                      ),
+                    ),
+                  SliverToBoxAdapter(
+                    child: _buildViewToggleRow(),
+                  ),
+                  const SliverToBoxAdapter(
+                      child: SizedBox(height: ThemeCleanPremium.spaceSm)),
+                  SliverToBoxAdapter(
+                    child: _buildCategoryFilterRow(),
+                  ),
+                  const SliverToBoxAdapter(
+                      child: SizedBox(height: ThemeCleanPremium.spaceMd)),
+                  SliverToBoxAdapter(
+                    child: LayoutBuilder(
+                      builder: (ctx, _) {
+                        final minH = MediaQuery.sizeOf(ctx).height *
+                            (_embeddedMobile ? 0.52 : 0.4);
+                        final h = math.max(_tableCalendarTotalHeight(), minH);
+                        return SizedBox(
+                          height: h,
+                          child: _buildTableCalendarCard(),
+                        );
+                      },
+                    ),
+                  ),
+                  if (_loading)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(ThemeCleanPremium.spaceSm),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
+                      child: _buildSelectedDayEvents(),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
+                      child: _buildMonthSectionHeader(),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _buildFocusedMonthSummary(),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: ThemeCleanPremium.spaceMd,
+                        bottom: ThemeCleanPremium.spaceSm,
+                      ),
+                      child: HolidayFooter(year: _holidayFooterYear),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: detailsBottomPad),
+                  ),
                 ],
               ),
             );
@@ -778,21 +1114,41 @@ class _CalendarPageState extends State<CalendarPage>
           );
         }
 
+        // Mobile estreito: um único scroll (arrastar no calendário também move a página).
+        if (isMobile && !wide) {
+          final scroll = unifiedMobileScroll();
+          if (_embeddedMobile) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: scroll),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!_embeddedMobile)
+                Padding(
+                  padding:
+                      const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                  child: Text(
+                    'Agenda inteligente',
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.onSurface,
+                    ),
+                  ),
+                ),
+              Expanded(child: scroll),
+            ],
+          );
+        }
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (isMobile && !_embeddedMobile)
-              Padding(
-                padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                child: Text(
-                  'Agenda inteligente',
-                  style: GoogleFonts.poppins(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    color: ThemeCleanPremium.onSurface,
-                  ),
-                ),
-              ),
             calendarBlock(),
             Expanded(child: detailsBlock()),
           ],
@@ -846,11 +1202,18 @@ class _CalendarPageState extends State<CalendarPage>
   Widget _buildViewToggleCore() {
     return Container(
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF94A3B8), width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F0F172A),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(5),
       child: Row(
         children: [
           Expanded(
@@ -883,24 +1246,32 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Widget _buildCategoryFilterRow() {
+    final primary = ThemeCleanPremium.primary;
     return SizedBox(
-      height: 40,
+      height: 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
         children: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilterChip(
               label: Text('Todas',
                   style: GoogleFonts.poppins(
-                      fontSize: 12, fontWeight: FontWeight.w600)),
+                      fontSize: 12.5, fontWeight: FontWeight.w700)),
               selected: _filterCategoryKey == null,
               onSelected: (_) {
                 _filterCategoryKey = null;
                 _rebuildMerged();
               },
-              selectedColor: ThemeCleanPremium.primary.withOpacity(0.18),
-              checkmarkColor: ThemeCleanPremium.primary,
+              selectedColor: primary.withValues(alpha: 0.16),
+              checkmarkColor: primary,
+              backgroundColor: const Color(0xFFF8FAFC),
+              side: BorderSide(
+                color: _filterCategoryKey == null ? primary : const Color(0xFF94A3B8),
+                width: _filterCategoryKey == null ? 2 : 1.2,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             ),
           ),
           for (final e in _categoryLabels.entries)
@@ -911,7 +1282,7 @@ class _CalendarPageState extends State<CalendarPage>
                     size: 16, color: _categoryColors[e.key]),
                 label: Text(e.value,
                     style: GoogleFonts.poppins(
-                        fontSize: 12, fontWeight: FontWeight.w600)),
+                        fontSize: 12.5, fontWeight: FontWeight.w700)),
                 selected: _filterCategoryKey == e.key,
                 onSelected: (_) {
                   _filterCategoryKey =
@@ -919,9 +1290,16 @@ class _CalendarPageState extends State<CalendarPage>
                   _rebuildMerged();
                 },
                 selectedColor:
-                    (_categoryColors[e.key] ?? ThemeCleanPremium.primary)
-                        .withOpacity(0.2),
+                    (_categoryColors[e.key] ?? primary).withValues(alpha: 0.18),
                 checkmarkColor: _categoryColors[e.key],
+                backgroundColor: const Color(0xFFF8FAFC),
+                side: BorderSide(
+                  color: _filterCategoryKey == e.key
+                      ? (_categoryColors[e.key] ?? primary)
+                      : const Color(0xFF94A3B8),
+                  width: _filterCategoryKey == e.key ? 2 : 1.2,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               ),
             ),
         ],
@@ -957,8 +1335,14 @@ class _CalendarPageState extends State<CalendarPage>
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: active ? ThemeCleanPremium.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm - 2),
+          color: active ? ThemeCleanPremium.primary : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active
+                ? ThemeCleanPremium.primary.withValues(alpha: 0.35)
+                : const Color(0xFFCBD5E1),
+            width: 1.15,
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -977,6 +1361,18 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   // ─── Calendário (table_calendar) — mês / semana ────────────────────────────
+
+  Widget _buildMonthSectionHeader() {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    return Text(
+      'Resumo do mês',
+      style: GoogleFonts.poppins(
+        fontSize: isMobile ? 17 : 16,
+        fontWeight: FontWeight.w800,
+        color: ThemeCleanPremium.onSurface,
+      ),
+    );
+  }
 
   /// Só a grade (uso no layout “calendário em cima”).
   Widget _buildCalendarTopOnly({Key? key}) {
@@ -1008,15 +1404,6 @@ class _CalendarPageState extends State<CalendarPage>
       children: [
         _buildCalendarTopOnly(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
-        Text(
-          'Resumo do dia',
-          style: GoogleFonts.poppins(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: ThemeCleanPremium.onSurface,
-          ),
-        ),
-        const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildSelectedDayEvents(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
         Text(
@@ -1038,17 +1425,25 @@ class _CalendarPageState extends State<CalendarPage>
     final calFormat = _agendaView == _AgendaViewKind.week
         ? CalendarFormat.week
         : CalendarFormat.month;
-    final rowH = isMobile ? 52.0 : 46.0;
-    final dowH = isMobile ? 30.0 : 26.0;
-    final cellFs = isMobile ? 15.5 : 14.0;
+    // Células altas + margem mínima (alinhado ao calendário de Escalas / Controle Total).
+    final rowH = isMobile ? 76.0 : 64.0;
+    final dowH = isMobile ? 34.0 : 30.0;
+    final cellFs = isMobile ? 17.0 : 15.5;
     return Container(
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF64748B), width: 1.25),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 22,
+            offset: Offset(0, 10),
+          ),
+        ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderRadius: BorderRadius.circular(19),
         child: TableCalendar<_CalendarEvent>(
           locale: 'pt_BR',
           firstDay: DateTime.utc(2020, 1, 1),
@@ -1057,54 +1452,17 @@ class _CalendarPageState extends State<CalendarPage>
           selectedDayPredicate: (d) =>
               _selectedDay != null && isSameDay(_selectedDay!, d),
           calendarFormat: calFormat,
-          availableGestures: AvailableGestures.all,
+          // Só swipe horizontal para mudar mês; o vertical fica livre para a página (scroll único).
+          availableGestures: AvailableGestures.horizontalSwipe,
           startingDayOfWeek: StartingDayOfWeek.sunday,
           rowHeight: rowH,
           daysOfWeekHeight: dowH,
           eventLoader: (day) => _eventsByDay[_dayKey(day)] ?? const [],
-          calendarStyle: CalendarStyle(
-            outsideDaysVisible: true,
-            cellMargin: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-            defaultTextStyle: GoogleFonts.poppins(
-              fontSize: cellFs,
-              fontWeight: FontWeight.w600,
-              color: ThemeCleanPremium.onSurface,
-            ),
-            weekendTextStyle: GoogleFonts.poppins(
-              fontSize: cellFs,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600,
-            ),
-            todayDecoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withOpacity(0.18),
-              shape: BoxShape.circle,
-              border: Border.all(color: ThemeCleanPremium.primary, width: 2),
-            ),
-            todayTextStyle: GoogleFonts.poppins(
-              fontSize: cellFs,
-              fontWeight: FontWeight.w800,
-              color: ThemeCleanPremium.primary,
-            ),
-            selectedDecoration: BoxDecoration(
-              color: ThemeCleanPremium.primary,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2.5),
-              boxShadow: [
-                BoxShadow(
-                  color: ThemeCleanPremium.primary.withOpacity(0.45),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            selectedTextStyle: GoogleFonts.poppins(
-              fontSize: cellFs,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-            markerSize: isMobile ? 6 : 5,
-            markersMaxCount: 4,
-            markersAlignment: Alignment.bottomCenter,
+          calendarStyle: ControleTotalCalendarTheme.calendarStyle(
+            cellFs: cellFs,
+            primary: ThemeCleanPremium.primary,
+            onSurface: ThemeCleanPremium.onSurface,
+            cellMargin: const EdgeInsets.all(1.35),
           ),
           daysOfWeekStyle: DaysOfWeekStyle(
             weekdayStyle: GoogleFonts.poppins(
@@ -1130,34 +1488,55 @@ class _CalendarPageState extends State<CalendarPage>
             ),
           ),
           calendarBuilders: CalendarBuilders(
-            markerBuilder: (context, day, events) {
-              if (events.isEmpty) return null;
-              final limited = events.take(4).toList();
-              return Positioned(
-                bottom: 2,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: limited.map((ev) {
-                    final e = ev;
-                    final c = _hexToColor(e.eventColorHex) ??
-                        _categoryColors[e.categoryKey ?? ''] ??
-                        ThemeCleanPremium.primary;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 1),
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: c),
-                    );
-                  }).toList(),
+            // Célula inteira colorida (verde 1 evento; 2–3 faixas; 4+ faixas + contador).
+            markerBuilder: (context, day, events) => null,
+            defaultBuilder: (context, day, focusedDay) => _buildCalendarDayWithEvents(
+                  context,
+                  day,
+                  focusedDay,
+                  isToday: isSameDay(day, DateTime.now()),
+                  isSelected:
+                      _selectedDay != null && isSameDay(_selectedDay!, day),
+                  isOutside: false,
                 ),
-              );
-            },
+            outsideBuilder: (context, day, focusedDay) =>
+                _buildCalendarDayWithEvents(
+                  context,
+                  day,
+                  focusedDay,
+                  isToday: isSameDay(day, DateTime.now()),
+                  isSelected:
+                      _selectedDay != null && isSameDay(_selectedDay!, day),
+                  isOutside: true,
+                ),
+            todayBuilder: (context, day, focusedDay) =>
+                _buildCalendarDayWithEvents(
+                  context,
+                  day,
+                  focusedDay,
+                  isToday: true,
+                  isSelected:
+                      _selectedDay != null && isSameDay(_selectedDay!, day),
+                  isOutside: !_sameVisibleMonth(day, focusedDay),
+                ),
+            selectedBuilder: (context, day, focusedDay) =>
+                _buildCalendarDayWithEvents(
+                  context,
+                  day,
+                  focusedDay,
+                  isToday: isSameDay(day, DateTime.now()),
+                  isSelected: true,
+                  isOutside: !_sameVisibleMonth(day, focusedDay),
+                ),
           ),
           onDaySelected: (selected, focused) {
             setState(() {
               _selectedDay = selected;
               _focusedDay = focused;
               _focusedMonth = DateTime(focused.year, focused.month, 1);
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _openDayCommandSheet(selected);
             });
           },
           onPageChanged: (focused) {
@@ -1188,15 +1567,40 @@ class _CalendarPageState extends State<CalendarPage>
         key: ValueKey(key),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-            child: Text(
-              label[0].toUpperCase() + label.substring(1),
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: ThemeCleanPremium.onSurface,
-              ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.event_note_rounded,
+                    size: 20, color: Colors.blue.shade800),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label[0].toUpperCase() + label.substring(1),
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1E3A8A),
+                    ),
+                  ),
+                ),
+                if (events.isNotEmpty)
+                  Text(
+                    '${events.length}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+              ],
             ),
           ),
           if (holidayName != null) ...[
@@ -1274,12 +1678,15 @@ class _CalendarPageState extends State<CalendarPage>
         onTap: () => _showEventDetails(ev),
         child: Container(
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
+            color: Colors.white,
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: ev.hasConflict
-                ? Border.all(color: Colors.deepOrange.shade400, width: 1.5)
-                : null,
+            border: Border.all(
+              color: ev.hasConflict
+                  ? Colors.deepOrange.shade400
+                  : const Color(0xFFF1F5F9),
+              width: ev.hasConflict ? 1.5 : 1,
+            ),
           ),
           child: IntrinsicHeight(
             child: Row(
@@ -1934,9 +2341,515 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
+  Future<void> _confirmClearAgendaForDay(DateTime day) async {
+    final key = _dayKey(day);
+    final ids = (_eventsByDay[key] ?? [])
+        .where((e) => e.source == 'agenda')
+        .map((e) => e.id)
+        .toList();
+    if (ids.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Limpar agenda deste dia?'),
+        content: Text(
+          'Serão removidos ${ids.length} evento(s) da agenda. '
+          'Itens de cultos ou mural legado não são afetados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Limpar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      for (final id in ids) {
+        await _agenda.doc(id).delete();
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${ids.length} evento(s) removido(s).')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    }
+  }
+
+  /// Cabeçalho + lista + rodapé do resumo do dia (bottom sheet ou diálogo web/tablet).
+  Widget _agendaDaySummaryShell({
+    required BuildContext ctx,
+    required DateTime day,
+    required String labelCap,
+    required List<_CalendarEvent> events,
+    required List<_CalendarEvent> agendaDeletable,
+    required ScrollController? scrollController,
+    required bool useDialogLayout,
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    final padH = useDialogLayout ? 24.0 : 20.0;
+    final isMobile = ThemeCleanPremium.isMobile(ctx);
+
+    Widget header() {
+      if (useDialogLayout) {
+        return Material(
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 20, 8, 20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  primary,
+                  Color.lerp(primary, const Color(0xFF1E3A8A), 0.35)!,
+                ],
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.calendar_month_rounded,
+                      color: Colors.white, size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        labelCap,
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        events.isEmpty
+                            ? 'Sem eventos neste dia'
+                            : '${events.length} ${events.length == 1 ? 'evento' : 'eventos'} agendado${events.length == 1 ? '' : 's'}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Fechar',
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: Icon(Icons.close_rounded,
+                      color: Colors.white.withValues(alpha: 0.95), size: 26),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      return Column(
+        children: [
+          const SizedBox(height: 10),
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    primary.withValues(alpha: 0.14),
+                    primary.withValues(alpha: 0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: primary.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.event_available_rounded, color: primary, size: 26),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          labelCap,
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 16 : 17,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          events.isEmpty
+                              ? 'Toque em + para criar'
+                              : '${events.length} ${events.length == 1 ? 'evento' : 'eventos'} · toque para detalhes',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    List<Widget> eventListChildren() {
+      if (events.isEmpty) {
+        return [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
+            child: Column(
+              children: [
+                Icon(Icons.event_available_outlined,
+                    size: 52, color: Colors.grey.shade400),
+                const SizedBox(height: 14),
+                Text(
+                  'Nada agendado neste dia.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    color: Colors.grey.shade600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ];
+      }
+      return events.map((ev) {
+        final stripeColor = _hexToColor(ev.eventColorHex) ??
+            _categoryColors[ev.categoryKey ?? ''] ??
+            _eventColors[ev.type] ??
+            primary;
+        final time = DateFormat('HH:mm').format(ev.dateTime);
+        final title = ev.title.isNotEmpty ? ev.title : ev.type;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
+            color: Colors.white,
+            elevation: 1,
+            shadowColor: Colors.black.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEventDetails(ev);
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: math.max(52.0, isMobile ? 56.0 : 58.0),
+                      margin: const EdgeInsets.only(left: 6, right: 4),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: stripeColor.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: stripeColor.withValues(alpha: 0.4)),
+                      ),
+                      child: Text(
+                        time,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: const Color(0xFF0F172A),
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w700,
+                                fontSize: isMobile ? 15 : 16,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(_iconForType(ev.type),
+                                    size: 16,
+                                    color: stripeColor),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    ev.type,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded,
+                        color: Colors.grey.shade400, size: 26),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList();
+    }
+
+    final footer = SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(padH, 4, padH, useDialogLayout ? 16 : 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_canWrite) ...[
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _showAddEvent(presetDate: day);
+                },
+                icon: const Icon(Icons.add_rounded, size: 22),
+                label: Text(
+                  'Adicionar evento neste dia',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 16 : 14),
+                  minimumSize:
+                      const Size(0, ThemeCleanPremium.minTouchTarget),
+                ),
+              ),
+              if (agendaDeletable.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await _confirmClearAgendaForDay(day);
+                  },
+                  icon: Icon(Icons.delete_sweep_rounded,
+                      color: ThemeCleanPremium.error),
+                  label: Text(
+                    'Limpar agenda (${agendaDeletable.length})',
+                    style: TextStyle(
+                      color: ThemeCleanPremium.error,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(
+                        vertical: isMobile ? 14 : 12),
+                    minimumSize:
+                        const Size(0, ThemeCleanPremium.minTouchTarget),
+                  ),
+                ),
+              ],
+            ],
+            if (!useDialogLayout)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Fechar',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600, fontSize: 15),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    final listChildren = <Widget>[
+      ...eventListChildren(),
+      if (events.any((e) => e.source != 'agenda'))
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 8),
+          child: Text(
+            'Itens de cultos ou mural legado não podem ser apagados por aqui.',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+              height: 1.4,
+            ),
+          ),
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header(),
+        Expanded(
+          child: ListView(
+            controller: scrollController,
+            padding: EdgeInsets.fromLTRB(padH, 8, padH, 8),
+            children: listChildren,
+          ),
+        ),
+        footer,
+      ],
+    );
+  }
+
+  /// Resumo do dia: diálogo centrado na web/tablet; bottom sheet no telefone.
+  Future<void> _openDayCommandSheet(DateTime day) async {
+    final key = _dayKey(day);
+    final events = List<_CalendarEvent>.from(_eventsByDay[key] ?? []);
+    final agendaDeletable =
+        events.where((e) => e.source == 'agenda').toList();
+    final rawLabel =
+        DateFormat("EEEE, d 'de' MMMM yyyy", 'pt_BR').format(day);
+    final labelCap = rawLabel.isEmpty
+        ? ''
+        : '${rawLabel[0].toUpperCase()}${rawLabel.substring(1)}';
+
+    final mq = MediaQuery.of(context);
+    final useDialog =
+        kIsWeb || mq.size.width >= 720 || !ThemeCleanPremium.isMobile(context);
+
+    if (!mounted) return;
+
+    if (useDialog) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return Dialog(
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: math.max(20, (mq.size.width - 520) / 2),
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: math.min(520, mq.size.width - 40),
+              height: math.min(620.0, mq.size.height * 0.82),
+              child: _agendaDaySummaryShell(
+                ctx: ctx,
+                day: day,
+                labelCap: labelCap,
+                events: events,
+                agendaDeletable: agendaDeletable,
+                scrollController: null,
+                useDialogLayout: true,
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.58,
+        minChildSize: 0.32,
+        maxChildSize: 0.94,
+        expand: false,
+        builder: (_, scrollCtrl) {
+          return DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x14000000),
+                  blurRadius: 16,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            child: _agendaDaySummaryShell(
+              ctx: ctx,
+              day: day,
+              labelCap: labelCap,
+              events: events,
+              agendaDeletable: agendaDeletable,
+              scrollController: scrollCtrl,
+              useDialogLayout: false,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // ─── Novo evento → coleção agenda (+ opcional mural) ───────────────────────
 
-  Future<void> _showAddEvent() async {
+  Future<void> _showAddEvent({DateTime? presetDate}) async {
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     final locCtrl = TextEditingController();
@@ -1944,7 +2857,10 @@ class _CalendarPageState extends State<CalendarPage>
     final startTimeNotifier = ValueNotifier<String>('19:00');
     final endTimeNotifier = ValueNotifier<String>('21:00');
     final categoryNotifier = ValueNotifier<String>('culto');
-    final dateNotifier = ValueNotifier<DateTime>(_selectedDay ?? DateTime.now());
+    final agendaColorNotifier =
+        ValueNotifier<Color>(_categoryColors['culto']!);
+    final dateNotifier = ValueNotifier<DateTime>(
+        presetDate ?? _selectedDay ?? DateTime.now());
     final recurrenceNotifier = ValueNotifier<String>('none');
     final publishMuralNotifier = ValueNotifier<bool>(false);
     final needSound = ValueNotifier<bool>(false);
@@ -2010,12 +2926,91 @@ class _CalendarPageState extends State<CalendarPage>
                   items: _categoryLabels.entries
                       .map((e) => DropdownMenuItem(
                             value: e.key,
-                            child: Text(e.value),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: _categoryColors[e.key] ??
+                                        ThemeCleanPremium.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(e.value)),
+                              ],
+                            ),
                           ))
                       .toList(),
                   onChanged: (v) {
-                    if (v != null) categoryNotifier.value = v;
+                    if (v != null) {
+                      categoryNotifier.value = v;
+                      agendaColorNotifier.value = _categoryColors[v] ??
+                          ThemeCleanPremium.primary;
+                    }
                   },
+                ),
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceMd),
+              Text(
+                'Cor no calendário',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Mesmas cores do módulo Escalas — a barra e os pontos do mês usam esta cor.',
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<Color>(
+                valueListenable: agendaColorNotifier,
+                builder: (_, picked, __) => Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: _agendaPaletteColors.map((c) {
+                    final selected = picked == c;
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => agendaColorNotifier.value = c,
+                        customBorder: const CircleBorder(),
+                        child: Ink(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: c,
+                            border: Border.all(
+                              color: selected
+                                  ? ThemeCleanPremium.primary
+                                  : Colors.white,
+                              width: selected ? 3 : 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: c.withValues(alpha: 0.4),
+                                blurRadius: selected ? 8 : 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: selected
+                              ? const Icon(Icons.check_rounded,
+                                  color: Colors.white, size: 22)
+                              : null,
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -2274,9 +3269,8 @@ class _CalendarPageState extends State<CalendarPage>
                             }
                             final dur = endBase.difference(startBase);
                             final cat = categoryNotifier.value;
-                            final colorHex = _colorToHex(
-                                _categoryColors[cat] ??
-                                    ThemeCleanPremium.primary);
+                            final colorHex =
+                                _colorToHex(agendaColorNotifier.value);
                             final rec = recurrenceNotifier.value;
                             final starts =
                                 _expandAgendaRecurrence(startBase, rec);
@@ -2386,6 +3380,41 @@ class _CalendarPageState extends State<CalendarPage>
       _restartAgendaSubscription();
     }
   }
+}
+
+/// Dois eventos no mesmo dia: triângulos na diagonal (referência Controle Total / Escalas).
+class _AgendaDiagonalSplitPainter extends CustomPainter {
+  _AgendaDiagonalSplitPainter(this.c1, this.c2, this.alphaMul);
+  final Color c1;
+  final Color c2;
+  final double alphaMul;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final a1 = c1.withValues(alpha: (c1.a * alphaMul).clamp(0.0, 1.0));
+    final a2 = c2.withValues(alpha: (c2.a * alphaMul).clamp(0.0, 1.0));
+    final topLeft = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(topLeft, Paint()..color = a1);
+    final bottomRight = Path()
+      ..moveTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(bottomRight, Paint()..color = a2);
+    final line = Paint()
+      ..color = Colors.white.withValues(alpha: 0.58)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(size.width, 0), Offset(0, size.height), line);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AgendaDiagonalSplitPainter old) =>
+      old.c1 != c1 || old.c2 != c2 || old.alphaMul != alphaMul;
 }
 
 // ─── Calendar Event Model ─────────────────────────────────────────────────────

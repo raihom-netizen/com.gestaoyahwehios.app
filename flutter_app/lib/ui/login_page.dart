@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
@@ -11,33 +11,41 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
+import 'package:intl/intl.dart';
+
+enum _SmartStep { choosePersona, gestorBranch, credentials }
 
 class LoginPage extends StatefulWidget {
   final String title;
   final String afterLoginRoute;
-  final String? prefillCpf;
+  final String? prefillEmail;
   final String? churchLabel;
   /// Logo da igreja (URL https ou path Storage). Se vazio ou falhar ao carregar, usa o asset Gestão YAHWEH.
   final String? churchLogoUrl;
   /// Ex-módulo Frotas removido; mantido para compatibilidade.
   final bool showFleetBranding;
-  final bool showGoogleLogin;
   /// Rota ao clicar em Voltar (null = '/').
   final String? backRoute;
+
+  /// Fluxo Membro vs Gestor + login Google no painel da igreja.
+  /// `null` = ativo quando [afterLoginRoute] é `/painel` e não é login master.
+  final bool? showSmartLoginFlow;
 
   const LoginPage({
     super.key,
     this.title = 'Entrar',
     this.afterLoginRoute = '/app',
-    this.prefillCpf,
+    this.prefillEmail,
     this.churchLabel,
     this.churchLogoUrl,
     this.showFleetBranding = false,
-    this.showGoogleLogin = false,
     this.backRoute,
+    this.showSmartLoginFlow,
   });
 
   @override
@@ -45,7 +53,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _cpfController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _senhaController = TextEditingController();
 
   bool _loading = false;
@@ -55,6 +63,11 @@ class _LoginPageState extends State<LoginPage> {
   bool _quickBiometricReady = false;
   String? _errorMessage;
 
+  _SmartStep _smartStep = _SmartStep.choosePersona;
+
+  /// Após escolher persona: membro (true) ou gestor já cadastrado (false).
+  bool _credentialsAsMembro = true;
+
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
     if (widget.afterLoginRoute == '/admin') return 'master';
@@ -63,21 +76,25 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String get _prefRememberLogin => 'remember_login_$_prefPrefix';
-  String get _prefSavedCpf => 'saved_cpf_$_prefPrefix';
+  String get _prefSavedLogin => 'saved_login_$_prefPrefix';
   String get _prefSavedSenha => 'saved_senha_$_prefPrefix';
   // compatibilidade com versão anterior (web-only)
   static const _legacyPrefRememberWeb = 'web_remember_password';
+  static const _legacyPrefWebLogin = 'web_saved_login';
   static const _legacyPrefWebCpf = 'web_saved_cpf';
   static const _legacyPrefWebSenha = 'web_saved_senha';
 
   @override
   void initState() {
     super.initState();
-    final pre = (widget.prefillCpf ?? '').trim();
-    if (pre.isNotEmpty) {
-      _cpfController.text = pre;
+    if (!_useSmartFlow) {
+      _smartStep = _SmartStep.credentials;
     }
-    _cpfController.addListener(_clearError);
+    final pre = (widget.prefillEmail ?? '').trim();
+    if (pre.isNotEmpty) {
+      _emailController.text = pre;
+    }
+    _emailController.addListener(_clearError);
     _senhaController.addListener(_clearError);
     _loadSavedCredentials();
   }
@@ -88,9 +105,9 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
-    _cpfController.removeListener(_clearError);
+    _emailController.removeListener(_clearError);
     _senhaController.removeListener(_clearError);
-    _cpfController.dispose();
+    _emailController.dispose();
     _senhaController.dispose();
     super.dispose();
   }
@@ -98,8 +115,8 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     // Migração: legado (chaves antigas sem sufixo) só para contexto igreja/default
-    final legacyCpf = (_prefPrefix == 'igreja' || _prefPrefix == 'default')
-        ? prefs.getString(_legacyPrefWebCpf)
+    final legacyWebLogin = (_prefPrefix == 'igreja' || _prefPrefix == 'default')
+        ? (prefs.getString(_legacyPrefWebLogin) ?? prefs.getString(_legacyPrefWebCpf))
         : null;
     final legacySenha = (_prefPrefix == 'igreja' || _prefPrefix == 'default')
         ? prefs.getString(_legacyPrefWebSenha)
@@ -108,19 +125,45 @@ class _LoginPageState extends State<LoginPage> {
         ? (prefs.getBool(_legacyPrefRememberWeb) == true)
         : false;
 
-    final savedCpf = (prefs.getString(_prefSavedCpf) ?? legacyCpf ?? '').trim();
+    // saved_cpf_* = chave antiga (podia ser CPF ou e-mail)
+    final legacySavedCpfKey = 'saved_cpf_$_prefPrefix';
+    var savedLogin = (prefs.getString(_prefSavedLogin) ??
+            prefs.getString(legacySavedCpfKey) ??
+            legacyWebLogin ??
+            '')
+        .trim();
+
+    // App (login estilo divulgação): apenas e-mail — não resolver CPF para preencher o campo.
+    if (savedLogin.isNotEmpty && !savedLogin.contains('@')) {
+      if (_nativeChurchLogin) {
+        savedLogin = '';
+      } else {
+        final digits = savedLogin.replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.length == 11) {
+          final resolved = await AuthCpfService().resolveEmailByCpf(digits);
+          if (resolved != null && resolved.isNotEmpty) {
+            savedLogin = resolved;
+            await prefs.setString(_prefSavedLogin, resolved);
+            if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
+              await prefs.setString(_legacyPrefWebLogin, resolved);
+            }
+          }
+        }
+      }
+    }
+
     final savedSenha = prefs.getString(_prefSavedSenha) ?? legacySenha ?? '';
     final remember = (prefs.getBool(_prefRememberLogin) == true) || legacyRemember;
 
     if (!mounted) return;
-    if (_cpfController.text.trim().isEmpty && savedCpf.isNotEmpty) {
-      _cpfController.text = savedCpf;
+    if (_emailController.text.trim().isEmpty && savedLogin.isNotEmpty) {
+      _emailController.text = savedLogin;
     }
     if (savedSenha.isNotEmpty) {
       _senhaController.text = savedSenha;
     }
-    _hasSavedCredentials = savedCpf.isNotEmpty && savedSenha.isNotEmpty;
-    if (remember && savedCpf.isNotEmpty && savedSenha.isNotEmpty) {
+    _hasSavedCredentials = savedLogin.isNotEmpty && savedSenha.isNotEmpty;
+    if (remember && savedLogin.isNotEmpty && savedSenha.isNotEmpty) {
       setState(() => _rememberLogin = true);
     }
     await _refreshQuickBiometricState();
@@ -129,21 +172,26 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _persistCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     if (_rememberLogin) {
-      await prefs.setString(_prefSavedCpf, _cpfController.text.trim());
+      final login = _emailController.text.trim();
+      await prefs.setString(_prefSavedLogin, login);
+      await prefs.remove('saved_cpf_$_prefPrefix');
       await prefs.setString(_prefSavedSenha, _senhaController.text);
       await prefs.setBool(_prefRememberLogin, true);
       if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
-        await prefs.setString(_legacyPrefWebCpf, _cpfController.text.trim());
+        await prefs.setString(_legacyPrefWebLogin, login);
+        await prefs.remove(_legacyPrefWebCpf);
         await prefs.setString(_legacyPrefWebSenha, _senhaController.text);
         await prefs.setBool(_legacyPrefRememberWeb, true);
       }
       return;
     }
 
-    await prefs.remove(_prefSavedCpf);
+    await prefs.remove(_prefSavedLogin);
+    await prefs.remove('saved_cpf_$_prefPrefix');
     await prefs.remove(_prefSavedSenha);
     await prefs.setBool(_prefRememberLogin, false);
     if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
+      await prefs.remove(_legacyPrefWebLogin);
       await prefs.remove(_legacyPrefWebCpf);
       await prefs.remove(_legacyPrefWebSenha);
       await prefs.setBool(_legacyPrefRememberWeb, false);
@@ -163,10 +211,12 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _forgetThisDevice() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefSavedCpf);
+    await prefs.remove(_prefSavedLogin);
+    await prefs.remove('saved_cpf_$_prefPrefix');
     await prefs.remove(_prefSavedSenha);
     await prefs.setBool(_prefRememberLogin, false);
     if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
+      await prefs.remove(_legacyPrefWebLogin);
       await prefs.remove(_legacyPrefWebCpf);
       await prefs.remove(_legacyPrefWebSenha);
       await prefs.setBool(_legacyPrefRememberWeb, false);
@@ -178,7 +228,7 @@ class _LoginPageState extends State<LoginPage> {
       _rememberLogin = false;
       _hasSavedCredentials = false;
       _quickBiometricReady = false;
-      _cpfController.clear();
+      _emailController.clear();
       _senhaController.clear();
     });
 
@@ -189,7 +239,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onEntrarComBiometria() async {
     if (kIsWeb) return;
-    if (_cpfController.text.trim().isEmpty || _senhaController.text.isEmpty) {
+    if (_emailController.text.trim().isEmpty || _senhaController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Não há credenciais salvas neste dispositivo.')),
       );
@@ -208,23 +258,18 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final service = AuthCpfService();
-      await service.signInByCpf(
-        cpf: _cpfController.text.trim(),
+      await service.signInWithEmail(
+        email: _emailController.text.trim(),
         senha: _senhaController.text,
       );
 
       if (!mounted) return;
-      final versionOk = await _ensureLatestVersion();
-      if (!versionOk) {
-        await FirebaseAuth.instance.signOut();
-        return;
-      }
-
-      Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
+      final ok = await _finalizeChurchLoginAfterAuth(persistPasswordFields: true);
+      if (!ok) return;
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final msg = switch (e.code) {
-        'user-not-found' => 'CPF ou e-mail não encontrado.',
+        'user-not-found' => 'E-mail não encontrado.',
         'wrong-password' => 'Senha incorreta.',
         'invalid-credential' => 'Credenciais inválidas.',
         _ => 'Falha no login: ${e.code}',
@@ -274,11 +319,143 @@ class _LoginPageState extends State<LoginPage> {
     return false;
   }
 
+  /// Após Firebase Auth válido: versão, credenciais locais, navegação.
+  Future<bool> _finalizeChurchLoginAfterAuth({
+    required bool persistPasswordFields,
+  }) async {
+    if (!mounted) return false;
+    final isAdminRoute = widget.afterLoginRoute == '/admin';
+    if (!isAdminRoute) {
+      final versionOk = await _ensureLatestVersion();
+      if (!versionOk) {
+        await FirebaseAuth.instance.signOut();
+        return false;
+      }
+    }
+    if (persistPasswordFields) {
+      _hasSavedCredentials = _emailController.text.trim().isNotEmpty &&
+          _senhaController.text.isNotEmpty;
+      await _persistCredentials();
+      if (!_nativeChurchLogin) {
+        if (!mounted) return false;
+        await BiometricService().maybeEnableBiometrics(context);
+        await _refreshQuickBiometricState();
+      }
+    } else {
+      final u = FirebaseAuth.instance.currentUser;
+      final login = (u?.email ?? _emailController.text).trim();
+      if (login.isNotEmpty) {
+        _emailController.text = login;
+      }
+      if (_rememberLogin && login.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_prefSavedLogin, login);
+        await prefs.remove('saved_cpf_$_prefPrefix');
+        await prefs.remove(_prefSavedSenha);
+        await prefs.setBool(_prefRememberLogin, true);
+        if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
+          await prefs.setString(_legacyPrefWebLogin, login);
+          await prefs.remove(_legacyPrefWebCpf);
+          await prefs.remove(_legacyPrefWebSenha);
+          await prefs.setBool(_legacyPrefRememberWeb, true);
+        }
+      }
+      _hasSavedCredentials = false;
+      await _refreshQuickBiometricState();
+    }
+    if (mounted) setState(() => _errorMessage = null);
+    if (!mounted) return false;
+    Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
+    return true;
+  }
+
+  Future<void> _onGoogleChurchLogin() async {
+    if (!_showChurchGoogleButton || _loading) return;
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      UserCredential cred;
+      if (kIsWeb) {
+        cred = await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
+      } else {
+        final googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        final ga = await googleUser.authentication;
+        final oauth = GoogleAuthProvider.credential(
+          accessToken: ga.accessToken,
+          idToken: ga.idToken,
+        );
+        cred = await FirebaseAuth.instance.signInWithCredential(oauth);
+      }
+
+      if (cred.user == null || !mounted) return;
+
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('repairMyChurchBinding');
+      await fn.call(<String, dynamic>{});
+
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final code = e.code.toLowerCase();
+      String msg;
+      if (code.contains('account-exists-with-different-credential')) {
+        msg =
+            'Este e-mail já tem login com senha. Use e-mail e senha ou peça ao gestor para alinhar o acesso.';
+      } else if (code.contains('popup-closed') || code.contains('cancel')) {
+        msg = 'Login Google cancelado.';
+      } else {
+        msg = e.message ?? e.code;
+      }
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final code = (e.code).toLowerCase();
+      final msg = code.contains('not-found')
+          ? (_credentialsAsMembro
+              ? 'Não encontramos cadastro de membro ou gestor com este Google. '
+                  'Confira se o e-mail na igreja é o mesmo da conta Google. '
+                  'Se você é gestor e quer cadastrar uma igreja nova, volte e escolha a opção correspondente.'
+              : 'Não encontramos uma igreja vinculada a este Google. '
+                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
+          : (e.message ?? e.code);
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final msg = 'Falha no login com Google. Tente de novo ou use e-mail e senha.';
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n$e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _onResetSenha() async {
-    final cpfOuEmail = _cpfController.text.trim();
-    if (cpfOuEmail.isEmpty) {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Digite seu CPF ou e-mail para receber o link de recuperação no seu e-mail.')),
+        const SnackBar(content: Text('Digite seu e-mail para receber o link de recuperação.')),
+      );
+      return;
+    }
+    if (!AuthCpfService.looksLikeEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Digite um e-mail válido.')),
       );
       return;
     }
@@ -286,21 +463,21 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final service = AuthCpfService();
-      await service.sendPasswordResetByCpf(cpfOuEmail);
+      await service.sendPasswordResetEmailOnly(email);
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Se o CPF ou e-mail estiver cadastrado, enviamos um link para redefinição da senha.',
+            'Se o e-mail estiver cadastrado, enviamos um link para redefinição da senha.',
           ),
         ),
       );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final msg = e.code == 'user-not-found'
-          ? 'CPF ou e-mail não encontrado. Verifique se o cadastro foi ativado e se o login foi criado (peça ao gestor "Criar login" se necessário).'
+          ? 'E-mail não encontrado. Verifique se o cadastro foi ativado e se o login foi criado (peça ao gestor "Criar login" se necessário).'
           : 'Não foi possível enviar o link: ${e.message ?? e.code}';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
@@ -313,72 +490,19 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> _onGoogleSignIn() async {
-    setState(() => _loading = true);
-    try {
-      if (kIsWeb) {
-        await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
-      } else {
-        final gsi = GoogleSignIn(scopes: const ['email', 'profile']);
-        final acc = await gsi.signIn();
-        if (acc == null) {
-          if (mounted) setState(() => _loading = false);
-          return;
-        }
-        final ga = await acc.authentication;
-        final cred = GoogleAuthProvider.credential(
-          accessToken: ga.accessToken,
-          idToken: ga.idToken,
-        );
-        await FirebaseAuth.instance.signInWithCredential(cred);
-      }
-      if (!mounted) return;
-      final isAdminRoute = widget.afterLoginRoute == '/admin';
-      if (!isAdminRoute) {
-        final versionOk = await _ensureLatestVersion();
-        if (!versionOk) {
-          await FirebaseAuth.instance.signOut();
-          if (!kIsWeb) {
-            try {
-              await GoogleSignIn().signOut();
-            } catch (_) {}
-          }
-          return;
-        }
-      }
-      if (mounted) setState(() => _errorMessage = null);
-      Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      final msg = e.message ?? e.code;
-      final low = msg.toString().toLowerCase();
-      final isDomain =
-          low.contains('domain') || low.contains('authorized');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(kIsWeb && isDomain
-              ? 'Adicione este domínio em Firebase Console > Authentication > Authorized domains.'
-              : 'Falha no Google: $msg'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
   Future<void> _onEntrar() async {
-    final cpf = _cpfController.text.trim();
+    final email = _emailController.text.trim();
     final senha = _senhaController.text;
 
-    if (cpf.isEmpty || senha.isEmpty) {
+    if (email.isEmpty || senha.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe CPF ou e-mail e senha.')),
+        const SnackBar(content: Text('Informe e-mail e senha.')),
+      );
+      return;
+    }
+    if (!AuthCpfService.looksLikeEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Digite um e-mail válido.')),
       );
       return;
     }
@@ -386,28 +510,15 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = true);
     try {
       final service = AuthCpfService();
-      await service.signInByCpf(cpf: cpf, senha: senha);
+      await service.signInWithEmail(email: email, senha: senha);
 
       if (!mounted) return;
-      // Painel Master: não bloquear por versão (admin precisa acessar sempre)
-      final isAdminRoute = widget.afterLoginRoute == '/admin';
-      if (!isAdminRoute) {
-        final versionOk = await _ensureLatestVersion();
-        if (!versionOk) {
-          await FirebaseAuth.instance.signOut();
-          return;
-        }
-      }
-      _hasSavedCredentials = _cpfController.text.trim().isNotEmpty && _senhaController.text.isNotEmpty;
-      await _persistCredentials();
-      await BiometricService().maybeEnableBiometrics(context);
-      await _refreshQuickBiometricState();
-      if (mounted) setState(() => _errorMessage = null);
-      Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
+      final ok = await _finalizeChurchLoginAfterAuth(persistPasswordFields: true);
+      if (!ok) return;
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final msg = switch (e.code) {
-        'user-not-found' => 'CPF ou e-mail não encontrado.',
+        'user-not-found' => 'E-mail não encontrado.',
         'invalid-email' => 'E-mail inválido.',
         'wrong-password' => 'Senha incorreta.',
         'invalid-credential' => 'Credenciais inválidas.',
@@ -467,103 +578,656 @@ ScaffoldMessenger.of(context).showSnackBar(
   /// Login do Painel Master: só marca Gestão YAHWEH (nunca logo de igreja).
   bool get _isMasterAdminLogin => widget.afterLoginRoute == '/admin';
 
-  /// Android/iOS — painel da igreja: tela única moderna (planos só na web).
+  bool get _useSmartFlow {
+    if (_isMasterAdminLogin) return false;
+    if (widget.afterLoginRoute != '/painel') return false;
+    return widget.showSmartLoginFlow ?? true;
+  }
+
+  /// Login com Google + e-mail/senha no painel da igreja (após etapa de credenciais no fluxo inteligente).
+  bool get _showChurchGoogleButton =>
+      widget.afterLoginRoute == '/painel' &&
+      !_isMasterAdminLogin &&
+      (!_useSmartFlow || _smartStep == _SmartStep.credentials);
+
+  /// Callout “cadastrar igreja” e resumo de planos: não exibir no fluxo **membro** (evita cadastro duplicado).
+  bool get _showGestorMarketingBlocks =>
+      _showIgrejaPainelExtras &&
+      (!_useSmartFlow ||
+          _smartStep != _SmartStep.credentials ||
+          !_credentialsAsMembro);
+
+  void _onBackLeadingPressed() {
+    if (_useSmartFlow) {
+      if (_smartStep == _SmartStep.credentials) {
+        setState(() {
+          _errorMessage = null;
+          _smartStep =
+              _credentialsAsMembro ? _SmartStep.choosePersona : _SmartStep.gestorBranch;
+        });
+        return;
+      }
+      if (_smartStep == _SmartStep.gestorBranch) {
+        setState(() {
+          _errorMessage = null;
+          _smartStep = _SmartStep.choosePersona;
+        });
+        return;
+      }
+    }
+    final target = widget.backRoute ?? '/';
+    Navigator.of(context, rootNavigator: true)
+        .pushNamedAndRemoveUntil(target, (_) => false);
+  }
+
+  /// Cadastro gestor: leva e-mail digitado no login, se válido, para pré-preencher `/signup`.
+  void _openGestorSignup() {
+    final e = _emailController.text.trim();
+    if (AuthCpfService.looksLikeEmail(e)) {
+      Navigator.pushNamed(
+        context,
+        '/signup?email=${Uri.encodeComponent(e)}',
+      );
+    } else {
+      Navigator.pushNamed(context, '/signup');
+    }
+  }
+
+  static Widget _googleMark() {
+    return Container(
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0xFFdadce0)),
+      ),
+      child: const Text(
+        'G',
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: Color(0xFF4285F4),
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGoogleSignInButton(Color theme) {
+    if (!_showChurchGoogleButton) return const SizedBox.shrink();
+    return OutlinedButton(
+      onPressed: _loading ? null : _onGoogleChurchLogin,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        side: BorderSide(color: Colors.grey.shade400),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _googleMark(),
+          const SizedBox(width: 10),
+          Text(
+            'Continuar com Google',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: theme,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmartChoosePersonaBody(Color theme, {required bool usePoppins}) {
+    TextStyle titleStyle() => usePoppins
+        ? GoogleFonts.poppins(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: ThemeCleanPremium.onSurface,
+          )
+        : TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade900,
+          );
+
+    Widget card({
+      required IconData icon,
+      required String title,
+      required String subtitle,
+      required VoidCallback onTap,
+    }) {
+      return Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: theme.withValues(alpha: 0.35)),
+        ),
+        child: InkWell(
+          onTap: _loading ? null : onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: theme, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.grey.shade500),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Como você deseja entrar?',
+          textAlign: TextAlign.center,
+          style: titleStyle(),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Assim evitamos que um membro abra o cadastro de nova igreja por engano.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade700,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 18),
+        card(
+          icon: Icons.person_rounded,
+          title: 'Sou membro',
+          subtitle:
+              'Já sou cadastrado na minha igreja. Entrar com Google ou e-mail e senha.',
+          onTap: () => setState(() {
+            _credentialsAsMembro = true;
+            _smartStep = _SmartStep.credentials;
+            _errorMessage = null;
+          }),
+        ),
+        const SizedBox(height: 12),
+        card(
+          icon: Icons.manage_accounts_rounded,
+          title: 'Sou gestor ou quero conhecer o sistema',
+          subtitle:
+              'Pastor, tesoureiro ou líder: cadastrar igreja (teste grátis) ou entrar com conta já existente.',
+          onTap: () => setState(() {
+            _errorMessage = null;
+            _smartStep = _SmartStep.gestorBranch;
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmartGestorBranchBody(Color theme, {required bool usePoppins}) {
+    TextStyle titleStyle() => usePoppins
+        ? GoogleFonts.poppins(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: ThemeCleanPremium.onSurface,
+          )
+        : TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade900,
+          );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Gestão para sua igreja',
+          textAlign: TextAlign.center,
+          style: titleStyle(),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Escolha se você ainda não tem igreja no sistema ou se já é gestor cadastrado.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade700,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 20),
+        FilledButton.icon(
+          onPressed: _loading ? null : _openGestorSignup,
+          style: FilledButton.styleFrom(
+            backgroundColor: theme,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.add_business_rounded),
+          label: const Text(
+            'Quero cadastrar minha igreja (30 dias grátis)',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _loading
+              ? null
+              : () => setState(() {
+                    _credentialsAsMembro = false;
+                    _smartStep = _SmartStep.credentials;
+                    _errorMessage = null;
+                  }),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            side: BorderSide(color: theme.withValues(alpha: 0.6)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: Icon(Icons.login_rounded, color: theme),
+          label: Text(
+            'Já sou gestor — entrar com Google ou e-mail',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: theme,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Android/iOS — painel da igreja: tela com login + resumo de planos + cadastro gestor.
   bool get _nativeChurchLogin =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS) &&
       widget.afterLoginRoute == '/painel';
 
-  /// Google: app (igreja) e web quando [showGoogleLogin]; nunca no login master.
-  bool get _showGoogleButton =>
-      widget.afterLoginRoute == '/painel' &&
-      (!kIsWeb || widget.showGoogleLogin);
+  /// Extras de marketing só no fluxo painel da igreja (não no login master).
+  bool get _showIgrejaPainelExtras =>
+      widget.afterLoginRoute == '/painel' && !_isMasterAdminLogin;
 
-  Widget _buildNativeMobileChurchLogin(BuildContext context) {
-    const deepBlue = Color(0xFF0A3D91);
-    const midBlue = Color(0xFF1565C0);
-    final theme = ThemeCleanPremium.primary;
-
-    Widget logoBig() {
-      return Image.asset(
-        'assets/LOGO_GESTAO_YAHWEH.png',
-        height: 100,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, __, ___) => Image.asset(
-          'assets/icon/app_icon.png',
-          height: 92,
-          fit: BoxFit.contain,
+  Widget _buildGestorCadastroCallout(Color theme) {
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFEEF2FF),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: theme.withValues(alpha: 0.25)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.add_business_rounded, color: theme, size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Sou gestor de uma igreja',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: Colors.grey.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Cadastre sua igreja pelo aplicativo: crie a conta, escolha o plano e use '
+              '30 dias grátis para testar o sistema completo (membros, escalas, financeiro e mais).',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loading ? null : _openGestorSignup,
+              style: FilledButton.styleFrom(
+                backgroundColor: theme,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.how_to_reg_rounded),
+              label: const Text(
+                'Cadastrar minha igreja agora',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Já tem conta? Use o formulário acima para entrar.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+            ),
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
+
+  Widget _buildPlanosResumoCard(Color theme) {
+    final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFE4E7EF)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.layers_outlined, color: theme, size: 22),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Planos para sua igreja',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Mensalidades aproximadas; no cadastro você confirma o plano e a forma de pagamento.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade700,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 10),
+            ...planosOficiais.map((p) {
+              final priceLabel = p.monthlyPrice != null
+                  ? '${brl.format(p.monthlyPrice!)}/mês'
+                  : (p.note ?? 'Sob consulta');
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (p.featured)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6, top: 2),
+                        child: Icon(Icons.star_rounded,
+                            size: 16, color: Colors.amber.shade800),
+                      )
+                    else
+                      const SizedBox(width: 22),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            p.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            p.members,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      priceLabel,
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: theme,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/planos'),
+                icon: Icon(Icons.open_in_new_rounded, size: 18, color: theme),
+                label: Text(
+                  'Ver página completa de planos',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: theme,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Mesmo fundo e AppBar do site de divulgação ([SitePublicPage]); login só com e-mail + senha.
+  Widget _buildNativeMobileChurchLogin(BuildContext context) {
+    final topBar = ThemeCleanPremium.navSidebar;
+    final theme = ThemeCleanPremium.primary;
 
     return Scaffold(
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [deepBlue, midBlue, Color(0xFF1E40AF)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              topBar,
+              ThemeCleanPremium.primaryLight,
+              const Color(0xFFF0F4FF),
+              ThemeCleanPremium.surfaceVariant,
+            ],
+            stops: const [0.0, 0.12, 0.22, 1.0],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
+              AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded,
+                      color: Colors.white, size: 26),
+                  onPressed: _onBackLeadingPressed,
+                  tooltip: 'Voltar',
+                ),
+                title: Row(
+                  children: [
+                    SizedBox(
+                      height: 44,
+                      child: _GestaoYahwehLogoPng(
+                        height: 44,
+                        iconFallbackColor: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Gestão YAHWEH',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          fontSize: 18,
+                          letterSpacing: 0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: topBar,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+              ),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 16),
+                  padding: const EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceMd,
+                    ThemeCleanPremium.spaceMd,
+                    ThemeCleanPremium.spaceMd,
+                    24,
+                  ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(height: 8),
-                      logoBig(),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Gestão YAHWEH',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 22,
-                          letterSpacing: -0.3,
+                      Center(
+                        child: _brandLogoWidget(
+                          height: 120,
+                          maxWidth: MediaQuery.sizeOf(context).width - 40,
+                          fallbackIconColor: theme,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 14),
                       Text(
-                        'Gestor ou membro — entre com CPF/e-mail ou Google.\n'
-                        'Se estiver vinculado a uma igreja, o painel abre em seguida.',
+                        'Um sistema de excelência feito para sua igreja',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.88),
-                          fontSize: 13,
-                          height: 1.35,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 15,
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
                         ),
                       ),
-                      const SizedBox(height: 22),
-                      Material(
+                      const SizedBox(height: 18),
+                      Card(
+                        elevation: 0,
                         color: Colors.white,
-                        elevation: 8,
-                        shadowColor: Colors.black26,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-                          child: Column(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: const Color(0xFFE4E7EF)),
+                          ),
+                          padding: const EdgeInsets.all(18),
+                          child: _useSmartFlow &&
+                                  _smartStep != _SmartStep.credentials
+                              ? _smartStep == _SmartStep.choosePersona
+                                  ? _buildSmartChoosePersonaBody(theme,
+                                      usePoppins: false)
+                                  : _buildSmartGestorBranchBody(theme,
+                                      usePoppins: false)
+                              : Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              Text(
+                                widget.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _credentialsAsMembro
+                                    ? 'Membro: use o mesmo e-mail cadastrado na igreja. '
+                                        'Pode entrar com Google ou e-mail e senha.'
+                                    : 'Gestor: use o e-mail da conta da igreja. '
+                                        'Pode entrar com Google ou e-mail e senha.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              _buildGoogleSignInButton(theme),
+                              if (_showChurchGoogleButton) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      child: Text(
+                                        'ou',
+                                        style: TextStyle(
+                                          color: Colors.grey.shade600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                              ],
                               TextField(
-                                controller: _cpfController,
+                                controller: _emailController,
                                 keyboardType: TextInputType.emailAddress,
-                                decoration: InputDecoration(
-                                  labelText: 'CPF ou e-mail',
-                                  hintText: '12345678901 ou seu@email.com',
-                                  filled: true,
-                                  fillColor: const Color(0xFFF8FAFC),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                                autocorrect: false,
+                                decoration: const InputDecoration(
+                                  labelText: 'E-mail',
+                                  hintText: 'seu@email.com',
+                                  border: OutlineInputBorder(),
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -572,11 +1236,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                 obscureText: _obscure,
                                 decoration: InputDecoration(
                                   labelText: 'Senha',
-                                  filled: true,
-                                  fillColor: const Color(0xFFF8FAFC),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                                  border: const OutlineInputBorder(),
                                   suffixIcon: IconButton(
                                     icon: Icon(_obscure
                                         ? Icons.visibility_off_rounded
@@ -613,8 +1273,9 @@ ScaffoldMessenger.of(context).showSnackBar(
                               const SizedBox(height: 8),
                               FilledButton(
                                 style: FilledButton.styleFrom(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 14),
+                                  backgroundColor: theme,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -631,60 +1292,6 @@ ScaffoldMessenger.of(context).showSnackBar(
                                       )
                                     : const Text('Entrar'),
                               ),
-                              if (_quickBiometricReady) ...[
-                                const SizedBox(height: 10),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  onPressed:
-                                      _loading ? null : _onEntrarComBiometria,
-                                  icon: const Icon(Icons.fingerprint_rounded),
-                                  label: const Text('Entrar com biometria'),
-                                ),
-                              ],
-                              if (_showGoogleButton) ...[
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(child: Divider(color: Colors.grey.shade300)),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                                      child: Text(
-                                        'ou',
-                                        style: TextStyle(
-                                          color: Colors.grey.shade600,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(child: Divider(color: Colors.grey.shade300)),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: const Color(0xFF1E293B),
-                                    backgroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      side: BorderSide(color: Colors.grey.shade300),
-                                    ),
-                                  ),
-                                  onPressed: _loading ? null : _onGoogleSignIn,
-                                  icon: const FaIcon(
-                                    FontAwesomeIcons.google,
-                                    size: 18,
-                                  ),
-                                  label: const Text('Continuar com Google'),
-                                ),
-                              ],
-                              const SizedBox(height: 4),
                               Center(
                                 child: TextButton(
                                   onPressed: _loading ? null : _onResetSenha,
@@ -695,55 +1302,32 @@ ScaffoldMessenger.of(context).showSnackBar(
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Column(
-                  children: [
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, '/login_admin'),
-                      child: Text(
-                        'Acesso painel master',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                          decorationColor: Colors.white70,
+                      if (_showGestorMarketingBlocks) ...[
+                        const SizedBox(height: 14),
+                        _buildGestorCadastroCallout(theme),
+                        const SizedBox(height: 12),
+                        _buildPlanosResumoCard(theme),
+                      ],
+                      const SizedBox(height: 12),
+                      Center(
+                        child: TextButton(
+                          onPressed: () =>
+                              Navigator.pushNamed(context, '/login_admin'),
+                          child: Text(
+                            'Acesso painel master',
+                            style: TextStyle(
+                              color: theme,
+                              fontWeight: FontWeight.w600,
+                              decoration: TextDecoration.underline,
+                              decorationColor: theme.withValues(alpha: 0.4),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                child: Column(
-                  children: [
-                    Text(
-                      '"$kVersiculoRodape"\n— $kVersiculoRef',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.white.withValues(alpha: 0.65),
-                        height: 1.25,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'v$appVersion',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.white.withValues(alpha: 0.45),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      const VersionFooter(showVersion: true),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -756,37 +1340,22 @@ ScaffoldMessenger.of(context).showSnackBar(
   Widget _brandLogoWidget({
     required double height,
     required Color fallbackIconColor,
+    double? maxWidth,
   }) {
     final raw = _isMasterAdminLogin
         ? ''
         : (widget.churchLogoUrl ?? '').trim();
     Widget gestaoYahwehAssets() {
-      Widget lastResort() {
-        if (_isMasterAdminLogin) {
-          return _MasterGestaoYahwehMark(
-            maxHeight: height,
-            foreground: fallbackIconColor,
-          );
-        }
-        return Icon(
-          Icons.church_rounded,
-          size: height * 0.85,
-          color: fallbackIconColor,
-        );
-      }
-
-      return Image.asset(
-        'assets/LOGO_GESTAO_YAHWEH.png',
+      return _GestaoYahwehLogoPng(
         height: height,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, __, ___) => Image.asset(
-          'assets/icon/app_icon.png',
-          height: height * 0.92,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.medium,
-          errorBuilder: (_, __, ___) => lastResort(),
-        ),
+        maxWidth: maxWidth,
+        iconFallbackColor: fallbackIconColor,
+        masterMarkFallback: _isMasterAdminLogin
+            ? _MasterGestaoYahwehMark(
+                maxHeight: height,
+                foreground: fallbackIconColor,
+              )
+            : null,
       );
     }
 
@@ -797,6 +1366,7 @@ ScaffoldMessenger.of(context).showSnackBar(
     return SafeNetworkImage(
       imageUrl: raw,
       height: height,
+      width: maxWidth,
       fit: BoxFit.contain,
       errorWidget: gestaoYahwehAssets(),
       placeholder: SizedBox(
@@ -831,19 +1401,15 @@ ScaffoldMessenger.of(context).showSnackBar(
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, size: 26),
-          onPressed: () {
-            final target = widget.backRoute ?? '/';
-            Navigator.of(context, rootNavigator: true)
-                .pushNamedAndRemoveUntil(target, (_) => false);
-          },
+          onPressed: _onBackLeadingPressed,
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: 32,
+              height: 46,
               child: _brandLogoWidget(
-                height: 32,
+                height: 46,
                 fallbackIconColor: Colors.white,
               ),
             ),
@@ -870,101 +1436,182 @@ ScaffoldMessenger.of(context).showSnackBar(
           Expanded(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _brandLogoWidget(
-                        height: 88,
-                        fallbackIconColor: theme,
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        widget.title,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: _cpfController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'CPF ou e-mail',
-                          hintText: 'Ex.: 12345678901 ou seu@email.com',
-                          helperText: 'Entre com o mesmo e-mail do cadastro ou só o CPF (11 dígitos).',
-                          border: OutlineInputBorder(),
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: LayoutBuilder(
+                    builder: (context, bx) {
+                      final logoMaxW = bx.maxWidth;
+                      final logoH = (logoMaxW * 0.42).clamp(132.0, 210.0);
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                      Center(
+                        child: _brandLogoWidget(
+                          height: logoH,
+                          maxWidth: logoMaxW,
+                          fallbackIconColor: theme,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _senhaController,
-                        obscureText: _obscure,
-                        decoration: InputDecoration(
-                          labelText: 'Senha',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                            onPressed: () => setState(() => _obscure = !_obscure),
+                      if (!_isMasterAdminLogin &&
+                          (widget.churchLogoUrl ?? '').trim().isEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'Gestão YAHWEH',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.poppins(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: theme,
+                            letterSpacing: 0.3,
                           ),
                         ),
-                      ),
-                      if (_errorMessage != null) ...[
-                        const SizedBox(height: 8),
-                        Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
                       ],
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        value: _rememberLogin,
-                        onChanged: (v) => setState(() => _rememberLogin = v ?? false),
-                        title: const Text('Lembrar usuário e senha', style: TextStyle(fontSize: 14)),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        contentPadding: EdgeInsets.zero,
-                        activeColor: theme,
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: _loading ? null : _onEntrar,
-                        child: _loading
-                            ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Text('Entrar'),
-                      ),
-                      if (_showGoogleButton) ...[
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(child: Divider(color: Colors.grey.shade300)),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                              child: Text(
-                                'ou',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w600,
+                      const SizedBox(height: 18),
+                      if (_useSmartFlow &&
+                          _smartStep != _SmartStep.credentials)
+                        (_smartStep == _SmartStep.choosePersona
+                            ? _buildSmartChoosePersonaBody(theme,
+                                usePoppins: true)
+                            : _buildSmartGestorBranchBody(theme,
+                                usePoppins: true))
+                      else ...[
+                        Text(
+                          widget.title,
+                          style: GoogleFonts.poppins(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        if (widget.afterLoginRoute == '/painel' &&
+                            (!_useSmartFlow ||
+                                _smartStep == _SmartStep.credentials)) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _credentialsAsMembro
+                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google ou e-mail e senha.'
+                                : 'Gestor: e-mail da conta da igreja. Google ou e-mail e senha.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        _buildGoogleSignInButton(theme),
+                        if (_showChurchGoogleButton) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                  child:
+                                      Divider(color: Colors.grey.shade300)),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 10),
+                                child: Text(
+                                  'ou',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Expanded(child: Divider(color: Colors.grey.shade300)),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF1E293B),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                              Expanded(
+                                  child:
+                                      Divider(color: Colors.grey.shade300)),
+                            ],
                           ),
-                          onPressed: _loading ? null : _onGoogleSignIn,
-                          icon: const FaIcon(FontAwesomeIcons.google, size: 18),
-                          label: const Text('Continuar com Google'),
+                          const SizedBox(height: 10),
+                        ],
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          autocorrect: false,
+                          decoration: InputDecoration(
+                            labelText: 'E-mail',
+                            hintText: 'Ex.: seu@email.com',
+                            helperText: widget.afterLoginRoute == '/painel'
+                                ? (_credentialsAsMembro
+                                    ? 'Mesmo e-mail do cadastro na igreja (membro).'
+                                    : 'E-mail da conta de gestor.')
+                                : 'Use o mesmo e-mail do cadastro na igreja.',
+                            border: const OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _senhaController,
+                          obscureText: _obscure,
+                          decoration: InputDecoration(
+                            labelText: 'Senha',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscure
+                                  ? Icons.visibility_off
+                                  : Icons.visibility),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                        ),
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 8),
+                          Text(_errorMessage!,
+                              style: const TextStyle(
+                                  color: Colors.red, fontSize: 13)),
+                        ],
+                        const SizedBox(height: 8),
+                        CheckboxListTile(
+                          value: _rememberLogin,
+                          onChanged: (v) =>
+                              setState(() => _rememberLogin = v ?? false),
+                          title: const Text('Lembrar usuário e senha',
+                              style: TextStyle(fontSize: 14)),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: theme,
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          onPressed: _loading ? null : _onEntrar,
+                          child: _loading
+                              ? const SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2))
+                              : Text(
+                                  'Entrar',
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                        ),
+                        TextButton(
+                          onPressed: _loading ? null : _onResetSenha,
+                          child: const Text('Esqueci a senha'),
                         ),
                       ],
-                      TextButton(
-                        onPressed: _loading ? null : _onResetSenha,
-                        child: const Text('Esqueci a senha'),
-                      ),
-                      if (widget.afterLoginRoute == '/painel' && kIsWeb) ...[
+                      if (_showGestorMarketingBlocks) ...[
+                        const SizedBox(height: 18),
+                        _buildGestorCadastroCallout(theme),
+                        const SizedBox(height: 14),
+                        _buildPlanosResumoCard(theme),
+                      ],
+                      if (widget.afterLoginRoute == '/painel') ...[
                         const SizedBox(height: 8),
                         TextButton(
                           onPressed: () =>
@@ -973,6 +1620,8 @@ ScaffoldMessenger.of(context).showSnackBar(
                         ),
                       ],
                     ],
+                  );
+                    },
                   ),
                 ),
               ),
@@ -982,6 +1631,59 @@ ScaffoldMessenger.of(context).showSnackBar(
         ],
       ),
     );
+  }
+}
+
+/// Logo PNG com decodificação proporcional ao [devicePixelRatio] (telas retina / web nítido).
+class _GestaoYahwehLogoPng extends StatelessWidget {
+  final double height;
+  final double? maxWidth;
+  final Color iconFallbackColor;
+  final Widget? masterMarkFallback;
+
+  const _GestaoYahwehLogoPng({
+    required this.height,
+    this.maxWidth,
+    required this.iconFallbackColor,
+    this.masterMarkFallback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 4.0);
+    final cacheH = (height * dpr).round().clamp(128, 4096);
+    final cacheIcon = (height * 0.92 * dpr).round().clamp(128, 4096);
+
+    Widget core = Image.asset(
+      'assets/LOGO_GESTAO_YAHWEH.png',
+      height: height,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      isAntiAlias: true,
+      cacheHeight: cacheH,
+      errorBuilder: (_, __, ___) => Image.asset(
+        'assets/icon/app_icon.png',
+        height: height * 0.92,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        isAntiAlias: true,
+        cacheHeight: cacheIcon,
+        errorBuilder: (_, __, ___) =>
+            masterMarkFallback ??
+            Icon(
+              Icons.church_rounded,
+              size: height * 0.85,
+              color: iconFallbackColor,
+            ),
+      ),
+    );
+    if (maxWidth != null) {
+      core = ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth!),
+        child: core,
+      );
+    }
+    return core;
   }
 }
 
@@ -1064,20 +1766,10 @@ class _LoginBrandHeader extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: ThemeCleanPremium.spaceLg, bottom: ThemeCleanPremium.spaceSm),
           child: Center(
-            child: SizedBox(
-              height: 80,
-              child: Image.asset(
-                'assets/LOGO_GESTAO_YAHWEH.png',
-                height: 80,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Image.asset(
-                  'assets/icon/app_icon.png',
-                  height: 72,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      Icon(Icons.church_rounded, size: 64, color: primary),
-                ),
-              ),
+            child: _GestaoYahwehLogoPng(
+              height: 120,
+              maxWidth: 340,
+              iconFallbackColor: primary,
             ),
           ),
         ),

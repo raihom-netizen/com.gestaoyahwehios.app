@@ -6,7 +6,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -58,7 +60,7 @@ class SchedulesPage extends StatefulWidget {
 
 class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProviderStateMixin {
   late final TabController _tab;
-  /// ID real da igreja (resolve slug/alias) — mesmo critério do módulo Departamentos.
+  /// ID real da igreja (resolve slug/alias) — alinhado a Membros/claims para escrita no Firestore.
   late final Future<String> _effectiveTidFuture;
   late Future<List<_DeptItem>> _deptsFuture;
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
@@ -99,8 +101,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
-    final tid = await TenantResolverService
-        .resolveChurchDocIdPreferringNonEmptyDepartments(widget.tenantId);
+    final tid = await TenantResolverService.resolveEffectiveTenantId(
+        widget.tenantId);
     if (AppPermissions.canEditDepartments(widget.role)) {
       await ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(
         _departmentsCol(tid),
@@ -2174,44 +2176,97 @@ class _SchedulesCalendarPanel extends StatelessWidget {
     }).toList();
   }
 
+  List<Color> _markerColorsForDay(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> events,
+    int max,
+  ) {
+    final out = <Color>[];
+    for (final e in events) {
+      final deptIdx = allDepts.indexWhere(
+        (x) => x.id == (e.data()['departmentId'] ?? '').toString(),
+      );
+      final c = colorForDept(deptIdx.clamp(0, 99));
+      if (!out.contains(c)) out.add(c);
+      if (out.length >= max) break;
+    }
+    if (out.isEmpty) return [ThemeCleanPremium.primary];
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dayEvents = _eventsForDay(selectedDay);
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    final cellFs = isMobile ? 15.0 : 14.0;
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 88),
       children: [
-        TableCalendar<QueryDocumentSnapshot<Map<String, dynamic>>>(
-          firstDay: DateTime.utc(2020, 1, 1),
-          lastDay: DateTime.utc(2035, 12, 31),
-          focusedDay: focusedDay,
-          selectedDayPredicate: (d) => isSameDay(d, selectedDay),
-          eventLoader: _eventsForDay,
-          startingDayOfWeek: StartingDayOfWeek.sunday,
-          calendarStyle: CalendarStyle(
-            todayDecoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            selectedDecoration: const BoxDecoration(
-              color: ThemeCleanPremium.primary,
-              shape: BoxShape.circle,
-            ),
-            markersMaxCount: 4,
-            markerDecoration: const BoxDecoration(
-              color: Color(0xFF6366F1),
-              shape: BoxShape.circle,
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: TableCalendar<QueryDocumentSnapshot<Map<String, dynamic>>>(
+              locale: 'pt_BR',
+              firstDay: DateTime.utc(2020, 1, 1),
+              lastDay: DateTime.utc(2035, 12, 31),
+              focusedDay: focusedDay,
+              selectedDayPredicate: (d) => isSameDay(d, selectedDay),
+              eventLoader: _eventsForDay,
+              startingDayOfWeek: StartingDayOfWeek.sunday,
+              rowHeight: isMobile ? 56.0 : 50.0,
+              daysOfWeekHeight: isMobile ? 30.0 : 26.0,
+              calendarStyle: ControleTotalCalendarTheme.calendarStyle(
+                cellFs: cellFs,
+                primary: ThemeCleanPremium.primary,
+                onSurface: ThemeCleanPremium.onSurface,
+              ),
+              daysOfWeekStyle: DaysOfWeekStyle(
+                weekdayStyle: GoogleFonts.poppins(
+                  fontSize: isMobile ? 12.5 : 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+                weekendStyle: GoogleFonts.poppins(
+                  fontSize: isMobile ? 12.5 : 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+              headerStyle: HeaderStyle(
+                formatButtonVisible: false,
+                titleCentered: true,
+                titleTextStyle: GoogleFonts.poppins(
+                  fontSize: isMobile ? 17 : 16,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, day, events) {
+                  if (events.isEmpty) return null;
+                  final squares = _markerColorsForDay(events, 3);
+                  final more = events.length > 3 ? events.length - 3 : 0;
+                  return Positioned(
+                    bottom: 5,
+                    left: 1,
+                    right: 1,
+                    child: ControleTotalCalendarTheme.markerRow(
+                      colors: squares,
+                      moreCount: more,
+                      isMobile: isMobile,
+                    ),
+                  );
+                },
+              ),
+              onDaySelected: onDaySelected,
+              onPageChanged: onCalendarPageChanged,
             ),
           ),
-          headerStyle: HeaderStyle(
-            formatButtonVisible: false,
-            titleCentered: true,
-            titleTextStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          onDaySelected: onDaySelected,
-          onPageChanged: onCalendarPageChanged,
         ),
         const SizedBox(height: 12),
         Text(

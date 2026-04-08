@@ -1017,16 +1017,32 @@ class _MediaCard extends StatelessWidget {
     );
   }
 
+  /// Abre PDF no visualizador do browser (inline), nova aba na web — sem forçar download.
+  static Uri _uriForInlinePdfIfNeeded(String storagePath, Uri u) {
+    final low = storagePath.toLowerCase();
+    if (!low.endsWith('.pdf')) return u;
+    final q = u.queryParameters;
+    if (!q.containsKey('download')) return u;
+    final m = Map<String, String>.from(q);
+    m.remove('download');
+    return u.replace(queryParameters: m);
+  }
+
   static Future<void> _openStoragePath(String path) async {
     try {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
       final url = await FirebaseStorage.instance.ref(path).getDownloadURL();
-      final u = Uri.tryParse(url);
-      if (u != null && await canLaunchUrl(u)) {
-        await launchUrl(u, mode: LaunchMode.externalApplication);
-      }
+      var u = Uri.tryParse(url);
+      if (u == null) return;
+      u = _uriForInlinePdfIfNeeded(path, u);
+      if (!await canLaunchUrl(u)) return;
+      await launchUrl(
+        u,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: kIsWeb ? '_blank' : null,
+      );
     } catch (e) {
       debugPrint('_openStoragePath: $e');
     }
@@ -1177,7 +1193,7 @@ class _MarketingImageLightboxDialogState
   }
 }
 
-/// Vídeo visível no card (web: `<video preload=auto>`), enquadramento [letterbox] para 9:16 sem corte.
+/// Vídeo no card (web: `<video preload=metadata>` + poster opcional), [letterbox] 9:16 sem corte.
 class _GalleryInlineVideoCard extends StatelessWidget {
   final String path;
   final String title;

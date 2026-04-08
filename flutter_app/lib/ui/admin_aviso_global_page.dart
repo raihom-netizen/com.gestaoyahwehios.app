@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
-/// Painel Master — Aviso global para todas as igrejas (melhorias, manutenção preventiva).
-/// O usuário vê o aviso uma vez e ao clicar OK não volta a ver (registro por usuário).
+/// Painel Master — Aviso global / manutenção / promoção temporária para todas as igrejas.
+/// Tipo ([kind]), título opcional, texto com URLs clicáveis e até dois botões de link.
+/// O usuário vê o aviso uma vez e ao tocar em «Entendi» não volta a ver na mesma revisão.
 class AdminAvisoGlobalPage extends StatefulWidget {
   const AdminAvisoGlobalPage({super.key});
 
@@ -18,16 +19,28 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
   final _audit =
       FirebaseFirestore.instance.collection('global_announcement_audit');
   final _messageCtrl = TextEditingController();
+  final _titleCtrl = TextEditingController();
+  final _primaryUrlCtrl = TextEditingController();
+  final _primaryLabelCtrl = TextEditingController();
+  final _secondaryUrlCtrl = TextEditingController();
+  final _secondaryLabelCtrl = TextEditingController();
 
   bool _loading = true;
   String? _error;
   DateTime? _validUntil;
   bool _active = false;
   bool _saving = false;
+  /// `info` | `maintenance` | `promotion` — define cores e título padrão no painel.
+  String _kind = 'info';
 
   @override
   void dispose() {
     _messageCtrl.dispose();
+    _titleCtrl.dispose();
+    _primaryUrlCtrl.dispose();
+    _primaryLabelCtrl.dispose();
+    _secondaryUrlCtrl.dispose();
+    _secondaryLabelCtrl.dispose();
     super.dispose();
   }
 
@@ -45,9 +58,24 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         final d = snap.data()!;
         Timestamp? v = d['validUntil'] as Timestamp?;
         _messageCtrl.text = (d['message'] ?? '').toString();
+        _titleCtrl.text = (d['title'] ?? '').toString();
+        _primaryUrlCtrl.text = (d['primaryButtonUrl'] ?? '').toString();
+        _primaryLabelCtrl.text = (d['primaryButtonLabel'] ?? '').toString();
+        _secondaryUrlCtrl.text = (d['secondaryButtonUrl'] ?? '').toString();
+        _secondaryLabelCtrl.text = (d['secondaryButtonLabel'] ?? '').toString();
+        final k = (d['kind'] ?? 'info').toString().trim().toLowerCase();
         setState(() {
           _validUntil = v?.toDate();
           _active = d['active'] == true;
+          _kind = (k == 'maintenance' ||
+                  k == 'manutencao' ||
+                  k == 'manutenção')
+              ? 'maintenance'
+              : (k == 'promotion' ||
+                      k == 'promocao' ||
+                      k == 'promoção')
+                  ? 'promotion'
+                  : 'info';
           _loading = false;
         });
       } else {
@@ -73,6 +101,22 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     try {
       await _ref.set({
         'message': msg,
+        'title': _titleCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _titleCtrl.text.trim(),
+        'kind': _kind,
+        'primaryButtonUrl': _primaryUrlCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _primaryUrlCtrl.text.trim(),
+        'primaryButtonLabel': _primaryLabelCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _primaryLabelCtrl.text.trim(),
+        'secondaryButtonUrl': _secondaryUrlCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _secondaryUrlCtrl.text.trim(),
+        'secondaryButtonLabel': _secondaryLabelCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _secondaryLabelCtrl.text.trim(),
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -84,6 +128,16 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
           (FirebaseAuth.instance.currentUser?.email ?? '').trim();
       await _audit.add({
         'message': msg,
+        'title': _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
+        'kind': _kind,
+        'primaryButtonUrl':
+            _primaryUrlCtrl.text.trim().isEmpty ? null : _primaryUrlCtrl.text.trim(),
+        'primaryButtonLabel':
+            _primaryLabelCtrl.text.trim().isEmpty ? null : _primaryLabelCtrl.text.trim(),
+        'secondaryButtonUrl':
+            _secondaryUrlCtrl.text.trim().isEmpty ? null : _secondaryUrlCtrl.text.trim(),
+        'secondaryButtonLabel':
+            _secondaryLabelCtrl.text.trim().isEmpty ? null : _secondaryLabelCtrl.text.trim(),
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
         'revision': rev,
@@ -94,7 +148,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-              'Aviso salvo (revisão $rev). Todos os painéis da igreja verão ao entrar; quem já deu OK verá de novo nesta revisão.'),
+              'Aviso salvo (revisão $rev). Todos verão ao entrar no painel; quem já tinha fechado verá de novo nesta revisão.'),
         );
         _load();
       }
@@ -134,6 +188,12 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
       await _ref.set({
         'active': false,
         'message': FieldValue.delete(),
+        'title': FieldValue.delete(),
+        'kind': FieldValue.delete(),
+        'primaryButtonUrl': FieldValue.delete(),
+        'primaryButtonLabel': FieldValue.delete(),
+        'secondaryButtonUrl': FieldValue.delete(),
+        'secondaryButtonLabel': FieldValue.delete(),
         'validUntil': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
@@ -171,10 +231,23 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
   void _carregarHistoricoNoFormulario(Map<String, dynamic> d) {
     final msg = (d['message'] ?? '').toString();
     _messageCtrl.text = msg;
+    _titleCtrl.text = (d['title'] ?? '').toString();
+    _primaryUrlCtrl.text = (d['primaryButtonUrl'] ?? '').toString();
+    _primaryLabelCtrl.text = (d['primaryButtonLabel'] ?? '').toString();
+    _secondaryUrlCtrl.text = (d['secondaryButtonUrl'] ?? '').toString();
+    _secondaryLabelCtrl.text = (d['secondaryButtonLabel'] ?? '').toString();
+    final k = (d['kind'] ?? 'info').toString().trim().toLowerCase();
     final vu = d['validUntil'];
     setState(() {
       _validUntil = vu is Timestamp ? vu.toDate() : null;
       _active = d['active'] == true;
+      _kind = (k == 'maintenance' ||
+              k == 'manutencao' ||
+              k == 'manutenção')
+          ? 'maintenance'
+          : (k == 'promotion' || k == 'promocao' || k == 'promoção')
+              ? 'promotion'
+              : 'info';
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -297,7 +370,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Aviso global / Manutenção',
+                        'Avisos, manutenção e promoções',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w800,
                               fontSize: isMobile ? 20 : 22,
@@ -307,7 +380,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Exiba uma mensagem única para todos os usuários ao entrarem no painel (ex.: melhorias, manutenção preventiva). Quem clicar em OK não verá de novo.',
+                        'Uma mensagem por vez para todos ao entrarem no painel. Use tipo e cores automáticas, links https no texto (clicáveis) e botões extras para site ou oferta. Cada nova revisão reexibe para quem já tinha fechado.',
                         style: TextStyle(
                           fontSize: 14,
                           color: ThemeCleanPremium.onSurfaceVariant,
@@ -352,7 +425,45 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Mensagem do aviso',
+                      'Tipo',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment<String>(
+                          value: 'info',
+                          label: Text('Geral'),
+                          icon: Icon(Icons.notifications_active_outlined, size: 18),
+                        ),
+                        ButtonSegment<String>(
+                          value: 'maintenance',
+                          label: Text('Manutenção'),
+                          icon: Icon(Icons.build_circle_outlined, size: 18),
+                        ),
+                        ButtonSegment<String>(
+                          value: 'promotion',
+                          label: Text('Promoção'),
+                          icon: Icon(Icons.local_offer_outlined, size: 18),
+                        ),
+                      ],
+                      selected: {_kind},
+                      onSelectionChanged: (s) {
+                        if (s.isEmpty) return;
+                        setState(() => _kind = s.first);
+                      },
+                      style: ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text(
+                      'Título no cartão (opcional)',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 14,
@@ -361,10 +472,102 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                     ),
                     const SizedBox(height: 8),
                     TextField(
+                      controller: _titleCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Ex.: Atualização programada — deixe em branco para usar o título padrão do tipo',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text(
+                      'Mensagem',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Cole endereços https://… no texto; no painel ficam clicáveis. Ex.: veja detalhes em https://exemplo.com/oferta',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
                       maxLines: 5,
                       controller: _messageCtrl,
                       decoration: InputDecoration(
-                        hintText: 'Ex.: O sistema passará por melhorias no dia 15/03. Entre 22h e 23h pode haver instabilidade. Obrigado!',
+                        hintText: 'Ex.: O sistema passará por melhorias no dia 15/03. Entre 22h e 23h pode haver instabilidade. Saiba mais em https://…',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text(
+                      'Botões de ação (opcional)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Até dois botões grandes abaixo do texto (ex.: «Aproveitar oferta» + URL do checkout). Rótulo vazio usa «Abrir link».',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _primaryLabelCtrl,
+                      decoration: InputDecoration(
+                        labelText: '1º botão — rótulo',
+                        hintText: 'Ex.: Ver oferta',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _primaryUrlCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: '1º botão — URL',
+                        hintText: 'https://…',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    TextField(
+                      controller: _secondaryLabelCtrl,
+                      decoration: InputDecoration(
+                        labelText: '2º botão — rótulo',
+                        hintText: 'Ex.: Site oficial',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _secondaryUrlCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: '2º botão — URL',
+                        hintText: 'https://…',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                         filled: true,
                         fillColor: ThemeCleanPremium.surfaceVariant,
@@ -434,7 +637,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Aviso ativo (cada revisão reexibe para quem já tinha dado OK)',
+                            'Aviso ativo (cada revisão reexibe para quem já tinha fechado)',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
@@ -548,12 +751,37 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      _rotuloAcaoHistorico(d.data()),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 13,
-                                      ),
+                                    child: Wrap(
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: [
+                                        Text(
+                                          _rotuloAcaoHistorico(d.data()),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        if ((d.data()['kind'] ?? '')
+                                            .toString()
+                                            .trim()
+                                            .isNotEmpty)
+                                          Chip(
+                                            label: Text(
+                                              _rotuloTipoHistorico(d.data()['kind']),
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            visualDensity: VisualDensity.compact,
+                                            materialTapTargetSize:
+                                                MaterialTapTargetSize.shrinkWrap,
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8),
+                                          ),
+                                      ],
                                     ),
                                   ),
                                   Text(
@@ -645,6 +873,17 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
       default:
         return 'Salvo';
     }
+  }
+
+  String _rotuloTipoHistorico(dynamic kind) {
+    final k = (kind ?? 'info').toString().trim().toLowerCase();
+    if (k == 'maintenance' || k == 'manutencao' || k == 'manutenção') {
+      return 'Manutenção';
+    }
+    if (k == 'promotion' || k == 'promocao' || k == 'promoção') {
+      return 'Promoção';
+    }
+    return 'Geral';
   }
 }
 

@@ -437,9 +437,17 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhum membro para exportar.')));
         return;
       }
-      final headers = _fieldOptions.where((e) => _selected.contains(e.$1)).map((e) => e.$2).toList();
       final keys = _fieldOptions.where((e) => _selected.contains(e.$1)).map((e) => e.$1).toList();
-      final data = list.map((m) => keys.map((k) => _val(m, k)).toList()).toList();
+      final headers = [
+        '#',
+        ..._fieldOptions.where((e) => _selected.contains(e.$1)).map((e) => e.$2),
+      ];
+      final data = list.asMap().entries.map((e) {
+        return [
+          '${e.key + 1}',
+          ...keys.map((k) => _val(e.value, k)),
+        ];
+      }).toList();
 
       final branding = await loadReportPdfBranding(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
@@ -453,6 +461,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
             child: PdfSuperPremiumTheme.header(
               'Relatório de Membros',
               branding: branding,
+              extraLines: ['Total de membros: ${list.length}'],
             ),
           ),
           footer: (ctx) => PdfSuperPremiumTheme.footer(
@@ -793,6 +802,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
             child: PdfSuperPremiumTheme.header(
               mural ? '$titulo — Mural' : titulo,
               branding: branding,
+              extraLines: ['Total de aniversariantes: ${list.length}'],
             ),
           ),
           footer: (ctx) => PdfSuperPremiumTheme.footer(
@@ -820,6 +830,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
               }
               final dias = byDay.keys.toList()..sort();
               final blocks = <pw.Widget>[];
+              var seq = 1;
               for (final d in dias) {
                 blocks.add(pw.Padding(
                   padding: const pw.EdgeInsets.only(top: 10, bottom: 6),
@@ -835,14 +846,19 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   ..sort((a, b) => _nome(a).compareTo(_nome(b)));
                 blocks.add(
                   PdfSuperPremiumTheme.fromTextArray(
-                    headers: const ['Nome', 'Nasc.', 'Idade'],
+                    headers: const ['#', 'Nome', 'Nasc.', 'Idade'],
                     data: sub.map((m) {
                       final b = _parseBirth(m['DATA_NASCIMENTO'] ??
                           m['dataNascimento'] ??
                           m['birthDate'])!;
                       final ref = DateTime.now();
                       final idade = _idadeCompletando(b, ref);
-                      return [_nome(m), _dataNasc(m), '$idade anos'];
+                      return [
+                        '${seq++}',
+                        _nome(m),
+                        _dataNasc(m),
+                        '$idade anos',
+                      ];
                     }).toList(),
                     accent: branding.accent,
                   ),
@@ -852,15 +868,21 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
             }
             return [
               PdfSuperPremiumTheme.fromTextArray(
-                headers: const ['Nome', 'Data (dia/mês)', 'Idade a completar'],
-                data: list.map((m) {
+                headers: const [
+                  '#',
+                  'Nome',
+                  'Data (dia/mês)',
+                  'Idade a completar'
+                ],
+                data: list.asMap().entries.map((e) {
+                  final m = e.value;
                   final b = _parseBirth(m['DATA_NASCIMENTO'] ??
                       m['dataNascimento'] ??
                       m['birthDate']);
                   final idade = b == null
                       ? '—'
                       : '${_idadeCompletando(b, DateTime.now())} anos';
-                  return [_nome(m), _dataNasc(m), idade];
+                  return ['${e.key + 1}', _nome(m), _dataNasc(m), idade];
                 }).toList(),
                 accent: branding.accent,
               ),
@@ -1422,6 +1444,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
       final extraFinance = <String>[
         if (cnpj.isNotEmpty) 'CNPJ: $cnpj',
         'Período: ${DateFormat('MM/yyyy').format(p.inicio)}',
+        'Total de lançamentos: ${rows.length}',
         if (fechamentoOficial)
           'DOCUMENTO OFICIAL DE FECHAMENTO — gerado em ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
         if (_resumoFiltros().isNotEmpty) 'Filtros: ${_resumoFiltros()}',
@@ -1521,16 +1544,18 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
             pw.Table(
               border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
               columnWidths: const {
-                0: pw.FlexColumnWidth(1.4),
-                1: pw.FlexColumnWidth(1.2),
-                2: pw.FlexColumnWidth(1.5),
-                3: pw.FlexColumnWidth(3.3),
-                4: pw.FlexColumnWidth(1.4),
+                0: pw.FlexColumnWidth(0.55),
+                1: pw.FlexColumnWidth(1.25),
+                2: pw.FlexColumnWidth(1.1),
+                3: pw.FlexColumnWidth(1.45),
+                4: pw.FlexColumnWidth(3.15),
+                5: pw.FlexColumnWidth(1.35),
               },
               children: [
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: PdfColors.blue50),
                   children: [
+                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('#', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
                     pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Data', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
                     pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Tipo', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
                     pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Categoria', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
@@ -1548,6 +1573,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                   return pw.TableRow(
                     decoration: pw.BoxDecoration(color: i.isEven ? PdfColors.white : PdfColors.grey100),
                     children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${i + 1}', style: const pw.TextStyle(fontSize: 8))),
                       pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(DateFormat('dd/MM/yyyy').format(dt), style: const pw.TextStyle(fontSize: 8))),
                       pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(tipo, style: const pw.TextStyle(fontSize: 8))),
                       pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(cat.isEmpty ? '-' : cat, style: const pw.TextStyle(fontSize: 8))),
@@ -2586,8 +2612,13 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
         return;
       }
       final keys = _orderedSelectedKeys;
-      final headers = keys.map((k) => _fieldOptions.firstWhere((e) => e.$1 == k).$2).toList();
-      final data = docs.map((d) => keys.map((k) => _cellValue(d.data(), k)).toList()).toList();
+      final headers = ['#', ...keys.map((k) => _fieldOptions.firstWhere((e) => e.$1 == k).$2)];
+      final data = docs.asMap().entries.map((e) {
+        return [
+          '${e.key + 1}',
+          ...keys.map((k) => _cellValue(e.value.data(), k)),
+        ];
+      }).toList();
       double valorTotal = 0;
       for (final d in docs) {
         final v = d.data()['valor'];
@@ -2596,7 +2627,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
 
       final branding = await loadReportPdfBranding(widget.tenantId);
       final extraPat = <String>[
-        'Total de bens: ${docs.length}',
+        'Quantidade de bens: ${docs.length}',
         'Valor total: ${_fmtMoney(valorTotal)}',
         if (_filterStatus.isNotEmpty) 'Filtro: ${_statusLabel(_filterStatus)}',
       ];
@@ -2911,6 +2942,9 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
             child: PdfSuperPremiumTheme.header(
               titulo,
               branding: branding,
+              extraLines: [
+                'Total de eventos: ${_eventos.length}',
+              ],
             ),
           ),
           footer: (ctx) => PdfSuperPremiumTheme.footer(
@@ -2922,14 +2956,25 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
               pw.Center(child: pw.Padding(padding: const pw.EdgeInsets.all(24), child: pw.Text('Nenhum evento no período.', style: const pw.TextStyle(fontSize: 12))))
             else
               PdfSuperPremiumTheme.fromTextArray(
-                headers: const ['Evento', 'Data/Hora', 'Confirmações (RSVP)', 'Curtidas', 'Local'],
-                data: _eventos.map((e) => <String>[
-                  (e['title'] as String).length > 40 ? '${(e['title'] as String).substring(0, 40)}...' : e['title'] as String,
-                  DateFormat('dd/MM/yyyy HH:mm').format(e['date'] as DateTime),
-                  '${e['rsvpCount']}',
-                  '${e['likesCount']}',
-                  (e['location'] as String).length > 25 ? '${(e['location'] as String).substring(0, 25)}...' : e['location'] as String,
-                ]).toList(),
+                headers: const [
+                  '#',
+                  'Evento',
+                  'Data/Hora',
+                  'Confirmações (RSVP)',
+                  'Curtidas',
+                  'Local'
+                ],
+                data: _eventos.asMap().entries.map((e) {
+                  final ev = e.value;
+                  return <String>[
+                    '${e.key + 1}',
+                    (ev['title'] as String).length > 40 ? '${(ev['title'] as String).substring(0, 40)}...' : ev['title'] as String,
+                    DateFormat('dd/MM/yyyy HH:mm').format(ev['date'] as DateTime),
+                    '${ev['rsvpCount']}',
+                    '${ev['likesCount']}',
+                    (ev['location'] as String).length > 25 ? '${(ev['location'] as String).substring(0, 25)}...' : ev['location'] as String,
+                  ];
+                }).toList(),
                 accent: branding.accent,
               ),
           ],

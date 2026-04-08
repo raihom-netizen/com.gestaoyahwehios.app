@@ -1,6 +1,6 @@
 /// **Canónico (uploads atuais):** `igrejas/{idIgreja}/membros/{idDocumentoMembro}/foto_perfil.jpg`
 /// — o [idDocumentoMembro] é o id do doc Firestore (muitas vezes o CPF só dígitos, ex. `94536368191`);
-/// o ficheiro é sempre `foto_perfil.jpg` (ver [ChurchStorageLayout.memberCanonicalProfilePhotoPath]).
+/// o ficheiro é sempre `foto_perfil.jpg` no mesmo path (substitui o objeto ao atualizar; ver [ChurchStorageLayout.memberCanonicalProfilePhotoPath]).
 ///
 /// **Legado / descoberta:** pasta alternativa `PrimeiroNome_uidDoFirebase` (ex.: `Raihom_WIQ6…`) usada em
 /// [profileFolderStem] para [FirebaseStorageService.getMemberProfilePhotoDownloadUrl] tentar caminhos antigos.

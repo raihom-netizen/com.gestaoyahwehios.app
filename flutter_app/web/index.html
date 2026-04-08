@@ -42,6 +42,51 @@
     <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
     <link rel="dns-prefetch" href="https://gestaoyahweh-21e23.firebasestorage.app" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- image_cropper (web / Cropper.js) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+    <!-- HLS (m3u8) para vídeo adaptativo no feed web — [PremiumHtmlFeedVideo] -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7"></script>
+    <script>
+      (function () {
+        window.yahwehDetachHls = function (video) {
+          if (!video) return;
+          try {
+            if (video._yahwehHls) {
+              video._yahwehHls.destroy();
+              video._yahwehHls = null;
+            }
+          } catch (e) {}
+        };
+        window.yahwehAttachHls = function (video, src) {
+          if (!video || !src) return;
+          var s = String(src);
+          window.yahwehDetachHls(video);
+          if (s.toLowerCase().indexOf('.m3u8') === -1 && s.indexOf('m3u8') === -1) {
+            video.src = s;
+            video.load();
+            return;
+          }
+          if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            var hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: true,
+              maxBufferLength: 30,
+              backBufferLength: 30
+            });
+            hls.loadSource(s);
+            hls.attachMedia(video);
+            video._yahwehHls = hls;
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = s;
+            video.load();
+          } else {
+            video.src = s;
+            video.load();
+          }
+        };
+      })();
+    </script>
 
     <script>
       (function () {

@@ -67,27 +67,34 @@ class CertificateEmitidoService {
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
     if (snapshots.isEmpty) return [];
 
-    final batch = _fs.batch();
-
+    /// Firestore limita 500 operações por batch; cada emissão = 2 sets.
+    const chunkSize = 200;
     final ids = <String>[];
-    for (final snapshot in snapshots) {
-      final certificadoId = generateCertificateProtocolId();
-      ids.add(certificadoId);
-      final payload = <String, dynamic>{
-        ...snapshot,
-        'certificadoId': certificadoId,
-        'tenantId': tid,
-        'emitidoPorUid': uid,
-        'emitidoPorEmail': email,
-        'dataEmissao': FieldValue.serverTimestamp(),
-      };
-      batch.set(_emitidosCol(tid).doc(certificadoId), payload);
-      batch.set(_protocolIndex(certificadoId), {
-        'tenantId': tid,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    for (var offset = 0; offset < snapshots.length; offset += chunkSize) {
+      final end = offset + chunkSize > snapshots.length
+          ? snapshots.length
+          : offset + chunkSize;
+      final batch = _fs.batch();
+      for (var i = offset; i < end; i++) {
+        final snapshot = snapshots[i];
+        final certificadoId = generateCertificateProtocolId();
+        ids.add(certificadoId);
+        final payload = <String, dynamic>{
+          ...snapshot,
+          'certificadoId': certificadoId,
+          'tenantId': tid,
+          'emitidoPorUid': uid,
+          'emitidoPorEmail': email,
+          'dataEmissao': FieldValue.serverTimestamp(),
+        };
+        batch.set(_emitidosCol(tid).doc(certificadoId), payload);
+        batch.set(_protocolIndex(certificadoId), {
+          'tenantId': tid,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
     }
-    await batch.commit();
     return ids;
   }
 

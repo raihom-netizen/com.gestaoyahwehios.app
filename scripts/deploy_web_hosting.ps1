@@ -15,10 +15,10 @@ Write-Host "=== flutter pub get ===" -ForegroundColor Cyan
 flutter pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n=== flutter build web --release (renderer HTML, Storage/CORS) ===" -ForegroundColor Cyan
-# FLUTTER_WEB_USE_SKIA=false = pipeline DOM (menos bloqueios com imagens cross-origin vs CanvasKit).
-# CanvasKit: .\scripts\deploy_web_hosting_canvaskit.ps1
-flutter build web --release --dart-define=FLUTTER_WEB_USE_SKIA=false
+Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop) ===" -ForegroundColor Cyan
+# FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).
+# HTML/DOM (alternativa): .\scripts\deploy_web_hosting_html_dom.ps1
+flutter build web --release --dart-define=FLUTTER_WEB_USE_SKIA=true
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Set-Location $RepoRoot

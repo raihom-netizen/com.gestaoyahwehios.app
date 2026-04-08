@@ -459,17 +459,22 @@ void _appendGalaLuxoCertificatePage(
                     ),
                   pw.Positioned.fill(
                     child: pw.Padding(
-                      padding: const pw.EdgeInsets.fromLTRB(36, 22, 36, 112),
+                      padding: const pw.EdgeInsets.fromLTRB(36, 18, 36, 112),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
-                          if (logoImage != null)
-                            pw.Container(
-                              width: 74,
-                              height: 74,
-                              margin: const pw.EdgeInsets.only(bottom: 8),
-                              child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                          if (logoImage != null) ...[
+                            pw.Center(
+                              child: pw.Container(
+                                width: 140,
+                                height: 140,
+                                alignment: pw.Alignment.center,
+                                child: pw.Image(logoImage,
+                                    fit: pw.BoxFit.contain),
+                              ),
                             ),
+                            pw.SizedBox(height: 8),
+                          ],
                           if (input.nomeIgreja.trim().isNotEmpty) ...[
                             pw.Text(
                               input.nomeIgreja.toUpperCase(),

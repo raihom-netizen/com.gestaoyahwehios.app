@@ -1,0 +1,14 @@
+{
+  "name": "import-members-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "import-bpc": "node import-members-bpc.js",
+    "seed-bpc-65": "node seed-members-bpc-65.js",
+    "cleanup-member-thumbs": "node cleanup-member-profile-thumbs-bulk.js"
+  },
+  "dependencies": {
+    "csv-parse": "^5.5.6",
+    "firebase-admin": "^12.7.0"
+  }
+}

@@ -13,13 +13,31 @@
 #
 # ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
 #
+# ExportOptions (CI): gerado em /tmp/ExportOptions.plist a partir do .mobileprovision (teamID + nome do perfil).
+#   Local: ajuste flutter_app/ios/ExportOptions.plist — o valor em provisioningProfiles deve ser o "Name" exacto
+#   do perfil App Store (igual ao que PlistBuddy lê do .mobileprovision).
+#
+# Checklist credenciais (Codemagic > Team applications > Secrets > appstore_credentials):
+#   CM_CERTIFICATE (P12 Distribution Base64), CM_PROVISIONING_PROFILE (mobileprovision Base64 uma linha),
+#   CM_CERTIFICATE_PASSWORD se o P12 tiver senha, APP_STORE_CONNECT_* (API Key .p8 + Key ID + Issuer).
+#   Se "Code signing" terminar em poucos segundos sem erro, confira se xcode-project use-profiles aplicou
+#   perfis (ver passo seguinte: identidades de assinatura).
+#
 # Firebase App Distribution (opcional): grupo firebase_ipa_upload com FIREBASE_SERVICE_ACCOUNT_JSON
+#
+# IMPORTANTE: no Codemagic, use "codemagic.yaml no repositório" (não duplicar estes passos no editor
+# da web); senão o CI corre scripts antigos e falha com "nenhum .ipa em flutter_app/build/ios/ipa".
 
 workflows:
   ios-release:
     name: iOS Release (TestFlight)
     max_build_duration: 120
     instance_type: mac_mini_m2
+    # Pods + cache CocoaPods reduzem tempo entre builds (Dependency caching).
+    cache:
+      cache_paths:
+        - flutter_app/ios/Pods
+        - $HOME/Library/Caches/CocoaPods
     environment:
       groups:
         - appstore_credentials
@@ -31,13 +49,38 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Detectar layout (monorepo flutter_app/ vs Flutter na raiz)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          if [ -f flutter_app/pubspec.yaml ]; then
+            echo mono > /tmp/cm_yw_layout
+            echo "CM_YW_LAYOUT=mono → Flutter em $ROOT/flutter_app"
+          elif [ -f pubspec.yaml ]; then
+            echo root > /tmp/cm_yw_layout
+            echo "CM_YW_LAYOUT=root → Flutter na raiz $ROOT"
+          else
+            echo "ERRO: pubspec.yaml nao encontrado em $ROOT nem $ROOT/flutter_app/"
+            ls -la
+            exit 1
+          fi
       - name: Flutter pub get
         script: |
-          cd flutter_app
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: /tmp/cm_yw_layout ausente"; exit 1 ;; esac
           flutter pub get
       - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e
+          # Codemagic UI: o nome correcto do secret e CM_CERTIFICATE (P12 Distribution em Base64).
+          # Se so existir CERTIFICATE_PRIVATE_KEY no grupo, reutilizamos (mesmo valor esperado: Base64 do .p12).
+          if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
+            echo "AVISO: CM_CERTIFICATE vazio — a usar CERTIFICATE_PRIVATE_KEY. Renomeie o secret para CM_CERTIFICATE no Codemagic."
+          fi
           : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
           : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
@@ -79,11 +122,17 @@ workflows:
           echo "OK: secrets P12 + provisioning decodificam (bytes prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin))."
       - name: CocoaPods
         script: |
-          cd flutter_app/ios
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app/ios ;; root) cd ios ;; *) echo "ERRO: layout"; exit 1 ;; esac
           pod install
       - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
+          if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
+          fi
           echo "CM_IOS_SIGNING_REV=2026-04-no-export-pem-persist-end"
           _secret_to_pem_file() {
             local val="$1"
@@ -188,39 +237,188 @@ workflows:
           _persist_asc_pem_to_cm_env
       - name: Code signing (Xcode)
         script: |
-          cd flutter_app/ios
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app/ios ;; root) cd ios ;; *) echo "ERRO: layout"; exit 1 ;; esac
           xcode-project use-profiles
+          echo "--- Identidades de assinatura (esperado: Apple Distribution + perfil App Store) ---"
+          security find-identity -v -p codesigning | head -40 || true
       - name: Flutter build IPA
         script: |
-          cd flutter_app
-          flutter build ipa --release --export-options-plist=/tmp/ExportOptions.plist
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
+          FLUTTER_PWD="$(pwd)"
+          echo "Flutter project dir: $FLUTTER_PWD FLUTTER_BUILD_DIR=${FLUTTER_BUILD_DIR:-<default>}"
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
+          BUILD_NAME="${VERSION_LINE%%+*}"
+          if [ -z "$BUILD_NAME" ]; then
+            echo "ERRO: nao foi possivel ler version: do pubspec.yaml"
+            exit 1
+          fi
+          if [ -n "${CM_BUILD_NUMBER:-}" ]; then
+            BN="$CM_BUILD_NUMBER"
+          else
+            BN="${VERSION_LINE##*+}"
+            echo "AVISO: CM_BUILD_NUMBER vazio — a usar sufixo + do pubspec: $BN"
+          fi
+          if [ -z "$BN" ]; then
+            BN="1"
+            echo "AVISO: build number vazio — a usar 1"
+          fi
+          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN (evita Redundant Build no ASC)"
+          flutter build ipa --release \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BN" \
+            --export-options-plist=/tmp/ExportOptions.plist
+          BD="${FLUTTER_BUILD_DIR:-build}"
+          if [ "${BD#/}" != "$BD" ]; then
+            IPA_DIR_BD="$BD/ios/ipa"
+          else
+            IPA_DIR_BD="$FLUTTER_PWD/$BD/ios/ipa"
+          fi
+          IPA_PATH=""
+          # Codemagic por vezes define FLUTTER_BUILD_DIR na raiz do clone: o .ipa sai em ROOT/build/ios/ipa,
+          # nao em flutter_app/build/ios/ipa — procurar em todos os candidatos antes de falhar.
+          for trydir in "$IPA_DIR_BD" "$FLUTTER_PWD/build/ios/ipa" "$ROOT/build/ios/ipa" "$ROOT/flutter_app/build/ios/ipa"; do
+            if [ -z "$trydir" ] || [ ! -d "$trydir" ]; then
+              continue
+            fi
+            IPA_PATH=$(find "$trydir" -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
+            if [ -n "$IPA_PATH" ] && [ -f "$IPA_PATH" ]; then
+              break
+            fi
+          done
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            IPA_PATH=$(find "$ROOT" -type f -name "*.ipa" -not -path "*/.git/*" -not -path "*/.dart_tool/*" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            echo "ERRO: flutter build ipa terminou sem .ipa (export falhou ou caminho de saida mudou)."
+            echo "--- candidatos ---"
+            for trydir in "$IPA_DIR_BD" "$FLUTTER_PWD/build/ios/ipa" "$ROOT/build/ios/ipa"; do
+              echo "dir=$trydir"; ls -la "$trydir" 2>/dev/null || true
+            done
+            echo "--- find *.ipa sob $ROOT (max 40) ---"
+            find "$ROOT" -name "*.ipa" -type f 2>/dev/null | head -40 || true
+            exit 1
+          fi
+          ABS_IPA="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+          printf '%s\n' "$ABS_IPA" > "$FLUTTER_PWD/.cm_last_ipa_path"
+          printf '%s\n' "$ABS_IPA" > "$ROOT/.cm_yw_last_ipa_path"
+          mkdir -p "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
+          cp -f "$ABS_IPA" "$ROOT/build/ios/ipa/"
+          cp -f "$ABS_IPA" "$FLUTTER_PWD/build/ios/ipa/"
+          echo "IPA: $ABS_IPA"
+          echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
+          ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
       # O publicador ASC da Codemagic procura *.ipa nos artefactos; em monorepo o IPA fica
-      # em flutter_app/build/ios/ipa/. Alguns fluxos só consideram build/ios/ipa na RAIZ do
-      # clone — copiar evita "Publishing" <1s / "no IPAs or PKGs found".
+      # em flutter_app/build/ios/ipa/ (ou $FLUTTER_BUILD_DIR). Copiar para build/ios/ipa na raiz.
       - name: IPA para publicação ASC (cópia na raiz do repo)
         script: |
           set -e
-          ROOT="${CM_BUILD_DIR:-$(pwd)}"
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           cd "$ROOT"
+          LAYOUT="$(cat /tmp/cm_yw_layout)"
+          FPROOT="$ROOT"
+          [ "$LAYOUT" = mono ] && FPROOT="$ROOT/flutter_app"
           mkdir -p build/ios/ipa
-          if ! ls flutter_app/build/ios/ipa/*.ipa >/dev/null 2>&1; then
-            echo "ERRO: nenhum .ipa em flutter_app/build/ios/ipa (o build IPA falhou ou mudou o caminho)."
-            find flutter_app/build/ios -name "*.ipa" 2>/dev/null || true
-            exit 1
+          BD="${FLUTTER_BUILD_DIR:-build}"
+          if [ "${BD#/}" != "$BD" ]; then
+            CLASSIC_IPA_DIR="$BD/ios/ipa"
+          else
+            CLASSIC_IPA_DIR="$FPROOT/$BD/ios/ipa"
           fi
-          cp -f flutter_app/build/ios/ipa/*.ipa build/ios/ipa/
+          # O passo anterior ja copia para build/ios/ipa — so validar e completar fallbacks.
+          if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
+            echo "OK: .ipa ja presente em build/ios/ipa (passo Flutter build IPA)."
+            ls -la build/ios/ipa/
+            exit 0
+          fi
+          rm -f build/ios/ipa/*.ipa 2>/dev/null || true
+          COPIED=0
+          for marker in "$ROOT/.cm_yw_last_ipa_path" "$FPROOT/.cm_last_ipa_path"; do
+            if [ ! -f "$marker" ]; then
+              continue
+            fi
+            IPA_FILE="$(tr -d '\r\n' < "$marker" | head -n 1)"
+            if [ -n "$IPA_FILE" ] && [ -f "$IPA_FILE" ]; then
+              cp -f "$IPA_FILE" build/ios/ipa/
+              COPIED=1
+              echo "Copiado via $marker: $IPA_FILE"
+              break
+            fi
+            echo "AVISO: $marker invalido ou ficheiro ausente: ${IPA_FILE:-<vazio>}"
+          done
+          if [ "$COPIED" -eq 0 ] && [ -d "$CLASSIC_IPA_DIR" ]; then
+            find "$CLASSIC_IPA_DIR" -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} build/ios/ipa/ \;
+            if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
+              COPIED=1
+            fi
+          fi
+          for extra in "$FPROOT/build/ios/ipa" "$ROOT/flutter_app/build/ios/ipa" "$ROOT/build/ios/ipa"; do
+            if [ "$COPIED" -ne 0 ]; then
+              break
+            fi
+            if [ ! -d "$extra" ]; then
+              continue
+            fi
+            find "$extra" -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} build/ios/ipa/ \;
+            if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
+              COPIED=1
+              echo "Copiado de $extra"
+            fi
+          done
+          if [ "$COPIED" -eq 0 ]; then
+            echo "Fallback: a procurar .ipa no clone (excl. .git) ..."
+            find "$ROOT" -name "*.ipa" -type f -not -path "*/.git/*" 2>/dev/null | head -20 > /tmp/cm_ipa_list.txt
+            if [ ! -s /tmp/cm_ipa_list.txt ]; then
+              echo "ERRO: nenhum .ipa em flutter_app/build/ios/ipa nem na raiz (export falhou ou caminho mudou)."
+              echo "  Use codemagic.yaml deste repositorio (Team app > Configuration file from repository)."
+              echo "  CM_BUILD_DIR=$ROOT LAYOUT=$LAYOUT CLASSIC_IPA_DIR=$CLASSIC_IPA_DIR"
+              find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -30 || true
+              ls -la "$FPROOT/build/ios" 2>/dev/null || true
+              ls -la "$ROOT/build/ios" 2>/dev/null || true
+              exit 1
+            fi
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              cp -f "$f" build/ios/ipa/
+            done < /tmp/cm_ipa_list.txt
+          fi
           echo "IPAs prontos para artefactos / App Store Connect:"
           ls -la build/ios/ipa/
-          ls -la flutter_app/build/ios/ipa/
+          ls -la "$CLASSIC_IPA_DIR" 2>/dev/null || true
+          # Alguns passos / publicadores procuram *.ipa na raiz do clone — copiar também para ROOT.
+          if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
+            find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} "$ROOT/" \;
+            echo "Copia para raiz do workspace ($ROOT):"
+            ls -la "$ROOT"/*.ipa 2>/dev/null || true
+          fi
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
             echo "FIREBASE_SERVICE_ACCOUNT_JSON vazio - a saltar App Distribution."
             exit 0
           fi
-          cd flutter_app
-          IPA=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -n 1)
-          if [ -z "$IPA" ]; then echo "Nenhum .ipa encontrado em build/ios/ipa"; exit 1; fi
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          IPA=""
+          BD="${FLUTTER_BUILD_DIR:-build}"
+          for cand in build/ios/ipa/*.ipa "flutter_app/$BD/ios/ipa/"*.ipa flutter_app/build/ios/ipa/*.ipa "$BD/ios/ipa/"*.ipa; do
+            if [ -f "$cand" ]; then IPA="$cand"; break; fi
+          done
+          if [ -z "$IPA" ]; then
+            IPA=$(find "$ROOT" -name "*.ipa" -type f -not -path "*/.git/*" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$IPA" ] || [ ! -f "$IPA" ]; then
+            echo "ERRO: nenhum .ipa para App Distribution."
+            find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -20 || true
+            exit 1
+          fi
+          echo "App Distribution IPA: $IPA"
           printf '%s\n' "$FIREBASE_SERVICE_ACCOUNT_JSON" > /tmp/gcp-sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
           npm install -g firebase-tools@13
@@ -238,7 +436,7 @@ workflows:
       - name: Enviar IPA ao App Store Connect (app-store-connect publish)
         script: |
           set -e
-          ROOT="${CM_BUILD_DIR:-$(pwd)}"
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           cd "$ROOT"
           : "${APP_STORE_CONNECT_ISSUER_ID:?Grupo appstore_credentials: APP_STORE_CONNECT_ISSUER_ID}"
           : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Grupo appstore_credentials: APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
@@ -247,7 +445,8 @@ workflows:
             exit 1
           fi
           IPA=""
-          for cand in build/ios/ipa/*.ipa flutter_app/build/ios/ipa/*.ipa; do
+          BD="${FLUTTER_BUILD_DIR:-build}"
+          for cand in build/ios/ipa/*.ipa "flutter_app/$BD/ios/ipa/"*.ipa flutter_app/build/ios/ipa/*.ipa "$BD/ios/ipa/"*.ipa; do
             if [ -f "$cand" ]; then IPA="$cand"; break; fi
           done
           if [ -z "$IPA" ]; then
@@ -277,6 +476,7 @@ workflows:
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
       - build/ios/ipa/*.ipa
+      - "*.ipa"
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:

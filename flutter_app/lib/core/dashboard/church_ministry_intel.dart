@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 
 /// Modelos e cálculos do painel "Saúde ministerial & BI" (painel da igreja).
 class MemberPastoralAlert {
@@ -305,6 +306,7 @@ class ChurchMinistryIntelService {
       final saiByMonth = <String, double>{};
       for (final d in financeDocs) {
         final m = d.data();
+        if (!financeLancamentoEfetivadoParaSaldo(m)) continue;
         final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
         final raw = m['createdAt'] ?? m['date'];
         final dt = _ts(raw);

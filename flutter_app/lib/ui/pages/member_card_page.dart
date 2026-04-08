@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -43,7 +44,9 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
+import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/carteira_pades_signer.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/ui/pdf/verso_carteirinha_widget.dart';
@@ -65,8 +68,12 @@ String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
     'authUid',
     'firebaseUid',
     'firebase_uid',
+    'firebaseUserId',
     'userId',
     'user_id',
+    'uid',
+    'USUARIO_UID',
+    'usuario_uid',
   ]) {
     final v = (d[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;
@@ -188,6 +195,9 @@ class _MemberItem {
 class _MemberCardPageState extends State<MemberCardPage> {
   Future<_CardData?>? _loadFuture;
 
+  /// Doc `igrejas/{id}` após [resolveEffectiveTenantId] (cache por sessão desta página).
+  String? _cachedIgrejaDocId;
+
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
 
@@ -209,13 +219,31 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
 
-  Future<String?>? _pastorConfigSignatureFuture;
+  Future<String> _effectiveIgrejaDocId() async {
+    final hit = _cachedIgrejaDocId;
+    if (hit != null && hit.isNotEmpty) return hit;
+    final r =
+        (await TenantResolverService.resolveEffectiveTenantId(widget.tenantId))
+            .trim();
+    final id = r.isNotEmpty ? r : widget.tenantId.trim();
+    _cachedIgrejaDocId = id;
+    return id;
+  }
+
+  @override
+  void didUpdateWidget(covariant MemberCardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _cachedIgrejaDocId = null;
+    }
+  }
 
   Future<List<({String id, String name})>> _loadDepartmentsForCarteira() async {
     try {
+      final tid = await _effectiveIgrejaDocId();
       final col = FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(tid)
           .collection('departamentos');
       final snap = await col.get();
       final list = snap.docs
@@ -234,8 +262,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<List<_MemberItem>> _loadMemberItemsForPicker({int limit = 200}) async {
     final db = FirebaseFirestore.instance;
+    final tid = await _effectiveIgrejaDocId();
     final membersCol =
-        db.collection('igrejas').doc(widget.tenantId).collection('membros');
+        db.collection('igrejas').doc(tid).collection('membros');
     final membersSnap = await membersCol.limit(limit).get();
     final list = <_MemberItem>[];
     for (final d in membersSnap.docs) {
@@ -250,26 +279,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
           photoUrl: url.isNotEmpty ? url : null,
           data: data));
     }
-    try {
-      final usersSnap = await db
-          .collection('users')
-          .where('tenantId', isEqualTo: widget.tenantId)
-          .limit(limit)
-          .get();
-      for (final d in usersSnap.docs) {
-        if (list.any((e) => e.id == d.id)) continue;
-        final data = Map<String, dynamic>.from(d.data());
-        final name =
-            (data['name'] ?? data['nome'] ?? data['NOME_COMPLETO'] ?? d.id)
-                .toString();
-        final url = imageUrlFromMap(data);
-        list.add(_MemberItem(
-            id: d.id,
-            name: name,
-            photoUrl: url.isNotEmpty ? url : null,
-            data: data));
-      }
-    } catch (_) {}
     list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return list;
   }
@@ -358,7 +367,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   /// Se a URL da assinatura não foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
   Future<Map<String, dynamic>> _enrichMemberCarteirinhaSignatureFromSignatory(
-      Map<String, dynamic> raw) async {
+    Map<String, dynamic> raw, {
+    String? igrejaDocId,
+  }) async {
     final out = Map<String, dynamic>.from(raw);
     final existing = (out['carteirinhaAssinaturaUrl'] ??
             out['carteirinha_assinatura_url'] ??
@@ -369,7 +380,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final porId = (out['carteirinhaAssinadaPor'] ?? '').toString().trim();
     if (porId.isEmpty) return out;
     final db = FirebaseFirestore.instance;
-    final tid = widget.tenantId.trim();
+    final tid = (igrejaDocId ?? widget.tenantId).trim();
     if (tid.isEmpty) return out;
     try {
       final snap = await db
@@ -385,9 +396,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
         if (u.isNotEmpty) out['carteirinhaAssinaturaUrl'] = u;
         return out;
       }
-      final uSnap = await db.collection('users').doc(porId).get();
-      if (uSnap.exists) {
-        final d = uSnap.data() ?? {};
+      final mq = await db
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .where('authUid', isEqualTo: porId)
+          .limit(1)
+          .get();
+      if (mq.docs.isNotEmpty) {
+        final d = mq.docs.first.data();
         final u =
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
         if (u.isNotEmpty) out['carteirinhaAssinaturaUrl'] = u;
@@ -406,8 +423,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<_CardData?> _load() async {
     final db = FirebaseFirestore.instance;
+    final igrejaDocId = await _effectiveIgrejaDocId();
     final membersCol =
-        db.collection('igrejas').doc(widget.tenantId).collection('membros');
+        db.collection('igrejas').doc(igrejaDocId).collection('membros');
 
     // Carrega tenant (obrigatório) e config do card (opcional)
     Map<String, dynamic> cardCfg = {};
@@ -415,7 +433,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
     try {
       final tenantSnap =
-          await db.collection('igrejas').doc(widget.tenantId).get();
+          await db.collection('igrejas').doc(igrejaDocId).get();
       tenant = tenantSnap.data() ?? {};
     } catch (_) {}
 
@@ -423,7 +441,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     try {
       final carteiraSnap = await db
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(igrejaDocId)
           .collection('config')
           .doc('carteira')
           .get();
@@ -458,7 +476,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final u = churchTenantLogoUrl(tenant);
       if (u.isNotEmpty) cardCfg['logoUrl'] = u;
     }
-    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg);
+    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg, igrejaDocId);
     cardCfg = _mergeChurchLogoIntoCardConfig(cardCfg, tenant);
 
     DocumentSnapshot<Map<String, dynamic>>? memberDoc;
@@ -469,8 +487,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
         widget.memberId != null &&
         widget.memberId!.trim().isNotEmpty) {
       try {
-        final snap = await membersCol.doc(widget.memberId!.trim()).get();
-        if (snap.exists) memberDoc = snap;
+        memberDoc = await MemberDocumentResolve.findByHint(
+          membersCol,
+          widget.memberId!.trim(),
+          cpfDigits: cpf,
+        );
       } catch (_) {}
     }
 
@@ -498,42 +519,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
     }
 
-    if (memberDoc == null &&
-        !isMembro &&
-        widget.memberId != null &&
-        widget.memberId!.trim().isNotEmpty) {
-      try {
-        final userSnap =
-            await db.collection('users').doc(widget.memberId!.trim()).get();
-        if (userSnap.exists) {
-          final userData = userSnap.data() ?? {};
-          final tenantOk =
-              (userData['tenantId'] ?? userData['igrejaId'] ?? '').toString() ==
-                  widget.tenantId;
-          if (tenantOk) {
-            var m = _userDataToMemberMap(userData, userSnap.id);
-            m = await _enrichMemberCarteirinhaSignatureFromSignatory(m);
-            return _CardData(
-              memberId: userSnap.id,
-              member: m,
-              cardConfig: cardCfg,
-              tenant: tenant,
-            );
-          }
-        }
-      } catch (_) {}
-    }
-
     if (memberDoc == null) return null;
 
     var memberMap = Map<String, dynamic>.from(memberDoc.data() ?? {});
-    memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(memberMap);
+    memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(memberMap,
+        igrejaDocId: igrejaDocId);
 
     return _CardData(
       memberId: memberDoc.id,
       member: memberMap,
       cardConfig: cardCfg,
       tenant: tenant,
+      igrejaDocId: igrejaDocId,
     );
   }
 
@@ -665,47 +662,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<void> _abrirEmitirVarios(BuildContext context) async {
     final db = FirebaseFirestore.instance;
+    final tpl = await _loadCarteiraTemplateContext();
+    final tenant = tpl.tenant;
+    final cardCfg = Map<String, dynamic>.from(tpl.cardCfg);
     final membersCol =
-        db.collection('igrejas').doc(widget.tenantId).collection('membros');
-
-    Map<String, dynamic> tenant = {};
-    Map<String, dynamic> cardCfg = {};
-    try {
-      final tenantSnap =
-          await db.collection('igrejas').doc(widget.tenantId).get();
-      tenant = tenantSnap.data() ?? {};
-    } catch (_) {}
-    try {
-      final carteiraSnap = await db
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('config')
-          .doc('carteira')
-          .get();
-      if (carteiraSnap.exists && carteiraSnap.data() != null)
-        cardCfg.addAll(Map<String, dynamic>.from(carteiraSnap.data()!));
-    } catch (_) {}
-    final hasLogoAbrir =
-        (cardCfg['logoUrl'] ?? '').toString().trim().isNotEmpty ||
-            ((cardCfg['logoDataBase64'] ?? '').toString().trim().isNotEmpty);
-    if (cardCfg['title'] == null || !hasLogoAbrir) {
-      try {
-        final cfgSnap = await db.doc('config/memberCard').get();
-        if (cfgSnap.exists && cfgSnap.data() != null) {
-          final g = cfgSnap.data()!;
-          if (cardCfg['title'] == null && g['title'] != null)
-            cardCfg['title'] = g['title'];
-          if (!hasLogoAbrir && g['logoUrl'] != null)
-            cardCfg['logoUrl'] = g['logoUrl'];
-        }
-      } catch (_) {}
-    }
-    if (cardCfg['title'] == null && tenant['name'] != null)
-      cardCfg['title'] = tenant['name'] ?? tenant['nome'] ?? 'Gestão YAHWEH';
-    if (!hasLogoAbrir) {
-      final u = churchTenantLogoUrl(tenant);
-      if (u.isNotEmpty) cardCfg['logoUrl'] = u;
-    }
+        db.collection('igrejas').doc(tpl.igrejaDocId).collection('membros');
 
     final emitMembers = await _loadMemberItemsForPicker(limit: 500);
     if (emitMembers.isEmpty) {
@@ -1060,35 +1021,30 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     var m = Map<String, dynamic>.from(
                                         doc.data() ?? {});
                                     m = await _enrichMemberCarteirinhaSignatureFromSignatory(
-                                        m);
+                                        m,
+                                        igrejaDocId: tpl.igrejaDocId);
                                     list.add(_CardData(
                                       memberId: doc.id,
                                       member: m,
                                       cardConfig: cardCfg,
                                       tenant: tenant,
+                                      igrejaDocId: tpl.igrejaDocId,
                                     ));
                                   } else {
-                                    final userSnap = await db
-                                        .collection('users')
-                                        .doc(id)
-                                        .get();
-                                    if (!userSnap.exists) continue;
-                                    final userData = userSnap.data() ?? {};
-                                    final tenantOk = (userData['tenantId'] ??
-                                                userData['igrejaId'] ??
-                                                '')
-                                            .toString() ==
-                                        widget.tenantId;
-                                    if (!tenantOk) continue;
-                                    var m = _userDataToMemberMap(
-                                        userData, userSnap.id);
+                                    final snap = await MemberDocumentResolve
+                                        .findByHint(membersCol, id);
+                                    if (snap == null || !snap.exists) continue;
+                                    var m = Map<String, dynamic>.from(
+                                        snap.data() ?? {});
                                     m = await _enrichMemberCarteirinhaSignatureFromSignatory(
-                                        m);
+                                        m,
+                                        igrejaDocId: tpl.igrejaDocId);
                                     list.add(_CardData(
-                                      memberId: userSnap.id,
+                                      memberId: snap.id,
                                       member: m,
                                       cardConfig: cardCfg,
                                       tenant: tenant,
+                                      igrejaDocId: tpl.igrejaDocId,
                                     ));
                                   }
                                 } catch (_) {}
@@ -1719,7 +1675,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (modo == 'visual' && signat != null) {
         final list = <_CardData>[];
         for (final id in ids) {
-          final card = await _cardDataForMemberId(id, tpl.tenant, tpl.cardCfg);
+          final card = await _cardDataForMemberId(
+              id, tpl.tenant, tpl.cardCfg, tpl.igrejaDocId);
           if (card == null) continue;
           await preLoadImages(card,
               signatoryAssinaturaUrl: signat.assinaturaUrl);
@@ -1764,7 +1721,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
 
       for (final id in ids) {
-        final card = await _cardDataForMemberId(id, tpl.tenant, tpl.cardCfg);
+        final card = await _cardDataForMemberId(
+            id, tpl.tenant, tpl.cardCfg, tpl.igrejaDocId);
         if (card == null) continue;
         await preLoadImages(card);
         final cfgPdf = _cardConfigForPdf(card);
@@ -1985,18 +1943,27 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final nav = Navigator.of(context, rootNavigator: true);
     try {
       _clearPdfImageSessionCache();
+      if (kIsWeb) {
+        try {
+          await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+        } catch (_) {}
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } catch (_) {}
+      }
       final tpl = await _loadCarteiraTemplateContext();
       final signat = incluirAssinatura ? selected : null;
 
       final list = <_CardData>[];
       for (var i = 0; i < ids.length; i++) {
         final id = ids[i];
-        final card = await _cardDataForMemberId(id, tpl.tenant, tpl.cardCfg);
-        prog.value = i + 1;
+        final card = await _cardDataForMemberId(
+            id, tpl.tenant, tpl.cardCfg, tpl.igrejaDocId);
         if (card == null) continue;
         await preLoadImages(card,
             signatoryAssinaturaUrl: signat?.assinaturaUrl);
         list.add(card);
+        prog.value = i + 1;
       }
 
       if (list.isEmpty) {
@@ -2101,20 +2068,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   /// Contexto comum para gerar várias carteirinhas (tenant + config mesclada).
-  Future<({Map<String, dynamic> tenant, Map<String, dynamic> cardCfg})>
+  Future<
+          ({
+            Map<String, dynamic> tenant,
+            Map<String, dynamic> cardCfg,
+            String igrejaDocId
+          })>
       _loadCarteiraTemplateContext() async {
     final db = FirebaseFirestore.instance;
+    final igrejaDocId = await _effectiveIgrejaDocId();
     Map<String, dynamic> cardCfg = {};
     Map<String, dynamic> tenant = {};
     try {
       final tenantSnap =
-          await db.collection('igrejas').doc(widget.tenantId).get();
+          await db.collection('igrejas').doc(igrejaDocId).get();
       tenant = tenantSnap.data() ?? {};
     } catch (_) {}
     try {
       final carteiraSnap = await db
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(igrejaDocId)
           .collection('config')
           .doc('carteira')
           .get();
@@ -2147,14 +2120,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final u = churchTenantLogoUrl(tenant);
       if (u.isNotEmpty) cardCfg['logoUrl'] = u;
     }
-    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg);
+    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg, igrejaDocId);
     cardCfg = _mergeChurchLogoIntoCardConfig(cardCfg, tenant);
-    return (tenant: tenant, cardCfg: cardCfg);
+    return (tenant: tenant, cardCfg: cardCfg, igrejaDocId: igrejaDocId);
   }
 
   /// Se não houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
   Future<void> _hydrateCardCfgLogoFromIdentityPathIfNeeded(
-      Map<String, dynamic> cardCfg) async {
+    Map<String, dynamic> cardCfg,
+    String igrejaDocId,
+  ) async {
     final raw = (cardCfg['logoUrl'] ?? '').toString().trim();
     if (raw.isNotEmpty && isValidImageUrl(sanitizeImageUrl(raw))) return;
     try {
@@ -2165,55 +2140,38 @@ class _MemberCardPageState extends State<MemberCardPage> {
         } catch (_) {}
       }
       final ref = FirebaseStorage.instance
-          .ref(ChurchStorageLayout.churchIdentityLogoPath(widget.tenantId));
+          .ref(ChurchStorageLayout.churchIdentityLogoPath(igrejaDocId));
       final u = await ref.getDownloadURL();
       if (u.isNotEmpty) cardCfg['logoUrl'] = u;
     } catch (_) {}
   }
 
-  Future<_CardData?> _cardDataForMemberId(String memberId,
-      Map<String, dynamic> tenant, Map<String, dynamic> cardCfg) async {
+  Future<_CardData?> _cardDataForMemberId(
+    String memberId,
+    Map<String, dynamic> tenant,
+    Map<String, dynamic> cardCfg,
+    String igrejaDocId,
+  ) async {
     final mid = memberId.trim();
     if (mid.isEmpty) return null;
     final cfgCopy = Map<String, dynamic>.from(cardCfg);
     try {
-      final doc = await FirebaseFirestore.instance
+      final col = FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('membros')
-          .doc(mid)
-          .get();
-      if (doc.exists) {
+          .doc(igrejaDocId)
+          .collection('membros');
+      final doc = await MemberDocumentResolve.findByHint(col, mid);
+      if (doc != null && doc.exists) {
         var m = Map<String, dynamic>.from(doc.data() ?? {});
-        m = await _enrichMemberCarteirinhaSignatureFromSignatory(m);
+        m = await _enrichMemberCarteirinhaSignatureFromSignatory(m,
+            igrejaDocId: igrejaDocId);
         return _CardData(
           memberId: doc.id,
           member: m,
           cardConfig: cfgCopy,
           tenant: tenant,
+          igrejaDocId: igrejaDocId,
         );
-      }
-    } catch (_) {}
-    try {
-      final userSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(mid)
-          .get();
-      if (userSnap.exists) {
-        final userData = userSnap.data() ?? {};
-        final tenantOk =
-            (userData['tenantId'] ?? userData['igrejaId'] ?? '').toString() ==
-                widget.tenantId;
-        if (tenantOk) {
-          var m = _userDataToMemberMap(userData, userSnap.id);
-          m = await _enrichMemberCarteirinhaSignatureFromSignatory(m);
-          return _CardData(
-            memberId: userSnap.id,
-            member: m,
-            cardConfig: cfgCopy,
-            tenant: tenant,
-          );
-        }
       }
     } catch (_) {}
     return null;
@@ -2222,9 +2180,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<void> _prefetchPdfAssetsForCard(_CardData data,
       {String? signatoryAssinaturaUrl}) async {
     final cfg = _cardConfigForPdf(data);
-    await _pdfLogoProvider(cfg, data.tenant);
+    await _pdfLogoProvider(cfg, data);
     if (cfg.showPhoto) {
-      final u = await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member);
+      final u = await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
+          igrejaDocId: data.igrejaDocId);
       if (u.isNotEmpty) await _pdfImageProviderFromUrlCached(u);
     }
     final sig = (signatoryAssinaturaUrl ?? '').trim();
@@ -2282,12 +2241,42 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<Uint8List?> _loadCachedImageBytes(String url) async {
     final u = sanitizeImageUrl(url);
     if (u.isEmpty || !isValidImageUrl(u)) return null;
-    if (_pdfImageBytesSessionCache.containsKey(u))
+    if (_pdfImageBytesSessionCache.containsKey(u)) {
       return _pdfImageBytesSessionCache[u];
+    }
+    // URLs do Firebase Storage: na web o HTTP direto costuma falhar (CORS) — SDK primeiro.
+    if (isFirebaseStorageHttpUrl(u)) {
+      try {
+        if (kIsWeb) {
+          try {
+            await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+          } catch (_) {}
+          try {
+            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          } catch (_) {}
+        }
+        var fu = u;
+        final fresh = await refreshFirebaseStorageDownloadUrl(u).timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => u);
+        if (fresh != null && fresh.isNotEmpty) fu = fresh;
+        final bytes = await firebaseStorageBytesFromDownloadUrl(
+          fu,
+          maxBytes: 8 * 1024 * 1024,
+        ).timeout(const Duration(seconds: 18), onTimeout: () => null);
+        if (bytes != null && bytes.length > 32) {
+          final out = await _resizeForPdf(bytes);
+          _pdfImageBytesSessionCache[u] = out;
+          return out;
+        }
+      } catch (_) {}
+      _pdfImageBytesSessionCache[u] = null;
+      return null;
+    }
     try {
       final b = await ImageHelper.getBytesFromUrlOrNull(
         u,
-        timeout: const Duration(seconds: 22),
+        timeout: const Duration(seconds: 14),
       );
       if (b != null && b.length > 32) {
         final out = await _resizeForPdf(Uint8List.fromList(b));
@@ -2352,34 +2341,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       return;
     }
     try {
-      final doc = await FirebaseFirestore.instance
+      final col = FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .collection('membros')
-          .doc(v.memberId)
-          .get();
-      Map<String, dynamic> d = doc.data() ?? {};
-      if (!doc.exists) {
-        final uSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(v.memberId)
-            .get();
-        if (uSnap.exists) d = uSnap.data() ?? {};
-      }
+          .collection('membros');
+      final doc =
+          await MemberDocumentResolve.findByHint(col, v.memberId.trim());
+      Map<String, dynamic> d = doc?.data() ?? {};
+      if (doc == null || !doc.exists) d = {};
       var url =
           (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
-      if (url.isEmpty) {
-        final uSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(v.memberId)
-            .get();
-        if (uSnap.exists) {
-          final ud = uSnap.data() ?? {};
-          url = (ud['assinaturaUrl'] ?? ud['assinatura_url'] ?? '')
-              .toString()
-              .trim();
-        }
-      }
       final nome =
           (d['NOME_COMPLETO'] ?? d['nome'] ?? v.nome).toString().trim();
       final cargo = signatoryCargoDisplayLabel(d);
@@ -2427,30 +2398,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
         assinaturaUrl: url.isEmpty ? null : url
       ));
     }
-    try {
-      final us = await db
-          .collection('users')
-          .where('tenantId', isEqualTo: widget.tenantId)
-          .limit(200)
-          .get();
-      for (final doc in us.docs) {
-        if (list.any((e) => e.memberId == doc.id)) continue;
-        final d = doc.data();
-        if (!memberHasLeadershipForAssinatura(d)) continue;
-        final nome =
-            (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '').toString().trim();
-        if (nome.isEmpty) continue;
-        var url = (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '')
-            .toString()
-            .trim();
-        list.add((
-          memberId: doc.id,
-          nome: nome,
-          cargo: signatoryCargoDisplayLabel(d),
-          assinaturaUrl: url.isEmpty ? null : url
-        ));
-      }
-    } catch (_) {}
     return list;
   }
 
@@ -2472,7 +2419,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   /// PDF: [networkImage] do pacote `pdf` falha com frequência em URLs do Firebase Storage (web/token).
-  /// Usa refresh de token + [firebaseStorageBytesFromDownloadUrl] + HTTP de fallback.
+  /// Bytes vêm de [_loadCachedImageBytes] (SDK no Storage); último recurso [networkImage].
   Future<pw.ImageProvider?> _pdfImageProviderFromUrl(String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
     if (u.isEmpty || !isValidImageUrl(u)) return null;
@@ -2480,31 +2427,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (cached != null && cached.length > 32) {
       return pw.MemoryImage(cached);
     }
-    if (isFirebaseStorageHttpUrl(u)) {
-      final fresh = await refreshFirebaseStorageDownloadUrl(u)
-          .timeout(const Duration(seconds: 12), onTimeout: () => u);
-      if (fresh != null && fresh.isNotEmpty) u = fresh;
-    }
-    try {
-      final bytes = await firebaseStorageBytesFromDownloadUrl(
-        u,
-        maxBytes: 8 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 22), onTimeout: () => null);
-      if (bytes != null && bytes.length > 32) {
-        final out = await _resizeForPdf(bytes);
-        return pw.MemoryImage(out ?? bytes);
-      }
-    } catch (_) {}
-    try {
-      final b = await ImageHelper.getBytesFromUrlOrNull(
-        u,
-        timeout: const Duration(seconds: 22),
-      );
-      if (b != null && b.length > 32) {
-        final out = await _resizeForPdf(Uint8List.fromList(b));
-        return pw.MemoryImage(out ?? b);
-      }
-    } catch (_) {}
     try {
       return await networkImage(u);
     } catch (_) {
@@ -2513,7 +2435,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   Future<pw.ImageProvider?> _pdfLogoProvider(
-      _CardConfig cfg, Map<String, dynamic> tenant) async {
+      _CardConfig cfg, _CardData data) async {
+    final tenant = data.tenant;
+    final igrejaId = data.igrejaDocId.trim();
     final logoDataBase64 = cfg.logoDataBase64;
     final logoUrl = cfg.logoUrl;
     pw.ImageProvider? logo;
@@ -2529,20 +2453,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
           logo = await _pdfImageProviderFromUrlCached(fromTenant);
         }
       }
-      if (logo == null && widget.tenantId.trim().isNotEmpty) {
+      if (logo == null && igrejaId.isNotEmpty) {
         final fromStorage =
             await FirebaseStorageService.getChurchLogoDownloadUrl(
-          widget.tenantId,
+          igrejaId,
           tenantData: tenant,
         );
         if (fromStorage != null && fromStorage.isNotEmpty) {
           logo = await _pdfImageProviderFromUrlCached(fromStorage);
         }
       }
-      if (logo == null && widget.tenantId.trim().isNotEmpty) {
+      if (logo == null && igrejaId.isNotEmpty) {
         try {
-          final branding =
-              await loadReportPdfBranding(widget.tenantId.trim());
+          final branding = await loadReportPdfBranding(igrejaId);
           final lb = branding.logoBytes;
           if (lb != null && lb.length > 32) {
             logo = pw.MemoryImage(lb);
@@ -2589,13 +2512,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
     // Modelo único (igual à carteira digital): degradê, logo em caixa clara, painel vidro.
     const cardHeight = 228.0;
     final inkEco = bgColor == PdfColors.white && bgColorSec == null;
-    final pdfGold = PdfColor.fromHex('#E8C478');
-    final secGrad = bgColorSec;
+    final pdfGold = CarteirinhaVisualTokens.accentGoldPdf;
+    final secGrad = bgColorSec ?? bgColor;
     final deco = pw.BoxDecoration(
-      color: inkEco
-          ? PdfColors.white
-          : (secGrad == null ? bgColor : null),
-      gradient: !inkEco && secGrad != null
+      color: inkEco ? PdfColors.white : null,
+      gradient: !inkEco
           ? pw.LinearGradient(
               begin: pw.Alignment.topLeft,
               end: pw.Alignment.bottomRight,
@@ -2811,13 +2732,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? signatoryNome,
     String? signatoryCargo,
   }) {
-    final validationUrl = _qrPayload(widget.tenantId, data.memberId);
-    final barcodeData = '${widget.tenantId}|${data.memberId}';
+    final validationUrl = _qrPayload(data.igrejaDocId, data.memberId);
+    final barcodeData = '${data.igrejaDocId}|${data.memberId}';
     final igreja = cfg.title;
     final g1 = _hexToPdfColor(cfg.bgColor, PdfColor.fromHex('#004D40'));
     final g2 = cfg.bgColorSecondary != null
-        ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColor.fromHex('#00BFA5'))
-        : PdfColor.fromHex('#00BFA5');
+        ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
+        : CarteirinhaVisualTokens.flutterColorToPdfColor(
+            CarteirinhaVisualTokens.gradientEndFromPrimary(cfg.bgColorValue),
+          );
     final fg = _hexToPdfColor(cfg.textColor, PdfColors.white);
     final validadePdf = _validityLabel(data.member).trim();
     final cong = _congregacaoFromMember(data.member);
@@ -2916,7 +2839,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
     }
     final photoUrl = cfg.showPhoto
-        ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member)
+        ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
+            igrejaDocId: data.igrejaDocId)
         : '';
     final brandAccent = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
     final PdfColor bgColor;
@@ -2930,16 +2854,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
       bgColor = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
       bgColorSec = cfg.bgColorSecondary != null
           ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
-          : null;
+          : CarteirinhaVisualTokens.flutterColorToPdfColor(
+              CarteirinhaVisualTokens.gradientEndFromPrimary(cfg.bgColorValue),
+            );
       textColor = _hexToPdfColor(cfg.textColor, PdfColors.white);
     }
     final accentColor = brandAccent;
-    final logo = await _pdfLogoProvider(cfg, data.tenant);
+    final logo = await _pdfLogoProvider(cfg, data);
     pw.ImageProvider? photo;
     if (photoUrl.isNotEmpty) {
       photo = await _pdfImageProviderFromUrlCached(photoUrl);
     }
-    final qr = _qrPayload(widget.tenantId, data.memberId);
+    final qr = _qrPayload(data.igrejaDocId, data.memberId);
     final face = _pdfCardFace(
       name: name,
       cargo: cargo,
@@ -3029,6 +2955,59 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ),
       ),
     );
+  }
+
+  /// PDF com o **mesmo layout** da área “Carteira digital (Wallet)” na tela — captura
+  /// [MemberDigitalWalletFront] + [MemberDigitalWalletBack] (logo [StableChurchLogo],
+  /// foto [FotoMembroWidget]). Evita divergência do modelo só em PDF vetorial.
+  Future<Uint8List> _buildPdfFromWalletScreenshot(BuildContext context) async {
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await WidgetsBinding.instance.endOfFrame;
+    if (!context.mounted) {
+      throw StateError('Contexto inválido para exportar PDF.');
+    }
+    final pr = MediaQuery.devicePixelRatioOf(context).clamp(2.0, 4.0);
+    final png = await _walletScreenshotController.capture(pixelRatio: pr);
+    if (png == null || png.isEmpty) {
+      throw StateError('Não foi possível capturar a carteirinha.');
+    }
+    final doc = await _newCarteirinhaPdfDoc();
+    final img = pw.MemoryImage(png);
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(20),
+        build: (c) => pw.Center(
+          child: pw.Image(img, fit: pw.BoxFit.contain),
+        ),
+      ),
+    );
+    return doc.save();
+  }
+
+  Future<Uint8List> _exportCarteirinhaPdfPreferringWalletModel(
+    BuildContext context,
+    _CardData data,
+    PdfPageFormat format,
+    _CardConfig cfg, {
+    String? signatoryNome,
+    String? signatoryCargo,
+    String? signatoryAssinaturaUrl,
+  }) async {
+    try {
+      return await _buildPdfFromWalletScreenshot(context);
+    } catch (e, st) {
+      debugPrint(
+          'member_card: PDF raster (carteira na tela) indisponível, usando PDF vetorial: $e\n$st');
+      return await _buildPdf(
+        data,
+        format,
+        configOverride: cfg,
+        signatoryNome: signatoryNome,
+        signatoryCargo: signatoryCargo,
+        signatoryAssinaturaUrl: signatoryAssinaturaUrl,
+      );
+    }
   }
 
   Future<void> _showGerarPdfComAssinatura(
@@ -3131,12 +3110,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
                               final nome = selected?.nome;
                               final cargo = selected?.cargo;
                               final url = selected?.assinaturaUrl;
-                              final bytes = await _buildPdf(
-                                  data, PdfPageFormat.a4,
-                                  configOverride: cfg,
-                                  signatoryNome: nome,
-                                  signatoryCargo: cargo,
-                                  signatoryAssinaturaUrl: url);
+                              final bytes =
+                                  await _exportCarteirinhaPdfPreferringWalletModel(
+                                context,
+                                data,
+                                PdfPageFormat.a4,
+                                cfg,
+                                signatoryNome: nome,
+                                signatoryCargo: cargo,
+                                signatoryAssinaturaUrl: url,
+                              );
                               if (context.mounted)
                                 await showPdfActions(context,
                                     bytes: bytes,
@@ -3196,11 +3179,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final storedCargo =
           (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
       try {
-        final bytes = await _buildPdf(data, PdfPageFormat.a4,
-            configOverride: cfg,
-            signatoryNome: storedNome.isNotEmpty ? storedNome : null,
-            signatoryCargo: storedCargo,
-            signatoryAssinaturaUrl: storedUrl.isNotEmpty ? storedUrl : null);
+        final bytes =
+            await _exportCarteirinhaPdfPreferringWalletModel(
+          context,
+          data,
+          PdfPageFormat.a4,
+          cfg,
+          signatoryNome: storedNome.isNotEmpty ? storedNome : null,
+          signatoryCargo: storedCargo,
+          signatoryAssinaturaUrl: storedUrl.isNotEmpty ? storedUrl : null,
+        );
         if (context.mounted)
           await showPdfActions(context,
               bytes: bytes, filename: 'carteirinha_${data.memberId}.pdf');
@@ -3226,7 +3214,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     bool inkEconomy = false,
     bool showCutGuides = true,
   }) async {
-    _clearPdfImageSessionCache();
+    // Não limpar cache no início: [_gerarPdfUnicoLote] / assinatura em lote já rodaram
+    // [preLoadImages] — limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
     try {
       final doc = await _newCarteirinhaPdfDoc();
       pw.ImageProvider? signatoryImage;
@@ -3264,7 +3253,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         await Future.wait(chunk.map((d) async {
           final c0 = _cardConfigForPdf(d);
           if (!c0.showPhoto) return;
-          final u = await _resolvedMemberPhotoUrlForPdf(d.memberId, d.member);
+          final u = await _resolvedMemberPhotoUrlForPdf(d.memberId, d.member,
+              igrejaDocId: d.igrejaDocId);
           if (u.isNotEmpty) await _pdfImageProviderFromUrlCached(u);
         }));
 
@@ -3294,7 +3284,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
             final sexo = _memberSexo(data.member);
             final photoUrl = cfg.showPhoto
                 ? await _resolvedMemberPhotoUrlForPdf(
-                    data.memberId, data.member)
+                    data.memberId, data.member,
+                    igrejaDocId: data.igrejaDocId)
                 : '';
             final brandAccent =
                 _hexToPdfColor(cfgRaw.bgColor, PdfColors.blue800);
@@ -3309,16 +3300,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
               bgColor = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
               bgColorSec = cfg.bgColorSecondary != null
                   ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
-                  : null;
+                  : CarteirinhaVisualTokens.flutterColorToPdfColor(
+                      CarteirinhaVisualTokens.gradientEndFromPrimary(
+                          cfg.bgColorValue),
+                    );
               textColor = _hexToPdfColor(cfg.textColor, PdfColors.white);
             }
             final accentColor = brandAccent;
-            final logo = await _pdfLogoProvider(cfgRaw, data.tenant);
+            final logo = await _pdfLogoProvider(cfgRaw, data);
             pw.ImageProvider? photo;
             if (photoUrl.isNotEmpty) {
               photo = await _pdfImageProviderFromUrlCached(photoUrl);
             }
-            final qr = _qrPayload(widget.tenantId, data.memberId);
+            final qr = _qrPayload(data.igrejaDocId, data.memberId);
             final admissionLinePdf = () {
               final s = _admissionBatismoLine(data.member).trim();
               return s.isEmpty ? 'Admissão: —' : s;
@@ -3581,8 +3575,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   /// URL para PDF / impressão: path/`gs://`/https via [AppStorageImageService], depois `membros/{id}.jpg`.
   Future<String> _resolvedMemberPhotoUrlForPdf(
-      String memberId, Map<String, dynamic> member) async {
-    final tid = widget.tenantId.trim();
+    String memberId,
+    Map<String, dynamic> member, {
+    String? igrejaDocId,
+  }) async {
+    final tid = (igrejaDocId ?? widget.tenantId).trim();
     final mid = memberId.trim();
     final cpf = _val(member, 'CPF').replaceAll(RegExp(r'[^0-9]'), '');
     final mapHttps = _photoUrlFromMember(member);
@@ -3592,7 +3589,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           gsUrl: MemberImageFields.gsPhotoUrl(member),
           imageUrl: mapHttps.isNotEmpty ? mapHttps : null,
         )
-        .timeout(const Duration(seconds: 28), onTimeout: () => null);
+        .timeout(const Duration(seconds: 18), onTimeout: () => null);
     var primary = (fromService != null && fromService.isNotEmpty)
         ? sanitizeImageUrl(fromService)
         : '';
@@ -3619,7 +3616,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       cpfDigits: cpf.length == 11 ? cpf : null,
       authUid: authPdf.isEmpty ? null : authPdf,
       nomeCompleto: nomePdf,
-    ).timeout(const Duration(seconds: 22), onTimeout: () => null);
+      memberFirestoreHint: member,
+    ).timeout(const Duration(seconds: 14), onTimeout: () => null);
     return (fromStorage != null && fromStorage.isNotEmpty) ? fromStorage : '';
   }
 
@@ -3662,7 +3660,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         var u = logoUrl;
         if (u.isEmpty || !isValidImageUrl(u)) {
           final r = await FirebaseStorageService.getChurchLogoDownloadUrl(
-            widget.tenantId,
+            data.igrejaDocId,
             tenantData: data.tenant,
           );
           u = sanitizeImageUrl(r ?? '');
@@ -3684,83 +3682,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     if (cons.isNotEmpty) return 'Consagração $cons';
     return base;
-  }
-
-  /// Converte documento da coleção global users para o formato esperado pelo card (campos em maiúsculas).
-  Map<String, dynamic> _userDataToMemberMap(
-      Map<String, dynamic> userData, String docId) {
-    final nome = (userData['NOME_COMPLETO'] ??
-            userData['nome'] ??
-            userData['name'] ??
-            '')
-        .toString();
-    final cpf = (userData['CPF'] ?? userData['cpf'] ?? '').toString();
-    final email = (userData['EMAIL'] ?? userData['email'] ?? '').toString();
-    final telefone = (userData['TELEFONES'] ??
-            userData['telefone'] ??
-            userData['phone'] ??
-            '')
-        .toString();
-    final foto = (userData['FOTO_URL_OU_ID'] ??
-            userData['fotoUrl'] ??
-            userData['photoUrl'] ??
-            userData['photoURL'] ??
-            userData['foto'] ??
-            userData['photo'] ??
-            userData['avatarUrl'] ??
-            userData['imageUrl'] ??
-            '')
-        .toString()
-        .trim();
-    final sexo = (userData['SEXO'] ?? userData['sexo'] ?? '').toString();
-    final filiacaoPai =
-        (userData['FILIACAO_PAI'] ?? userData['filiacaoPai'] ?? '').toString();
-    final filiacaoMae =
-        (userData['FILIACAO_MAE'] ?? userData['filiacaoMae'] ?? '').toString();
-    final filiacao =
-        (userData['FILIACAO'] ?? userData['filiacao'] ?? '').toString();
-    final filiacaoExibir = filiacaoPai.isNotEmpty || filiacaoMae.isNotEmpty
-        ? (filiacaoPai.isNotEmpty && filiacaoMae.isNotEmpty
-            ? 'Pai: $filiacaoPai / Mãe: $filiacaoMae'
-            : (filiacaoPai.isNotEmpty
-                ? 'Pai: $filiacaoPai'
-                : 'Mãe: $filiacaoMae'))
-        : filiacao;
-    final cargo = (userData['CARGO'] ??
-            userData['cargo'] ??
-            userData['FUNCAO'] ??
-            userData['funcao'] ??
-            '')
-        .toString();
-    final dataNasc = userData['DATA_NASCIMENTO'] ??
-        userData['dataNascimento'] ??
-        userData['birthDate'];
-    final dataBat = userData['DATA_BATISMO'] ??
-        userData['dataBatismo'] ??
-        userData['data_batismo'];
-    return {
-      'NOME_COMPLETO': nome,
-      'CPF': cpf,
-      'EMAIL': email,
-      'TELEFONES': telefone,
-      'FOTO_URL_OU_ID': foto,
-      'SEXO': sexo,
-      'FILIACAO_PAI': filiacaoPai,
-      'FILIACAO_MAE': filiacaoMae,
-      'FILIACAO': filiacaoExibir,
-      'CARGO': cargo,
-      'DATA_NASCIMENTO': dataNasc,
-      'DATA_BATISMO': dataBat,
-      'CARTEIRA_PERMANENTE': userData['CARTEIRA_PERMANENTE'],
-      'CARTEIRA_ANOS': userData['CARTEIRA_ANOS'],
-      'CARTEIRA_VALIDADE': userData['CARTEIRA_VALIDADE'],
-      'carteirinhaAssinaturaUrl': userData['carteirinhaAssinaturaUrl'] ??
-          userData['carteirinha_assinatura_url'],
-      'carteirinhaAssinadaPor': userData['carteirinhaAssinadaPor'],
-      'carteirinhaAssinadaPorNome': userData['carteirinhaAssinadaPorNome'],
-      'carteirinhaAssinadaPorCargo': userData['carteirinhaAssinadaPorCargo'],
-      'carteirinhaAssinadaEm': userData['carteirinhaAssinadaEm'],
-    };
   }
 
   @override
@@ -4310,7 +4231,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         borderRadius: BorderRadius.circular(22),
                                         child: FotoMembroWidget(
                                           imageUrl: m.photoUrl,
-                                          tenantId: widget.tenantId,
+                                          tenantId:
+                                              _cachedIgrejaDocId ?? widget.tenantId,
                                           memberId: m.id,
                                           cpfDigits: cpfLista.length == 11
                                               ? cpfLista
@@ -4386,7 +4308,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             final nascimento =
                 _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
             final validade = _validityLabel(data.member);
-            final qr = _qrPayload(widget.tenantId, data.memberId);
+            final qr = _qrPayload(data.igrejaDocId, data.memberId);
             _warmupCarteiraAssets(data, cfg);
 
             return Center(
@@ -4578,9 +4500,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Visual estilo cartão com vidro (glass) e QR para o site público. '
-                      'Gestor: ícone da paleta no topo altera cores da carteirinha. '
-                      'Inclua a assinatura em Configurar carteirinha ou em `igrejas/{id}/configuracoes/assinatura.png`.',
+                      'O PDF “Exportar PDF” usa esta mesma carteira (captura de ecrã): vidro (glass), borda dourada e QR no verso. '
+                      'Cores em Configurar carteirinha. '
+                      'Assinatura: Configurar carteirinha ou `igrejas/{id}/configuracoes/assinatura.png`.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
@@ -4589,9 +4511,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 12),
                     FutureBuilder<String?>(
-                      future: _pastorConfigSignatureFuture ??=
-                          FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
-                              widget.tenantId),
+                      key: ValueKey<String>(
+                          'pastor_sig_cfg_${data.igrejaDocId}'),
+                      future: FirebaseStorageService
+                          .getPastorSignatureConfigDownloadUrl(
+                              data.igrejaDocId),
                       builder: (context, snapPastor) {
                         final memberSig = (data.member['carteirinhaAssinaturaUrl'] ??
                                 '')
@@ -4607,11 +4531,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         ).clamp(280.0, 360.0);
                         final colorA = cfg.bgColorValue;
                         final colorB = cfg.bgColorSecondaryValue ??
-                            Color.alphaBlend(
-                              Colors.black.withValues(alpha: 0.22),
-                              colorA,
-                            );
-                        const accentGold = Color(0xFFE8C478);
+                            CarteirinhaVisualTokens.gradientEndFromPrimary(
+                                colorA);
+                        final accentGold =
+                            CarteirinhaVisualTokens.accentGoldFlutter;
                         final logoSlot = (cfg.logoDataBase64 != null &&
                                 cfg.logoDataBase64!.isNotEmpty)
                             ? Image.memory(
@@ -4622,30 +4545,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   fit: BoxFit.contain,
                                 ),
                               )
-                            : cfg.logoUrl.isNotEmpty
-                                ? _CarteiraLogoImage(
-                                    imageUrl: cfg.logoUrl,
-                                    fit: BoxFit.contain,
-                                    width: 44,
-                                    height: 44,
-                                    errorWidget: Image.asset(
-                                      'assets/LOGO_GESTAO_YAHWEH.png',
-                                      fit: BoxFit.contain,
-                                    ),
-                                  )
-                                : StableChurchLogo(
-                                    tenantId: widget.tenantId,
-                                    tenantData: data.tenant,
-                                    width: 44,
-                                    height: 44,
-                                    fit: BoxFit.contain,
-                                    memCacheWidth: 88,
-                                    memCacheHeight: 88,
-                                  );
+                            : StableChurchLogo(
+                                tenantId: data.igrejaDocId,
+                                tenantData: data.tenant,
+                                imageUrl: cfg.logoUrl.trim().isNotEmpty
+                                    ? cfg.logoUrl.trim()
+                                    : null,
+                                width: 44,
+                                height: 44,
+                                fit: BoxFit.contain,
+                                memCacheWidth: 88,
+                                memCacheHeight: 88,
+                              );
                         final photoSlot = FotoMembroWidget(
                           imageUrl:
                               photoUrlPreview.isEmpty ? null : photoUrlPreview,
-                          tenantId: widget.tenantId,
+                          tenantId: data.igrejaDocId,
                           memberId: data.memberId,
                           cpfDigits:
                               cpfDigits.length == 11 ? cpfDigits : null,
@@ -5095,11 +5010,15 @@ class _CardData {
   final Map<String, dynamic> cardConfig;
   final Map<String, dynamic> tenant;
 
+  /// Doc `igrejas/{id}` canónico (Storage + logo institucional).
+  final String igrejaDocId;
+
   const _CardData({
     required this.memberId,
     required this.member,
     required this.cardConfig,
     required this.tenant,
+    required this.igrejaDocId,
   });
 }
 
@@ -5524,14 +5443,8 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     }
     _certDisplayName = null;
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null && uid.isNotEmpty) {
-        final ud =
-            await FirebaseFirestore.instance.collection('users').doc(uid).get();
-        final n =
-            (ud.data()?['certificadoDigitalFileName'] ?? '').toString().trim();
-        if (n.isNotEmpty) _certDisplayName = n;
-      }
+      _certDisplayName =
+          await CertificadoDigitalService.certificateFileNameForCurrentUser();
     } catch (_) {}
     setState(() => _loading = false);
   }
@@ -5935,7 +5848,7 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Quem pode gerir a igreja define aqui as cores da carteirinha digital e do PDF.',
+                      'O modelo na tela, o PNG exportado e o PDF são o mesmo: só mudam as cores que você escolher abaixo.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.35,

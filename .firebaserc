@@ -1,0 +1,13 @@
+{
+  "projects": {
+    "default": "gestaoyahweh-21e23"
+  },
+  "targets": {
+    "gestaoyahweh-21e23": {
+      "hosting": {
+        "site-principal": ["gestaoyahweh-21e23"],
+        "frota": ["gestaoyahweh-21e23-frota"]
+      }
+    }
+  }
+}

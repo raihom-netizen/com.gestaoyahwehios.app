@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         churchTenantLogoUrl,
         firebaseStorageDownloadUrlLooksTokenized,
         firebaseStorageMediaUrlLooksLike,
+        firebaseStorageObjectPathFromHttpUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
@@ -50,11 +51,64 @@ class AppStorageImageService {
     }
   }
 
+  /// Tokens em URLs antigas expiram; `getDownloadURL` no path do objeto renova (web + app).
+  Future<String?> _firebaseStorageDisplayUrlPreferFresh(String raw) async {
+    final norm = sanitizeImageUrl(raw);
+    if (!isValidImageUrl(norm) ||
+        !StorageMediaService.isFirebaseStorageMediaUrl(norm)) {
+      return isValidImageUrl(norm) ? norm : null;
+    }
+    if (kIsWeb) {
+      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken();
+      } catch (_) {}
+    }
+    if (firebaseStorageDownloadUrlLooksTokenized(norm)) {
+      final path = firebaseStorageObjectPathFromHttpUrl(norm);
+      if (path != null && path.isNotEmpty) {
+        final byPath = await _twice(() async {
+          final ref = FirebaseStorage.instance.ref(path);
+          final u =
+              await ref.getDownloadURL().timeout(const Duration(seconds: 15));
+          final ss = sanitizeImageUrl(u);
+          return isValidImageUrl(ss) ? ss : null;
+        });
+        if (byPath != null) return byPath;
+      }
+      final byFresh = await _twice(() async {
+        final r = await StorageMediaService.freshPlayableMediaUrl(norm)
+            .timeout(const Duration(seconds: 28));
+        final ss = sanitizeImageUrl(r);
+        return isValidImageUrl(ss) ? ss : null;
+      });
+      if (byFresh != null) return byFresh;
+      return norm;
+    }
+    final refreshed = await _twice(() async {
+      final r = await StorageMediaService.freshPlayableMediaUrl(norm)
+          .timeout(const Duration(seconds: 28));
+      final ss = sanitizeImageUrl(r);
+      return isValidImageUrl(ss) ? ss : null;
+    });
+    return refreshed ?? norm;
+  }
+
   Future<String?> _resolveUncached({
     String? storagePath,
     String? imageUrl,
     String? gsUrl,
   }) async {
+    final urlImmediate = _norm(imageUrl);
+    if (urlImmediate.isNotEmpty) {
+      final s0 = sanitizeImageUrl(urlImmediate);
+      if (isValidImageUrl(s0) &&
+          StorageMediaService.isFirebaseStorageMediaUrl(s0) &&
+          firebaseStorageDownloadUrlLooksTokenized(s0)) {
+        return _firebaseStorageDisplayUrlPreferFresh(s0);
+      }
+    }
+
     if (kIsWeb) {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       try {
@@ -116,14 +170,7 @@ class AppStorageImageService {
     }
     if (!isValidImageUrl(s)) return null;
     if (StorageMediaService.isFirebaseStorageMediaUrl(s)) {
-      if (firebaseStorageDownloadUrlLooksTokenized(s)) {
-        return s;
-      }
-      return _twice(() async {
-        final r = await StorageMediaService.freshPlayableMediaUrl(s)
-            .timeout(const Duration(seconds: 28));
-        return r;
-      });
+      return _firebaseStorageDisplayUrlPreferFresh(s);
     }
     return s;
   }

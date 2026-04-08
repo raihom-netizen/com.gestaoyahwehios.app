@@ -1,0 +1,716 @@
+rules_version = '2';
+// Deploy web 11.0.284 — membros: leitura só na própria igreja (+ master); CPF público via Cloud Function.
+// Master: CPF 94536368191, Raihom Severino Barbosa, raihom@gmail.com — acesso a tudo.
+// Também gestor da igreja Brasil para Cristo. Nenhuma igreja vê dados da outra; só o master vê todas.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isMasterEmail() { return isSignedIn() && request.auth.token.email == 'raihom@gmail.com'; }
+    // role: documento users primeiro (campo role ou array roles); fallback em custom claims (sem "if", só expressões)
+    function role() {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(p)
+        ? (get(p).data.role != null
+            ? get(p).data.role
+            : (get(p).data.roles != null && get(p).data.roles is list
+                ? ('MASTER' in get(p).data.roles || 'master' in get(p).data.roles ? 'MASTER'
+                    : ('ADMIN' in get(p).data.roles || 'ADM' in get(p).data.roles || 'admin' in get(p).data.roles || 'adm' in get(p).data.roles ? 'ADM'
+                        : ('GESTOR' in get(p).data.roles || 'gestor' in get(p).data.roles ? 'GESTOR' : request.auth.token.role)))
+                : request.auth.token.role))
+        : request.auth.token.role;
+    }
+    function isMaster() { return isMasterEmail() || (isSignedIn() && role() != null && (role() == 'MASTER' || role() == 'master' || role() == 'Master')); }
+    function isAdm() { return isSignedIn() && role() != null && (role() == 'ADM' || role() == 'ADMIN' || role() == 'adm' || role() == 'admin' || role() == 'Adm' || role() == 'Admin' || role() == 'administrador' || role() == 'administradora' || role() == 'Administrador' || role() == 'Administradora'); }
+    // Quem pode acessar painel admin: master, adm ou documento em admins (fallback quando users/uid não existe)
+    function isAdminPanel() {
+      return isSignedIn() && (isMaster() || isAdm() || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+    // sameChurch: documento users ou custom claims (igrejaId/tenantId) — evita permission-denied Mural/Departamentos/Eventos
+    function sameChurch(tenantId) {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && ((exists(p) && (get(p).data.igrejaId == tenantId || get(p).data.tenantId == tenantId)) || (request.auth.token.igrejaId == tenantId || request.auth.token.tenantId == tenantId));
+    }
+    // Inclui capitalização comum no app (ex.: "Gestor", "Master") — sem isto canWriteTenant falha e nada grava (avisos, departamentos, mídia-meta).
+    function canManageChurch() {
+      return isSignedIn() && role() != null && (
+        role() == 'ADMIN' || role() == 'ADM' || role() == 'GESTOR' || role() == 'MASTER' ||
+        role() == 'admin' || role() == 'adm' || role() == 'gestor' || role() == 'master' ||
+        role() == 'Gestor' || role() == 'Master' || role() == 'Admin' || role() == 'Adm' ||
+        role() == 'administrador' || role() == 'administradora' || role() == 'Administrador' || role() == 'Administradora'
+      );
+    }
+    function isTreasurer() {
+      let r = role();
+      return isSignedIn() && r != null && (
+        r == 'TESOUREIRO' || r == 'tesoureiro' || r == 'Tesoureiro' ||
+        r == 'TESOURARIA' || r == 'tesouraria' || r == 'Tesouraria'
+      );
+    }
+    function isDepartmentLeaderRole() {
+      let r = role();
+      return r != null && (
+        r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO'
+      );
+    }
+    function isPastorAuxiliarRole() {
+      let r = role();
+      return r != null && (
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
+      );
+    }
+    /// Hub de departamentos: gestor/pastoral + tesoureiro + líder de grupo + permissão granular + pastor auxiliar.
+    function canWriteIgrejaDepartamentos(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole())
+        || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'departamentos'));
+    }
+    function canPost() { return canManageChurch(); }
+    // Acesso à igreja por e-mail do gestor (evita permission-denied em Presença, Eventos, etc. quando claims/users ainda não têm igrejaId)
+    function emailMatchesTenant(tenantId) {
+      return request.auth != null && request.auth.token.email != null && exists(/databases/$(database)/documents/igrejas/$(tenantId))
+          && (get(/databases/$(database)/documents/igrejas/$(tenantId)).data.email == request.auth.token.email
+              || get(/databases/$(database)/documents/igrejas/$(tenantId)).data.gestorEmail == request.auth.token.email);
+    }
+    function canAccessTenant(tenantId) {
+      return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId);
+    }
+    function hasTenantModulePermission(tenantId, moduleKey) {
+      let tenantUserPath = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      let rootUserPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && (
+        (exists(tenantUserPath) && get(tenantUserPath).data.permissions is list
+          && (moduleKey in get(tenantUserPath).data.permissions))
+        || (exists(rootUserPath) && get(rootUserPath).data.permissions is list
+          && (moduleKey in get(rootUserPath).data.permissions))
+      );
+    }
+    function canWriteTenant(tenantId) {
+      return canAccessTenant(tenantId) && (canManageChurch() || emailMatchesTenant(tenantId));
+    }
+    // Pastoral/secretariado na própria igreja — alinhado ao app (AppRoles.canAccessEditDepartments).
+    // Sem isto, pastor/secretário/presbítero não passavam em canWriteTenant e o bootstrap dos presets falhava (lista vazia).
+    function isPastoralOrSecretariatRole() {
+      let r = role();
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'Secretário' || r == 'SECRETÁRIO' || r == 'Secretario' ||
+        r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera' || r == 'Presbitero' || r == 'Presbitera'
+      );
+    }
+    /// Mural: eventos (noticias) e avisos — alinhar a departamentos (pastor/secretário/presbítero na igreja).
+    function canWriteMuralFeed(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole());
+    }
+    // Fallback: usuário autenticado pode ler/gravar (evita permission-denied em Departamentos, Presença, etc.)
+    function canWriteTenantIfSignedIn(tenantId) {
+      return isSignedIn();
+    }
+    function canReadTenantIfSignedIn(tenantId) {
+      return isSignedIn();
+    }
+
+    // Site público: post visível se `publicSite` ausente ou true (legado: != false).
+    function noticiaPublicReadable(tenantId, noticiaId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/noticias/$(noticiaId);
+      return exists(p) && (!get(p).data.keys().hasAll(['publicSite']) || get(p).data.publicSite != false);
+    }
+    function avisoPostPublicReadable(tenantId, avisoId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/avisos/$(avisoId);
+      return exists(p) && (!get(p).data.keys().hasAll(['publicSite']) || get(p).data.publicSite != false);
+    }
+    /// Leitura anônima alinhada à query `.where('publicSite', '==', true)` (list + get).
+    function noticiaDocPublicSiteReadable() {
+      return resource.data.publicSite == true
+        || !('publicSite' in resource.data);
+    }
+    function avisoDocPublicSiteReadable() {
+      return resource.data.publicSite == true
+        || !('publicSite' in resource.data);
+    }
+
+    // Membros da igreja podem atualizar só campos sociais no post (curtida/RSVP/contagem)
+    function noticiaSocialFieldsOnly() {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(['likes', 'likesCount', 'rsvp', 'rsvpCount', 'commentsCount', 'likedBy']);
+    }
+
+    // Padrão: tudo vinculado à igreja e ao gestor — patrimônio, fotos, vídeos, notícias, escalas, membros, financeiro, etc.
+    // igrejas/{id}/membros, noticias, eventos, patrimonio, finance, escalas, departamentos, cargos, visitantes, config, users...
+    match /igrejas/{id} {
+      // Leitura pública para busca de igreja (CPF/e-mail) e perfil da igreja
+      allow read: if true;
+      // Escrita da igreja: somente painel admin/master ou gestor da própria igreja
+      allow write: if isAdminPanel() || canWriteTenant(id);
+
+      match /membros/{memberId} {
+        // Só gestores/membros da igreja (ou master). CPF no site sem login: resolveCpfToChurchPublic (Functions).
+        allow read: if isMaster() || canAccessTenant(id);
+
+        // Cadastro pelo painel (usuário autenticado) ou público (sem login) — status pendente até gestor aprovar
+        allow create: if request.auth != null
+          || (request.auth == null
+          && request.resource.data.PUBLIC_SIGNUP == true
+          && request.resource.data.MEMBER_ID == memberId
+          && (request.resource.data.CPF is string)
+          && (request.resource.data.STATUS == 'pendente' || request.resource.data.STATUS == 'ativo')
+          && request.resource.data.NOME_COMPLETO is string
+          && request.resource.data.DATA_NASCIMENTO is timestamp
+          && request.resource.data.FOTO_URL_OU_ID is string
+          && request.resource.data.EMAIL is string
+          && request.resource.data.TELEFONES is string
+          && request.resource.data.SEXO is string
+          && request.resource.data.FAIXA_ETARIA is string
+          && request.resource.data.IDADE is int
+          && request.resource.data.ENDERECO is string
+          && request.resource.data.CEP is string
+          && request.resource.data.CIDADE is string
+          && request.resource.data.BAIRRO is string
+          && request.resource.data.ESTADO is string
+          && request.resource.data.ESTADO_CIVIL is string
+          && request.resource.data.ESCOLARIDADE is string
+          && request.resource.data.NOME_CONJUGE is string
+          && request.resource.data.FILIACAO is string
+          && request.resource.data.DEPARTAMENTOS is list);
+
+        // Gravação: não basta estar logado — precisa ser da igreja (gestão) ou pastoral/secretariado,
+        // ou o próprio membro (authUid) para atualizar a própria ficha. Cadastro público pendente mantido.
+        allow update: if (request.auth == null
+              && resource.data.PUBLIC_SIGNUP == true
+              && resource.data.STATUS == 'pendente'
+              && request.resource.data.STATUS == 'pendente')
+          || (request.auth != null && (
+              isMaster()
+              || canWriteTenant(id)
+              || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros'))
+              || (canAccessTenant(id) && resource.data.authUid == request.auth.uid)
+              || (canAccessTenant(id) && memberId == request.auth.uid)
+            ));
+        allow delete: if request.auth != null
+          && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros')));
+      }
+
+      // Legado: leitura só na própria igreja (backup se Functions ainda não rodaram).
+      // Delete alinhado a `membros` — o app remove o par ao excluir membro; `write: false` bloqueava o batch inteiro.
+      match /members/{memberId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update: if false;
+        allow delete: if request.auth != null
+          && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros')));
+      }
+
+      match /config/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Histórico legado (reimpressão) — novos protocolos vão só em certificados_emitidos.
+      match /certificados_historico/{certId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Certificados emitidos (dados completos + QR) — por igreja.
+      match /certificados_emitidos/{certId} {
+        allow get: if true;
+        allow list: if isMaster() || canAccessTenant(id);
+        allow create: if isSignedIn()
+          && request.resource.data.certificadoId == certId
+          && request.resource.data.tenantId == id
+          && request.resource.data.memberId is string
+          && request.resource.data.nomeMembro is string
+          && request.resource.data.emitidoPorUid is string
+          && canAccessTenant(id)
+          && canWriteTenant(id);
+        allow update, delete: if isSignedIn()
+          && resource.data.tenantId == id
+          && canAccessTenant(id)
+          && canWriteTenant(id);
+      }
+      // Frota Jim Sabores — dados por igreja; escrita autenticada (alinhado a fleet_* legado).
+      match /abastecimentos/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /combustiveis/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /veiculos/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /patrimonio/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+      }
+      match /finance/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+      }
+      match /categorias_receitas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /categorias_despesas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /contas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /despesas_fixas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /usersIndex/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /users/{userId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /fleet_vehicles/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /fleet_fuelings/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /fleet_documents/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /departamentos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteIgrejaDepartamentos(id);
+        // Denormalização: membros vinculados ao grupo (performance em listas).
+        match /membros_vinculados/{memberDocId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if canWriteIgrejaDepartamentos(id);
+        }
+      }
+      match /cargos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /funcoesControle/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Horários/capas de cultos fixos no site público (visitante sem login).
+      match /event_templates/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || !resource.data.keys().hasAll(['active']) || resource.data.active == true;
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /noticias/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || noticiaDocPublicSiteReadable();
+        allow create, delete: if canWriteMuralFeed(id);
+        allow update: if canWriteMuralFeed(id)
+          || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
+        match /comentarios/{commentId} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id)
+            && request.resource.data.authorUid == request.auth.uid
+            && (request.resource.data.text is string || request.resource.data.texto is string);
+          allow delete: if isAdminPanel() || canWriteTenant(id)
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+          allow update: if false;
+        }
+        match /curtidas/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+        match /confirmacoes/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+      }
+      // Mural de avisos (Firestore): separado de `noticias` (eventos).
+      match /avisos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || avisoDocPublicSiteReadable();
+        allow create, delete: if canWriteMuralFeed(id);
+        allow update: if canWriteMuralFeed(id)
+          || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
+        match /comentarios/{commentId} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id)
+            && request.resource.data.authorUid == request.auth.uid
+            && (request.resource.data.text is string || request.resource.data.texto is string);
+          allow delete: if isAdminPanel() || canWriteTenant(id)
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+          allow update: if false;
+        }
+        match /curtidas/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+        match /confirmacoes/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+      }
+      match /eventos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /cultos/{cultoId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+        match /presencas/{presencaId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if isAdminPanel() || canWriteTenant(id);
+        }
+      }
+      match /visitantes/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+        match /followups/{followupId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if isAdminPanel() || canWriteTenant(id);
+        }
+      }
+      match /pedidosOracao/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /escala_templates/{tplId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Membro na escala pode atualizar só confirmação / indisponibilidade (próprio CPF no users).
+      function userScheduleCpfDigits() {
+        let p = /databases/$(database)/documents/users/$(request.auth.uid);
+        return exists(p)
+          ? (get(p).data.cpf is string
+              ? get(p).data.cpf
+              : (get(p).data.CPF is string ? get(p).data.CPF : ''))
+          : '';
+      }
+      function scheduleMemberSelfConfirmOnly(tenantId) {
+        let cpf = userScheduleCpfDigits();
+        return isSignedIn()
+          && canAccessTenant(tenantId)
+          && !canWriteTenant(tenantId)
+          && cpf.size() == 11
+          && resource.data.memberCpfs is list
+          && cpf in resource.data.memberCpfs
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(['confirmations', 'unavailabilityReasons']);
+      }
+      // Forma mínima: listas de membros com tamanho razoável. Conflito de horário / ausências
+      // são validados no app (e em Cloud Functions onde aplicável); regras não fazem get em N escalas.
+      function escalaMemberListsShapeOk() {
+        let d = request.resource.data;
+        return d.memberCpfs is list
+          && d.memberNames is list
+          && d.memberCpfs.size() <= 120
+          && d.memberNames.size() <= 120;
+      }
+      match /escalas/{escId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create: if (isAdminPanel() || canWriteTenant(id))
+          && escalaMemberListsShapeOk();
+        allow delete: if isAdminPanel() || canWriteTenant(id);
+        allow update: if scheduleMemberSelfConfirmOnly(id)
+          || ((isAdminPanel() || canWriteTenant(id)) && escalaMemberListsShapeOk());
+      }
+      // Pedido de troca de escala (membro → líder aprova).
+      match /escala_trocas/{trocaId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        // pendente = fluxo legado (líder aprova no app); pendente_alvo = convite ao substituto (aceite via Cloud Function).
+        allow create: if isSignedIn()
+          && canAccessTenant(id)
+          && request.resource.data.keys().hasAll(['escalaId', 'departmentId', 'solicitanteCpf', 'alvoCpf', 'status', 'createdAt'])
+          && request.resource.data.escalaId is string
+          && request.resource.data.departmentId is string
+          && request.resource.data.solicitanteCpf is string
+          && request.resource.data.alvoCpf is string
+          && (request.resource.data.status == 'pendente' || request.resource.data.status == 'pendente_alvo')
+          && request.resource.data.solicitanteCpf == userScheduleCpfDigits()
+          && request.resource.data.solicitanteCpf != request.resource.data.alvoCpf;
+        allow update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Agenda inteligente (calendário interno — startTime / endTime / category).
+      match /agenda/{eventId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+    }
+
+    // Perfil do próprio usuário; listagem Membros: ver users do mesmo tenant (por doc do leitor ou token).
+    function onlyDismissAnnouncementKeys() {
+      let k = request.resource.data.keys();
+      return k.hasOnly(['dismissedGlobalAnnouncementAt'])
+        || k.hasOnly(['dismissedGlobalAnnouncementRev'])
+        || k.hasOnly(['dismissedGlobalAnnouncementMsgHash'])
+        || k.hasOnly(['dismissedGlobalAnnouncementAt', 'dismissedGlobalAnnouncementRev'])
+        || k.hasOnly(['dismissedGlobalAnnouncementAt', 'dismissedGlobalAnnouncementMsgHash']);
+    }
+
+    match /users/{uid} {
+      allow read, update: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid && onlyDismissAnnouncementKeys();
+      allow read: if isMaster()
+        || (canManageChurch() && (sameChurch(resource.data.igrejaId) || sameChurch(resource.data.tenantId)))
+        || (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.igrejaId == resource.data.igrejaId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.igrejaId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.igrejaId == resource.data.tenantId))
+        || (isSignedIn() && request.auth.token.tenantId != null && (resource.data.tenantId == request.auth.token.tenantId || resource.data.igrejaId == request.auth.token.tenantId))
+        || (isSignedIn() && request.auth.token.igrejaId != null && (resource.data.tenantId == request.auth.token.igrejaId || resource.data.igrejaId == request.auth.token.igrejaId))
+        || (isSignedIn());  // fallback: autenticado pode ler (evita lista de membros vazia)
+      // Exclusão pelo painel: mesma ideia que igrejas/{id}/membros/{id} (gestor + pastoral + módulo membros).
+      // Admin painel YAHWEH + legado sem tenantId/igrejaId no doc `users/`.
+      allow delete: if isMaster() || isAdminPanel()
+        || (isSignedIn() && (
+          (resource.data.tenantId is string && resource.data.tenantId != ''
+            && (canWriteTenant(resource.data.tenantId)
+              || (canAccessTenant(resource.data.tenantId) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(resource.data.tenantId) && hasTenantModulePermission(resource.data.tenantId, 'membros'))))
+          || (resource.data.igrejaId is string && resource.data.igrejaId != ''
+            && (canWriteTenant(resource.data.igrejaId)
+              || (canAccessTenant(resource.data.igrejaId) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(resource.data.igrejaId) && hasTenantModulePermission(resource.data.igrejaId, 'membros'))))
+        ));
+
+      match /fcmTokens/{token} {
+        allow read, create, update, delete: if isSignedIn() && request.auth.uid == uid;
+      }
+    }
+
+    match /subscriptions/{id} {
+      allow read: if (canManageChurch() && sameChurch(resource.data.igrejaId)) || isAdminPanel();
+      allow write: if false; // server only
+    }
+
+    match /config/plans/items/{id} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    // Índice mínimo CPF → igreja (escrita só Admin SDK / Functions)
+    match /publicCpfIndex/{cpfKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /config/appVersion {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+    match /config/appDownloads {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    match /config/memberCard {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+    // Acessos ao domínio — painel master (config/analytics ou analytics/domain/daily_hits)
+    // Aviso global (melhorias / manutenção) — leitura por qualquer usuário logado; escrita: master/adm (doc, roles array ou token)
+    match /config/global_announcement {
+      allow read: if isSignedIn();
+      allow write: if isAdminPanel()
+        || (isSignedIn() && request.auth.token.role != null
+            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+    }
+
+    // Histórico de avisos globais (somente painel master / ADM).
+    match /global_announcement_audit/{id} {
+      allow read, create, delete: if isAdminPanel()
+        || (isSignedIn() && request.auth.token.role != null
+            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+      allow update: if false;
+    }
+
+    match /config/analytics {
+      allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
+      allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+    }
+    match /analytics/{docId} {
+      allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
+      allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      match /daily_hits/{hitId} {
+        allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
+        allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      }
+    }
+
+    // Recebimentos / licenças: mesmo critério do painel (MASTER, ADM ou doc admins/{uid})
+    match /sales/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    // Pagamentos Mercado Pago (painel admin — Recebimentos de Licenças)
+    match /mp_payments/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    match /licenses/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    match /frota_customers/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    match /drive_archives/{id} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Config Mercado Pago (painel admin): master/adm/admins doc
+    match /config/mercado_pago {
+      allow read, write: if isAdminPanel();
+    }
+
+    // Customização do sistema (título, boas-vindas, tema) — painel master
+    match /config/sistema {
+      allow read, write: if isAdminPanel();
+    }
+
+    match /planos/{id} {
+      allow read, write: if isAdminPanel();
+    }
+
+    match /pagamentos/{id} {
+      allow read, write: if isAdminPanel();
+    }
+
+    match /alertas/{id} {
+      allow read: if isAdminPanel();
+      allow write: if isAdminPanel();
+    }
+
+    // Chamados de suporte (painel master)
+    match /suporte/{id} {
+      allow read, update: if isAdminPanel();
+      allow create: if isSignedIn();
+      allow delete: if isAdminPanel();
+    }
+
+    // Sugestões/Críticas — painel master: leitura por role (users doc ou token)
+    match /suggestions/{id} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        isMaster() || isAdm() ||
+        request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'] ||
+        resource.data.userId == request.auth.uid
+      );
+      allow update: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      allow delete: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+    }
+
+    // ADMIN (painel master atual) — leitura para todo painel master (inclui quem entra só por admins/{uid})
+    match /admins/{uid} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Auditoria: leitura apenas painel master; escrita somente backend (Admin SDK / Functions).
+    match /auditoria/{id} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Rate-limit de eventos de segurança: somente backend escreve.
+    match /security_events_rate/{uid} {
+      allow read, write: if false;
+    }
+
+    // Multi-Admin (delegação) usa a coleção raiz `usuarios`
+    // - leitura: apenas o Painel Master / Admins
+    // - update: apenas o Painel Master / Admins
+    // - create: somente o próprio usuário
+    match /usuarios/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminPanel());
+      allow update: if isAdminPanel();
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // Galeria de eventos (coleção raiz) — leitura pública para site; escrita autenticada (EventoGalleryService)
+    match /eventos/{eventoId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+      match /comentarios/{commentId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Site institucional — leitura pública. Galeria `institutional_gallery`: equipe da igreja pode ordenar/upload (painel igreja = master).
+    // Outros docs (ex.: `site`) só painel master/adm.
+    match /app_public/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdminPanel()
+        || (docId == 'institutional_gallery' && canManageChurch());
+    }
+
+    // Legado: protocolo na raiz (antes da migração para igrejas/{id}/certificados_emitidos).
+    match /certificados_emitidos/{certId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if false;
+      allow update, delete: if isSignedIn()
+        && resource.data.tenantId is string
+        && canAccessTenant(resource.data.tenantId)
+        && canWriteTenant(resource.data.tenantId);
+    }
+
+    // Índice mínimo UUID → tenantId (validação pública do QR sem expor listagem).
+    match /certificados_protocol_index/{certId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.tenantId is string
+        && canAccessTenant(request.resource.data.tenantId)
+        && canWriteTenant(request.resource.data.tenantId);
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

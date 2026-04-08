@@ -22,6 +22,8 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
+    show openHttpsUrlInBrowser;
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
@@ -187,6 +189,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   /// Logo em memória (exibido imediatamente ao escolher, antes do upload).
   Uint8List? _logoBytes;
+  /// Há logo nova na galeria/corte ainda não publicada no Storage — [Salvar igreja] deve enviar antes do merge.
+  bool _logoStagedNotUploaded = false;
   double? _latitude;
   double? _longitude;
   bool _saving = false;
@@ -412,6 +416,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _logoStoragePath = ChurchImageFields.logoStoragePath(data);
     if (_logoUrl != null && _logoUrl!.isNotEmpty) {
       _logoBytes = null;
+      _logoStagedNotUploaded = false;
     } else {
       final b64raw = (data['logoDataBase64'] ?? data['logoBase64'] ?? '')
           .toString()
@@ -419,11 +424,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (b64raw.isNotEmpty) {
         try {
           _logoBytes = base64Decode(b64raw);
+          _logoStagedNotUploaded = false;
         } catch (_) {
           _logoBytes = null;
         }
       } else {
         _logoBytes = null;
+        _logoStagedNotUploaded = false;
       }
     }
 
@@ -990,6 +997,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (mounted) {
       setState(() {
         _logoBytes = null;
+        _logoStagedNotUploaded = false;
         _uploadingLogo = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1004,12 +1012,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!mounted) return;
     setState(() {
       _logoBytes = bytes;
+      _logoStagedNotUploaded = true;
       _uploadingLogo = false;
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-            'Logo carregada. Opcional: Cortar. Depois toque em Enviar logo.'),
+            'Logo carregada. Use Cortar se quiser; ao Salvar igreja a logo será enviada automaticamente.'),
       );
     }
   }
@@ -1024,7 +1033,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       circleUi: false,
       aspectRatio: 1,
     );
-    if (cropped != null && mounted) setState(() => _logoBytes = cropped);
+    if (cropped != null && mounted) {
+      setState(() {
+        _logoBytes = cropped;
+        _logoStagedNotUploaded = true;
+      });
+    }
   }
 
   Future<void> _cropPendingGestorPhoto() async {
@@ -1073,8 +1087,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   /// Publica `configuracoes/logo_igreja.png` (sobrescreve sempre) e grava [logo_url] no Firestore.
-  Future<void> _commitLogoUploadFromPending() async {
-    if (!_canEdit || _logoBytes == null || !mounted) return;
+  /// Retorna `false` se tentou enviar e falhou (o chamador pode abortar o resto do save).
+  Future<bool> _commitLogoUploadFromPending(
+      {bool showCommitSuccessSnack = true}) async {
+    if (!_canEdit || _logoBytes == null || !mounted) return true;
     setState(() {
       _uploadingLogo = true;
       _logoUploadProgress = 0;
@@ -1099,7 +1115,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         },
       );
       final url = upload.downloadUrl;
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() {
         _logoUrl = url;
         _logoBytes = png;
@@ -1124,17 +1140,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         storagePath: upload.storagePath,
         removeLogoVariants: true,
       );
+      _logoStagedNotUploaded = false;
       FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
         tenantId: resolvedId,
       );
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() {});
-      if (mounted) {
+      if (mounted && showCommitSuccessSnack) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
               'Logo enviada (configuracoes/logo_igreja.png). Carteirinha, certificados e relatórios usam este ficheiro.'),
         );
       }
+      return true;
     } catch (e) {
       if (mounted) {
         setState(() => _uploadingLogo = false);
@@ -1142,6 +1160,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           ThemeCleanPremium.feedbackSnackBar('Erro ao enviar logo: $e'),
         );
       }
+      return false;
     } finally {
       if (mounted) {
         setState(() => _logoUploadProgress = 0);
@@ -1589,7 +1608,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return;
     }
     try {
-      await Future.delayed(const Duration(milliseconds: 300));
       await user.getIdToken(true);
       final resolvedId =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
@@ -1614,7 +1632,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
     } catch (e) {
       try {
-        await Future.delayed(const Duration(milliseconds: 500));
         await user.getIdToken(true);
         final resolvedId = await TenantResolverService.resolveEffectiveTenantId(
             widget.tenantId);
@@ -1662,6 +1679,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _logoUrl = fresh;
         _logoUrlFieldCtrl.text = fresh;
         _logoBytes = null;
+        _logoStagedNotUploaded = false;
       });
       await _saveLogoUrl(fresh);
     } catch (_) {}
@@ -1703,6 +1721,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               _logoUrlFieldCtrl.text = clean;
             }
             _logoBytes = null;
+            _logoStagedNotUploaded = false;
           });
           await _saveLogoUrl(clean, storagePath: path);
           await _maybeRefreshStorageLogoUrl();
@@ -1727,6 +1746,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _logoUrlFieldCtrl.text = clean;
         }
         _logoBytes = null;
+        _logoStagedNotUploaded = false;
       });
       await _maybeRefreshStorageLogoUrl();
     } catch (_) {}
@@ -1765,6 +1785,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     setState(() {
       _logoUrl = u;
       _logoBytes = null;
+      _logoStagedNotUploaded = false;
     });
     await _saveLogoUrl(u);
     if (mounted) {
@@ -1791,9 +1812,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     ThemeCleanPremium.hapticAction();
     setState(() => _saving = true);
     try {
-      // Token em cache (sem forçar refresh) — mais rápido; claims costumam já estar válidas.
       await FirebaseAuth.instance.currentUser?.getIdToken();
       final resolvedId = await _resolvedTenantId;
+      if (_canEdit &&
+          _logoStagedNotUploaded &&
+          _logoBytes != null &&
+          !_uploadingLogo) {
+        final logoOk = await _commitLogoUploadFromPending(
+            showCommitSuccessSnack: false);
+        if (!mounted) return;
+        if (!logoOk) {
+          setState(() => _saving = false);
+          return;
+        }
+      }
       final slugRaw = _slugCtrl.text
           .trim()
           .toLowerCase()
@@ -2312,12 +2344,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Widget _buildIdentidadeVisualCard(
       String resolvedTenantId, Map<String, dynamic>? tenantLive) {
     final liveLogoUrl = churchTenantLogoUrl(tenantLive ?? {}).trim();
-    final liveLogoPath =
-        (ChurchImageFields.logoStoragePath(tenantLive) ?? '').trim();
-    /// OK só com dados persistidos no Firestore ou bytes locais pendentes de envio (não só URL em memória).
+    final liveUrlSan = liveLogoUrl.isNotEmpty
+        ? sanitizeImageUrl(liveLogoUrl)
+        : '';
+    /// OK: bytes locais ou URL https válida no doc (path sozinho gerava “OK” com prévia em branco).
     final hasLogo = _logoBytes != null ||
-        liveLogoUrl.isNotEmpty ||
-        liveLogoPath.isNotEmpty;
+        (liveUrlSan.isNotEmpty && isValidImageUrl(liveUrlSan));
     final gestorPhotoUrl = (_gestorExistingPhotoUrl ?? '').trim();
     final md = _gestorMemberData;
     final mdPhoto = md != null ? imageUrlFromMap(md).trim() : '';
@@ -2378,6 +2410,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                             c.maxWidth > 0 ? c.maxWidth : 160.0;
                         final iw = min(maxW - 10, 152.0);
                         const ih = 74.0;
+                        final dpr =
+                            MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+                        final memW = (iw * dpr).round().clamp(120, 600);
+                        final memH = (ih * dpr).round().clamp(80, 400);
                         return Center(
                           child: _igLogoOuterFrame(
                             width: iw,
@@ -2394,6 +2430,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                         width: iw,
                                         height: ih,
                                         fit: BoxFit.contain,
+                                        memCacheWidth: memW,
+                                        memCacheHeight: memH,
                                       )
                                     : _buildLogoPlaceholder(iconSize: 28)),
                           ),
@@ -3199,12 +3237,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   if (mounted) setState(() {});
                   unawaited(_hydrateGestorFromMembros(resolvedId));
                 });
-              } else if (!_uploadingLogo) {
+              } else if (!_uploadingLogo && !_logoStagedNotUploaded) {
                 final serverLogo = churchTenantLogoUrl(live);
                 final nu = serverLogo.isEmpty ? null : serverLogo;
                 if (nu != null && nu != _logoUrl) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted || _uploadingLogo) return;
+                    if (!mounted || _uploadingLogo || _logoStagedNotUploaded) {
+                      return;
+                    }
                     setState(() {
                       _logoUrl = nu;
                       _logoBytes = null;
@@ -3701,31 +3741,45 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                 color: Colors.grey.shade700),
                                           ),
                                           const SizedBox(height: 12),
-                                          _LinkRow(
-                                            label:
-                                                'Site público (eventos e informações)',
-                                            url: AppConstants
-                                                .publicChurchHomeUrl(
-                                                    _slugCtrl.text.trim()),
-                                            onCopy: () => _copyAndSnack(
-                                                context,
-                                                AppConstants
-                                                    .publicChurchHomeUrl(
-                                                        _slugCtrl.text.trim())),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          _LinkRow(
-                                            label:
-                                                'Cadastro de membros (público)',
-                                            url: AppConstants
-                                                .publicChurchMemberSignupUrl(
-                                                    _slugCtrl.text.trim()),
-                                            onCopy: () => _copyAndSnack(
-                                                context,
-                                                AppConstants
-                                                    .publicChurchMemberSignupUrl(
-                                                        _slugCtrl.text.trim())),
-                                          ),
+                                          Builder(builder: (ctx) {
+                                            final slug =
+                                                _slugCtrl.text.trim();
+                                            final homeUrl = slug.isEmpty
+                                                ? AppConstants.publicWebBaseUrl
+                                                : '${AppConstants.publicWebBaseUrl}/igreja/${Uri.encodeComponent(slug)}';
+                                            final cadUrl = slug.isEmpty
+                                                ? AppConstants.publicWebBaseUrl
+                                                : '$homeUrl/cadastro-membro';
+                                            return Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                _LinkRow(
+                                                  label:
+                                                      'Site público (eventos e informações)',
+                                                  url: homeUrl,
+                                                  onOpen: () =>
+                                                      openHttpsUrlInBrowser(
+                                                          ctx, homeUrl),
+                                                  onCopy: () =>
+                                                      _copyAndSnack(
+                                                          context, homeUrl),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                _LinkRow(
+                                                  label:
+                                                      'Cadastro de membros (público)',
+                                                  url: cadUrl,
+                                                  onOpen: () =>
+                                                      openHttpsUrlInBrowser(
+                                                          ctx, cadUrl),
+                                                  onCopy: () =>
+                                                      _copyAndSnack(
+                                                          context, cadUrl),
+                                                ),
+                                              ],
+                                            );
+                                          }),
                                         ],
                                       ),
                                     ),
@@ -3985,10 +4039,15 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 class _LinkRow extends StatelessWidget {
   final String label;
   final String url;
+  final VoidCallback onOpen;
   final VoidCallback onCopy;
 
-  const _LinkRow(
-      {required this.label, required this.url, required this.onCopy});
+  const _LinkRow({
+    required this.label,
+    required this.url,
+    required this.onOpen,
+    required this.onCopy,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4012,7 +4071,16 @@ class _LinkRow extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
+        IconButton.filled(
+          onPressed: onOpen,
+          icon: const Icon(Icons.open_in_browser_rounded, size: 20),
+          tooltip: 'Abrir',
+          style: IconButton.styleFrom(
+            backgroundColor: ThemeCleanPremium.primary,
+            foregroundColor: Colors.white,
+          ),
+        ),
         IconButton.filled(
           onPressed: onCopy,
           icon: const Icon(Icons.copy_rounded, size: 20),

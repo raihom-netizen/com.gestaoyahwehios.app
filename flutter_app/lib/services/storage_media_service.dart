@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
+        firebaseStorageObjectPathFromHttpUrl,
         imageUrlFromMap,
         isValidImageUrl,
         refreshFirebaseStorageDownloadUrl,
@@ -81,6 +82,45 @@ class StorageMediaService {
       } catch (_) {}
     }
     return null;
+  }
+
+  /// Pastas `membros/{stem}/` encontradas em qualquer string do mapa (URL https antiga, path, notas).
+  /// Ajuda quando o doc usa id ≠ pasta no Storage (ex.: CPF no doc, `foto_perfil` em `membros/{uid}/`).
+  static List<String> memberProfileFolderStemsFromFirestoreMap(
+      Map<String, dynamic> data) {
+    final out = <String>{};
+    final re = RegExp(r'(?:^|/)membros/([^/]+)/foto_perfil', caseSensitive: false);
+    void considerPath(String? path) {
+      if (path == null || path.isEmpty) return;
+      final m = re.firstMatch(path.replaceAll('\\', '/'));
+      if (m != null) {
+        final stem = m.group(1)!.trim();
+        if (stem.isNotEmpty) out.add(stem);
+      }
+    }
+
+    void scan(String s) {
+      if (s.isEmpty) return;
+      considerPath(firebaseStorageObjectPathFromHttpUrl(s));
+      considerPath(s);
+    }
+
+    void walk(dynamic v) {
+      if (v is String) {
+        scan(v);
+      } else if (v is Map) {
+        for (final e in v.values) {
+          walk(e);
+        }
+      } else if (v is Iterable) {
+        for (final e in v) {
+          walk(e);
+        }
+      }
+    }
+
+    walk(data);
+    return out.toList();
   }
 
   /// Fallback em cascata para mapas de mídia:

@@ -37,6 +37,7 @@ import 'admin_aviso_global_page.dart';
 import 'pages/storage_usage_page.dart';
 import 'widgets/version_footer.dart';
 import 'widgets/global_announcement_overlay.dart';
+import 'widgets/connectivity_offline_strip.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 
 part 'admin_igrejas_tab.dart';
@@ -85,7 +86,7 @@ String _masterMenuTitle(AdminMenuItem item) {
     case AdminMenuItem.sistemaArmazenamento:
       return 'Armazenamento';
     case AdminMenuItem.sistemaAvisoGlobal:
-      return 'Aviso global';
+      return 'Avisos e promoções';
     case AdminMenuItem.sistemaVersaoMinima:
       return 'Forçar atualização';
     case AdminMenuItem.sistemaMigrarMembros:
@@ -676,7 +677,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                       _drawerTile(
                           context,
                           Icons.campaign_rounded,
-                          'Aviso global / Manutenção',
+                          'Avisos, manutenção e promoções',
                           AdminMenuItem.sistemaAvisoGlobal),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaVersaoMinima))
                       _drawerTile(
@@ -885,6 +886,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                 right: false,
                 child: Column(
                   children: [
+                    const ConnectivityOfflineStrip(),
                     Expanded(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,

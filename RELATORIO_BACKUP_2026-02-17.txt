@@ -1,0 +1,66 @@
+RELATÓRIO DE BACKUP - GESTÃO YAHWEH PREMIUM
+Data do backup: 17/02/2026
+
+Regra: NÃO MEXER NO VISUAL JAMAIS (exceto se autorizado explicitamente)
+
+Estrutura principal do projeto:
+- CONECTAR_MEU_DOMINIO.md
+- CONTROLE_VERSAO.md
+- DEPLOY_MAC_LINUX.sh
+- DEPLOY_WINDOWS.bat
+- ESTRUTURA_ROTAS.md
+- firebase.json
+- firestore-frotasveiculo.rules
+- firestore.indexes.json
+- firestore.rules
+- MURAL_E_DRIVE.md
+- NIVEIS_ACESSO_E_MASTER.md
+- README_DEPLOY_PRODUCAO.md
+- README.md
+- RUN_SETUP_WINDOWS.bat
+- storage.rules
+- artifacts/
+- flutter_app/
+  - analysis_options.yaml
+  - buildlog.txt
+  - CONFIG_VERSAO_APP.md
+  - devtools_options.yaml
+  - FIREBASE_DOMAIN.md
+  - firebase.json
+  - gestao_yahweh.iml
+  - pubspec.yaml
+  - README.md
+  - android/
+  - assets/
+  - build/
+  - ios/
+  - lib/
+  - linux/
+  - macos/
+  - public/
+  - test/
+  - web/
+  - windows/
+- functions/
+  - backfillCpfIndex.js
+  - backfillUsersIndex.js
+  - package.json
+  - tsconfig.json
+  - upload_downloads.js
+  - lib/
+  - src/
+- scripts/
+  - BUILD_ANDROID_YAHWEH.ps1
+  - build_e_deploy_web.ps1
+  - bump_version.bat
+  - bump_version.ps1
+  - DEPLOY_PRODUCAO_YAHWEH.ps1
+  - GERAR_ZIP_TOTAL.ps1
+  - LimparTempParaD.bat
+  - LimparTempParaD.ps1
+  - RUN_TUDO.ps1
+- secrets/
+  - gestaoyahweh-21e23-7951f1817911.json
+
+Observação: Este relatório é um snapshot da estrutura do projeto em 17/02/2026. Para restaurar, utilize este arquivo como referência.
+

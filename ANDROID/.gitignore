@@ -1,0 +1,5 @@
+# Chaves com poder administrativo ou segredo OAuth — NUNCA commitar.
+*-firebase-adminsdk-*.json
+**/firebase-adminsdk-*.json
+client_secret*.json
+**/*client_secret*.json

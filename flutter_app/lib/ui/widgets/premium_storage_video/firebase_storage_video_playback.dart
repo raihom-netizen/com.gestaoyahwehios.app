@@ -6,7 +6,8 @@ import 'package:video_player/video_player.dart';
 const Map<String, String> kFirebaseStorageVideoHttpHeaders = {
   'User-Agent':
       'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
-  'Accept': 'video/mp4,video/webm,video/quicktime,video/*;q=0.9,*/*;q=0.8',
+  'Accept':
+      'application/vnd.apple.mpegurl,application/x-mpegURL,video/mp4,video/webm,video/quicktime,video/*;q=0.9,*/*;q=0.8',
 };
 
 /// Renova a URL de download (token) — **web e mobile** (padrão EcoFire: sempre URL fresca do SDK).

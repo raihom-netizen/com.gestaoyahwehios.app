@@ -13,7 +13,7 @@ import 'video_duration.dart';
 
 /// Regra de negócio: cada evento pode ter no máximo 2 vídeos (60s cada), 20 fotos.
 /// Vídeos: verificação de duração no upload; fotos: comprimidas em Full HD (1920x1080).
-/// Gera thumbnail para carregamento instantâneo no mural; persiste getDownloadURL() no Firestore.
+/// Vídeo: capa estática no Storage como `video_poster_*.jpg` (sem prefixo `thumb_`); URL no Firestore.
 class EventoGalleryService {
   EventoGalleryService._();
   static final EventoGalleryService instance = EventoGalleryService._();
@@ -27,7 +27,7 @@ class EventoGalleryService {
   static const int _photoMaxHeight = 1080;
 
   /// Adiciona mídia a um evento da coleção [eventos] (por eventoId).
-  /// Vídeo: verifica limite de 2 por evento, comprime (DefaultQuality), gera thumb, faz upload e salva URL + thumb.
+  /// Vídeo: verifica limite de 2 por evento, comprime (960×540, rápido), gera thumb, faz upload e salva URL + thumb.
   /// Foto: upload em alta resolução e salva URL (getDownloadURL).
   Future<void> adicionarMidiaAoEvento(String eventoId, File arquivo, bool isVideo) async {
     final eventoRef = _firestore.collection('eventos').doc(eventoId);
@@ -81,32 +81,35 @@ class EventoGalleryService {
     if (isVideo) {
       final MediaInfo? info = await VideoCompress.compressVideo(
         arquivo.path,
-        quality: VideoQuality.DefaultQuality,
+        quality: VideoQuality.Res960x540Quality,
         deleteOrigin: false,
         includeAudio: true,
       );
       if (info == null || info.file == null) throw Exception('Falha ao comprimir o vídeo.');
 
+      final compressed = info.file!;
       File? thumbFile;
       try {
-        thumbFile = await VideoCompress.getFileThumbnail(arquivo.path);
+        thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
       } catch (_) {}
 
-      final videoUrl = await _uploadToStorage(
+      final videoUrlFuture = _uploadToStorage(
         storagePathPrefix,
-        info.file!,
+        compressed,
         '$fileName.mp4',
         'video/mp4',
       );
-      String thumbUrl = '';
-      if (thumbFile != null && thumbFile.existsSync()) {
-        thumbUrl = await _uploadToStorage(
-          storagePathPrefix,
-          thumbFile,
-          'thumb_$fileName.jpg',
-          'image/jpeg',
-        );
-      }
+      final thumbUrlFuture = (thumbFile != null && thumbFile.existsSync())
+          ? _uploadToStorage(
+              storagePathPrefix,
+              thumbFile,
+              'video_poster_$fileName.jpg',
+              'image/jpeg',
+            )
+          : Future<String>.value('');
+      final urls = await Future.wait([videoUrlFuture, thumbUrlFuture]);
+      final videoUrl = urls[0];
+      final thumbUrl = urls[1];
 
       final novoVideo = {
         'url': videoUrl,

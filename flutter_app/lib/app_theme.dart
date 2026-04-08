@@ -10,6 +10,9 @@ abstract final class AppTheme {
   /// Largura máxima do conteúdo em desktop (evita “site esticado” em monitores largos).
   static const double maxContentWidthDesktop = 1200;
 
+  /// Feed tipo Instagram (Mural de Eventos / Mural de Avisos) na web — evita vídeo 16:9 e cards largos demais.
+  static const double maxSocialFeedWidthWeb = 520;
+
   /// Grid 8pt (margens / paddings padronizados).
   static const double space8 = 8;
   static const double space16 = 16;
@@ -30,7 +33,10 @@ abstract final class AppTheme {
 class SaaSContentViewport extends StatelessWidget {
   final Widget child;
 
-  const SaaSContentViewport({super.key, required this.child});
+  /// Em desktop, substitui o teto [AppTheme.maxContentWidthDesktop] (ex.: feed social mais estreito).
+  final double? maxWidthOverride;
+
+  const SaaSContentViewport({super.key, required this.child, this.maxWidthOverride});
 
   @override
   Widget build(BuildContext context) {
@@ -40,12 +46,32 @@ class SaaSContentViewport extends StatelessWidget {
         if (!avail.isFinite || avail <= 0) {
           return child;
         }
+        // Tablet/mobile no navegador: mesma altura mínima do viewport que no desktop.
         if (avail < AppTheme.desktopSidebarBreakpoint) {
+          if (c.hasBoundedHeight && c.maxHeight.isFinite && c.maxHeight > 0) {
+            return ConstrainedBox(
+              constraints: BoxConstraints(minHeight: c.maxHeight),
+              child: child,
+            );
+          }
           return child;
         }
-        final useW = avail > AppTheme.maxContentWidthDesktop
-            ? AppTheme.maxContentWidthDesktop
-            : avail;
+        final cap = maxWidthOverride ?? AppTheme.maxContentWidthDesktop;
+        final useW = avail > cap ? cap : avail;
+        // Altura mínima = viewport: evita filhos com Column+Expanded sem altura definida na web
+        // e melhora rolagem quando o módulo usa um único scroll (CustomScrollView).
+        if (c.hasBoundedHeight && c.maxHeight.isFinite && c.maxHeight > 0) {
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: useW,
+                minHeight: c.maxHeight,
+              ),
+              child: child,
+            ),
+          );
+        }
         return Align(
           alignment: Alignment.topCenter,
           child: SizedBox(width: useW, child: child),

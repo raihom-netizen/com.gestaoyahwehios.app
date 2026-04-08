@@ -161,6 +161,25 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
 
   static String _photoUrlFromData(Map<String, dynamic> data) => imageUrlFromMap(data);
 
+  /// Alinhado a [members_page] — pasta da foto no Storage pode ser o UID, não o id do doc.
+  static String? _authUidFromProfileData(Map<String, dynamic> d) {
+    for (final k in [
+      'authUid',
+      'firebaseUid',
+      'firebase_uid',
+      'firebaseUserId',
+      'userId',
+      'user_id',
+      'uid',
+      'USUARIO_UID',
+      'usuario_uid',
+    ]) {
+      final v = (d[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -193,6 +212,8 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
             }
 
             final data = load.data;
+            final cpfForPhoto =
+                load.cpfDigits.length == 11 ? load.cpfDigits : null;
             final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
             final email = (data['EMAIL'] ?? data['email'] ?? '').toString();
             final telefone = (data['TELEFONES'] ?? data['telefone'] ?? '').toString();
@@ -227,6 +248,10 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                       imageUrl: foto.isNotEmpty ? foto : null,
                       tenantId: widget.tenantId,
                       memberId: widget.memberId,
+                      cpfDigits: cpfForPhoto,
+                      authUid: _authUidFromProfileData(data),
+                      nomeCompleto: nome.trim().isNotEmpty ? nome.trim() : null,
+                      memberFirestoreHint: data,
                       imageCacheRevision: memberPhotoDisplayCacheRevision(data),
                       width: 96,
                       height: 96,

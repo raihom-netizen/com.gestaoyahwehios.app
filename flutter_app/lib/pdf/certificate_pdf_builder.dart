@@ -430,8 +430,8 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                         child: pw.Opacity(
                           opacity: 0.06,
                           child: pw.Container(
-                            width: 280,
-                            height: 280,
+                            width: 300,
+                            height: 300,
                             child: pw.Image(logoImage, fit: pw.BoxFit.contain),
                           ),
                         ),
@@ -441,20 +441,41 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.logoTop,
-                            child: logoImage != null
-                                ? pw.Center(
-                                    child: pw.Container(
-                                      width: 92,
-                                      height: 92,
-                                      child: pw.Image(logoImage,
-                                          fit: pw.BoxFit.contain),
-                                    ),
-                                  )
-                                : pw.SizedBox(),
+                            height: logoImage != null
+                                ? 8
+                                : _CertPdfLayoutHeights.logoTop,
                           ),
+                          if (logoImage != null)
+                            pw.Center(
+                              child: pw.Container(
+                                width: 136,
+                                height: 136,
+                                alignment: pw.Alignment.center,
+                                child: pw.Image(logoImage,
+                                    fit: pw.BoxFit.contain),
+                              ),
+                            ),
+                          if (logoImage != null) pw.SizedBox(height: 8),
+                          if (input.nomeIgreja.trim().isNotEmpty) ...[
+                            pw.Padding(
+                              padding:
+                                  const pw.EdgeInsets.symmetric(horizontal: 20),
+                              child: pw.Text(
+                                input.nomeIgreja.toUpperCase(),
+                                style: pw.TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: pdfCor,
+                                  font: fontForBody(),
+                                  letterSpacing: 0.4,
+                                ),
+                                textAlign: pw.TextAlign.center,
+                              ),
+                            ),
+                            pw.SizedBox(height: 6),
+                          ],
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.titleBlock,
+                            height: _CertPdfLayoutHeights.titleBlock - 28,
                             child: pw.Column(
                               mainAxisAlignment: pw.MainAxisAlignment.start,
                               crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -470,24 +491,6 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                                   ),
                                   textAlign: pw.TextAlign.center,
                                 ),
-                                if (input.nomeIgreja.trim().isNotEmpty) ...[
-                                  pw.SizedBox(height: 8),
-                                  pw.Padding(
-                                    padding: const pw.EdgeInsets.symmetric(
-                                        horizontal: 24),
-                                    child: pw.Text(
-                                      input.nomeIgreja.toUpperCase(),
-                                      style: pw.TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: pw.FontWeight.bold,
-                                        color: pdfCor,
-                                        font: fontForBody(),
-                                        letterSpacing: 0.4,
-                                      ),
-                                      textAlign: pw.TextAlign.center,
-                                    ),
-                                  ),
-                                ],
                                 if (input.subtitulo.trim().isNotEmpty) ...[
                                   pw.SizedBox(height: 6),
                                   pw.Padding(
@@ -603,8 +606,8 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Container(
-                          width: 88,
-                          height: 88,
+                          width: 104,
+                          height: 104,
                           alignment: pw.Alignment.topLeft,
                           child: logoImage != null
                               ? pw.Image(logoImage, fit: pw.BoxFit.contain)
@@ -655,7 +658,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                             ],
                           ),
                         ),
-                        pw.SizedBox(width: 88),
+                        pw.SizedBox(width: 104),
                       ],
                     ),
                     pw.SizedBox(height: 8),
@@ -755,64 +758,84 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                           height: _CertPdfLayoutHeights.logoTop +
                               _CertPdfLayoutHeights.titleBlock +
                               8,
-                          child: pw.Column(
-                            mainAxisAlignment: pw.MainAxisAlignment.start,
-                            crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          child: pw.Row(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
                             children: [
-                              if (logoImage != null)
-                                pw.Container(
-                                  width: 88,
-                                  height: 88,
-                                  margin: const pw.EdgeInsets.only(bottom: 10),
-                                  child: pw.Image(logoImage,
-                                      fit: pw.BoxFit.contain),
-                                ),
-                              pw.Text(
-                                input.titulo,
-                                style: pw.TextStyle(
-                                  fontSize: isMinimalista ? 26 : 24,
-                                  fontWeight: wDisplay,
-                                  color: pdfCor,
-                                  font: fontForTitle(),
-                                ),
-                                textAlign: pw.TextAlign.center,
+                              pw.Container(
+                                width: logoImage != null ? 104 : 0.0,
+                                height: logoImage != null ? 104 : 0.0,
+                                alignment: pw.Alignment.topLeft,
+                                child: logoImage != null
+                                    ? pw.Image(logoImage,
+                                        fit: pw.BoxFit.contain)
+                                    : pw.SizedBox(),
                               ),
-                              if (input.subtitulo.trim().isNotEmpty) ...[
-                                pw.SizedBox(height: 8),
-                                pw.Padding(
-                                  padding: const pw.EdgeInsets.symmetric(
-                                      horizontal: 12),
-                                  child: pw.Text(
-                                    input.subtitulo.trim(),
-                                    style: pw.TextStyle(
-                                      fontSize: 12,
-                                      fontStyle: pw.FontStyle.italic,
-                                      color: pdfTextCor,
-                                      font: fontForBody(),
+                              pw.Expanded(
+                                child: pw.Column(
+                                  mainAxisAlignment:
+                                      pw.MainAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      pw.CrossAxisAlignment.center,
+                                  children: [
+                                    pw.Text(
+                                      input.titulo,
+                                      style: pw.TextStyle(
+                                        fontSize:
+                                            isMinimalista ? 26 : 24,
+                                        fontWeight: wDisplay,
+                                        color: pdfCor,
+                                        font: fontForTitle(),
+                                      ),
+                                      textAlign: pw.TextAlign.center,
                                     ),
-                                    textAlign: pw.TextAlign.center,
-                                    maxLines: 3,
-                                  ),
+                                    if (input.subtitulo
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      pw.SizedBox(height: 8),
+                                      pw.Padding(
+                                        padding: const pw
+                                            .EdgeInsets.symmetric(
+                                            horizontal: 12),
+                                        child: pw.Text(
+                                          input.subtitulo.trim(),
+                                          style: pw.TextStyle(
+                                            fontSize: 12,
+                                            fontStyle:
+                                                pw.FontStyle.italic,
+                                            color: pdfTextCor,
+                                            font: fontForBody(),
+                                          ),
+                                          textAlign: pw.TextAlign.center,
+                                          maxLines: 3,
+                                        ),
+                                      ),
+                                    ],
+                                    if (input.nomeIgreja
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      pw.SizedBox(height: 8),
+                                      pw.Padding(
+                                        padding: const pw
+                                            .EdgeInsets.symmetric(
+                                            horizontal: 16),
+                                        child: pw.Text(
+                                          input.nomeIgreja
+                                              .toUpperCase(),
+                                          style: pw.TextStyle(
+                                            fontSize: 11,
+                                            color: pdfCor,
+                                            fontWeight:
+                                                pw.FontWeight.bold,
+                                            font: fontForBody(),
+                                            letterSpacing: 0.35,
+                                          ),
+                                          textAlign: pw.TextAlign.center,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                              ],
-                              if (input.nomeIgreja.trim().isNotEmpty) ...[
-                                pw.SizedBox(height: 8),
-                                pw.Padding(
-                                  padding: const pw.EdgeInsets.symmetric(
-                                      horizontal: 16),
-                                  child: pw.Text(
-                                    input.nomeIgreja.toUpperCase(),
-                                    style: pw.TextStyle(
-                                      fontSize: 11,
-                                      color: pdfCor,
-                                      fontWeight: pw.FontWeight.bold,
-                                      font: fontForBody(),
-                                      letterSpacing: 0.35,
-                                    ),
-                                    textAlign: pw.TextAlign.center,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ],
                           ),
                         ),

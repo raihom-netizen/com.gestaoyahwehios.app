@@ -40,6 +40,9 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -241,6 +244,16 @@ class _MembersPageState extends State<MembersPage> {
     }).toList();
     list.sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
     return list;
+  }
+
+  /// IDs de documento Firestore (`igrejas/{id}`) para um tenant, incluindo alias/slug duplicados.
+  Future<Set<String>> _resolvedFirestoreTenantIds(String tenantKey) async {
+    final t = tenantKey.trim();
+    if (t.isEmpty) return {};
+    final ids =
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(t);
+    if (ids.isEmpty) return {t};
+    return ids.toSet();
   }
 
   String _filtroGenero = 'todos'; // todos, masculino, feminino
@@ -477,6 +490,36 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   @override
+  void didUpdateWidget(MembersPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _resolvedTenantId = null;
+      _filtroStatus = 'todos';
+      _filtroGenero = 'todos';
+      _filtroFaixaEtaria = 'todas';
+      _filtroDiaCadastro = 'todos';
+      _filtroDepartamento = 'todos';
+      _filtroAniversarioMes = null;
+      _q = '';
+      _searchCtrl.clear();
+      _limitFuture = _limitService.checkLimit(
+        widget.tenantId,
+        planIdOverride:
+            (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
+                ? null
+                : (widget.subscription?['planId'] ?? '').toString().trim(),
+      );
+      _membersDataFuture = _loadMembersData();
+      _deptsFuture = _loadDeptsForFilter();
+      _resolveEffectiveTenantId().then((resolved) {
+        if (mounted && _resolvedTenantId != resolved) {
+          setState(() => _resolvedTenantId = resolved);
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
@@ -509,13 +552,9 @@ class _MembersPageState extends State<MembersPage> {
     final getOpts =
         GetOptions(source: forceServer ? Source.server : Source.serverAndCache);
 
-    // Carrega membros de TODOS os tenants e igrejas com mesmo slug/alias
-    final allTenantIds =
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-            effectiveId);
-    final igrejaIdsBySlug =
-        await TenantResolverService.getIgrejaIdsWithSameSlugOrAlias(
-            effectiveId);
+    // Documentos igrejas/* ligados (slug/alias/_sistema/_bpc) — uma resolução, sem varrer 2× a coleção.
+    final relatedIgrejaDocIds =
+        await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
     final db = FirebaseFirestore.instance;
 
     // Padrão: igrejas/{id}/membros; também 'members' (legado). Leituras iniciais em paralelo (sem repetir a mesma query 4×).
@@ -588,7 +627,7 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
 
-    final allIdsToQuery = <String>{...allTenantIds, ...igrejaIdsBySlug};
+    final allIdsToQuery = <String>{...relatedIgrejaDocIds};
     if (originalId.isNotEmpty) allIdsToQuery.add(originalId);
 
     final otherIds = allIdsToQuery.where((id) => id != effectiveId).toList();
@@ -1431,7 +1470,7 @@ class _MembersPageState extends State<MembersPage> {
                                 11))
                       _ActionChip(
                           icon: Icons.login_rounded,
-                          label: 'Criar login',
+                          label: 'Gerar senha / login',
                           color: const Color(0xFF059669),
                           onTap: () {
                             Navigator.pop(ctx);
@@ -1793,6 +1832,7 @@ class _MembersPageState extends State<MembersPage> {
                                     memberId: member.id,
                                     cpfDigits: _str(d, 'CPF', 'cpf'),
                                     authUid: _memberAuthUidFromData(d),
+                                    memCacheMaxPx: 720,
                                   ),
                                 Container(
                                   padding: const EdgeInsets.all(6),
@@ -3007,13 +3047,21 @@ class _MembersPageState extends State<MembersPage> {
                 nomeCompleto: nomeFoto,
                 authUid: authUidFoto.isEmpty ? null : authUidFoto,
               );
-              _showUploadProgressDialog('A enviar foto…');
+              GlobalUploadProgress.instance.start('A enviar foto…');
               try {
                 final upload = await MediaUploadService.uploadBytesDetailed(
                   storagePath: photoPath,
                   bytes: compressedBytes,
-                  contentType: 'image/jpeg',
+                  contentType: bytesLookLikeWebp(compressedBytes)
+                      ? 'image/webp'
+                      : 'image/jpeg',
                   skipClientPrepare: true,
+                  onProgress: GlobalUploadProgress.instance.update,
+                  deleteFirebaseDownloadUrlsBefore: () {
+                    final prev = previousPhotoUrlForEvict;
+                    if (prev == null || prev.isEmpty) return null;
+                    return <String>[prev];
+                  }(),
                 );
                 photoUrl = upload.downloadUrl;
                 photoStoragePath = upload.storagePath;
@@ -3030,11 +3078,11 @@ class _MembersPageState extends State<MembersPage> {
                       ThemeCleanPremium.successSnackBar('Foto enviada.'));
                 }
               } finally {
-                _hideUploadProgressDialog();
+                GlobalUploadProgress.instance.end();
               }
             }
           } catch (e) {
-            _hideUploadProgressDialog();
+            GlobalUploadProgress.instance.end();
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.feedbackSnackBar(
@@ -3126,12 +3174,32 @@ class _MembersPageState extends State<MembersPage> {
           }),
         );
 
-        final authUid = member.data['authUid']?.toString().trim();
-        if (authUid != null && authUid.isNotEmpty) {
+        var authUidSelf = member.data['authUid']?.toString().trim();
+        final newEmSelf = (updates['EMAIL'] ?? '').toString();
+        final prevEmSelf = _str(member.data, 'EMAIL', 'email');
+        var signedOutAfterEmail = false;
+        if (prevEmSelf.trim().toLowerCase() != newEmSelf.trim().toLowerCase() &&
+            newEmSelf.trim().contains('@')) {
+          final out = await _syncAuthAfterEmailChangeIfNeeded(
+            tenantId: targetTenantId,
+            memberDocId: member.id,
+            previousEmail: prevEmSelf,
+            newEmail: newEmSelf,
+          );
+          signedOutAfterEmail = out.signedOut;
+          final nuSelf = out.newAuthUid?.trim();
+          if (nuSelf != null && nuSelf.isNotEmpty) {
+            authUidSelf = nuSelf;
+          }
+        }
+
+        if (!signedOutAfterEmail &&
+            authUidSelf != null &&
+            authUidSelf.isNotEmpty) {
           try {
             await FirebaseFirestore.instance
                 .collection('users')
-                .doc(authUid)
+                .doc(authUidSelf)
                 .set({
               'nome': updates['NOME_COMPLETO'],
               'displayName': updates['NOME_COMPLETO'],
@@ -3163,9 +3231,11 @@ class _MembersPageState extends State<MembersPage> {
         }
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                  'Seu cadastro foi atualizado.'));
+          if (!signedOutAfterEmail) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.successSnackBar(
+                    'Seu cadastro foi atualizado.'));
+          }
           if (photoUrl != null) {
             final u = photoUrl;
             final mid = member.id;
@@ -3212,14 +3282,15 @@ class _MembersPageState extends State<MembersPage> {
             ? funcoesSelecionadasFinal.first
             : 'membro');
 
-    final newTenantIdRaw = result['newTenantId']?.toString().trim();
-    final isMoveToOtherChurch = widget.role == 'master' &&
-        newTenantIdRaw != null &&
+    final newTenantIdRaw = (result['newTenantId'] ?? '').toString().trim();
+    final previousTenantId = _tenantIdForMemberData(member.data).trim();
+    // Quem vê o dropdown de igreja (_canTransferMember) precisa gravar a troca;
+    // antes só `role == master` e comparava com o painel — ADM/ADMIN ignorados e falso negativo se tenant do membro ≠ painel.
+    final isMoveToOtherChurch = _canTransferMember &&
         newTenantIdRaw.isNotEmpty &&
-        newTenantIdRaw != _effectiveTenantId;
-    final targetTenantId = isMoveToOtherChurch
-        ? newTenantIdRaw
-        : _tenantIdForMemberData(member.data);
+        newTenantIdRaw != previousTenantId;
+    final targetTenantId =
+        isMoveToOtherChurch ? newTenantIdRaw : previousTenantId;
 
     var permBaseFinal = funcaoFinal.toLowerCase();
     try {
@@ -3258,13 +3329,21 @@ class _MembersPageState extends State<MembersPage> {
             nomeCompleto: nomeFotoGestor,
             authUid: authUidGestor.isEmpty ? null : authUidGestor,
           );
-          _showUploadProgressDialog('A enviar foto…');
+          GlobalUploadProgress.instance.start('A enviar foto…');
           try {
             final upload = await MediaUploadService.uploadBytesDetailed(
               storagePath: photoPath,
               bytes: compressedBytes,
-              contentType: 'image/jpeg',
+              contentType: bytesLookLikeWebp(compressedBytes)
+                  ? 'image/webp'
+                  : 'image/jpeg',
               skipClientPrepare: true,
+              onProgress: GlobalUploadProgress.instance.update,
+              deleteFirebaseDownloadUrlsBefore: () {
+                final prev = previousPhotoUrlForEvictGestor;
+                if (prev == null || prev.isEmpty) return null;
+                return <String>[prev];
+              }(),
             );
             photoUrl = upload.downloadUrl;
             photoStoragePath = upload.storagePath;
@@ -3281,11 +3360,11 @@ class _MembersPageState extends State<MembersPage> {
                   ThemeCleanPremium.successSnackBar('Foto enviada.'));
             }
           } finally {
-            _hideUploadProgressDialog();
+            GlobalUploadProgress.instance.end();
           }
         }
       } catch (e) {
-        _hideUploadProgressDialog();
+        GlobalUploadProgress.instance.end();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'));
@@ -3418,7 +3497,23 @@ class _MembersPageState extends State<MembersPage> {
           } catch (_) {}
         }),
       );
-      final authUid = member.data['authUid']?.toString().trim();
+      var authUid = member.data['authUid']?.toString().trim();
+      final newEmGestor = (updates['EMAIL'] ?? '').toString();
+      final prevEmGestor = _str(member.data, 'EMAIL', 'email');
+      if (prevEmGestor.trim().toLowerCase() !=
+              newEmGestor.trim().toLowerCase() &&
+          newEmGestor.trim().contains('@')) {
+        final out = await _syncAuthAfterEmailChangeIfNeeded(
+          tenantId: targetTenantId,
+          memberDocId: member.id,
+          previousEmail: prevEmGestor,
+          newEmail: newEmGestor,
+        );
+        final nu = out.newAuthUid?.trim();
+        if (nu != null && nu.isNotEmpty) {
+          authUid = nu;
+        }
+      }
       final rolesList = funcoesSelecionadasFinal
           .map((e) => e.toString().trim().toLowerCase())
           .where((s) => s.isNotEmpty)
@@ -3470,10 +3565,12 @@ class _MembersPageState extends State<MembersPage> {
         } catch (_) {}
       }
       if (isMoveToOtherChurch) {
-        final oldIds =
-            await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-                _effectiveTenantId);
-        final idsToRemove = oldIds.isEmpty ? [_effectiveTenantId] : oldIds;
+        final newResolved = await _resolvedFirestoreTenantIds(targetTenantId);
+        final oldFromMember = await _resolvedFirestoreTenantIds(previousTenantId);
+        final oldFromPanel =
+            await _resolvedFirestoreTenantIds(_effectiveTenantId);
+        final idsToRemove =
+            {...oldFromMember, ...oldFromPanel}.difference(newResolved);
         for (final tid in idsToRemove) {
           try {
             await db
@@ -3505,20 +3602,40 @@ class _MembersPageState extends State<MembersPage> {
         try {
           final functions =
               FirebaseFunctions.instanceFor(region: 'us-central1');
-          await functions.httpsCallable('setMemberPassword').call({
+          final res =
+              await functions.httpsCallable('setMemberPassword').call({
             'tenantId': targetTenantId,
-            'memberId': member.id,
+            'memberId': (authUid != null && authUid.isNotEmpty)
+                ? authUid
+                : member.id,
             'newPassword': newPassword,
           });
-          if (mounted)
+          final map = res.data as Map?;
+          final recreated = map?['recreated'] == true;
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                 ThemeCleanPremium.successSnackBar(
-                    'Membro e senha atualizados!'));
-        } catch (e) {
-          if (mounted)
+              recreated
+                  ? 'Membro salvo. Conta de login recriada e senha definida.'
+                  : 'Membro e senha atualizados!',
+            ));
+          }
+        } on FirebaseFunctionsException catch (e) {
+          if (mounted) {
+            final detail = (e.message ?? '').trim();
+            final short = detail.isNotEmpty
+                ? detail
+                : 'Não foi possível alterar a senha (${e.code}).';
             ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar(
-                    'Membro salvo, mas falha ao alterar senha: $e'));
+                ThemeCleanPremium.feedbackSnackBar(
+                    'Membro salvo, mas falha ao alterar senha: $short'));
+          }
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.feedbackSnackBar(
+                    'Membro salvo, mas não foi possível alterar a senha.'));
+          }
         }
       } else if (mounted && !isMoveToOtherChurch) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3596,6 +3713,69 @@ class _MembersPageState extends State<MembersPage> {
             ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'));
       }
     }
+  }
+
+  /// Após gravar novo e-mail em [membros]: recria utilizador Auth (Cloud Function).
+  /// [newAuthUid] quando a conta foi recriada (gestor deve usar ao atualizar `users/`).
+  Future<({bool signedOut, String? newAuthUid})> _syncAuthAfterEmailChangeIfNeeded({
+    required String tenantId,
+    required String memberDocId,
+    required String previousEmail,
+    required String newEmail,
+  }) async {
+    final prev = previousEmail.trim().toLowerCase();
+    final next = newEmail.trim().toLowerCase();
+    if (prev == next || !next.contains('@')) {
+      return (signedOut: false, newAuthUid: null);
+    }
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('recreateMemberAuthForNewEmail')
+          .call({
+        'tenantId': tenantId,
+        'memberDocId': memberDocId,
+      });
+      final map = Map<String, dynamic>.from(res.data as Map? ?? {});
+      if (map['skipped'] == true || map['unchanged'] == true) {
+        return (signedOut: false, newAuthUid: null);
+      }
+      if (map['recreated'] == true) {
+        final newUid = map['newUid']?.toString().trim();
+        final prevUid = map['previousUid']?.toString();
+        final cur = FirebaseAuth.instance.currentUser?.uid;
+        if (prevUid != null &&
+            prevUid.isNotEmpty &&
+            cur != null &&
+            cur == prevUid) {
+          if (!mounted) {
+            return (signedOut: true, newAuthUid: newUid);
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              'E-mail de login atualizado. Entre novamente com o novo e-mail e a senha 123456 (altere depois em Meu cadastro).',
+            ),
+          );
+          await FirebaseAuth.instance.signOut();
+          return (signedOut: true, newAuthUid: newUid);
+        }
+        if (mounted && (map['message'] ?? '').toString().trim().isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(map['message'].toString()),
+          );
+        }
+        return (signedOut: false, newAuthUid: newUid);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'E-mail salvo, mas não foi possível atualizar o login: $e',
+          ),
+        );
+      }
+    }
+    return (signedOut: false, newAuthUid: null);
   }
 
   /// IDs de documento em `users/` costumam ser UID do Firebase Auth (28 chars alfanum.).
@@ -3724,10 +3904,13 @@ class _MembersPageState extends State<MembersPage> {
         'tenantId': _effectiveTenantId,
         'memberId': member.id,
       });
+      final resMap = Map<String, dynamic>.from(res.data as Map? ?? {});
+      final membroDocId =
+          (resMap['membroFirestoreId'] ?? member.id).toString().trim();
       try {
         await functions.httpsCallable('setMemberPassword').call({
           'tenantId': _effectiveTenantId,
-          'memberId': member.id,
+          'memberId': membroDocId,
           'newPassword': '123456',
         });
       } catch (_) {}
@@ -3738,7 +3921,7 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(ThemeCleanPremium.successSnackBar(msg));
-        setState(() {});
+        _refreshMembers(forceServer: true);
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
@@ -3768,10 +3951,10 @@ class _MembersPageState extends State<MembersPage> {
       }
       return;
     }
-    if (member.data['authUid'] == null) {
+    if ((member.data['authUid'] ?? '').toString().trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-              'Este membro ainda não tem login. Use "Criar login" primeiro.'));
+              'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.'));
       return;
     }
     final newPasswordCtrl = TextEditingController();
@@ -3822,15 +4005,31 @@ class _MembersPageState extends State<MembersPage> {
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      await functions.httpsCallable('setMemberPassword').call({
+      final res =
+          await functions.httpsCallable('setMemberPassword').call({
         'tenantId': _effectiveTenantId,
         'memberId': member.id,
         'newPassword': newPassword,
       });
-      if (mounted)
+      final map = res.data as Map?;
+      final recreated = map?['recreated'] == true;
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'Senha alterada. Avise o membro.'));
+          recreated
+              ? 'Conta de login recriada e senha definida. Avise o membro.'
+              : 'Senha alterada. Avise o membro.',
+        ));
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        final detail = e.message?.trim();
+        final msg = (detail != null && detail.isNotEmpty)
+            ? detail
+            : 'Não foi possível redefinir a senha (código: ${e.code}).';
+        ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.feedbackSnackBar(msg));
+      }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3870,38 +4069,10 @@ class _MembersPageState extends State<MembersPage> {
       );
     }
     if (source == null) return null;
-    return MediaHandlerService.instance.pickAndProcessImage(source: source);
-  }
-
-  void _showUploadProgressDialog(String message) {
-    if (!mounted) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              message,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(minHeight: 3),
-          ],
-        ),
-      ),
+    return MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
+      source: source,
+      webCropContext: context,
     );
-  }
-
-  void _hideUploadProgressDialog() {
-    if (!mounted) return;
-    final nav = Navigator.of(context, rootNavigator: true);
-    if (nav.canPop()) nav.pop();
   }
 
   /// Rótulo + chave para cor (badges na lista).
@@ -4051,6 +4222,8 @@ class _MembersPageState extends State<MembersPage> {
                                     memberId: docs[i].id,
                                     cpfDigits: cpfDigits,
                                     authUid: _memberAuthUidFromData(data),
+                                    // Lista: decode ~200px — não puxar 4K para cada linha.
+                                    memCacheMaxPx: 224,
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -4451,9 +4624,10 @@ class _MembersPageState extends State<MembersPage> {
         return;
       }
       final branding = await loadReportPdfBranding(_effectiveTenantId);
-      final data = docs.map((d) {
-        final m = d.data;
+      final data = docs.asMap().entries.map((e) {
+        final m = e.value.data;
         return [
+          '${e.key + 1}',
           (m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString(),
           (m['EMAIL'] ?? m['email'] ?? '').toString(),
           (m['TELEFONES'] ?? m['telefone'] ?? '').toString(),
@@ -4471,6 +4645,7 @@ class _MembersPageState extends State<MembersPage> {
             child: PdfSuperPremiumTheme.header(
               'Relatório de Membros',
               branding: branding,
+              extraLines: ['Total de membros: ${docs.length}'],
             ),
           ),
           footer: (ctx) => PdfSuperPremiumTheme.footer(
@@ -4479,7 +4654,14 @@ class _MembersPageState extends State<MembersPage> {
           ),
           build: (ctx) => [
             PdfSuperPremiumTheme.fromTextArray(
-              headers: const ['Nome', 'E-mail', 'Telefone', 'CPF', 'Status'],
+              headers: const [
+                '#',
+                'Nome',
+                'E-mail',
+                'Telefone',
+                'CPF',
+                'Status'
+              ],
               data: data,
               accent: branding.accent,
             ),
@@ -5318,6 +5500,7 @@ class _MembersPageState extends State<MembersPage> {
                           .toList();
                       Widget listContent;
                       if (docs.isEmpty) {
+                        final filteredOut = allDocs.isNotEmpty;
                         if (_q.isNotEmpty) {
                           listContent = Center(
                               child: Text(
@@ -5325,6 +5508,54 @@ class _MembersPageState extends State<MembersPage> {
                                   style: TextStyle(
                                       color:
                                           ThemeCleanPremium.onSurfaceVariant)));
+                        } else if (filteredOut) {
+                          listContent = Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(
+                                  ThemeCleanPremium.spaceLg),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.filter_alt_off_rounded,
+                                      size: 64, color: Colors.grey.shade400),
+                                  const SizedBox(
+                                      height: ThemeCleanPremium.spaceMd),
+                                  Text(
+                                    'Nenhum membro corresponde aos filtros ativos.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: ThemeCleanPremium.onSurface),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Há ${allDocs.length} na lista bruta. Ajuste a aba Todos/Ativos/Inativos ou os filtros avançados.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        height: 1.35,
+                                        color: ThemeCleanPremium
+                                            .onSurfaceVariant),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  FilledButton.icon(
+                                    onPressed: () => setState(() {
+                                      _filtroStatus = 'todos';
+                                      _filtroGenero = 'todos';
+                                      _filtroFaixaEtaria = 'todas';
+                                      _filtroDiaCadastro = 'todos';
+                                      _filtroDepartamento = 'todos';
+                                      _filtroAniversarioMes = null;
+                                    }),
+                                    icon: const Icon(Icons.restart_alt_rounded,
+                                        size: 20),
+                                    label: const Text('Limpar filtros'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
                         } else {
                           listContent = Center(
                             child: Padding(
@@ -6295,8 +6526,12 @@ String? _memberAuthUidFromData(Map<String, dynamic> d) {
     'authUid',
     'firebaseUid',
     'firebase_uid',
+    'firebaseUserId',
     'userId',
-    'user_id'
+    'user_id',
+    'uid',
+    'USUARIO_UID',
+    'usuario_uid',
   ]) {
     final v = (d[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;

@@ -14,6 +14,7 @@ class MediaUploadService {
 
   static bool _shouldCompressJpeg(String contentType) {
     final ct = contentType.toLowerCase().trim();
+    if (ct == 'image/webp') return false;
     return ct == 'image/jpeg' || ct == 'image/jpg';
   }
 
@@ -200,10 +201,9 @@ class MediaUploadService {
     );
   }
 
-  /// Salva variantes de imagem (thumb/card/full). **Não** usar para foto de perfil de membro:
-  /// o canónico é só `foto_perfil.jpg`. Após upload, use
-  /// [FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload] para remover
-  /// `thumb_foto_perfil.jpg` etc. (ex.: extensão Resize Images no Console).
+  /// Legado: gravava `_thumb` / `_card` / `_full` no mesmo bucket (três ficheiros).
+  /// Política atual: **um** ficheiro canónico por recurso (como buckets só com o original).
+  @Deprecated('Usar um único uploadBytesDetailed/uploadFileDetailed; não criar variantes no Storage.')
   static Future<Map<String, MediaUploadResult>> uploadImageVariants({
     required String basePathWithoutExt,
     required Uint8List imageBytes,

@@ -73,6 +73,11 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    // Evita :app:lintVitalAnalyzeRelease a bloquear ficheiros no Windows (antivírus/IDE).
+    lint {
+        checkReleaseBuilds = false
+    }
 }
 
 flutter {

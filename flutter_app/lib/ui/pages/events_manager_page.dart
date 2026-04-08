@@ -16,7 +16,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:video_player/video_player.dart';
+import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
@@ -32,7 +32,9 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaVideoThumbUrl,
         looksLikeHostedVideoFileUrl,
-        postFeedCarouselAspectRatioForIndex;
+        postFeedCarouselAspectRatioForIndex,
+        cacheBustImageUrl,
+        eventNoticiaMediaCacheRevision;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -55,15 +57,13 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart';
-import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
-import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show resolveNoticiaSharePreviewImageUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage, resolveNoticiaHostedVideoShareUrl;
+    show
+        buildNoticiaInviteShareMessage,
+        resolveNoticiaShareSheetMedia;
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -1213,7 +1213,13 @@ class _FeedTabState extends State<_FeedTab> {
 
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: ListView(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final avail = constraints.maxWidth;
+              final narrowFeed = kIsWeb &&
+                  avail.isFinite &&
+                  avail > AppTheme.maxSocialFeedWidthWeb;
+              Widget feedList = ListView(
             padding: const EdgeInsets.fromLTRB(
                 ThemeCleanPremium.spaceMd,
                 ThemeCleanPremium.spaceSm,
@@ -1405,6 +1411,18 @@ class _FeedTabState extends State<_FeedTab> {
                     );
                   }),
             ],
+          );
+              if (narrowFeed) {
+                feedList = Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(
+                    width: AppTheme.maxSocialFeedWidthWeb,
+                    child: feedList,
+                  ),
+                );
+              }
+              return feedList;
+            },
           ),
         );
       },
@@ -2097,16 +2115,15 @@ class _EventoPostState extends State<_EventoPost>
       publicSiteUrl: publicSite,
       inviteCardUrl: inviteUrl,
     );
-    final coverUrl = await resolveNoticiaSharePreviewImageUrl(data);
-    final videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+    final media = await resolveNoticiaShareSheetMedia(data);
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
       context,
       shareLink: inviteUrl,
       shareMessage: msg,
       shareSubject: 'Convite — $churchName',
-      previewImageUrl: coverUrl,
-      videoPlayUrl: videoUrl,
+      previewImageUrl: media.previewImageUrl,
+      videoPlayUrl: media.videoPlayUrl,
       sharePositionOrigin: shareOrigin,
     );
   }
@@ -2138,6 +2155,8 @@ class _EventoPostState extends State<_EventoPost>
     required Widget Function() errorWidget,
   }) {
     final url = sanitizeImageUrl(imageUrl);
+    final rev = eventNoticiaMediaCacheRevision(data);
+    final displayUrl = cacheBustImageUrl(url, revisionMs: rev);
     final ph = Container(
       color: const Color(0xFFF8FAFC),
       child: Center(
@@ -2158,9 +2177,9 @@ class _EventoPostState extends State<_EventoPost>
         : null;
     if (path != null && path.trim().isNotEmpty) {
       return StableStorageImage(
-        key: ValueKey('evt_st_${path}_$url'),
+        key: ValueKey('evt_st_${path}_$displayUrl'),
         storagePath: path,
-        imageUrl: isValidImageUrl(url) ? url : null,
+        imageUrl: isValidImageUrl(url) ? displayUrl : null,
         gsUrl: url.toLowerCase().startsWith('gs://') ? url : null,
         width: w,
         height: h,
@@ -2175,8 +2194,8 @@ class _EventoPostState extends State<_EventoPost>
         (isFirebaseStorageHttpUrl(url) || firebaseStorageMediaUrlLooksLike(url));
     if (storageLike) {
       return FreshFirebaseStorageImage(
-        key: ValueKey('evt_ff_$url'),
-        imageUrl: url,
+        key: ValueKey('evt_ff_$displayUrl'),
+        imageUrl: displayUrl,
         fit: BoxFit.cover,
         width: w,
         height: h,
@@ -2188,8 +2207,8 @@ class _EventoPostState extends State<_EventoPost>
     }
     if (isValidImageUrl(url)) {
       return SafeNetworkImage(
-        key: ValueKey('evt_sn_$url'),
-        imageUrl: url,
+        key: ValueKey('evt_sn_$displayUrl'),
+        imageUrl: displayUrl,
         fit: BoxFit.cover,
         width: w,
         height: h,
@@ -2664,7 +2683,7 @@ class _EventoPostState extends State<_EventoPost>
               text,
               style: TextStyle(
                   color: Colors.grey.shade800,
-                  fontSize: 14,
+                  fontSize: kIsWeb ? 13 : 14,
                   height: 1.45,
                   fontWeight: FontWeight.w500),
             ),
@@ -2912,82 +2931,21 @@ class _HostedVideoInlinePanel extends StatefulWidget {
 }
 
 class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
-  VideoPlayerController? _c;
   bool _failed = false;
   bool _posterLoading = false;
-
-  /// EcoFire: URL fresca do Storage para pré-carregar vídeo (web + mobile).
-  String? _resolvedVideoUrl;
-
-  void _listener() {
-    if (mounted) setState(() {});
-  }
 
   @override
   void initState() {
     super.initState();
-    _posterLoading = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _resolveAndInit());
-  }
-
-  Future<void> _resolveAndInit() async {
-    if (!mounted || widget.videoUrl.trim().isEmpty) {
-      if (mounted) setState(() => _posterLoading = false);
-      return;
-    }
-    try {
-      final resolved =
-          await resolveFirebaseStorageVideoPlayUrl(widget.videoUrl);
-      if (!mounted) return;
-      if (resolved.isEmpty || Uri.tryParse(resolved) == null) {
-        setState(() {
-          _posterLoading = false;
-          _failed = true;
-        });
-        return;
-      }
-      setState(() => _resolvedVideoUrl = resolved);
-      if (kIsWeb) {
-        setState(() => _posterLoading = false);
-        return;
-      }
-      final safeThumb = sanitizeImageUrl(widget.thumbUrl);
-      if (isValidImageUrl(safeThumb)) {
-        setState(() => _posterLoading = false);
-        return;
-      }
-      final controller = networkVideoControllerForUrl(resolved);
-      await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      await controller.setVolume(0);
-      await controller.pause();
-      controller.addListener(_listener);
-      setState(() {
-        _c = controller;
-        _posterLoading = false;
-      });
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _posterLoading = false;
-          _failed = true;
-        });
-      }
-    }
+    _posterLoading = false;
   }
 
   @override
   void dispose() {
-    _c?.removeListener(_listener);
-    _c?.dispose();
     super.dispose();
   }
 
   Future<void> _openFullscreen() async {
-    _c?.pause();
     if (!mounted) return;
     final t = sanitizeImageUrl(widget.thumbUrl);
     await Navigator.of(context).push<void>(
@@ -3007,13 +2965,9 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
   Widget build(BuildContext context) {
     final safeThumb = sanitizeImageUrl(widget.thumbUrl);
     final useThumb = isValidImageUrl(safeThumb);
-    final resolved = _resolvedVideoUrl ?? '';
-    /// Web: sempre player HTML no feed (igual Instagram mural / site divulgação). Antes só sem thumb —
-    /// com miniatura Storage falhava no canvas e virava cinza + play.
-    final webHostedPlayer =
-        kIsWeb && resolved.isNotEmpty && !_failed;
-    final thumbOrPosterReady =
-        useThumb || (_c != null && _c!.value.isInitialized);
+    final storageLikeThumb = useThumb &&
+        (isFirebaseStorageHttpUrl(safeThumb) ||
+            firebaseStorageMediaUrlLooksLike(safeThumb));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3030,73 +2984,65 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
               fit: StackFit.expand,
               clipBehavior: Clip.hardEdge,
               children: [
-                if (webHostedPlayer)
-                  Positioned.fill(
-                    child: ClipRRect(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                      child: PremiumHtmlFeedVideo(
-                        videoUrl: widget.videoUrl,
-                        visibilityKey:
-                            'emgr_${identityHashCode(this)}',
-                        showControls: true,
-                        posterUrl: useThumb ? safeThumb : null,
-                        startLoadingImmediately: true,
-                        videoObjectFitContain: false,
-                      ),
-                    ),
-                  )
-                else if (_c != null && _c!.value.isInitialized)
-                  FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _c!.value.size.width,
-                      height: _c!.value.size.height,
-                      child: VideoPlayer(_c!),
-                    ),
-                  )
-                else if (useThumb)
+                if (useThumb)
                   LayoutBuilder(
                     builder: (context, c) {
                       final w = c.maxWidth;
                       final h = c.maxHeight;
                       final dpr = MediaQuery.devicePixelRatioOf(context);
+                      final memW = (w * dpr).round().clamp(64, 1920);
+                      final memH = (h * dpr).round().clamp(64, 1920);
+                      final ph = DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.grey.shade800,
+                              const Color(0xFF0F172A)
+                            ],
+                          ),
+                        ),
+                        child: const Center(
+                            child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white38))),
+                      );
+                      final err = DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [
+                            Colors.grey.shade700,
+                            const Color(0xFF0F172A)
+                          ]),
+                        ),
+                        child: Center(
+                            child: Icon(Icons.videocam_off_rounded,
+                                color: Colors.white.withValues(alpha: 0.5),
+                                size: 40)),
+                      );
+                      if (storageLikeThumb) {
+                        return FreshFirebaseStorageImage(
+                          key: ValueKey<String>('evt_vid_poster_$safeThumb'),
+                          imageUrl: safeThumb,
+                          fit: BoxFit.cover,
+                          width: w,
+                          height: h,
+                          memCacheWidth: memW,
+                          memCacheHeight: memH,
+                          placeholder: ph,
+                          errorWidget: err,
+                        );
+                      }
                       return SafeNetworkImage(
                         key: ValueKey(safeThumb),
                         imageUrl: safeThumb,
                         fit: BoxFit.cover,
                         width: w,
                         height: h,
-                        memCacheWidth: (w * dpr).round().clamp(64, 1920),
-                        memCacheHeight: (h * dpr).round().clamp(64, 1920),
-                        placeholder: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.grey.shade800,
-                                const Color(0xFF0F172A)
-                              ],
-                            ),
-                          ),
-                          child: const Center(
-                              child: SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white38))),
-                        ),
-                        errorWidget: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(colors: [
-                              Colors.grey.shade700,
-                              const Color(0xFF0F172A)
-                            ]),
-                          ),
-                          child: Center(
-                              child: Icon(Icons.videocam_off_rounded,
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  size: 40)),
-                        ),
+                        memCacheWidth: memW,
+                        memCacheHeight: memH,
+                        placeholder: ph,
+                        errorWidget: err,
                       );
                     },
                   )
@@ -3177,10 +3123,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
                     ),
                   ),
                 ),
-                if (!_failed &&
-                    !webHostedPlayer &&
-                    !_posterLoading &&
-                    thumbOrPosterReady)
+                if (!_failed && !_posterLoading)
                   Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -3199,7 +3142,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
         Padding(
           padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
           child: Text(
-            webHostedPlayer
+            kIsWeb
                 ? 'Controles do navegador · ícone Tela cheia para ampliar'
                 : 'Toque no vídeo para abrir em tela cheia nesta mesma sessão',
             style: TextStyle(
@@ -4378,7 +4321,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'Otimizando e enviando vídeo (máx. ${_maxVideoSeconds}s)...'));
+                'Comprimindo e enviando vídeo (960p, máx. ${_maxVideoSeconds}s)...'));
       final result = await VideoHandlerService.instance.pickCompressAndUpload(
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
@@ -4514,7 +4457,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ? 'Aguarde o envio em andamento…'
                       : videosFull
                           ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                          : 'Até 60 s — envio otimizado',
+                          : 'Até 60 s — compressão 960p rápida',
                   style: TextStyle(
                     fontSize: 12,
                     color: (_uploadingVideo || videosFull)

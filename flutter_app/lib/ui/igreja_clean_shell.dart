@@ -40,6 +40,7 @@ import 'package:gestao_yahweh/core/roles_permissions.dart';
 import '../services/migrate_members_to_membros_service.dart';
 import 'widgets/version_footer.dart';
 import 'widgets/module_header_premium.dart';
+import 'widgets/connectivity_offline_strip.dart';
 import 'widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
@@ -153,13 +154,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
     _NavItem(Icons.event_available_rounded, 'Escala Geral'),
     _NavItem(Icons.badge_rounded, 'Cartão do membro'),
     _NavItem(Icons.workspace_premium_rounded, 'Certificados'),
-    _NavItem(Icons.account_balance_wallet_rounded, 'Financeiro'),
-    _NavItem(Icons.inventory_2_rounded, 'Patrimônio'),
     _NavItem(Icons.assessment_rounded, 'Relatórios'),
     _NavItem(Icons.settings_rounded, 'Configurações'),
     _NavItem(Icons.info_outline_rounded, 'Informações'),
     _NavItem(Icons.how_to_reg_rounded, 'Aprovações rápidas'),
     _NavItem(Icons.campaign_rounded, 'Pastoral & comunicação'),
+    _NavItem(Icons.account_balance_wallet_rounded, 'Financeiro'),
+    _NavItem(Icons.inventory_2_rounded, 'Patrimônio'),
   ];
 
   bool get _isDesktop => MediaQuery.sizeOf(context).width >= _breakpointDesktop;
@@ -173,50 +174,62 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    return NavigationBar(
-      height: 64,
-      selectedIndex: _bottomNavSelectedSlot,
-      onDestinationSelected: (slot) {
-        if (slot == _kBottomNavShellIndices.length) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _scaffoldKey.currentState?.openDrawer();
-          });
-          return;
-        }
-        final idx = _kBottomNavShellIndices[slot];
-        if (!_canAccessItem(idx)) {
-          _showPanelSnack('Sem acesso a este módulo.', isError: true);
-          return;
-        }
-        setState(() => _selectedIndex = idx);
-      },
-      destinations: [
-        NavigationDestination(
-          icon: Icon(_items[0].icon),
-          label: 'Painel',
-          tooltip: _items[0].label,
+    return Theme(
+      data: Theme.of(context).copyWith(
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: ThemeCleanPremium.cardBackground,
+          surfaceTintColor: Colors.transparent,
+          elevation: 12,
+          shadowColor: Colors.black.withOpacity(0.12),
+          indicatorColor: ThemeCleanPremium.primary.withOpacity(0.14),
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         ),
-        NavigationDestination(
-          icon: Icon(_items[2].icon),
-          label: 'Membros',
-          tooltip: _items[2].label,
-        ),
-        NavigationDestination(
-          icon: Icon(_items[7].icon),
-          label: 'Eventos',
-          tooltip: _items[7].label,
-        ),
-        NavigationDestination(
-          icon: Icon(_items[6].icon),
-          label: 'Mural',
-          tooltip: _items[6].label,
-        ),
-        const NavigationDestination(
-          icon: Icon(Icons.menu_rounded),
-          label: 'Menu',
-          tooltip: 'Mais opções',
-        ),
-      ],
+      ),
+      child: NavigationBar(
+        height: 64,
+        selectedIndex: _bottomNavSelectedSlot,
+        onDestinationSelected: (slot) {
+          if (slot == _kBottomNavShellIndices.length) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _scaffoldKey.currentState?.openDrawer();
+            });
+            return;
+          }
+          final idx = _kBottomNavShellIndices[slot];
+          if (!_canAccessItem(idx)) {
+            _showPanelSnack('Sem acesso a este módulo.', isError: true);
+            return;
+          }
+          setState(() => _selectedIndex = idx);
+        },
+        destinations: [
+          NavigationDestination(
+            icon: Icon(_items[0].icon),
+            label: 'Painel',
+            tooltip: _items[0].label,
+          ),
+          NavigationDestination(
+            icon: Icon(_items[2].icon),
+            label: 'Membros',
+            tooltip: _items[2].label,
+          ),
+          NavigationDestination(
+            icon: Icon(_items[7].icon),
+            label: 'Eventos',
+            tooltip: _items[7].label,
+          ),
+          NavigationDestination(
+            icon: Icon(_items[6].icon),
+            label: 'Mural',
+            tooltip: _items[6].label,
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.menu_rounded),
+            label: 'Menu',
+            tooltip: 'Mais opções',
+          ),
+        ],
+      ),
     );
   }
 
@@ -480,10 +493,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
               .limit(24)
               .get());
           break;
-        case 14:
+        case 19:
           unawaited(base.collection('finance').limit(24).get());
           break;
-        case 15:
+        case 20:
           unawaited(base.collection('patrimonio').limit(24).get());
           break;
         default:
@@ -592,12 +605,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   static const List<({String title, List<int> indices})> _menuSections = [
     (title: 'Geral', indices: [0, 1]),
     (title: 'Pessoas', indices: [2, 3, 4, 5]),
-    (title: 'Comunicação', indices: [6, 7, 8, 9, 20]),
+    (title: 'Comunicação', indices: [6, 7, 8, 9, 18]),
     (title: 'Agenda', indices: [10, 11]),
     (title: 'Documentos', indices: [12, 13]),
-    (title: 'Financeiro', indices: [14, 15]),
-    (title: 'Relatórios', indices: [16]),
-    (title: 'Sistema', indices: [17, 18, 19]),
+    (title: 'Relatórios', indices: [14]),
+    (title: 'Sistema', indices: [15, 16, 17]),
+    (title: 'Financeiro e patrimônio', indices: [19, 20]),
   ];
 
   Widget _buildHeader({required bool licenseBlocked}) {
@@ -619,7 +632,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         : (_isPhone ? ThemeCleanPremium.spaceSm : ThemeCleanPremium.spaceMd);
     final verticalPad = _isDesktop ? 4.0 : 8.0;
     return Material(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.18),
       color: ThemeCleanPremium.primary,
       child: SafeArea(
         bottom: false,
@@ -1509,15 +1523,47 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
             tenantId: widget.tenantId,
             role: widget.role);
       case 14:
-        return FinancePage(
+        return RelatoriosPage(
           key: const ValueKey('page_14'),
+          tenantId: widget.tenantId,
+          role: widget.role,
+          podeVerFinanceiro: widget.podeVerFinanceiro,
+          podeVerPatrimonio: widget.podeVerPatrimonio,
+          permissions: widget.permissions,
+          embeddedInShell: true,
+        );
+      case 15:
+        return ConfiguracoesPage(
+          key: const ValueKey('page_15'),
+          tenantId: widget.tenantId,
+          role: widget.role,
+          cpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
+        );
+      case 16:
+        return SistemaInformacoesPage(
+            key: const ValueKey('page_16'), tenantId: widget.tenantId);
+      case 17:
+        return AprovarMembrosPendentesPage(
+          key: const ValueKey('page_17'),
+          tenantId: widget.tenantId,
+          gestorRole: widget.role,
+        );
+      case 18:
+        return PastoralComunicacaoPage(
+          key: const ValueKey('page_18'),
+          tenantId: widget.tenantId,
+          role: widget.role,
+        );
+      case 19:
+        return FinancePage(
+          key: const ValueKey('page_19'),
           tenantId: widget.tenantId,
           role: widget.role,
           cpf: widget.cpf,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           permissions: widget.permissions,
         );
-      case 15:
+      case 20:
         final bootPat = _shellBootstrapPatrimonioSearch;
         if (bootPat != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1527,44 +1573,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           });
         }
         return PatrimonioPage(
-          key: const ValueKey('page_15'),
+          key: const ValueKey('page_20'),
           tenantId: widget.tenantId,
           role: widget.role,
           podeVerPatrimonio: widget.podeVerPatrimonio,
           permissions: widget.permissions,
           initialSearchQuery: bootPat,
-        );
-      case 16:
-        return RelatoriosPage(
-          key: const ValueKey('page_16'),
-          tenantId: widget.tenantId,
-          role: widget.role,
-          podeVerFinanceiro: widget.podeVerFinanceiro,
-          podeVerPatrimonio: widget.podeVerPatrimonio,
-          permissions: widget.permissions,
-          embeddedInShell: true,
-        );
-      case 17:
-        return ConfiguracoesPage(
-          key: const ValueKey('page_17'),
-          tenantId: widget.tenantId,
-          role: widget.role,
-          cpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
-        );
-      case 18:
-        return SistemaInformacoesPage(
-            key: const ValueKey('page_18'), tenantId: widget.tenantId);
-      case 19:
-        return AprovarMembrosPendentesPage(
-          key: const ValueKey('page_19'),
-          tenantId: widget.tenantId,
-          gestorRole: widget.role,
-        );
-      case 20:
-        return PastoralComunicacaoPage(
-          key: const ValueKey('page_20'),
-          tenantId: widget.tenantId,
-          role: widget.role,
         );
       default:
         return IgrejaDashboardModerno(
@@ -1658,63 +1672,68 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   Widget _buildCompleteCadastroObrigatorio() {
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Icon(Icons.business_rounded,
-                          size: 56,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Cadastre sua igreja',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Para usar o painel e fazer lançamentos, é necessário completar o cadastro da sua igreja (nome, endereço e dados do gestor). A logo pode ser adicionada depois.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade700,
-                            height: 1.4),
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            ThemeCleanPremium.fadeSlideRoute(IgrejaCadastroPage(
-                                tenantId: widget.tenantId,
-                                role: widget.role,
-                                embeddedInShell: false)),
-                          );
-                        },
-                        icon: const Icon(Icons.store_rounded),
-                        label: const Text('Ir para Cadastro da Igreja'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: ThemeCleanPremium.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Icon(Icons.business_rounded,
+                            size: 56,
+                            color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Cadastre sua igreja',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        Text(
+                          'Para usar o painel e fazer lançamentos, é necessário completar o cadastro da sua igreja (nome, endereço e dados do gestor). A logo pode ser adicionada depois.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              height: 1.4),
+                        ),
+                        const SizedBox(height: 24),
+                        FilledButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              ThemeCleanPremium.fadeSlideRoute(IgrejaCadastroPage(
+                                  tenantId: widget.tenantId,
+                                  role: widget.role,
+                                  embeddedInShell: false)),
+                            );
+                          },
+                          icon: const Icon(Icons.store_rounded),
+                          label: const Text('Ir para Cadastro da Igreja'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: ThemeCleanPremium.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1757,11 +1776,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           if (tenantSnap.hasError) {
             return Scaffold(
               backgroundColor: ThemeCleanPremium.surfaceVariant,
-              body: SafeArea(
-                child: ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar os dados da igreja',
-                  error: tenantSnap.error,
-                  onRetry: () => setState(() => _tenantStreamRetry++),
+              body: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
+                ),
+                child: SafeArea(
+                  child: ChurchPanelErrorBody(
+                    title: 'Não foi possível carregar os dados da igreja',
+                    error: tenantSnap.error,
+                    onRetry: () => setState(() => _tenantStreamRetry++),
+                  ),
                 ),
               ),
             );
@@ -1771,9 +1795,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
               !tenantSnap.hasData) {
             return Scaffold(
               backgroundColor: ThemeCleanPremium.surfaceVariant,
-              body: const SafeArea(
-                child: Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
+              body: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
+                ),
+                child: const SafeArea(
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ),
               ),
             );
@@ -1836,36 +1865,45 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                       children: [
                         if (_isDesktop) _buildSidebar(),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _buildHeader(licenseBlocked: licenseBlocked),
-                              _buildPaymentConfirmedBanner(),
-                              _buildGracePeriodBanner(guard),
-                              if (_selectedIndex != 0)
-                                ModuleHeaderPremium(
-                                  title: _items[_selectedIndex].label,
-                                  icon: _items[_selectedIndex].icon,
-                                  onPainelBack: _isMobile && _selectedIndex != 0
-                                      ? () => setState(() => _selectedIndex = 0)
-                                      : null,
-                                ),
-                              if (_selectedIndex != 0)
-                                const SizedBox(height: 4),
-                              Expanded(
-                                child: Semantics(
-                                  container: true,
-                                  label:
-                                      'Conteúdo do módulo ${_items[_selectedIndex].label}',
-                                  child: Padding(
-                                    padding: EdgeInsets.zero,
-                                    child: SaaSContentViewport(
-                                      child: _buildContent(),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient:
+                                  ThemeCleanPremium.churchPanelBodyGradient,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _buildHeader(licenseBlocked: licenseBlocked),
+                                const ConnectivityOfflineStrip(),
+                                _buildPaymentConfirmedBanner(),
+                                _buildGracePeriodBanner(guard),
+                                if (_selectedIndex != 0)
+                                  ModuleHeaderPremium(
+                                    title: _items[_selectedIndex].label,
+                                    icon: _items[_selectedIndex].icon,
+                                    onPainelBack:
+                                        _isMobile && _selectedIndex != 0
+                                            ? () =>
+                                                setState(() => _selectedIndex = 0)
+                                            : null,
+                                  ),
+                                if (_selectedIndex != 0)
+                                  const SizedBox(height: 4),
+                                Expanded(
+                                  child: Semantics(
+                                    container: true,
+                                    label:
+                                        'Conteúdo do módulo ${_items[_selectedIndex].label}',
+                                    child: Padding(
+                                      padding: EdgeInsets.zero,
+                                      child: SaaSContentViewport(
+                                        child: _buildContent(),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ],

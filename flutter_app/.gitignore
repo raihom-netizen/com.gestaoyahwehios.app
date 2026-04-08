@@ -1,3 +1,6 @@
+# Codemagic CI — caminho absoluto do último IPA (não versionar)
+.cm_last_ipa_path
+
 # Logs
 logs
 *.log

@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import '../login_page.dart';
 
-/// Rota de login (alias para LoginPage).
+/// Rota de login (alias para LoginPage). [prefillEmail] via `/login?email=`.
 class LoginPageNovo extends StatelessWidget {
-  const LoginPageNovo({super.key});
+  final String? prefillEmail;
+
+  const LoginPageNovo({super.key, this.prefillEmail});
+
   @override
   Widget build(BuildContext context) {
-    return const LoginPage(
+    return LoginPage(
       title: 'Entrar',
       afterLoginRoute: '/painel',
-      showGoogleLogin: true,
+      prefillEmail: prefillEmail,
+      backRoute: '/',
     );
   }
 }

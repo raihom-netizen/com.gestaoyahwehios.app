@@ -1,0 +1,43 @@
+[
+  {
+    "origin": ["*"],
+    "method": ["GET", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Range",
+      "x-goog-meta-firebaseStorageDownloadTokens",
+      "x-goog-hash",
+      "x-goog-generation"
+    ],
+    "maxAgeSeconds": 3600
+  },
+  {
+    "origin": [
+      "https://gestaoyahweh.com.br",
+      "https://www.gestaoyahweh.com.br",
+      "https://gestaoyahweh-21e23.web.app",
+      "https://gestaoyahweh-21e23.firebaseapp.com",
+      "http://localhost:5000",
+      "http://localhost:8080",
+      "http://localhost:7357",
+      "http://127.0.0.1:5000",
+      "http://127.0.0.1:8080"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "Content-Encoding",
+      "Range",
+      "x-goog-meta-*",
+      "x-goog-meta-firebaseStorageDownloadTokens",
+      "x-goog-hash",
+      "x-goog-generation",
+      "x-goog-metageneration",
+      "x-goog-storage-class"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

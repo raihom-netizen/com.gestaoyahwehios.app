@@ -2,6 +2,7 @@
 /// Evita tratar URL de vídeo (.mp4 / pasta videos) como imagem — isso gerava "Falha ao carregar".
 library;
 
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
@@ -59,9 +60,11 @@ bool looksLikeHostedVideoFileUrl(String url) {
   if (base.endsWith('.mp4') ||
       base.endsWith('.webm') ||
       base.endsWith('.mov') ||
-      base.endsWith('.m4v')) {
+      base.endsWith('.m4v') ||
+      base.endsWith('.m3u8')) {
     return true;
   }
+  if (low.contains('.m3u8')) return true;
   // Pasta eventos/.../videos/ pode ter thumb.jpg — não tratar como MP4 só pelo segmento "videos".
   if ((low.contains('%2fvideos%2f') || low.contains('/videos/')) &&
       !RegExp(r'\.(jpg|jpeg|png|gif|webp|bmp|svg)(%|$|\?)', caseSensitive: false).hasMatch(base)) {
@@ -72,7 +75,7 @@ bool looksLikeHostedVideoFileUrl(String url) {
     final uri = Uri.tryParse(url);
     if (uri != null) {
       final dec = Uri.decodeComponent(uri.path).toLowerCase();
-      if (RegExp(r'\.(mp4|webm|mov|m4v)(\?|$|/)', caseSensitive: false).hasMatch(dec)) {
+      if (RegExp(r'\.(mp4|webm|mov|m4v|m3u8)(\?|$|/)', caseSensitive: false).hasMatch(dec)) {
         return true;
       }
     }
@@ -144,6 +147,11 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   pushFromAny(data['imagem_url']);
   pushFromAny(data['imagemUrl']);
   pushFromAny(data['imageUrl']);
+  // Alguns avisos guardam capa em `media` (mapa com url / storagePath).
+  final mediaRoot = data['media'];
+  if (mediaRoot is Map) {
+    pushFromMap(mediaRoot);
+  }
   pushFromAny(data['defaultImageUrl']);
   pushFromList(data['imageUrls']);
   pushFromList(data['photos']); // alguns clientes salvam lista em "photos"
@@ -272,6 +280,11 @@ String? eventNoticiaImageStoragePath(Map<String, dynamic>? data) {
       final d = derivedFromHttpUrl(e?.toString());
       if (d != null) return d;
     }
+  }
+  // Avisos/eventos que guardam a foto só em `fotoUrl` / `imagemUrl` / lista `fotos` — derivar path para token expirado na web.
+  for (final raw in eventNoticiaPhotoUrls(data)) {
+    final d = derivedFromHttpUrl(raw);
+    if (d != null) return d;
   }
   return null;
 }
@@ -522,4 +535,28 @@ String? eventNoticiaDisplayVideoThumbnailUrl(Map<String, dynamic>? data) {
     if (y != null) return y;
   }
   return null;
+}
+
+/// Revisão para cache-bust de imagens (banner/capa com nome ficheiro fixo no Storage).
+int? eventNoticiaMediaCacheRevision(Map<String, dynamic>? p) {
+  if (p == null) return null;
+  final r = p['fotoUrlCacheRevision'];
+  if (r is int) return r;
+  if (r is num) return r.toInt();
+  final t = p['ATUALIZADO_EM'];
+  if (t is Timestamp) return t.millisecondsSinceEpoch;
+  final c = p['CRIADO_EM'];
+  if (c is Timestamp) return c.millisecondsSinceEpoch;
+  return null;
+}
+
+/// Adiciona `v=cb…` à query para o browser não mostrar imagem antiga após novo upload (mesmo path).
+String cacheBustImageUrl(String url, {int? revisionMs}) {
+  final u = sanitizeImageUrl(url);
+  if (u.isEmpty || revisionMs == null) return u;
+  final uri = Uri.tryParse(u);
+  if (uri == null) return u;
+  final q = Map<String, String>.from(uri.queryParameters);
+  q['v'] = 'cb$revisionMs';
+  return uri.replace(queryParameters: q).toString();
 }

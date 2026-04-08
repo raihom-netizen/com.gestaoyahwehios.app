@@ -9,6 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart';
 import 'package:gestao_yahweh/pdf/certificate_pdf_isolate.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -18,7 +19,9 @@ import 'package:gestao_yahweh/utils/cert_pdf_image_optimize.dart'
         CertPdfImageOptimizeMessage,
         optimizeCertPdfImageBytes,
         optimizeCertPdfImageBytesMaxMemory,
-        CertPdfImageMaxMemoryMessage;
+        CertPdfImageMaxMemoryMessage,
+        CertPdfLogoOptimizeMessage,
+        optimizeCertPdfLogoBytes;
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
 /// Signatário efetivo (com [memberId] para buscar imagem no Firestore/Storage).
@@ -122,12 +125,13 @@ class CertPdfGalaBatchMemberSlice {
   });
 }
 
-class _ResolvedCertificatePdfShared {
+/// Logo, fundo e assinaturas já descarregados e otimizados — reutilizar no ZIP em lote.
+class CertPdfResolvedShared {
   final Uint8List? logoOpt;
   final Uint8List? bgOpt;
   final List<CertSignatoryPdfData> pdfSignatories;
 
-  const _ResolvedCertificatePdfShared({
+  const CertPdfResolvedShared({
     required this.logoOpt,
     required this.bgOpt,
     required this.pdfSignatories,
@@ -144,6 +148,11 @@ final Map<String, Uint8List?> _certificateBackgroundOptimizedCache =
     <String, Uint8List?>{};
 final Map<String, Uint8List?> _logoOptimizedBytesCache = <String, Uint8List?>{};
 final Map<String, Uint8List?> _signatureOptimizedBytesCache =
+    <String, Uint8List?>{};
+/// Assinatura institucional (configuracoes/assinatura) por igreja — evita Storage a cada PDF.
+final Map<String, Uint8List?> _institutionalPastorSigRawCache =
+    <String, Uint8List?>{};
+final Map<String, Uint8List?> _institutionalPastorSigOptCache =
     <String, Uint8List?>{};
 Uint8List? _fontMontserratCache;
 Uint8List? _fontGreatVibesCache;
@@ -206,8 +215,8 @@ Future<Uint8List?> _fetchCertificateTemplateBackgroundBytes({
     try {
       final b = await FirebaseStorage.instance
           .ref(path)
-          .getData(18 * 1024 * 1024)
-          .timeout(const Duration(seconds: 45), onTimeout: () => null);
+          .getData(12 * 1024 * 1024)
+          .timeout(const Duration(seconds: 28), onTimeout: () => null);
       if (b != null && b.length > 64) {
         final out = Uint8List.fromList(b);
         _certificateBackgroundBytesCache[cacheKey] = out;
@@ -234,6 +243,9 @@ Future<Uint8List?> _fetchInstitutionalPastorSignatureBytes(
     String tenantId) async {
   final tid = tenantId.trim();
   if (tid.isEmpty) return null;
+  if (_institutionalPastorSigRawCache.containsKey(tid)) {
+    return _institutionalPastorSigRawCache[tid];
+  }
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
@@ -246,9 +258,14 @@ Future<Uint8List?> _fetchInstitutionalPastorSignatureBytes(
           .ref(path)
           .getData(5 * 1024 * 1024)
           .timeout(const Duration(seconds: 22), onTimeout: () => null);
-      if (b != null && b.length > 32) return Uint8List.fromList(b);
+      if (b != null && b.length > 32) {
+        final out = Uint8List.fromList(b);
+        _institutionalPastorSigRawCache[tid] = out;
+        return out;
+      }
     } catch (_) {}
   }
+  _institutionalPastorSigRawCache[tid] = null;
   return null;
 }
 
@@ -299,8 +316,11 @@ Future<void> _ensureAllCertPdfFonts() async {
   ]);
 }
 
+/// Pré-carrega fontes dos certificados (chamar ao abrir a tela — “Gerar PDF” fica mais rápido).
+Future<void> warmCertificatePdfFontAssets() => _ensureAllCertPdfFonts();
+
 Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
-  const logoTimeout = Duration(seconds: 3);
+  const logoTimeout = Duration(seconds: 10);
   final u = sanitizeImageUrl(rawUrl);
   final cacheKey = u.isNotEmpty ? u : rawUrl.trim();
   if (cacheKey.isNotEmpty && _logoBytesCache.containsKey(cacheKey)) {
@@ -472,8 +492,8 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
         try {
           final refGs = FirebaseStorage.instance.refFromURL(raw);
           final b = await refGs
-              .getData(4 * 1024 * 1024)
-              .timeout(const Duration(seconds: 22), onTimeout: () => null);
+              .getData(2 * 1024 * 1024)
+              .timeout(const Duration(seconds: 14), onTimeout: () => null);
           if (b != null && b.length > 32) return Uint8List.fromList(b);
         } catch (_) {}
         return null;
@@ -489,8 +509,8 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
       try {
         final b = await FirebaseStorage.instance
             .ref(path)
-            .getData(4 * 1024 * 1024)
-            .timeout(const Duration(seconds: 22), onTimeout: () => null);
+            .getData(2 * 1024 * 1024)
+            .timeout(const Duration(seconds: 14), onTimeout: () => null);
         if (b != null && b.length > 32) return Uint8List.fromList(b);
       } catch (_) {}
       return null;
@@ -519,19 +539,32 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
       return null;
     }
 
-    if (isFirebaseStorageHttpUrl(url)) {
-      final fresh = await refreshFirebaseStorageDownloadUrl(url);
-      if (fresh != null && fresh.isNotEmpty) {
-        url = sanitizeImageUrl(fresh);
-      }
-    }
     Uint8List? bytes;
     try {
       bytes = await firebaseStorageBytesFromDownloadUrl(
         url,
-        maxBytes: 4 * 1024 * 1024,
-      );
+        maxBytes: 2 * 1024 * 1024,
+      ).timeout(const Duration(seconds: 10), onTimeout: () => null);
     } catch (_) {}
+    if (bytes == null || bytes.length < 32) {
+      if (isFirebaseStorageHttpUrl(url)) {
+        try {
+          final fresh = await refreshFirebaseStorageDownloadUrl(url)
+              .timeout(const Duration(seconds: 8), onTimeout: () => null);
+          if (fresh != null && fresh.isNotEmpty) {
+            final u2 = sanitizeImageUrl(fresh);
+            if (u2.isNotEmpty) {
+              try {
+                bytes = await firebaseStorageBytesFromDownloadUrl(
+                  u2,
+                  maxBytes: 2 * 1024 * 1024,
+                ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }
+    }
     if (bytes == null || bytes.length < 32) {
       try {
         final resp = await http
@@ -539,7 +572,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
               Uri.parse(url),
               headers: const {'Accept': 'image/*,*/*;q=0.8'},
             )
-            .timeout(const Duration(seconds: 18));
+            .timeout(const Duration(seconds: 12));
         if (resp.statusCode == 200 && resp.bodyBytes.length > 32) {
           bytes = Uint8List.fromList(resp.bodyBytes);
         }
@@ -569,8 +602,14 @@ Future<Uint8List?> _optimizeImageForPdf(
   return compute(optimizeCertPdfImageBytesMaxMemory, msg);
 }
 
+Future<Uint8List?> _optimizeLogoForCertificatePdf(Uint8List bytes) async {
+  final msg = CertPdfLogoOptimizeMessage(bytes: bytes);
+  if (kIsWeb) return optimizeCertPdfLogoBytes(msg);
+  return compute(optimizeCertPdfLogoBytes, msg);
+}
+
 /// Baixa e otimiza logo, fundo e assinaturas uma vez (vários certificados podem reutilizar).
-Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
+Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   CertPdfPipelineParams p, {
   void Function(String message, double progress01)? onProgress,
   int currentIndex = 1,
@@ -618,10 +657,28 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
     }
 
     if (logoUrls.isNotEmpty) {
-      final tried = await Future.wait(
-        logoUrls.map((u) => _fetchLogoBytesHighRes(u)),
-      );
-      for (final bytes in tried) {
+      final refreshedUrls = await Future.wait(logoUrls.map((raw) async {
+        final u = sanitizeImageUrl(raw.trim());
+        if (!isValidImageUrl(u)) return raw.trim();
+        if (u.startsWith('http://') || u.startsWith('https://')) {
+          if (firebaseStorageMediaUrlLooksLike(u)) {
+            try {
+              final r = await AppStorageImageService.instance
+                  .resolveImageUrl(imageUrl: u)
+                  .timeout(
+                    const Duration(seconds: 12),
+                    onTimeout: () => null,
+                  );
+              final out = r != null ? sanitizeImageUrl(r) : '';
+              if (out.isNotEmpty && isValidImageUrl(out)) return out;
+            } catch (_) {}
+          }
+        }
+        return raw.trim();
+      }));
+      // Só até acertar: o primeiro URL costuma ser o logo oficial — evita N downloads em paralelo.
+      for (final candidate in refreshedUrls) {
+        final bytes = await _fetchLogoBytesHighRes(candidate);
         final u = useIfRealLogo(bytes);
         if (u != null) return u;
       }
@@ -694,19 +751,19 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
 
   report('Processando certificado 1 de 1 — otimizando fotos…', 0.38);
 
-  /// Logo nítida em impressão (~A4); ainda limitada para evitar OOM em lotes.
-  const logoMax = 1600;
   const sigMaxW = 800;
   const sigMaxH = 400;
 
   final logoOptFuture = () {
     if (logoRaw == null) return Future<Uint8List?>.value(null);
-    final logoCacheKey = logoUrls.isNotEmpty ? logoUrls.first : p.logoUrlFallback;
+    final baseKey = logoUrls.isNotEmpty ? logoUrls.first : p.logoUrlFallback;
+    final logoCacheKey =
+        baseKey.isNotEmpty ? '$baseKey|certLogoHiResAlpha' : '';
     if (logoCacheKey.isNotEmpty &&
         _logoOptimizedBytesCache.containsKey(logoCacheKey)) {
       return Future<Uint8List?>.value(_logoOptimizedBytesCache[logoCacheKey]);
     }
-    return _optimizeImageForPdf(logoRaw, logoMax, logoMax).then((opt) {
+    return _optimizeLogoForCertificatePdf(logoRaw).then((opt) {
       if (logoCacheKey.isNotEmpty) _logoOptimizedBytesCache[logoCacheKey] = opt;
       return opt;
     });
@@ -732,31 +789,50 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
       return opt;
     }));
   }
-  Uint8List? logoOpt = await logoOptFuture;
-  final sigOpt = await Future.wait(sigOptFutures);
 
-  Uint8List? bgOpt;
-  if (bgRaw != null && bgRaw.length > 64) {
+  final bgOptFuture = () async {
+    if (bgRaw == null || bgRaw.length <= 64) return null;
     final bgOptKey =
         '${p.tenantId.trim()}|${tpl.storageStem.trim()}|pdfOptV1';
     if (_certificateBackgroundOptimizedCache.containsKey(bgOptKey)) {
-      bgOpt = _certificateBackgroundOptimizedCache[bgOptKey];
-    } else {
-      bgOpt = await _optimizeBackgroundForPrintPdf(bgRaw);
-      if (bgOpt == null || bgOpt.length <= 64) {
-        bgOpt = bgRaw;
-      }
-      _certificateBackgroundOptimizedCache[bgOptKey] = bgOpt;
+      return _certificateBackgroundOptimizedCache[bgOptKey];
     }
-  }
+    var bgOpt = await _optimizeBackgroundForPrintPdf(bgRaw);
+    if (bgOpt == null || bgOpt.length <= 64) {
+      bgOpt = bgRaw;
+    }
+    _certificateBackgroundOptimizedCache[bgOptKey] = bgOpt;
+    return bgOpt;
+  }();
 
-  Uint8List? instSigOpt;
-  if (instSigRaw != null && instSigRaw.length > 32) {
-    instSigOpt = await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
+  final instSigOptFuture = () async {
+    if (instSigRaw == null || instSigRaw.length <= 32) return null;
+    final tidOpt = p.tenantId.trim();
+    if (tidOpt.isNotEmpty &&
+        _institutionalPastorSigOptCache.containsKey(tidOpt)) {
+      return _institutionalPastorSigOptCache[tidOpt];
+    }
+    var instSigOpt = await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
     if (instSigOpt == null || instSigOpt.length <= 32) {
       instSigOpt = instSigRaw;
     }
-  }
+    if (tidOpt.isNotEmpty) {
+      _institutionalPastorSigOptCache[tidOpt] = instSigOpt;
+    }
+    return instSigOpt;
+  }();
+
+  // Logo, assinaturas, fundo e assinatura institucional em paralelo (CPU/isolate).
+  final optPacked = await Future.wait<Object?>([
+    logoOptFuture,
+    Future.wait(sigOptFutures),
+    bgOptFuture,
+    instSigOptFuture,
+  ]);
+  Uint8List? logoOpt = optPacked[0] as Uint8List?;
+  final sigOpt = optPacked[1] as List<Uint8List?>;
+  final Uint8List? bgOpt = optPacked[2] as Uint8List?;
+  final Uint8List? instSigOpt = optPacked[3] as Uint8List?;
 
   /// Certificados da igreja: nunca usar logo institucional da Gestão YAHWEH como fallback.
   if (logoOpt == null || logoOpt.length <= 32) {
@@ -802,10 +878,25 @@ Future<_ResolvedCertificatePdfShared> _resolveCertificatePdfShared(
     );
   }
 
-  return _ResolvedCertificatePdfShared(
+  return CertPdfResolvedShared(
     logoOpt: logoOpt,
     bgOpt: bgOpt,
     pdfSignatories: pdfSignatories,
+  );
+}
+
+/// Expõe a fase de rede/otimização para reutilizar em vários [runCertificatePdfPipeline] (ex.: ZIP em lote).
+Future<CertPdfResolvedShared> resolveCertificatePdfShared(
+  CertPdfPipelineParams p, {
+  void Function(String message, double progress01)? onProgress,
+  int currentIndex = 1,
+  int totalCount = 1,
+}) {
+  return _resolveCertificatePdfShared(
+    p,
+    onProgress: onProgress,
+    currentIndex: currentIndex,
+    totalCount: totalCount,
   );
 }
 
@@ -815,6 +906,7 @@ Future<Uint8List> runCertificatePdfPipeline(
   void Function(String message, double progress01)? onProgress,
   int currentIndex = 1,
   int totalCount = 1,
+  CertPdfResolvedShared? preResolvedShared,
 }) async {
   void report(String templateMsg, double progress01) {
     final msg = totalCount > 1
@@ -823,12 +915,13 @@ Future<Uint8List> runCertificatePdfPipeline(
     onProgress?.call(msg, progress01.clamp(0.0, 1.0));
   }
 
-  final resolved = await _resolveCertificatePdfShared(
-    p,
-    onProgress: onProgress,
-    currentIndex: currentIndex,
-    totalCount: totalCount,
-  );
+  final resolved = preResolvedShared ??
+      await _resolveCertificatePdfShared(
+        p,
+        onProgress: onProgress,
+        currentIndex: currentIndex,
+        totalCount: totalCount,
+      );
 
   final textoCorpo = p.textoAdicional.trim().isEmpty
       ? p.texto

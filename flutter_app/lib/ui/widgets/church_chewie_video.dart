@@ -261,6 +261,24 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
   }
 
   @override
+  void didUpdateWidget(covariant ChurchHostedVideoSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (kIsWeb) return;
+    if (oldWidget.videoUrl == widget.videoUrl) return;
+    _chewie?.dispose();
+    _vc?.dispose();
+    _chewie = null;
+    _vc = null;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+      });
+    }
+    _initNative();
+  }
+
+  @override
   void dispose() {
     _chewie?.dispose();
     _vc?.dispose();

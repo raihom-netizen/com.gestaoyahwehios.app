@@ -12,14 +12,14 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _cpf = TextEditingController();
+  final _email = TextEditingController();
   final _senha = TextEditingController();
   bool _loading = false;
   String? _err;
 
   @override
   void dispose() {
-    _cpf.dispose();
+    _email.dispose();
     _senha.dispose();
     super.dispose();
   }
@@ -27,7 +27,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _login() async {
     setState(() { _loading = true; _err = null; });
     try {
-      await AuthCpfService().signInByCpf(cpf: _cpf.text, senha: _senha.text);
+      await AuthCpfService().signInWithEmail(email: _email.text, senha: _senha.text);
     } catch (e) {
       setState(() => _err = e.toString().replaceAll('Exception:', '').trim());
     } finally {
@@ -36,14 +36,18 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _forgot() async {
-    final cpf = _cpf.text.trim();
-    if (cpf.isEmpty) {
-      setState(() => _err = 'Digite seu CPF ou e-mail para recuperar a senha.');
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      setState(() => _err = 'Digite seu e-mail para recuperar a senha.');
+      return;
+    }
+    if (!AuthCpfService.looksLikeEmail(email)) {
+      setState(() => _err = 'Digite um e-mail válido.');
       return;
     }
     setState(() { _loading = true; _err = null; });
     try {
-      await AuthCpfService().sendPasswordResetByCpf(cpf);
+      await AuthCpfService().sendPasswordResetEmailOnly(email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enviamos um link de recuperação para o e-mail cadastrado.')),
@@ -105,11 +109,12 @@ class _LoginPageState extends State<LoginPage> {
                     child: Column(
                       children: [
                         TextField(
-                          controller: _cpf,
+                          controller: _email,
                           keyboardType: TextInputType.emailAddress,
+                          autocorrect: false,
                           decoration: const InputDecoration(
-                            labelText: 'CPF ou e-mail',
-                            hintText: '11 dígitos ou seu@email.com',
+                            labelText: 'E-mail',
+                            hintText: 'seu@email.com',
                             prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
                         ),

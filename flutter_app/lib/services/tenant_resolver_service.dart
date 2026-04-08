@@ -1,3 +1,5 @@
+import 'dart:async' show TimeoutException;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Resolve o ID do tenant ou igreja para carregar membros.
@@ -19,71 +21,57 @@ class TenantResolverService {
     final raw = id.trim();
     if (raw.isEmpty) return id;
 
-    // 1) Existe em tenants
     try {
       final doc = await _firestore.collection('igrejas').doc(raw).get();
       if (doc.exists) return raw;
     } catch (_) {}
 
-    // 2) Existe em igrejas (membros podem estar em igrejas/{id}/membros)
-    try {
-      final igrejaDoc = await _firestore.collection('igrejas').doc(raw).get();
-      if (igrejaDoc.exists) return raw;
-    } catch (_) {}
-
-    // 2b) Brasil para Cristo e similares: tenant pode ser id_sistema (ex.: brasilparacristo_sistema)
+    final suffixFutures = <Future<DocumentSnapshot<Map<String, dynamic>>>>[];
     for (final suffix in ['_sistema', '_bpc']) {
       final withSuffix = raw.endsWith(suffix) ? raw : '$raw$suffix';
-      if (withSuffix == raw) continue;
+      if (withSuffix != raw) {
+        suffixFutures.add(
+            _firestore.collection('igrejas').doc(withSuffix).get());
+      }
+    }
+    if (suffixFutures.isNotEmpty) {
       try {
-        final t = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (t.exists) return withSuffix;
-      } catch (_) {}
-      try {
-        final i = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (i.exists) return withSuffix;
+        final snaps = await Future.wait(suffixFutures);
+        for (final d in snaps) {
+          if (d.exists) return d.id;
+        }
       } catch (_) {}
     }
 
-    // 3) Busca por slug/alias em tenants
-    try {
-      final bySlug = await _firestore.collection('igrejas').where('slug', isEqualTo: raw).limit(1).get();
-      if (bySlug.docs.isNotEmpty) return bySlug.docs.first.id;
-    } catch (_) {}
-    try {
-      final byAlias = await _firestore.collection('igrejas').where('alias', isEqualTo: raw).limit(1).get();
-      if (byAlias.docs.isNotEmpty) return byAlias.docs.first.id;
-    } catch (_) {}
-
     final normalized = _normalize(raw);
+    final slugQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
+    void q(String field, String value) {
+      if (value.isEmpty) return;
+      slugQueries.add(
+        _firestore.collection('igrejas').where(field, isEqualTo: value).limit(1).get(),
+      );
+    }
+
+    q('slug', raw);
+    q('alias', raw);
+    q('slugId', raw);
+    if (normalized.isNotEmpty) {
+      q('slug', normalized);
+      q('alias', normalized);
+      q('slugId', normalized);
+    }
+
+    if (slugQueries.isNotEmpty) {
+      try {
+        final snaps = await Future.wait(slugQueries);
+        for (final qs in snaps) {
+          if (qs.docs.isNotEmpty) return qs.docs.first.id;
+        }
+      } catch (_) {}
+    }
+
     if (normalized.isEmpty) return raw;
 
-    try {
-      final bySlugNorm = await _firestore.collection('igrejas').where('slug', isEqualTo: normalized).limit(1).get();
-      if (bySlugNorm.docs.isNotEmpty) return bySlugNorm.docs.first.id;
-    } catch (_) {}
-    try {
-      final byAliasNorm = await _firestore.collection('igrejas').where('alias', isEqualTo: normalized).limit(1).get();
-      if (byAliasNorm.docs.isNotEmpty) return byAliasNorm.docs.first.id;
-    } catch (_) {}
-
-    // 4) Varredura tenants (nome pode ser "Igreja Brasil para Cristo" -> normalizado contém "brasilparacristo")
-    try {
-      final snapshot = await _firestore.collection('igrejas').limit(_scanLimit).get();
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final slug = (data['slug'] ?? '').toString().trim();
-        final alias = (data['alias'] ?? '').toString().trim();
-        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        final nSlug = _normalize(slug);
-        final nAlias = _normalize(alias);
-        final nNome = _normalize(nome);
-        if (nSlug == normalized || nAlias == normalized || nNome == normalized) return doc.id;
-        if (normalized.length >= 8 && (nNome.contains(normalized) || (nNome.isNotEmpty && normalized.contains(nNome)))) return doc.id;
-      }
-    } catch (_) {}
-
-    // 5) Varredura igrejas (se não achou em tenants)
     try {
       final snapshot = await _firestore.collection('igrejas').limit(_scanLimit).get();
       for (final doc in snapshot.docs) {
@@ -94,241 +82,191 @@ class TenantResolverService {
         final nSlug = _normalize(slug);
         final nAlias = _normalize(alias);
         final nNome = _normalize(nome);
-        if (nSlug == normalized || nAlias == normalized || nNome == normalized) return doc.id;
-        if (normalized.length >= 8 && (nNome.contains(normalized) || (nNome.isNotEmpty && normalized.contains(nNome)))) return doc.id;
+        if (nSlug == normalized || nAlias == normalized || nNome == normalized) {
+          return doc.id;
+        }
+        if (normalized.length >= 8 &&
+            (nNome.contains(normalized) ||
+                (nNome.isNotEmpty && normalized.contains(nNome)))) {
+          return doc.id;
+        }
       }
     } catch (_) {}
 
     return raw;
   }
 
+  /// IDs em `igrejas/` ligados ao mesmo slug/alias + variantes `_sistema`/`_bpc`.
+  /// Evita ler centenas de documentos (antes: 2× scan em Membros e painel).
+  static Future<List<String>> getAllRelatedIgrejaDocIds(String resolvedId) async {
+    final raw = resolvedId.trim();
+    if (raw.isEmpty) return const [];
+
+    final result = <String>{raw};
+
+    Map<String, dynamic>? data;
+    try {
+      final snap = await _firestore.collection('igrejas').doc(raw).get();
+      if (snap.exists) data = snap.data();
+    } catch (_) {}
+
+    var slug = '';
+    var slugId = '';
+    var alias = '';
+    if (data != null) {
+      slug = (data['slug'] ?? '').toString().trim();
+      slugId = (data['slugId'] ?? '').toString().trim();
+      alias = (data['alias'] ?? '').toString().trim();
+    }
+
+    final seenPairs = <String>{};
+    final qFutures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
+    void addQ(String field, String value) {
+      if (value.isEmpty) return;
+      final key = '$field\x00$value';
+      if (!seenPairs.add(key)) return;
+      qFutures.add(
+        _firestore.collection('igrejas').where(field, isEqualTo: value).limit(45).get(),
+      );
+    }
+
+    addQ('slug', slug);
+    addQ('slug', slugId);
+    addQ('alias', alias);
+    addQ('slugId', slugId);
+    if (data == null) {
+      addQ('slug', raw);
+      addQ('alias', raw);
+      addQ('slugId', raw);
+    }
+
+    if (qFutures.isNotEmpty) {
+      try {
+        final snaps = await Future.wait(qFutures);
+        for (final s in snaps) {
+          for (final d in s.docs) {
+            result.add(d.id);
+          }
+        }
+      } catch (_) {}
+    }
+
+    final docFutures = <Future<DocumentSnapshot<Map<String, dynamic>>>>[];
+    for (final suffix in ['_sistema', '_bpc']) {
+      final withSuffix = raw.endsWith(suffix) ? raw : '$raw$suffix';
+      if (withSuffix != raw) {
+        docFutures.add(_firestore.collection('igrejas').doc(withSuffix).get());
+      }
+      if (raw.endsWith(suffix)) {
+        final baseId = raw.substring(0, raw.length - suffix.length).trim();
+        if (baseId.isNotEmpty) {
+          docFutures.add(_firestore.collection('igrejas').doc(baseId).get());
+        }
+      }
+    }
+
+    if (docFutures.isNotEmpty) {
+      try {
+        final snaps = await Future.wait(docFutures);
+        for (final d in snaps) {
+          if (d.exists) result.add(d.id);
+        }
+      } catch (_) {}
+    }
+
+    return result.toList();
+  }
+
   /// Hub de Departamentos / Escalas: se `igrejas/{resolved}/departamentos` estiver vazio mas um doc
   /// “irmão” (mesmo slug, [id]_sistema, [id]_bpc) tiver itens, usa esse id.
   ///
-  /// Também cobre catálogo gravado sob outro id enquanto o painel resolve slug → doc principal sem subcoleção.
+  /// **Performance:** antes lia `igrejas` (até 350 docs) e depois N leituras **sequenciais** a `departamentos`
+  /// sempre em [Source.server] — o módulo Departamentos ficava minutos em loading. Agora: provas em **paralelo**
+  /// com cache primeiro; o scan pesado de slug só corre se o id principal e variantes estiverem vazios.
   static Future<String> resolveChurchDocIdPreferringNonEmptyDepartments(
       String seedId) async {
     final resolved = await resolveEffectiveTenantId(seedId);
     final raw = resolved.trim();
     if (raw.isEmpty) return resolved;
 
-    final candidates = <String>[];
-    void add(String x) {
-      final t = x.trim();
-      if (t.isEmpty) return;
-      if (!candidates.contains(t)) candidates.add(t);
-    }
-
-    add(raw);
-    for (final suf in ['_sistema', '_bpc']) {
-      if (raw.endsWith(suf)) {
-        add(raw.substring(0, raw.length - suf.length));
-      } else {
-        add('$raw$suf');
-      }
-    }
-    try {
-      for (final id in await getIgrejaIdsWithSameSlugOrAlias(raw)) {
-        add(id);
-      }
-    } catch (_) {}
-
-    for (final tid in candidates) {
+    Future<String?> _probeDept(String tid, Source src) async {
+      final t = tid.trim();
+      if (t.isEmpty) return null;
       try {
         final snap = await _firestore
             .collection('igrejas')
-            .doc(tid)
+            .doc(t)
             .collection('departamentos')
             .limit(1)
-            .get(const GetOptions(source: Source.server));
-        if (snap.docs.isNotEmpty) {
-          return tid;
-        }
-      } catch (_) {}
+            .get(GetOptions(source: src))
+            .timeout(const Duration(seconds: 14));
+        return snap.docs.isNotEmpty ? t : null;
+      } on TimeoutException {
+        return null;
+      } catch (_) {
+        return null;
+      }
     }
+
+    Future<String?> _firstNonEmptyParallel(
+        List<String> ids, Source src) async {
+      if (ids.isEmpty) return null;
+      final out = await Future.wait(ids.map((id) => _probeDept(id, src)));
+      for (final h in out) {
+        if (h != null) return h;
+      }
+      return null;
+    }
+
+    final phase1 = <String>[];
+    void addUnique(String x) {
+      final t = x.trim();
+      if (t.isEmpty) return;
+      if (!phase1.contains(t)) phase1.add(t);
+    }
+
+    addUnique(raw);
+    for (final suf in ['_sistema', '_bpc']) {
+      if (raw.endsWith(suf)) {
+        addUnique(raw.substring(0, raw.length - suf.length));
+      } else {
+        addUnique('$raw$suf');
+      }
+    }
+
+    var hit = await _firstNonEmptyParallel(phase1, Source.serverAndCache);
+    if (hit != null) return hit;
+
+    List<String> siblings = const [];
+    try {
+      siblings = await getAllRelatedIgrejaDocIds(raw);
+    } catch (_) {
+      siblings = const [];
+    }
+    final extra = siblings.where((id) => !phase1.contains(id)).toList();
+    hit = await _firstNonEmptyParallel(extra, Source.serverAndCache);
+    if (hit != null) return hit;
+
+    hit = await _firstNonEmptyParallel(phase1, Source.server);
+    if (hit != null) return hit;
+
+    hit = await _firstNonEmptyParallel(extra, Source.server);
+    if (hit != null) return hit;
+
     return raw;
   }
 
-  /// Retorna todos os IDs (tenants + igrejas) que compartilham slug, alias ou nome.
+  /// Retorna todos os IDs (tenants + igrejas) que compartilham slug/alias (consultas indexadas).
   static Future<List<String>> getAllTenantIdsWithSameSlugOrAlias(String resolvedId) async {
     final raw = resolvedId.trim();
     if (raw.isEmpty) return [raw];
-    final result = <String>{raw};
-    String normSlug = _normalize(raw);
-    String normAlias = normSlug;
-    String normNome = '';
-
-    try {
-      final tenantDoc = await _firestore.collection('igrejas').doc(raw).get();
-      if (tenantDoc.exists) {
-        final data = tenantDoc.data() ?? {};
-        final slug = (data['slug'] ?? '').toString().trim();
-        final alias = (data['alias'] ?? '').toString().trim();
-        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        normSlug = slug.isEmpty ? normSlug : _normalize(slug);
-        normAlias = alias.isEmpty ? normSlug : _normalize(alias);
-        normNome = _normalize(nome);
-      } else {
-        final igrejaDoc = await _firestore.collection('igrejas').doc(raw).get();
-        if (igrejaDoc.exists) {
-          final data = igrejaDoc.data() ?? {};
-          final slug = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
-          final alias = (data['alias'] ?? '').toString().trim();
-          final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-          normSlug = slug.isEmpty ? normSlug : _normalize(slug);
-          normAlias = alias.isEmpty ? normSlug : _normalize(alias);
-          normNome = _normalize(nome);
-        }
-      }
-    } catch (_) {}
-
-    try {
-      final tenantSnap = await _firestore.collection('igrejas').limit(_scanLimit).get();
-      for (final d in tenantSnap.docs) {
-        final id = d.id;
-        if (result.contains(id)) continue;
-        final data = d.data();
-        final s = (data['slug'] ?? '').toString().trim();
-        final a = (data['alias'] ?? '').toString().trim();
-        final n = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        final nNorm = _normalize(n);
-        if (normSlug.isNotEmpty &&
-            (_normalize(s) == normSlug ||
-                _normalize(a) == normSlug ||
-                nNorm == normSlug)) {
-          result.add(id);
-        } else if (normAlias.isNotEmpty &&
-            normAlias != normSlug &&
-            (_normalize(s) == normAlias ||
-                _normalize(a) == normAlias ||
-                nNorm == normAlias)) {
-          result.add(id);
-        } else if (normNome.length >= 6 &&
-            (nNorm == normNome ||
-                nNorm.contains(normSlug) ||
-                (normSlug.isNotEmpty && nNorm.contains(normSlug)))) {
-          result.add(id);
-        }
-      }
-    } catch (_) {}
-
-    // Inclui variantes _sistema / _bpc (ex.: Brasil para Cristo)
-    for (final suffix in ['_sistema', '_bpc']) {
-      final withSuffix = '$raw$suffix';
-      if (result.contains(withSuffix)) continue;
-      try {
-        final t = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (t.exists) result.add(withSuffix);
-      } catch (_) {}
-      try {
-        final i = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (i.exists) result.add(withSuffix);
-      } catch (_) {}
-    }
-    // Se o id tem sufixo (_sistema, _bpc), inclui o id BASE — membros podem estar em igrejas/brasilparacristo/membros
-    for (final suffix in ['_sistema', '_bpc']) {
-      if (!raw.endsWith(suffix)) continue;
-      final baseId = raw.substring(0, raw.length - suffix.length).trim();
-      if (baseId.isEmpty || result.contains(baseId)) continue;
-      try {
-        final t = await _firestore.collection('igrejas').doc(baseId).get();
-        if (t.exists) result.add(baseId);
-      } catch (_) {}
-      try {
-        final i = await _firestore.collection('igrejas').doc(baseId).get();
-        if (i.exists) result.add(baseId);
-      } catch (_) {}
-    }
-
-    return result.toList();
+    return getAllRelatedIgrejaDocIds(raw);
   }
 
-  /// Retorna IDs em igrejas com mesmo slug/alias/nome. SEMPRE inclui raw se igrejas/raw existir.
+  /// Retorna IDs em `igrejas` com o mesmo slug/alias + variantes (mesmo conjunto que [getAllTenantIdsWithSameSlugOrAlias]).
   static Future<List<String>> getIgrejaIdsWithSameSlugOrAlias(String resolvedTenantId) async {
     final raw = resolvedTenantId.trim();
     if (raw.isEmpty) return [];
-    final result = <String>{};
-
-    String normSlug = _normalize(raw);
-    String normAlias = normSlug;
-    String normNome = '';
-    String slug = '';
-    String alias = '';
-
-    try {
-      final tenantDoc = await _firestore.collection('igrejas').doc(raw).get();
-      if (tenantDoc.exists) {
-        final data = tenantDoc.data() ?? {};
-        slug = (data['slug'] ?? '').toString().trim();
-        alias = (data['alias'] ?? '').toString().trim();
-        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        normSlug = slug.isEmpty ? normSlug : _normalize(slug);
-        normAlias = alias.isEmpty ? normSlug : _normalize(alias);
-        normNome = _normalize(nome);
-      } else {
-        final igrejaDoc = await _firestore.collection('igrejas').doc(raw).get();
-        if (igrejaDoc.exists) {
-          result.add(raw);
-          final data = igrejaDoc.data() ?? {};
-          slug = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
-          alias = (data['alias'] ?? '').toString().trim();
-          final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-          normSlug = slug.isEmpty ? normSlug : _normalize(slug);
-          normAlias = alias.isEmpty ? normSlug : _normalize(alias);
-          normNome = _normalize(nome);
-        }
-      }
-    } catch (_) {}
-
-    try {
-      final snapshot = await _firestore.collection('igrejas').limit(_scanLimit).get();
-      for (final d in snapshot.docs) {
-        final id = d.id;
-        final data = d.data();
-        final s = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
-        final a = (data['alias'] ?? '').toString().trim();
-        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        final nS = s.isEmpty ? '' : _normalize(s);
-        final nA = a.isEmpty ? '' : _normalize(a);
-        final nNome = _normalize(nome);
-
-        if (normSlug.isNotEmpty && (nS == normSlug || nA == normSlug || nNome == normSlug)) result.add(id);
-        else if (normAlias.isNotEmpty && (nS == normAlias || nA == normAlias || nNome == normAlias)) result.add(id);
-        else if (slug.isNotEmpty && (s == slug || a == slug)) result.add(id);
-        else if (alias.isNotEmpty && (s == alias || a == alias)) result.add(id);
-        else if (normNome.length >= 6 && (nNome.contains(normSlug) || nNome == normNome)) result.add(id);
-        else if (normSlug.length >= 5 && nNome.contains(normSlug.substring(0, normSlug.length > 8 ? 8 : normSlug.length))) result.add(id);
-      }
-    } catch (_) {}
-
-    // Inclui variantes _sistema / _bpc (ex.: Brasil para Cristo)
-    for (final suffix in ['_sistema', '_bpc']) {
-      final withSuffix = '$raw$suffix';
-      if (result.contains(withSuffix)) continue;
-      try {
-        final i = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (i.exists) result.add(withSuffix);
-      } catch (_) {}
-      try {
-        final t = await _firestore.collection('igrejas').doc(withSuffix).get();
-        if (t.exists) result.add(withSuffix);
-      } catch (_) {}
-    }
-    // Se o id tem sufixo, inclui o id BASE — membros podem estar em igrejas/brasilparacristo/membros
-    for (final suffix in ['_sistema', '_bpc']) {
-      if (!raw.endsWith(suffix)) continue;
-      final baseId = raw.substring(0, raw.length - suffix.length).trim();
-      if (baseId.isEmpty || result.contains(baseId)) continue;
-      try {
-        final i = await _firestore.collection('igrejas').doc(baseId).get();
-        if (i.exists) result.add(baseId);
-      } catch (_) {}
-      try {
-        final t = await _firestore.collection('igrejas').doc(baseId).get();
-        if (t.exists) result.add(baseId);
-      } catch (_) {}
-    }
-
-    return result.toList();
+    return getAllRelatedIgrejaDocIds(raw);
   }
 }

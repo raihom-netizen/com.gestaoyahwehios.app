@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
@@ -17,24 +18,22 @@ class MySchedulesPage extends StatefulWidget {
   State<MySchedulesPage> createState() => _MySchedulesPageState();
 }
 
-/// Filtro de período: diario, mes_anterior, mes_atual, anual, periodo
-const _filterKeys = [
-  ('diario', 'Diário'),
-  ('mes_anterior', 'Mês anterior'),
-  ('mes_atual', 'Mês atual'),
-  ('anual', 'Anual'),
-  ('periodo', 'Por período'),
+/// Filtro de período — sem calendário em grelha: navegação por mês + atalhos.
+const _periodFilterKeys = [
+  ('month', 'Por mês'),
+  ('year', 'Ano'),
+  ('day', 'Hoje'),
+  ('custom', 'Intervalo'),
 ];
 
 class _MySchedulesPageState extends State<MySchedulesPage> {
   late final String _cpfDigits;
   late Future<String> _effectiveTidFuture;
-  late DateTime _focusedMonth;
-  DateTime? _selectedDay;
-  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _eventsByDay = {};
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _allDocs = [];
   bool _loading = true;
-  String _dateFilter = 'mes_atual';
+  /// `month` = lista só no mês de [_monthCursor] (setas anterior/próximo).
+  String _dateFilter = 'month';
+  DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime? _periodStart;
   DateTime? _periodEnd;
 
@@ -48,8 +47,6 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
     _effectiveTidFuture = TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-    _focusedMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
-    _selectedDay = DateTime.now();
     _load();
   }
 
@@ -88,75 +85,67 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         });
       }
       _allDocs = docs;
-      _buildEventMap();
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
 
-  void _buildEventMap() {
-    _eventsByDay = {};
-    for (final d in _allDocs) {
-      DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
-      if (dt == null) continue;
-      final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-      _eventsByDay.putIfAbsent(key, () => []).add(d);
-    }
-  }
-
-  /// Documentos filtrados pelo período selecionado.
+  /// Documentos filtrados pelo período selecionado (sem widget de calendário em grelha).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _filteredDocs {
     final now = DateTime.now();
     final startOfToday = DateTime(now.year, now.month, now.day);
     final endOfToday = DateTime(now.year, now.month, now.day, 23, 59, 59);
-    final startOfMonth = DateTime(now.year, now.month, 1);
-    final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-    final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
-    final endOfLastMonth = DateTime(now.year, now.month, 0, 23, 59, 59);
-    final startOfYear = DateTime(now.year, 1, 1);
-    final endOfYear = DateTime(now.year, 12, 31, 23, 59, 59);
+    final yNav = _monthCursor.year;
+    final mNav = _monthCursor.month;
+    final startOfNavMonth = DateTime(yNav, mNav, 1);
+    final endOfNavMonth = DateTime(yNav, mNav + 1, 0, 23, 59, 59);
+    final startOfNavYear = DateTime(yNav, 1, 1);
+    final endOfNavYear = DateTime(yNav, 12, 31, 23, 59, 59);
 
     return _allDocs.where((d) {
       DateTime? dt;
       try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
       if (dt == null) return false;
       switch (_dateFilter) {
-        case 'diario':
-          return dt.isAfter(startOfToday.subtract(const Duration(days: 1))) && dt.isBefore(endOfToday.add(const Duration(days: 1)));
-        case 'mes_anterior':
-          return !dt.isBefore(startOfLastMonth) && !dt.isAfter(endOfLastMonth);
-        case 'mes_atual':
-          return !dt.isBefore(startOfMonth) && !dt.isAfter(endOfMonth);
-        case 'anual':
-          return !dt.isBefore(startOfYear) && !dt.isAfter(endOfYear);
-        case 'periodo':
+        case 'month':
+          return !dt.isBefore(startOfNavMonth) && !dt.isAfter(endOfNavMonth);
+        case 'year':
+          return !dt.isBefore(startOfNavYear) && !dt.isAfter(endOfNavYear);
+        case 'day':
+          return !dt.isBefore(startOfToday) && !dt.isAfter(endOfToday);
+        case 'custom':
           if (_periodStart == null || _periodEnd == null) return true;
           final start = DateTime(_periodStart!.year, _periodStart!.month, _periodStart!.day);
           final end = DateTime(_periodEnd!.year, _periodEnd!.month, _periodEnd!.day, 23, 59, 59);
           return !dt.isBefore(start) && !dt.isAfter(end);
         default:
-          return true;
+          return !dt.isBefore(startOfNavMonth) && !dt.isAfter(endOfNavMonth);
       }
     }).toList();
   }
 
-  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> get _eventsByDayFiltered {
-    final map = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-    for (final d in _filteredDocs) {
-      DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
-      if (dt == null) continue;
-      final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-      map.putIfAbsent(key, () => []).add(d);
-    }
-    for (final k in map.keys) {
-      map[k]!.sort((a, b) {
-        final ta = (a.data()['time'] ?? '').toString();
-        final tb = (b.data()['time'] ?? '').toString();
-        return ta.compareTo(tb);
-      });
-    }
-    return map;
+  /// Escalas do filtro atual, ordenadas por data e horário.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _sortedFilteredDocs {
+    final list =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_filteredDocs);
+    list.sort((a, b) {
+      DateTime? da;
+      DateTime? db;
+      try {
+        da = (a.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
+      try {
+        db = (b.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      final c = da.compareTo(db);
+      if (c != 0) return c;
+      return (a.data()['time'] ?? '')
+          .toString()
+          .compareTo((b.data()['time'] ?? '').toString());
+    });
+    return list;
   }
 
   Future<List<String>> _loadMemberDepartments(CollectionReference<Map<String, dynamic>> members) async {
@@ -172,8 +161,6 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final raw = data?['DEPARTAMENTOS'];
     return raw is List ? raw.map((e) => e.toString()).toList() : [];
   }
-
-  String _dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   /// Retorna a chave de CPF usada no documento (igual à de memberCpfs/confirmations).
   String _confirmationKey(Map<String, dynamic> data) {
@@ -568,15 +555,97 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     await _load();
   }
 
+  /// Um único eixo de rolagem (web + app): filtros, resumo e lista sobem/descem juntos.
+  List<Widget> _mySchedulesScrollChildren(
+    BuildContext context,
+    DateTime now,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sorted,
+  ) {
+    final children = <Widget>[
+      _buildIncomingSwapInvites(),
+      _buildSummary(now),
+      const SizedBox(height: ThemeCleanPremium.spaceSm),
+      _buildPremiumPeriodSection(context),
+      const SizedBox(height: 10),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8, top: 4),
+        child: Row(
+          children: [
+            Icon(Icons.view_list_rounded,
+                size: 22, color: ThemeCleanPremium.primary),
+            const SizedBox(width: 8),
+            Text(
+              'Suas escalas',
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: ThemeCleanPremium.onSurface,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '${sorted.length}',
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: ThemeCleanPremium.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+    if (sorted.isEmpty) {
+      children.add(
+        Container(
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.event_busy_rounded,
+                  size: 52, color: Colors.grey.shade400),
+              const SizedBox(height: 14),
+              Text(
+                'Nenhuma escala neste período.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Altere o filtro acima ou aguarde o líder publicar novas escalas.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade500,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      children.addAll(_buildScheduleListWithDateHeaders(sorted, now));
+    }
+    return children;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final now = DateTime.now();
-    final todayKey = _dayKey(now);
-    final eventsByDay = _eventsByDayFiltered;
-    final selectedKey = _selectedDay != null ? _dayKey(_selectedDay!) : todayKey;
-    final selectedEvents = eventsByDay[selectedKey] ?? [];
+    final sorted = _sortedFilteredDocs;
 
+    final pagePad = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: isMobile ? null : AppBar(
@@ -593,48 +662,65 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _load,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: ThemeCleanPremium.pagePadding(context),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (isMobile)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                          child: OutlinedButton.icon(
-                            onPressed: _openAvailabilityCalendar,
-                            icon: const Icon(Icons.event_busy_rounded, size: 20),
-                            label: const Text('Dias em que não posso servir'),
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (isMobile)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        pagePad.left,
+                        ThemeCleanPremium.spaceSm,
+                        pagePad.right,
+                        ThemeCleanPremium.spaceSm,
+                      ),
+                      child: FilledButton.tonalIcon(
+                        onPressed: _openAvailabilityCalendar,
+                        icon: const Icon(Icons.event_busy_rounded, size: 20),
+                        label: const Text('Dias em que não posso servir'),
+                        style: FilledButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.primary,
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14, horizontal: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: const BorderSide(
+                              color: _premiumFilterBorderStrong,
+                              width: 1.35,
+                            ),
                           ),
+                          elevation: 0,
+                          shadowColor: const Color(0x220F172A),
                         ),
-                      _buildIncomingSwapInvites(),
-                      _buildSummary(now),
-                      const SizedBox(height: ThemeCleanPremium.spaceSm),
-                      _buildFilterChips(context),
-                      const SizedBox(height: 20),
-                      _buildCalendar(now, eventsByDay),
-                      const SizedBox(height: 20),
-                      _buildSelectedDayHeader(selectedKey),
-                      const SizedBox(height: 10),
-                      if (selectedEvents.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd), boxShadow: ThemeCleanPremium.softUiCardShadow),
-                          child: Column(children: [
-                            Icon(Icons.event_busy_rounded, size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 10),
-                            Text('Nenhuma escala neste dia.', style: TextStyle(color: Colors.grey.shade600)),
-                          ]),
-                        )
-                      else
-                        for (final ev in selectedEvents) _buildEventCard(ev, now),
-                      const SizedBox(height: 32),
-                    ],
+                      ),
+                    ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _load,
+                      child: CustomScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        slivers: [
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(
+                              pagePad.left,
+                              4,
+                              pagePad.right,
+                              pagePad.bottom + 16,
+                            ),
+                            sliver: SliverList(
+                              delegate: SliverChildListDelegate(
+                                _mySchedulesScrollChildren(
+                                    context, now, sorted),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
       ),
     );
@@ -642,10 +728,12 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Widget _buildSummary(DateTime now) {
     final filtered = _filteredDocs;
+    final refY = _dateFilter == 'month' ? _monthCursor.year : now.year;
+    final refM = _dateFilter == 'month' ? _monthCursor.month : now.month;
     final thisMonth = filtered.where((d) {
       DateTime? dt;
       try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
-      return dt != null && dt.month == now.month && dt.year == now.year;
+      return dt != null && dt.month == refM && dt.year == refY;
     }).toList();
     final startOfToday = DateTime(now.year, now.month, now.day);
     final upcoming = filtered.where((d) {
@@ -715,191 +803,387 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     );
   }
 
-  Widget _buildFilterChips(BuildContext context) {
+  static const Color _premiumFilterBorder = Color(0xFF94A3B8);
+  static const Color _premiumFilterBorderStrong = Color(0xFF64748B);
+
+  Widget _buildPremiumPeriodSection(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 12, bottom: 8),
-            child: Text(
-              'Período',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.grey.shade600),
-            ),
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ..._filterKeys.map((e) {
-                final selected = _dateFilter == e.$1;
-                return FilterChip(
-                  label: Text(e.$2, style: TextStyle(fontWeight: selected ? FontWeight.w700 : FontWeight.w500, fontSize: 12)),
-                  selected: selected,
-                  onSelected: (v) => setState(() => _dateFilter = v == true ? e.$1 : _dateFilter),
-                  selectedColor: ThemeCleanPremium.primary.withOpacity(0.15),
-                  checkmarkColor: ThemeCleanPremium.primary,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                );
-              }),
-              if (_dateFilter == 'periodo') ...[
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: _periodStart ?? DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) setState(() => _periodStart = d);
-                  },
-                  icon: const Icon(Icons.calendar_today_rounded, size: 18),
-                  label: Text(_periodStart == null ? 'Início' : DateFormat('dd/MM/yyyy').format(_periodStart!)),
-                ),
-                TextButton.icon(
-                  onPressed: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: _periodEnd ?? _periodStart ?? DateTime.now(),
-                      firstDate: _periodStart ?? DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) setState(() => _periodEnd = d);
-                  },
-                  icon: const Icon(Icons.event_rounded, size: 18),
-                  label: Text(_periodEnd == null ? 'Fim' : DateFormat('dd/MM/yyyy').format(_periodEnd!)),
-                ),
-              ],
-            ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _premiumFilterBorderStrong, width: 1.25),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 20,
+            offset: Offset(0, 8),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildCalendar(DateTime now, Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> eventsByDay) {
-    final firstDay = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
-    final daysInMonth = DateUtils.getDaysInMonth(_focusedMonth.year, _focusedMonth.month);
-    final startWeekday = firstDay.weekday % 7;
-    final meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd), boxShadow: ThemeCleanPremium.softUiCardShadow),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            IconButton(
-              onPressed: () => setState(() { _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1, 1); }),
-              icon: const Icon(Icons.chevron_left_rounded),
-              style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
-            ),
-            Expanded(
-              child: Text(
-                '${meses[_focusedMonth.month - 1]} ${_focusedMonth.year}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              Icon(Icons.date_range_rounded, size: 20, color: primary),
+              const SizedBox(width: 8),
+              Text(
+                'Período',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          if (_dateFilter == 'month') ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    primary.withValues(alpha: 0.08),
+                    const Color(0xFFF1F5F9),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: primary.withValues(alpha: 0.35), width: 1.25),
+              ),
+              child: Row(
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => setState(() {
+                      _monthCursor = DateTime(
+                        _monthCursor.year,
+                        _monthCursor.month - 1,
+                        1,
+                      );
+                    }),
+                    icon: const Icon(Icons.chevron_left_rounded, size: 26),
+                    style: IconButton.styleFrom(
+                      foregroundColor: primary,
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: primary.withValues(alpha: 0.4), width: 1.2),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          DateFormat('MMMM yyyy', 'pt_BR').format(_monthCursor),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Lista por dia — sem calendário em grelha',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: () => setState(() {
+                      _monthCursor = DateTime(
+                        _monthCursor.year,
+                        _monthCursor.month + 1,
+                        1,
+                      );
+                    }),
+                    icon: const Icon(Icons.chevron_right_rounded, size: 26),
+                    style: IconButton.styleFrom(
+                      foregroundColor: primary,
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: primary.withValues(alpha: 0.4), width: 1.2),
+                    ),
+                  ),
+                ],
               ),
             ),
-            IconButton(
-              onPressed: () => setState(() { _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 1); }),
-              icon: const Icon(Icons.chevron_right_rounded),
-              style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.center,
+              child: FilledButton.tonalIcon(
+                onPressed: () {
+                  final n = DateTime.now();
+                  setState(() => _monthCursor = DateTime(n.year, n.month, 1));
+                },
+                icon: const Icon(Icons.today_rounded, size: 18),
+                label: const Text('Ir para mês atual'),
+                style: FilledButton.styleFrom(
+                  foregroundColor: primary,
+                  backgroundColor: primary.withValues(alpha: 0.12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: primary.withValues(alpha: 0.35)),
+                  ),
+                ),
+              ),
             ),
-          ]),
-          const SizedBox(height: 8),
-          Row(
-            children: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-                .map((d) => Expanded(child: Center(child: Text(d, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey.shade500)))))
-                .toList(),
-          ),
-          const SizedBox(height: 6),
-          ...List.generate(((startWeekday + daysInMonth) / 7).ceil(), (week) {
-            return Row(
-              children: List.generate(7, (col) {
-                final dayNum = week * 7 + col - startWeekday + 1;
-                if (dayNum < 1 || dayNum > daysInMonth) return const Expanded(child: SizedBox(height: 44));
-                final date = DateTime(_focusedMonth.year, _focusedMonth.month, dayNum);
-                final key = _dayKey(date);
-                final events = eventsByDay[key] ?? [];
-                final isToday = key == _dayKey(now);
-                final isSelected = _selectedDay != null && key == _dayKey(_selectedDay!);
-
-                final dotColors = <Color>{};
-                for (final ev in events) {
-                  final deptId = (ev.data()['departmentId'] ?? '').toString();
-                  dotColors.add(_deptColors[deptId.hashCode.abs() % _deptColors.length]);
-                }
-
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selectedDay = date),
-                    child: Container(
-                      height: 44,
-                      margin: const EdgeInsets.all(1),
-                      decoration: BoxDecoration(
-                        color: isSelected ? ThemeCleanPremium.primary : isToday ? ThemeCleanPremium.primary.withOpacity(0.08) : null,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            '$dayNum',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: isToday || isSelected ? FontWeight.w800 : FontWeight.w500,
-                              color: isSelected ? Colors.white : isToday ? ThemeCleanPremium.primary : ThemeCleanPremium.onSurface,
-                            ),
-                          ),
-                          if (dotColors.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: dotColors.take(3).map((c) => Container(
-                                width: 5, height: 5,
-                                margin: const EdgeInsets.symmetric(horizontal: 1),
-                                decoration: BoxDecoration(color: isSelected ? Colors.white : c, shape: BoxShape.circle),
-                              )).toList(),
-                            ),
-                          ],
-                        ],
+          ],
+          if (_dateFilter == 'year') ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    primary.withValues(alpha: 0.08),
+                    const Color(0xFFF1F5F9),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: primary.withValues(alpha: 0.35), width: 1.25),
+              ),
+              child: Row(
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => setState(() {
+                      _monthCursor =
+                          DateTime(_monthCursor.year - 1, _monthCursor.month, 1);
+                    }),
+                    icon: const Icon(Icons.chevron_left_rounded, size: 26),
+                    style: IconButton.styleFrom(
+                      foregroundColor: primary,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Ano ${_monthCursor.year}',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.poppins(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.onSurface,
                       ),
                     ),
                   ),
+                  IconButton.filledTonal(
+                    onPressed: () => setState(() {
+                      _monthCursor =
+                          DateTime(_monthCursor.year + 1, _monthCursor.month, 1);
+                    }),
+                    icon: const Icon(Icons.chevron_right_rounded, size: 26),
+                    style: IconButton.styleFrom(
+                      foregroundColor: primary,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            'Tipo de filtro',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade700,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 10,
+            children: [
+              ..._periodFilterKeys.map((e) {
+                final selected = _dateFilter == e.$1;
+                return FilterChip(
+                  label: Text(
+                    e.$2,
+                    style: TextStyle(
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 12.5,
+                      color: selected ? primary : ThemeCleanPremium.onSurface,
+                    ),
+                  ),
+                  selected: selected,
+                  showCheckmark: true,
+                  checkmarkColor: primary,
+                  onSelected: (v) {
+                    if (v) setState(() => _dateFilter = e.$1);
+                  },
+                  selectedColor: primary.withValues(alpha: 0.16),
+                  backgroundColor: const Color(0xFFF8FAFC),
+                  side: BorderSide(
+                    color: selected ? primary : _premiumFilterBorder,
+                    width: selected ? 2 : 1.25,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 );
               }),
-            );
-          }),
+            ],
+          ),
+          if (_dateFilter == 'custom') ...[
+            const SizedBox(height: 14),
+            Text(
+              'Datas do intervalo',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: _periodStart ?? DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2035),
+                        );
+                        if (d != null) setState(() => _periodStart = d);
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _premiumFilterBorderStrong,
+                            width: 1.35,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.event_rounded,
+                                size: 20, color: primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Início',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  Text(
+                                    _periodStart == null
+                                        ? 'Toque para escolher'
+                                        : DateFormat('dd/MM/yyyy', 'pt_BR')
+                                            .format(_periodStart!),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      color: ThemeCleanPremium.onSurface,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: _periodEnd ??
+                              _periodStart ??
+                              DateTime.now(),
+                          firstDate: _periodStart ?? DateTime(2020),
+                          lastDate: DateTime(2035),
+                        );
+                        if (d != null) setState(() => _periodEnd = d);
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _premiumFilterBorderStrong,
+                            width: 1.35,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.flag_rounded, size: 20, color: primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Fim',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  Text(
+                                    _periodEnd == null
+                                        ? 'Toque para escolher'
+                                        : DateFormat('dd/MM/yyyy', 'pt_BR')
+                                            .format(_periodEnd!),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      color: ThemeCleanPremium.onSurface,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
-  }
-
-  Widget _buildSelectedDayHeader(String key) {
-    final events = _eventsByDay[key] ?? [];
-    final parts = key.split('-');
-    final dayNum = parts.length == 3 ? int.tryParse(parts[2]) ?? 0 : 0;
-    final monthNum = parts.length >= 2 ? int.tryParse(parts[1]) ?? 0 : 0;
-    final meses = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    return Row(children: [
-      Text('$dayNum de ${monthNum > 0 && monthNum <= 12 ? meses[monthNum] : ''}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-      const SizedBox(width: 8),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        decoration: BoxDecoration(color: ThemeCleanPremium.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-        child: Text('${events.length} escala(s)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: ThemeCleanPremium.primary)),
-      ),
-    ]);
   }
 
   Widget _buildEventCard(QueryDocumentSnapshot<Map<String, dynamic>> doc, DateTime now) {
@@ -913,6 +1197,77 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           ? () => _abrirPedidoTroca(context, doc)
           : null,
     );
+  }
+
+  /// Agrupa a lista por dia com título legível (pt_BR).
+  List<Widget> _buildScheduleListWithDateHeaders(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    DateTime now,
+  ) {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final out = <Widget>[];
+    DateTime? lastDay;
+    for (final doc in docs) {
+      DateTime? dt;
+      try {
+        dt = (doc.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
+      if (dt != null) {
+        final dayOnly = DateTime(dt.year, dt.month, dt.day);
+        if (lastDay == null || dayOnly != lastDay) {
+          lastDay = dayOnly;
+          final raw =
+              DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(dayOnly);
+          final cap = raw.isEmpty
+              ? ''
+              : '${raw[0].toUpperCase()}${raw.substring(1)}';
+          final sameCalendarDay = dayOnly.year == now.year &&
+              dayOnly.month == now.month &&
+              dayOnly.day == now.day;
+          out.add(
+            Padding(
+              padding: EdgeInsets.only(
+                top: out.isEmpty ? 0 : 20,
+                bottom: 10,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      cap,
+                      style: GoogleFonts.poppins(
+                        fontSize: isMobile ? 15 : 16,
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                  ),
+                  if (sameCalendarDay)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Hoje',
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }
+      }
+      out.add(_buildEventCard(doc, now));
+    }
+    return out;
   }
 }
 
@@ -945,7 +1300,8 @@ class _ScaleEventCard extends StatelessWidget {
     String myStatus = (confirmations[cpfDigits] ?? '').toString();
     if (myStatus.isEmpty && cpfs.contains(cpfDigits)) {
       for (final k in confirmations.keys) {
-        if ((k ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '') == cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
+        if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
+            cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
           myStatus = (confirmations[k] ?? '').toString();
           break;
         }
@@ -954,7 +1310,8 @@ class _ScaleEventCard extends StatelessWidget {
     final unavailabilityReasons = (m['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
     String? myReason;
     for (final k in unavailabilityReasons.keys) {
-      if ((k ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '') == cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
+      if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
+          cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
         final v = unavailabilityReasons[k];
         if (v is Map && v['reason'] != null) myReason = v['reason'].toString();
         break;
@@ -994,6 +1351,17 @@ class _ScaleEventCard extends StatelessWidget {
                         child: Text(time, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
                       ),
                   ]),
+                  if (dt != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
                   if (dept.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(dept, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),

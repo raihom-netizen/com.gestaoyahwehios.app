@@ -2,16 +2,21 @@
 
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:js' as js;
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show firebaseStorageMediaUrlLooksLike, freshFirebaseStorageDisplayUrl, sanitizeImageUrl;
 
 /// Vídeo nativo do navegador: controles completos (velocidade, PiP, download conforme browser).
 /// iOS Safari: autoplay exige [muted] = true; para hero institucional use muted + loop.
+///
+/// [preload] padrão `metadata`: não tenta baixar o ficheiro inteiro antes do play (melhor para MP4 no site público).
+/// [posterUrl]: imagem estática (primeiro frame ou capa) — evita área preta enquanto carrega.
 ///
 /// URLs do Firebase Storage são renovadas com token antes de definir `src` (igual ao [PremiumHtmlFeedVideo]).
 Widget buildPremiumHtmlVideo(
@@ -21,6 +26,8 @@ Widget buildPremiumHtmlVideo(
   bool muted = false,
   bool controls = true,
   bool objectFitContain = false,
+  String? posterUrl,
+  String preload = 'metadata',
 }) {
   return _PremiumHtmlVideoPlayer(
     url: url,
@@ -29,6 +36,8 @@ Widget buildPremiumHtmlVideo(
     muted: muted,
     controls: controls,
     objectFitContain: objectFitContain,
+    posterUrl: posterUrl,
+    preload: preload,
   );
 }
 
@@ -40,6 +49,8 @@ class _PremiumHtmlVideoPlayer extends StatefulWidget {
   final bool controls;
   /// Galeria divulgação: vídeos verticais (9:16) sem cortar — `contain` + fundo escuro.
   final bool objectFitContain;
+  final String? posterUrl;
+  final String preload;
 
   const _PremiumHtmlVideoPlayer({
     required this.url,
@@ -48,6 +59,8 @@ class _PremiumHtmlVideoPlayer extends StatefulWidget {
     required this.muted,
     required this.controls,
     this.objectFitContain = false,
+    this.posterUrl,
+    this.preload = 'metadata',
   });
 
   @override
@@ -59,6 +72,33 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
   late final html.VideoElement _video;
   bool _resolving = true;
 
+  void _detachHls() {
+    try {
+      final fn = js.context['yahwehDetachHls'];
+      if (fn != null) {
+        js.context.callMethod('yahwehDetachHls', [_video]);
+      }
+    } catch (_) {}
+  }
+
+  void _setVideoSource(String use) {
+    final lower = use.toLowerCase();
+    final looksHls =
+        lower.contains('.m3u8') || lower.contains('application/x-mpegurl');
+    if (looksHls) {
+      try {
+        final fn = js.context['yahwehAttachHls'];
+        if (fn != null) {
+          js.context.callMethod('yahwehAttachHls', [_video, use]);
+          return;
+        }
+      } catch (_) {}
+    }
+    _detachHls();
+    _video.src = use;
+    _video.load();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -68,7 +108,7 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
       ..autoplay = widget.autoplay
       ..loop = widget.loop
       ..muted = widget.muted
-      ..preload = 'auto'
+      ..preload = widget.preload
       ..style.width = '100%'
       ..style.height = '100%'
       ..style.objectFit = widget.objectFitContain ? 'contain' : 'cover';
@@ -100,15 +140,35 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
       }
     }
     if (!mounted) return;
-    _video.src = use;
-    _video.load();
+    await _applyPosterIfAny();
+    if (!mounted) return;
+    _setVideoSource(use);
     setState(() => _resolving = false);
+  }
+
+  Future<void> _applyPosterIfAny() async {
+    final raw = widget.posterUrl?.trim() ?? '';
+    if (raw.isEmpty) {
+      _video.poster = '';
+      return;
+    }
+    var pu = sanitizeImageUrl(raw);
+    if (pu.isEmpty) return;
+    if (firebaseStorageMediaUrlLooksLike(pu)) {
+      try {
+        pu = await freshFirebaseStorageDisplayUrl(pu);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    _video.poster = pu;
   }
 
   @override
   void didUpdateWidget(covariant _PremiumHtmlVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (sanitizeImageUrl(oldWidget.url) != sanitizeImageUrl(widget.url)) {
+    if (sanitizeImageUrl(oldWidget.url) != sanitizeImageUrl(widget.url) ||
+        (oldWidget.posterUrl ?? '') != (widget.posterUrl ?? '') ||
+        oldWidget.preload != widget.preload) {
       setState(() => _resolving = true);
       unawaited(_applyPlayableUrl());
     } else if (oldWidget.controls != widget.controls ||
@@ -120,6 +180,7 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
       _video.autoplay = widget.autoplay;
       _video.loop = widget.loop;
       _video.muted = widget.muted;
+      _video.preload = widget.preload;
       _video.style.objectFit = widget.objectFitContain ? 'contain' : 'cover';
     }
   }
@@ -127,6 +188,7 @@ class _PremiumHtmlVideoPlayerState extends State<_PremiumHtmlVideoPlayer> {
   @override
   void dispose() {
     try {
+      _detachHls();
       _video.pause();
       _video.src = '';
       _video.load();

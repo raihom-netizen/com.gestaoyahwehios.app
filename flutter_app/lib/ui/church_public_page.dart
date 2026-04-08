@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaFeedCoverHintUrl,
         eventNoticiaImageStoragePath,
+        eventNoticiaPostHasFeedCoverRow,
         eventNoticiaThumbStoragePath,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
@@ -25,7 +26,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         FreshFirebaseStorageImage,
         SafeNetworkImage,
         churchTenantLogoUrl,
-        imageUrlFromMap,
         sanitizeImageUrl,
         isValidImageUrl,
         memCacheExtentForLogicalSize,
@@ -46,6 +46,7 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
         ChurchPublicPremiumSection,
         churchPublicCoverMemCache,
         churchPublicFeedMediaMaxHeight;
+import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
@@ -82,15 +83,23 @@ bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
 Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
     _churchPublicMergedPublicacoesStream(String igrejaId, {int limit = 48}) {
   return Stream.multi((controller) {
+    var noticiasOk = true;
+    var avisosOk = true;
     QuerySnapshot<Map<String, dynamic>>? snapNoticias;
     QuerySnapshot<Map<String, dynamic>>? snapAvisos;
 
     void emit() {
-      if (snapNoticias == null || snapAvisos == null) return;
+      if ((noticiasOk && snapNoticias == null) ||
+          (avisosOk && snapAvisos == null)) {
+        return;
+      }
       final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       final now = DateTime.now();
 
-      for (final d in snapNoticias!.docs) {
+      final notDocs = noticiasOk ? snapNoticias!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final aviDocs = avisosOk ? snapAvisos!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+      for (final d in notDocs) {
         final m = d.data();
         if ((m['type'] ?? '').toString() != 'evento') continue;
         if (m['publicSite'] == false) continue;
@@ -98,7 +107,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         if (!noticiaDocEhEventoSpecialFeed(d)) continue;
         merged.add(d);
       }
-      for (final d in snapAvisos!.docs) {
+      for (final d in aviDocs) {
         final m = d.data();
         if (m['publicSite'] == false) continue;
         if (!_churchPublicDocStillActive(m, now)) continue;
@@ -130,7 +139,10 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         .listen((s) {
       snapNoticias = s;
       emit();
-    }, onError: controller.addError);
+    }, onError: (_) {
+      noticiasOk = false;
+      emit();
+    });
     final sub2 = base
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
@@ -140,7 +152,10 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         .listen((s) {
       snapAvisos = s;
       emit();
-    }, onError: controller.addError);
+    }, onError: (_) {
+      avisosOk = false;
+      emit();
+    });
 
     controller.onCancel = () {
       sub1.cancel();
@@ -3487,22 +3502,32 @@ class _ChurchTenantFallback extends StatelessWidget {
                                 builder: (ctx, c) {
                                   final w = c.maxWidth;
                                   final h = c.maxHeight;
-                                  return StableStorageImage(
-                                    storagePath:
-                                        eventNoticiaPhotoStoragePathAt(p, 0),
-                                    imageUrl: isValidImageUrl(u0) ? u0 : null,
-                                    width: w,
-                                    height: h,
-                                    fit: BoxFit.cover,
-                                    memCacheWidth: 900,
-                                    memCacheHeight: 900,
-                                    errorWidget: Container(
-                                      color: const Color(0xFFEEF2FF),
-                                      alignment: Alignment.center,
-                                      child: Icon(
-                                          Icons.image_not_supported_rounded,
-                                          size: 48,
-                                          color: Colors.indigo.shade200),
+                                  return LazyViewportBuilder(
+                                    visibilityKey:
+                                        'church-pub-${d.id}-evt-photo',
+                                    placeholder: SizedBox.expand(
+                                      child: YahwehPremiumFeedShimmer
+                                          .mediaCover(),
+                                    ),
+                                    builder: () => StableStorageImage(
+                                      storagePath:
+                                          eventNoticiaPhotoStoragePathAt(
+                                              p, 0),
+                                      imageUrl:
+                                          isValidImageUrl(u0) ? u0 : null,
+                                      width: w,
+                                      height: h,
+                                      fit: BoxFit.cover,
+                                      memCacheWidth: 900,
+                                      memCacheHeight: 900,
+                                      errorWidget: Container(
+                                        color: const Color(0xFFEEF2FF),
+                                        alignment: Alignment.center,
+                                        child: Icon(
+                                            Icons.image_not_supported_rounded,
+                                            size: 48,
+                                            color: Colors.indigo.shade200),
+                                      ),
                                     ),
                                   );
                                 },
@@ -3600,20 +3625,29 @@ class _ChurchTenantFallback extends StatelessWidget {
                                     children: [
                                       LayoutBuilder(
                                         builder: (ctx, c) {
-                                          return StableStorageImage(
-                                            storagePath:
-                                                eventNoticiaThumbStoragePath(
-                                                        p) ??
-                                                    eventNoticiaImageStoragePath(
-                                                        p),
-                                            imageUrl: cover,
-                                            width: c.maxWidth,
-                                            height: c.maxHeight,
-                                            fit: BoxFit.cover,
-                                            memCacheWidth: 900,
-                                            memCacheHeight: 900,
-                                            errorWidget: Container(
-                                                color: const Color(0xFF1E3A8A)),
+                                          return LazyViewportBuilder(
+                                            visibilityKey:
+                                                'church-pub-${d.id}-evt-thumb',
+                                            placeholder: SizedBox.expand(
+                                              child: YahwehPremiumFeedShimmer
+                                                  .mediaCover(),
+                                            ),
+                                            builder: () => StableStorageImage(
+                                              storagePath:
+                                                  eventNoticiaThumbStoragePath(
+                                                          p) ??
+                                                      eventNoticiaImageStoragePath(
+                                                          p),
+                                              imageUrl: cover,
+                                              width: c.maxWidth,
+                                              height: c.maxHeight,
+                                              fit: BoxFit.cover,
+                                              memCacheWidth: 900,
+                                              memCacheHeight: 900,
+                                              errorWidget: Container(
+                                                  color: const Color(
+                                                      0xFF1E3A8A)),
+                                            ),
                                           );
                                         },
                                       ),
@@ -3698,32 +3732,43 @@ class _ChurchTenantFallback extends StatelessWidget {
                       }
                     }
                   } else {
-                    final photoList = eventNoticiaPhotoUrls(p);
-                    final fromList = photoList.isNotEmpty
-                        ? sanitizeImageUrl(photoList.first)
-                        : '';
-                    final fromMap = sanitizeImageUrl(imageUrlFromMap(p));
-                    final imageUrl = fromList.isNotEmpty ? fromList : fromMap;
-                    final path0 = eventNoticiaPhotoStoragePathAt(p, 0);
-                    if ((imageUrl.isNotEmpty && isValidImageUrl(imageUrl)) ||
-                        (path0 != null && path0.isNotEmpty)) {
+                    // Avisos: mesma cobertura de capa que o mural (fotoUrl, gs://, path) + path derivado de URL expirada.
+                    if (eventNoticiaPostHasFeedCoverRow(p)) {
+                      final hint =
+                          sanitizeImageUrl(eventNoticiaFeedCoverHintUrl(p));
+                      final path0 = eventNoticiaPhotoStoragePathAt(p, 0);
                       media.add(
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
                           child: ChurchPublicConstrainedMedia(
                             child: LayoutBuilder(
                               builder: (ctx, c) {
-                                return StableStorageImage(
-                                  storagePath: path0,
-                                  imageUrl: isValidImageUrl(imageUrl)
-                                      ? imageUrl
-                                      : null,
-                                  width: c.maxWidth,
-                                  height: c.maxHeight,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: 640,
-                                  memCacheHeight: 640,
-                                  errorWidget: const SizedBox.shrink(),
+                                return LazyViewportBuilder(
+                                  visibilityKey:
+                                      'church-pub-${d.id}-aviso-cover',
+                                  placeholder: SizedBox.expand(
+                                    child: YahwehPremiumFeedShimmer
+                                        .mediaCover(),
+                                  ),
+                                  builder: () => StableStorageImage(
+                                    storagePath: path0,
+                                    imageUrl:
+                                        hint.isNotEmpty ? hint : null,
+                                    width: c.maxWidth,
+                                    height: c.maxHeight,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 640,
+                                    memCacheHeight: 640,
+                                    errorWidget: Container(
+                                      color: const Color(0xFFEEF2FF),
+                                      alignment: Alignment.center,
+                                      child: Icon(
+                                        Icons.image_not_supported_rounded,
+                                        size: 48,
+                                        color: Colors.indigo.shade200,
+                                      ),
+                                    ),
+                                  ),
                                 );
                               },
                             ),

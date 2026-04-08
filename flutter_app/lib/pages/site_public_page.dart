@@ -1,6 +1,6 @@
 import "dart:async";
 
-import "package:flutter/foundation.dart" show kIsWeb;
+import "package:flutter/foundation.dart" show debugPrint, kIsWeb;
 import "package:flutter/material.dart";
 import "package:gestao_yahweh/core/public_site_media_auth.dart";
 import "package:cloud_functions/cloud_functions.dart";
@@ -15,8 +15,34 @@ import "package:gestao_yahweh/ui/widgets/premium_storage_video/premium_instituti
 import "package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart";
 import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart";
 import "package:gestao_yahweh/services/public_site_analytics.dart";
+import "package:gestao_yahweh/services/auth_cpf_service.dart";
+import "package:gestao_yahweh/ui/widgets/safe_network_image.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
+
+QuerySnapshot<Map<String, dynamic>>? _cachedPublicEmptySnap;
+
+/// Evita que uma query Firestore falhada derrube o lote paralelo (índice, permissão anónima em collectionGroup, etc.).
+Future<QuerySnapshot<Map<String, dynamic>>> _safeFsQuery(
+  Future<QuerySnapshot<Map<String, dynamic>>> future,
+) async {
+  try {
+    return await future;
+  } catch (_) {
+    try {
+      _cachedPublicEmptySnap ??=
+          await FirebaseFirestore.instance.collection('igrejas').limit(0).get();
+      return _cachedPublicEmptySnap!;
+    } catch (_) {
+      try {
+        return await FirebaseFirestore.instance.collection('config').limit(0).get();
+      } catch (_) {
+        if (_cachedPublicEmptySnap != null) return _cachedPublicEmptySnap!;
+        rethrow;
+      }
+    }
+  }
+}
 
 /// Cores de destaque por índice (mesma ordem de planosOficiais).
 const _planAccents = [
@@ -45,9 +71,14 @@ class SitePublicPage extends StatefulWidget {
 }
 
 class _SitePublicPageState extends State<SitePublicPage> {
-  final _cpfCtrl = TextEditingController();
+  final _churchEmailCtrl = TextEditingController();
   bool _loading = false;
   Map<String, ({double? monthly, double? annual})>? _effectivePrices;
+
+  /// Callable deployada em `us-central1` — `FirebaseFunctions.instance` usa outra região e falha no site.
+  HttpsCallable get _resolveEmailToChurchCallable =>
+      FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('resolveEmailToChurchPublic');
 
   @override
   void initState() {
@@ -71,394 +102,289 @@ class _SitePublicPageState extends State<SitePublicPage> {
   @override
   void dispose() {
     _autoTimer?.cancel();
-    _cpfCtrl.dispose();
+    _churchEmailCtrl.dispose();
     super.dispose();
   }
 
-  String _onlyDigits(String s) => s.replaceAll(RegExp(r"[^0-9]"), "");
-  bool _isEmail(String s) => s.contains('@');
-
-  /// Normaliza CPF: 10 dígitos -> adiciona zero à esquerda (ex: 9453636891 -> 09453636891)
-  String _normalizeCpf(String digits) {
-    if (digits.length == 10) return '0$digits';
-    return digits;
+  Future<Map<String, dynamic>?> _callableResolveEmailToChurch(String raw) async {
+    try {
+      final fn = _resolveEmailToChurchCallable;
+      final res = await fn
+          .call({'email': raw.trim()})
+          .timeout(const Duration(seconds: 18));
+      final payload = res.data;
+      if (payload is! Map) return null;
+      final data = Map<String, dynamic>.from(payload);
+      final tid = (data['tenantId'] ?? '').toString().trim();
+      return tid.isEmpty ? null : data;
+    } catch (e, st) {
+      assert(() {
+        debugPrint('[SitePublic] resolveEmailToChurchPublic: $e\n$st');
+        return true;
+      }());
+      return null;
+    }
   }
 
-  Future<void> _loadChurch({bool autoNavigateToLogin = false}) async {
-    final raw = _cpfCtrl.text.trim();
-    final isEmail = _isEmail(raw);
-    var cpf = _onlyDigits(raw);
-    cpf = _normalizeCpf(cpf);
-
-    if (!isEmail && cpf.length != 11) {
+  Future<void> _loadChurch() async {
+    final raw = _churchEmailCtrl.text.trim();
+    if (!AuthCpfService.looksLikeEmail(raw)) {
       setState(() {
-        _statusMsg = "Informe um CPF valido (11 digitos) ou e-mail.";
+        _statusMsg = 'Informe um e-mail válido (ex.: nome@email.com).';
         _church = null;
       });
       return;
     }
-    setState(() => _loading = true);
-    _statusMsg = null;
-    _church = null;
+    final emailLower = raw.toLowerCase();
+    setState(() {
+      _loading = true;
+      _statusMsg = null;
+      _church = null;
+    });
+
+    void applyChurchNoNavigate(String tid, Map<String, dynamic> data) {
+      if (!mounted) return;
+      setState(() {
+        _church = {
+          'tenantId': tid,
+          'name': (data['nome'] ?? data['name'] ?? data['nomeFantasia'] ?? tid).toString(),
+          'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
+          'logoUrl': (data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'] ?? '').toString(),
+        };
+        _loading = false;
+        _statusMsg = null;
+      });
+    }
+
+    void applyFromCallable(Map<String, dynamic> data) {
+      if (!mounted) return;
+      final tid = (data['tenantId'] ?? '').toString().trim();
+      if (tid.isEmpty) return;
+      setState(() {
+        _church = {
+          'tenantId': tid,
+          'name': (data['name'] ?? tid).toString(),
+          'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
+          'logoUrl': (data['logoUrl'] ??
+                  data['logoProcessedUrl'] ??
+                  data['logoProcessed'] ??
+                  '')
+              .toString(),
+        };
+        _loading = false;
+        _statusMsg = null;
+      });
+    }
+
     try {
-      // Usa APENAS callable para evitar erro de permissão Firestore (Brasil para Cristo — CPF 94536368191)
+      final refIgrejas = FirebaseFirestore.instance.collection('igrejas');
+      // 1) Cloud Function (lê usersIndex + membros sem depender de regras públicas).
+      Map<String, dynamic>? cfData;
       try {
-        if (isEmail) {
-          final fn = FirebaseFunctions.instance.httpsCallable('resolveEmailToChurchPublic');
-          final res = await fn.call({'email': raw.trim()});
-          final data = Map<String, dynamic>.from(res.data as Map);
-          final tid = (data['tenantId'] ?? '').toString().trim();
-          if (tid.isNotEmpty && mounted) {
-            setState(() {
-              _church = {
-                'tenantId': tid,
-                'name': (data['name'] ?? tid).toString(),
-                'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                'logoUrl': (data['logoUrl'] ?? '').toString(),
-              };
-              _loading = false;
-              _statusMsg = null;
-            });
-            return;
-          }
-        } else if (cpf.length == 11) {
-          final fn = FirebaseFunctions.instance.httpsCallable('resolveCpfToChurchPublic');
-          final res = await fn.call({'cpf': cpf});
-          final data = Map<String, dynamic>.from(res.data as Map);
-          final tid = (data['tenantId'] ?? '').toString().trim();
-          if (tid.isNotEmpty && mounted) {
-            setState(() {
-              _church = {
-                'tenantId': tid,
-                'name': (data['name'] ?? tid).toString(),
-                'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                'logoUrl': (data['logoUrl'] ?? '').toString(),
-              };
-              _loading = false;
-              _statusMsg = null;
-            });
-            return;
-          }
-        }
-      } on FirebaseFunctionsException catch (e) {
-        if (!mounted) return;
-        final code = e.code;
-        setState(() {
-          _loading = false;
-          _church = null;
-          _statusMsg = code == 'not-found'
-              ? 'Nenhuma igreja encontrada para este CPF ou e-mail.'
-              : 'Não foi possível conectar. Tente novamente em instantes.';
-        });
-        return;
-      } catch (_) {
-        if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _church = null;
-          _statusMsg = 'Não foi possível conectar ao servidor. Tente novamente.';
-        });
+        cfData = await _callableResolveEmailToChurch(raw);
+      } catch (e, st) {
+        assert(() {
+          debugPrint('[SitePublic] _loadChurch callable outer: $e\n$st');
+          return true;
+        }());
+        cfData = null;
+      }
+      if (!mounted) return;
+      if (cfData != null) {
+        applyFromCallable(cfData);
         return;
       }
 
-      // Fallback: Firestore (se callable não retornou igreja)
+      // 2) Queries diretas em `igrejas/` + usersIndex (paralelo isolado — falha não derruba o fluxo).
+      List<QuerySnapshot<Map<String, dynamic>>> igSnaps;
       try {
-      final refTenants = FirebaseFirestore.instance.collection('igrejas');
-      var snapTenants = isEmail
-          ? await refTenants.where('email', isEqualTo: raw.trim().toLowerCase()).limit(1).get()
-          : await refTenants.where('cpf', isEqualTo: cpf).limit(1).get();
-      if (snapTenants.docs.isEmpty && isEmail) {
-        snapTenants = await refTenants.where('email', isEqualTo: raw.trim()).limit(1).get();
-      }
-      if (snapTenants.docs.isEmpty && isEmail) {
-        snapTenants = await refTenants.where('gestorEmail', isEqualTo: raw.trim().toLowerCase()).limit(1).get();
-      }
-      if (!mounted) return;
-      if (snapTenants.docs.isNotEmpty) {
-        final doc = snapTenants.docs.first;
-        final data = doc.data();
-        setState(() {
-          _church = {
-            'tenantId': doc.id,
-            'name': data['name'] ?? data['nome'] ?? doc.id,
-            'slug': data['slug'] ?? doc.id,
-            'logoUrl': data['logoUrl'] ?? data['logoUrl'],
-          };
-          _loading = false;
-          _statusMsg = null;
-        });
-        return;
-      }
-      } catch (_) {}
-      // 1b) Busca em usersIndex (ex.: Brasil para Cristo — usuário GESTOR cadastrado por CPF ou e-mail)
-      QuerySnapshot<Map<String, dynamic>>? snapUsers;
-      if (isEmail) {
-        try {
-          final usersIndexCol = FirebaseFirestore.instance.collectionGroup('usersIndex');
-          snapUsers = await usersIndexCol.where('email', isEqualTo: raw.trim().toLowerCase()).limit(1).get();
-          if (snapUsers.docs.isEmpty) {
-            snapUsers = await usersIndexCol.where('email', isEqualTo: raw.trim()).limit(1).get();
-          }
-        } catch (_) {
-          snapUsers = null;
-        }
-      } else {
-        try {
-          // Primeiro por campo cpf (igual ao backend) — doc ID pode ser diferente do CPF
-          snapUsers = await FirebaseFirestore.instance
+        igSnaps = await Future.wait([
+          _safeFsQuery(
+              refIgrejas.where('email', isEqualTo: emailLower).limit(1).get()),
+          _safeFsQuery(refIgrejas.where('email', isEqualTo: raw).limit(1).get()),
+          _safeFsQuery(refIgrejas
+              .where('gestorEmail', isEqualTo: emailLower)
+              .limit(1)
+              .get()),
+          _safeFsQuery(
+              refIgrejas.where('gestorEmail', isEqualTo: raw).limit(1).get()),
+          // Legado / exportações: snake_case no Firestore
+          _safeFsQuery(refIgrejas
+              .where('gestor_email', isEqualTo: emailLower)
+              .limit(1)
+              .get()),
+          _safeFsQuery(
+              refIgrejas.where('gestor_email', isEqualTo: raw).limit(1).get()),
+          _safeFsQuery(refIgrejas
+              .where('emailGestor', isEqualTo: emailLower)
+              .limit(1)
+              .get()),
+          _safeFsQuery(
+              refIgrejas.where('emailGestor', isEqualTo: raw).limit(1).get()),
+          _safeFsQuery(refIgrejas
+              .where('emailContato', isEqualTo: emailLower)
+              .limit(1)
+              .get()),
+          _safeFsQuery(refIgrejas
+              .where('responsavelEmail', isEqualTo: emailLower)
+              .limit(1)
+              .get()),
+          _safeFsQuery(FirebaseFirestore.instance
               .collectionGroup('usersIndex')
-              .where('cpf', isEqualTo: cpf)
+              .where('email', isEqualTo: emailLower)
               .limit(1)
-              .get();
-          if (snapUsers.docs.isEmpty) {
-            snapUsers = await FirebaseFirestore.instance
-                .collectionGroup('usersIndex')
-                .where(FieldPath.documentId, isEqualTo: cpf)
-                .limit(1)
-                .get();
-          }
-          if (snapUsers.docs.isEmpty && cpf.startsWith('0')) {
-            snapUsers = await FirebaseFirestore.instance
-                .collectionGroup('usersIndex')
-                .where('cpf', isEqualTo: cpf.substring(1))
-                .limit(1)
-                .get();
-          }
-          if (snapUsers.docs.isEmpty && cpf.startsWith('0')) {
-            snapUsers = await FirebaseFirestore.instance
-                .collectionGroup('usersIndex')
-                .where(FieldPath.documentId, isEqualTo: cpf.substring(1))
-                .limit(1)
-                .get();
-          }
-        } catch (_) {
-          snapUsers = null;
-        }
+              .get()),
+          _safeFsQuery(FirebaseFirestore.instance
+              .collectionGroup('usersIndex')
+              .where('email', isEqualTo: raw)
+              .limit(1)
+              .get()),
+        ]);
+      } catch (e, st) {
+        assert(() {
+          debugPrint('[SitePublic] _loadChurch igrejas batch: $e\n$st');
+          return true;
+        }());
+        igSnaps = <QuerySnapshot<Map<String, dynamic>>>[];
       }
-      if (!mounted) return;
-      if (snapUsers != null && snapUsers.docs.isNotEmpty) {
-        final userDoc = snapUsers.docs.first;
-        final pathSegments = userDoc.reference.path.split('/');
-        // path: tenants/XXX/usersIndex/YYY ou igrejas/XXX/usersIndex/YYY -> tenantId = segment 1
-        final tenantId = pathSegments.length >= 2 ? pathSegments[1] : '';
-        if (tenantId.isNotEmpty) {
-          var tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get();
-          if (!tenantSnap.exists) {
-            tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get();
-          }
-          if (!mounted) return;
-          if (tenantSnap.exists) {
-            final data = tenantSnap.data()!;
-            setState(() {
-              _church = {
-                'tenantId': tenantId,
-                'name': data['nome'] ?? data['name'] ?? tenantId,
-                'slug': data['slug'] ?? data['alias'] ?? tenantId,
-                'logoUrl': data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'],
-              };
-              _loading = false;
-              _statusMsg = null;
-            });
-            _navigateToChurchLogin();
-            return;
-          }
-        }
-      }
-      // 1c) Busca em igrejas por e-mail do gestor (email, gestorEmail, emailGestor)
-      if (isEmail) {
-        final emailNorm = raw.trim().toLowerCase();
-        var snapIgrejasEmail = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .where('email', isEqualTo: emailNorm)
-            .limit(1)
-            .get();
-        if (snapIgrejasEmail.docs.isEmpty) {
-          snapIgrejasEmail = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('gestorEmail', isEqualTo: emailNorm)
-              .limit(1)
-              .get();
-        }
-        if (snapIgrejasEmail.docs.isEmpty) {
-          snapIgrejasEmail = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('emailGestor', isEqualTo: emailNorm)
-              .limit(1)
-              .get();
-        }
-        if (snapIgrejasEmail.docs.isEmpty) {
-          snapIgrejasEmail = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('emailContato', isEqualTo: emailNorm)
-              .limit(1)
-              .get();
-        }
-        if (snapIgrejasEmail.docs.isEmpty) {
-          snapIgrejasEmail = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('responsavelEmail', isEqualTo: emailNorm)
-              .limit(1)
-              .get();
-        }
-        if (snapIgrejasEmail.docs.isNotEmpty) {
-          final doc = snapIgrejasEmail.docs.first;
-          final data = doc.data();
-          if (!mounted) return;
-          setState(() {
-            _church = {
-              'tenantId': doc.id,
-              'name': data['nome'] ?? data['name'] ?? doc.id,
-              'slug': data['slug'] ?? doc.id,
-              'logoUrl': data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'],
-            };
-            _loading = false;
-            _statusMsg = null;
-          });
-          _navigateToChurchLogin();
+
+      /// Índices 0–3: e-mail da igreja + gestorEmail (só cartão). 4–5: gestor_email. 6–9: demais campos. 10–11: usersIndex.
+      const navAfter = <bool>[
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+      ];
+      bool snapOk(int i) =>
+          i < igSnaps.length && igSnaps[i].docs.isNotEmpty;
+      for (var i = 0; i < 10; i++) {
+        if (snapOk(i)) {
+          final doc = igSnaps[i].docs.first;
+          applyChurchNoNavigate(doc.id, doc.data());
+          if (navAfter[i]) _navigateToChurchLogin();
           return;
         }
       }
-      // 2) Se não achou em tenants/usersIndex, busca em igrejas por cnpjCpf (ex.: Brasil para Cristo)
-      if (!isEmail && cpf.length == 11) {
-        var snapIgrejas = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .where('cnpjCpf', isEqualTo: cpf)
-            .limit(1)
-            .get();
-        // Tenta CPF sem zero à esquerda (ex: 9453636891) se armazenado assim
-        if (snapIgrejas.docs.isEmpty && cpf.startsWith('0')) {
-          snapIgrejas = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('cnpjCpf', isEqualTo: cpf.substring(1))
-              .limit(1)
-              .get();
-        }
-        if (!mounted) return;
-        if (snapIgrejas.docs.isNotEmpty) {
-          final doc = snapIgrejas.docs.first;
-          final data = doc.data();
-          setState(() {
-            _church = {
-              'tenantId': doc.id,
-              'name': data['nome'] ?? data['name'] ?? doc.id,
-              'slug': data['slug'] ?? doc.id,
-              'logoUrl': data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'],
-            };
-            _loading = false;
-            _statusMsg = null;
-          });
-          _navigateToChurchLogin();
-          return;
-        }
-        // 3) Busca igreja pelo CPF do membro — coleção padrão: membros (igrejas/xxx/membros)
-        var snapMembers = await FirebaseFirestore.instance
-            .collectionGroup('membros')
-            .where('CPF', isEqualTo: cpf)
-            .limit(1)
-            .get();
-        if (snapMembers.docs.isEmpty) {
-          snapMembers = await FirebaseFirestore.instance
-              .collectionGroup('membros')
-              .where('cpf', isEqualTo: cpf)
-              .limit(1)
-              .get();
-        }
-        if (snapMembers.docs.isEmpty) {
-          snapMembers = await FirebaseFirestore.instance
-              .collectionGroup('members')
-              .where('CPF', isEqualTo: cpf)
-              .limit(1)
-              .get();
-        }
-        if (snapMembers.docs.isEmpty) {
-          snapMembers = await FirebaseFirestore.instance
-              .collectionGroup('members')
-              .where('cpf', isEqualTo: cpf)
-              .limit(1)
-              .get();
-        }
-        if (!mounted) return;
-        if (snapMembers.docs.isNotEmpty) {
-          final memberDoc = snapMembers.docs.first;
-          final pathSegments = memberDoc.reference.path.split('/');
-          String tenantId = '';
-          if (pathSegments.length >= 4) {
-            if (pathSegments[0] == 'igrejas' && (pathSegments[2] == 'membros' || pathSegments[2] == 'members')) {
-              tenantId = pathSegments[1];
-            } else if (pathSegments[0] == 'tenants' && pathSegments[2] == 'members') {
-              tenantId = pathSegments[1];
-            }
-          }
+      for (var i = 10; i < 12; i++) {
+        if (snapOk(i)) {
+          final userDoc = igSnaps[i].docs.first;
+          final pathSegments = userDoc.reference.path.split('/');
+          var tenantId = pathSegments.length >= 2 ? pathSegments[1] : '';
           if (tenantId.isEmpty) {
-            final data = memberDoc.data();
-            tenantId = (data['tenantId'] ?? data['tenant_id'] ?? data['igrejaId'] ?? data['igreja_id'] ?? '').toString().trim();
+            final ud = userDoc.data();
+            tenantId = (ud['tenantId'] ?? ud['igrejaId'] ?? '').toString().trim();
           }
           if (tenantId.isNotEmpty) {
-            final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get();
-            final igrejaSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get();
+            final tenantSnap =
+                await refIgrejas.doc(tenantId).get();
             if (!mounted) return;
-            final data = tenantSnap.exists ? tenantSnap.data() : (igrejaSnap.exists ? igrejaSnap.data() : null);
-            if (data != null) {
-              setState(() {
-                _church = {
-                  'tenantId': tenantId,
-                  'name': data['nome'] ?? data['name'] ?? data['nomeFantasia'] ?? tenantId,
-                  'slug': data['slug'] ?? tenantId,
-                  'logoUrl': data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'],
-                };
-                _loading = false;
-                _statusMsg = null;
-              });
-              _navigateToChurchLogin();
-              return;
+            if (tenantSnap.exists) {
+              final td = tenantSnap.data();
+              if (td != null) {
+                applyChurchNoNavigate(tenantId, td);
+                _navigateToChurchLogin();
+                return;
+              }
             }
           }
         }
       }
-      // 4) Fallback CPF: callable do backend (publicCpfIndex + usersIndex por cpf/docId)
-      if (!isEmail && cpf.length == 11) {
-        try {
-          final fn = FirebaseFunctions.instance.httpsCallable('resolveCpfToChurchPublic');
-          final res = await fn.call({'cpf': cpf});
-          final data = Map<String, dynamic>.from(res.data as Map);
-          final tid = (data['tenantId'] ?? '').toString().trim();
-          if (tid.isNotEmpty && mounted) {
-            setState(() {
-              _church = {
-                'tenantId': tid,
-                'name': (data['name'] ?? tid).toString(),
-                'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                'logoUrl': (data['logoUrl'] ?? '').toString(),
-              };
-              _loading = false;
-              _statusMsg = null;
-            });
+
+      final memberFutures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
+      for (final coll in ['membros', 'members']) {
+        for (final field in ['email', 'EMAIL', 'mail', 'e_mail']) {
+          for (final val in [emailLower, raw]) {
+            memberFutures.add(_safeFsQuery(FirebaseFirestore.instance
+                .collectionGroup(coll)
+                .where(field, isEqualTo: val)
+                .limit(1)
+                .get()));
+          }
+        }
+      }
+      List<QuerySnapshot<Map<String, dynamic>>> memberSnaps;
+      try {
+        memberSnaps = await Future.wait(memberFutures);
+      } catch (e, st) {
+        assert(() {
+          debugPrint('[SitePublic] _loadChurch membros batch: $e\n$st');
+          return true;
+        }());
+        memberSnaps = <QuerySnapshot<Map<String, dynamic>>>[];
+      }
+      if (!mounted) return;
+      for (final snapMembers in memberSnaps) {
+        if (snapMembers.docs.isEmpty) continue;
+        final memberDoc = snapMembers.docs.first;
+        final pathSegments = memberDoc.reference.path.split('/');
+        var tenantId = '';
+        if (pathSegments.length >= 4 &&
+            pathSegments[0] == 'igrejas' &&
+            (pathSegments[2] == 'membros' || pathSegments[2] == 'members')) {
+          tenantId = pathSegments[1];
+        }
+        if (tenantId.isEmpty) {
+          final d = memberDoc.data();
+          tenantId = (d['tenantId'] ??
+                  d['tenant_id'] ??
+                  d['igrejaId'] ??
+                  d['igreja_id'] ??
+                  '')
+              .toString()
+              .trim();
+        }
+        if (tenantId.isEmpty) continue;
+        final tenantSnap = await refIgrejas.doc(tenantId).get();
+        if (!mounted) return;
+        if (tenantSnap.exists) {
+          final td = tenantSnap.data();
+          if (td != null) {
+            applyChurchNoNavigate(tenantId, td);
             _navigateToChurchLogin();
             return;
           }
-        } catch (_) {
-          // callable pode falhar (regras, rede); segue para mensagem final
         }
       }
+
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _statusMsg = 'Nenhuma igreja encontrada com esse CPF ou e-mail. Se você é gestor, cadastre seu e-mail (email, gestorEmail ou emailGestor) na igreja pelo Painel Master.';
+        _statusMsg =
+            'Nenhuma igreja encontrada para este e-mail. Se você é gestor, confira no Painel Master se o e-mail está em gestorEmail, emailGestor ou gestor_email no cadastro da igreja.';
       });
-    } catch (e) {
+    } catch (e, st) {
+      assert(() {
+        debugPrint('[SitePublic] _loadChurch: $e\n$st');
+        return true;
+      }());
       if (!mounted) return;
       final msg = e.toString().toLowerCase();
-      final isPermission = msg.contains('permission_denied') || msg.contains('permission-denied');
-      final isConnection = msg.contains('unavailable') || msg.contains('failed to fetch')
-          || msg.contains('network') || msg.contains('socket') || msg.contains('could not reach');
+      final isPermission = msg.contains('permission_denied') ||
+          msg.contains('permission-denied');
+      final isConnection = msg.contains('unavailable') ||
+          msg.contains('failed to fetch') ||
+          msg.contains('network') ||
+          msg.contains('socket') ||
+          msg.contains('could not reach');
+      final isFailedPrecondition = msg.contains('failed-precondition') ||
+          msg.contains('failed_precondition') ||
+          msg.contains('requires an index');
 
-      // Se deu permissão negada, tenta resolver via callable (backend tem acesso total)
-      if (isPermission && _loading) {
+      if (isPermission) {
         try {
-          if (isEmail) {
-            final fn = FirebaseFunctions.instance.httpsCallable('resolveEmailToChurchPublic');
-            final res = await fn.call({'email': raw.trim()});
-            final data = Map<String, dynamic>.from(res.data as Map);
+          final fn = _resolveEmailToChurchCallable;
+          final res = await fn.call({'email': raw}).timeout(const Duration(seconds: 18));
+          final payload = res.data;
+          if (payload is Map) {
+            final data = Map<String, dynamic>.from(payload);
             final tid = (data['tenantId'] ?? '').toString().trim();
             if (tid.isNotEmpty && mounted) {
               setState(() {
@@ -466,26 +392,11 @@ class _SitePublicPageState extends State<SitePublicPage> {
                   'tenantId': tid,
                   'name': (data['name'] ?? tid).toString(),
                   'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                  'logoUrl': (data['logoUrl'] ?? '').toString(),
-                };
-                _loading = false;
-                _statusMsg = null;
-              });
-              _navigateToChurchLogin();
-              return;
-            }
-          } else if (cpf.length == 11) {
-            final fn = FirebaseFunctions.instance.httpsCallable('resolveCpfToChurchPublic');
-            final res = await fn.call({'cpf': cpf});
-            final data = Map<String, dynamic>.from(res.data as Map);
-            final tid = (data['tenantId'] ?? '').toString().trim();
-            if (tid.isNotEmpty && mounted) {
-              setState(() {
-                _church = {
-                  'tenantId': tid,
-                  'name': (data['name'] ?? tid).toString(),
-                  'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                  'logoUrl': (data['logoUrl'] ?? '').toString(),
+                  'logoUrl': (data['logoUrl'] ??
+                          data['logoProcessedUrl'] ??
+                          data['logoProcessed'] ??
+                          '')
+                      .toString(),
                 };
                 _loading = false;
                 _statusMsg = null;
@@ -494,9 +405,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
               return;
             }
           }
-        } catch (_) {
-          // callable falhou; segue para mensagem abaixo
-        }
+        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -506,7 +415,9 @@ class _SitePublicPageState extends State<SitePublicPage> {
             ? 'Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.'
             : isPermission
                 ? 'Sem permissão para consultar. Verifique as regras do Firestore e se o domínio está autorizado no Firebase (Authentication > Authorized domains).'
-                : 'Erro ao buscar. Verifique o CPF ou e-mail e tente novamente.';
+                : isFailedPrecondition
+                    ? 'Consulta temporariamente indisponível. Tente de novo em instantes ou use Entrar no menu com e-mail e senha.'
+                    : 'Erro ao buscar. Verifique o e-mail e tente novamente.';
         _church = null;
       });
     }
@@ -517,7 +428,18 @@ class _SitePublicPageState extends State<SitePublicPage> {
     unawaited(PublicSiteAnalytics.logMarketingAction('marketing_master_login'));
     Navigator.of(context).pushNamedAndRemoveUntil('/login_admin', (route) => false);
   }
-  void _onCpfChanged(String value) => setState(() {});
+  void _onChurchEmailChanged(String value) {
+    setState(() {});
+    _autoTimer?.cancel();
+    final t = value.trim();
+    if (!AuthCpfService.looksLikeEmail(t)) return;
+    _autoTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      if (_churchEmailCtrl.text.trim() != t) return;
+      if (_loading) return;
+      _loadChurch();
+    });
+  }
 
   /// Após carregar a igreja, navega direto para a página de login da igreja.
   void _navigateToChurchLogin() {
@@ -526,7 +448,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
     unawaited(PublicSiteAnalytics.logMarketingAction(
         'marketing_prefill_church_login'));
     final name = church['name']?.toString();
-    final cpfOrEmail = _cpfCtrl.text.trim();
+    final emailForLogin = _churchEmailCtrl.text.trim();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -539,7 +461,8 @@ class _SitePublicPageState extends State<SitePublicPage> {
             churchLogoUrl: (church['logoUrl'] ?? '').toString().trim().isEmpty
                 ? null
                 : (church['logoUrl'] ?? '').toString().trim(),
-            prefillCpf: cpfOrEmail.isNotEmpty ? cpfOrEmail : null,
+            prefillEmail:
+                emailForLogin.isNotEmpty ? emailForLogin.toLowerCase() : null,
             backRoute: '/',
           ),
         ),
@@ -725,12 +648,12 @@ class _SitePublicPageState extends State<SitePublicPage> {
         final isMobile = c.maxWidth < 900;
         final left = _LeftHero(onGoAdmin: _goAdmin);
         final right = _ChurchLookupCard(
-          cpfCtrl: _cpfCtrl,
+          emailCtrl: _churchEmailCtrl,
           loading: _loading,
           statusMsg: _statusMsg,
           church: _church,
           onLoad: _loadChurch,
-          onCpfChanged: _onCpfChanged,
+          onEmailChanged: _onChurchEmailChanged,
           onEnter: (_church != null && !_loading) ? _goChurch : null,
         );
         final topRow = isMobile
@@ -1004,7 +927,7 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Membros: use CPF ou e-mail para localizar sua igreja na página inicial. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
+          'Membros: use seu e-mail cadastrado na igreja para localizar o painel na página inicial. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
         ),
       ],
@@ -1308,7 +1231,8 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (icon: Icons.cake_rounded, label: 'Aniversariantes'),
     (icon: Icons.campaign_rounded, label: 'Avisos'),
     (icon: Icons.event_available_rounded, label: 'Eventos'),
-    (icon: Icons.calendar_view_week_rounded, label: 'Escalas'),
+    // calendar_view_week_rounded pode não vir no MaterialIcons tree-shaken (web) → ícone vazio.
+    (icon: Icons.event_note_rounded, label: 'Escalas'),
     (icon: Icons.calendar_month_rounded, label: 'Agendas'),
     (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
     (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
@@ -1498,22 +1422,22 @@ class _DownloadsSection extends StatelessWidget {
 }
 
 class _ChurchLookupCard extends StatelessWidget {
-  final TextEditingController cpfCtrl;
+  final TextEditingController emailCtrl;
   final bool loading;
   final String? statusMsg;
   final Map<String, dynamic>? church;
   final VoidCallback onLoad;
   final VoidCallback? onEnter;
-  final ValueChanged<String>? onCpfChanged;
+  final ValueChanged<String>? onEmailChanged;
 
   const _ChurchLookupCard({
-    required this.cpfCtrl,
+    required this.emailCtrl,
     required this.loading,
     required this.statusMsg,
     required this.church,
     required this.onLoad,
     required this.onEnter,
-    this.onCpfChanged,
+    this.onEmailChanged,
   });
 
   @override
@@ -1534,11 +1458,13 @@ class _ChurchLookupCard extends StatelessWidget {
             const Text("Acessar minha igreja", style: TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
             TextField(
-              controller: cpfCtrl,
+              controller: emailCtrl,
               keyboardType: TextInputType.emailAddress,
-              onChanged: onCpfChanged,
+              autocorrect: false,
+              onChanged: onEmailChanged,
               decoration: const InputDecoration(
-                labelText: "CPF ou e-mail",
+                labelText: 'E-mail',
+                hintText: 'seu@email.com',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -1581,14 +1507,74 @@ class _ChurchLookupCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      (church?["name"] ?? church?["tenantName"] ?? "Igreja encontrada").toString(),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Tenant: ${(church?["tenantId"] ?? "").toString()}",
-                      style: const TextStyle(color: Colors.black54),
+                    Builder(
+                      builder: (context) {
+                        final logoRaw =
+                            (church?['logoUrl'] ?? '').toString().trim();
+                        final logo = sanitizeImageUrl(logoRaw);
+                        final showLogo = logoRaw.isNotEmpty &&
+                            isValidImageUrl(logo);
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            if (showLogo) ...[
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: SafeNetworkImage(
+                                  imageUrl: logo,
+                                  width: 56,
+                                  height: 56,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: 112,
+                                  memCacheHeight: 112,
+                                  skipFreshDisplayUrl: false,
+                                  placeholder: Container(
+                                    width: 56,
+                                    height: 56,
+                                    alignment: Alignment.center,
+                                    color: const Color(0xFFE8EEF5),
+                                    child: const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: const SizedBox(
+                                    width: 56,
+                                    height: 56,
+                                    child: Icon(Icons.church_rounded,
+                                        color: Colors.black26, size: 32),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    (church?["name"] ??
+                                            church?["tenantName"] ??
+                                            "Igreja encontrada")
+                                        .toString(),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Tenant: ${(church?["tenantId"] ?? "").toString()}",
+                                    style:
+                                        const TextStyle(color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -1596,39 +1582,8 @@ class _ChurchLookupCard extends StatelessWidget {
             ],
             const SizedBox(height: 10),
             const Text(
-              "Digite seu CPF ou e-mail e clique em \"Carregar igreja\". Você será levado à página de login da sua igreja.",
+              'Digite o e-mail do gestor ou o da sua ficha de membro: a busca começa sozinha após você parar de digitar, ou use "Carregar igreja". Depois "Abrir igreja" ou Entrar no menu (login com e-mail e senha).',
               style: TextStyle(color: Colors.black54),
-            ),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 14),
-            Text(
-              "Sou gestor — criar minha igreja",
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  unawaited(PublicSiteAnalytics.logMarketingAction(
-                      'marketing_signup_google'));
-                  Navigator.pushNamed(context, '/signup');
-                },
-                icon: const Icon(Icons.g_mobiledata_rounded, size: 22),
-                label: const Text("Criar conta com Google (30 dias grátis)"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Você terá 30 dias para testar. Depois, complete os dados da igreja (logo, endereço, etc.) no painel.",
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
             ),
           ],
         ),

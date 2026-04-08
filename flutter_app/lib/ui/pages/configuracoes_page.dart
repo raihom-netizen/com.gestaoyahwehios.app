@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -47,16 +46,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   final _sugestaoCtrl = TextEditingController();
   bool _sugestaoEnviando = false;
   bool _sugestaoEnviada = false;
-  bool _bulkAuthLoading = false;
   final _biometricService = BiometricService();
   bool _bioCapable = false;
   bool _bioEnabled = false;
   bool _bioToggling = false;
-
-  bool get _podeCriarLoginsEmMassa {
-    final r = widget.role.toLowerCase();
-    return r == 'gestor' || r == 'adm' || r == 'admin' || r == 'master';
-  }
 
   @override
   void initState() {
@@ -363,41 +356,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  if (_podeCriarLoginsEmMassa) ...[
-                    _SectionTitle(icon: Icons.verified_user_rounded, title: 'Login dos membros (Firebase Auth)'),
-                    _Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Cria conta de acesso (e-mail da pessoa + senha 123456) para todos os membros desta igreja que ainda não têm login. Cadastros pendentes continuam bloqueados no painel até aprovação.',
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _bulkAuthLoading ? null : () => _criarLoginsMembrosEmMassa(context),
-                              icon: _bulkAuthLoading
-                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                  : const Icon(Icons.person_add_alt_1_rounded, size: 20),
-                              label: Text(_bulkAuthLoading ? 'Processando...' : 'Criar logins para membros sem conta'),
-                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF059669), padding: const EdgeInsets.symmetric(vertical: 14)),
-                            ),
-                          ),
-                          if (widget.role.toLowerCase() == 'master')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Text(
-                                'Conta MASTER: sem informar igreja, a função em nuvem pode processar todas as igrejas (use o console Firebase ou extensão).',
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
                   _SectionTitle(icon: Icons.lightbulb_outline_rounded, title: 'Dicas, sugestões e críticas'),
                   _Card(
                     child: Column(
@@ -486,49 +444,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e MembersPage (import/export no mesmo tenant).
   Future<String> _resolveEffectiveTenantId() async =>
       TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-
-  Future<void> _criarLoginsMembrosEmMassa(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Criar logins em massa?'),
-        content: const Text(
-          'Serão criadas contas Firebase Auth (e-mail + senha 123456) para membros sem login nesta igreja. Membros pendentes só entram no painel após aprovação.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Executar')),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    setState(() => _bulkAuthLoading = true);
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final tid = await _resolveEffectiveTenantId();
-      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('bulkEnsureMembersAuth')
-          .call<Map<String, dynamic>>({'tenantId': tid});
-      final data = res.data;
-      final msg = (data?['message'] ?? 'Concluído.').toString();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 8)),
-        );
-      }
-    } on FirebaseFunctionsException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? e.code), backgroundColor: ThemeCleanPremium.error),
-        );
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
-    } finally {
-      if (mounted) setState(() => _bulkAuthLoading = false);
-    }
-  }
 
   Future<void> _importarBackup(BuildContext context) async {
     final ctrl = TextEditingController();

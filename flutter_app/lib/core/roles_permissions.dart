@@ -327,20 +327,20 @@ class ChurchRolePermissions {
       case 13:
         return true;
       case 14:
-        return fin();
+        return true;
       case 15:
-        return pat();
+        return true;
       case 16:
         return true;
       case 17:
-        return true;
-      case 18:
-        return true;
-      case 19:
         return s.approvePendingMembers;
-      case 20:
+      case 18:
         return !s.restrictedNav &&
             (s.editChurchProfile || s.editSchedulesAll || s.approvePendingMembers || s.editDepartments);
+      case 19:
+        return fin();
+      case 20:
+        return pat();
       default:
         return true;
     }

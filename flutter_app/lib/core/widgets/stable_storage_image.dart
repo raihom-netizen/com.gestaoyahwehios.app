@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -21,6 +22,8 @@ class StableStorageImage extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.onLoadError,
+    /// `false` = renovar token Storage na web antes dos bytes (painel avisos/eventos com URL antiga).
+    this.skipFreshDisplayUrl = true,
   });
 
   final String? storagePath;
@@ -36,6 +39,7 @@ class StableStorageImage extends StatefulWidget {
   final int? memCacheHeight;
   /// Diagnóstico (ex.: mural): falha ao resolver URL ou carregar bytes.
   final void Function(String url, Object? error)? onLoadError;
+  final bool skipFreshDisplayUrl;
 
   @override
   State<StableStorageImage> createState() => _StableStorageImageState();
@@ -62,7 +66,8 @@ class _StableStorageImageState extends State<StableStorageImage> {
           storagePath: widget.storagePath,
           imageUrl: widget.imageUrl,
           gsUrl: widget.gsUrl,
-        )) {
+        ) ||
+        oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl) {
       _future = _load();
     }
   }
@@ -114,16 +119,15 @@ class _StableStorageImageState extends State<StableStorageImage> {
           final canDisplay = clean.isNotEmpty &&
               (isValidImageUrl(clean) ||
                   clean.toLowerCase().startsWith('gs://') ||
-                  (firebaseStorageMediaUrlLooksLike(clean) &&
-                      !clean.startsWith('http://') &&
-                      !clean.startsWith('https://')));
+                  firebaseStorageMediaUrlLooksLike(clean));
           if (!canDisplay) {
             widget.onLoadError?.call(
                 widget.imageUrl ?? widget.storagePath ?? widget.gsUrl ?? '',
                 StateError('resolveImageUrl vazio ou inválido: ${u ?? "null"}'));
             return err;
           }
-          // [AppStorageImageService] já renovou o token; [SafeNetworkImage] evita segundo resolve em [FreshFirebaseStorageImage].
+          // Na web, forçar `skipFreshDisplayUrl: false` alinha ao pipeline getData/http do Storage
+          // (token/HTML/CORS); no app móvel mantém o flag do widget para menos round-trips.
           Widget img = SafeNetworkImage(
             key: ValueKey<String>('stable_$clean'),
             imageUrl: clean,
@@ -134,7 +138,7 @@ class _StableStorageImageState extends State<StableStorageImage> {
             memCacheHeight: widget.memCacheHeight,
             placeholder: ph,
             errorWidget: err,
-            skipFreshDisplayUrl: true,
+            skipFreshDisplayUrl: kIsWeb ? false : widget.skipFreshDisplayUrl,
             onLoadError: widget.onLoadError,
           );
           if (widget.borderRadius != null) {
@@ -282,9 +286,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
           final canDisplay = clean.isNotEmpty &&
               (isValidImageUrl(clean) ||
                   clean.toLowerCase().startsWith('gs://') ||
-                  (firebaseStorageMediaUrlLooksLike(clean) &&
-                      !clean.startsWith('http://') &&
-                      !clean.startsWith('https://')));
+                  firebaseStorageMediaUrlLooksLike(clean));
           if (!canDisplay) {
             return _fallback();
           }
@@ -300,7 +302,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
               memCacheHeight: widget.memCacheHeight,
               placeholder: ph,
               errorWidget: _fallback(),
-              skipFreshDisplayUrl: true,
+              skipFreshDisplayUrl: kIsWeb ? false : true,
             ),
           );
         },
@@ -406,9 +408,7 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
         final canDisplay = clean.isNotEmpty &&
             (isValidImageUrl(clean) ||
                 clean.toLowerCase().startsWith('gs://') ||
-                (firebaseStorageMediaUrlLooksLike(clean) &&
-                    !clean.startsWith('http://') &&
-                    !clean.startsWith('https://')));
+                firebaseStorageMediaUrlLooksLike(clean));
         if (!canDisplay) {
           return fallback;
         }

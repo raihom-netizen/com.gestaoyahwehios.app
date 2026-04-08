@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
@@ -26,6 +27,9 @@ class CompletarCadastroMembroPage extends StatefulWidget {
 }
 
 class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPage> {
+  /// E-mail carregado do Firestore (para detectar troca e recriar Auth).
+  String _emailAtLoad = '';
+
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -105,6 +109,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         if (sexo.isNotEmpty) _sexo = sexo;
         final ts = d['DATA_NASCIMENTO'];
         if (ts is Timestamp) _birthDate = ts.toDate();
+        _emailAtLoad = _emailCtrl.text.trim();
       }
       setState(() => _loading = false);
     } catch (_) {
@@ -225,12 +230,18 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       final alias = (tenantData?['alias'] ?? tenantData?['slug'] ?? tid).toString().trim();
       final slug = (tenantData?['slug'] ?? tenantData?['alias'] ?? tid).toString().trim();
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final newEmailTrim = _emailCtrl.text.trim();
+      final emailChangedForAuth = _emailAtLoad.trim().toLowerCase() !=
+              newEmailTrim.toLowerCase() &&
+          newEmailTrim.contains('@');
+
       await memberRef.set({
         'alias': alias.isEmpty ? tid : alias,
         'slug': slug.isEmpty ? tid : slug,
         'tenantId': widget.tenantId,
+        if (uid != null && uid.isNotEmpty) 'authUid': uid,
         'NOME_COMPLETO': _nameCtrl.text.trim(),
-        'EMAIL': _emailCtrl.text.trim(),
+        'EMAIL': newEmailTrim,
         'TELEFONES': _phoneCtrl.text.trim(),
         'DATA_NASCIMENTO': Timestamp.fromDate(_birthDate!),
         'FAIXA_ETARIA': ageRange,
@@ -249,7 +260,57 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         'ATUALIZADO_EM': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      if (uid != null) {
+      var authRecreatedAfterEmail = false;
+      if (uid != null && emailChangedForAuth) {
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('recreateMemberAuthForNewEmail')
+              .call({
+            'tenantId': widget.tenantId,
+            'memberDocId': widget.cpf,
+          });
+          final map = Map<String, dynamic>.from(res.data as Map? ?? {});
+          if (map['recreated'] == true) {
+            authRecreatedAfterEmail = true;
+            final prevUid = map['previousUid']?.toString();
+            if (mounted &&
+                prevUid != null &&
+                prevUid.isNotEmpty &&
+                FirebaseAuth.instance.currentUser?.uid == prevUid) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'E-mail de login atualizado. Entre novamente com o novo e-mail e a senha 123456.',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              await FirebaseAuth.instance.signOut();
+            } else if (mounted &&
+                (map['message'] ?? '').toString().trim().isNotEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    map['message'].toString(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('E-mail salvo, mas falha ao atualizar login: $e')),
+            );
+          }
+        }
+      }
+
+      if (uid != null && !authRecreatedAfterEmail) {
         await FirebaseFirestore.instance.collection('users').doc(uid).update({
           'mustCompleteRegistration': false,
           'name': _nameCtrl.text.trim(),
@@ -269,9 +330,18 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           'email': _emailCtrl.text.trim(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('alignMemberDocToAuthUid')
+              .call({
+            'tenantId': widget.tenantId,
+            'memberId': widget.cpf,
+          });
+        } catch (_) {}
       }
 
-      if (_changePassword && user != null) {
+      if (_changePassword && user != null && !authRecreatedAfterEmail) {
         final email = user.email;
         if (email != null && email.isNotEmpty) {
           final cred = EmailAuthProvider.credential(
@@ -284,9 +354,15 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cadastro atualizado com sucesso.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
-      );
+      if (!authRecreatedAfterEmail ||
+          FirebaseAuth.instance.currentUser != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Cadastro atualizado com sucesso.',
+                  style: TextStyle(color: Colors.white)),
+              backgroundColor: Colors.green),
+        );
+      }
       widget.onComplete();
     } catch (e) {
       if (!mounted) return;

@@ -11,6 +11,22 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 import 'members_page.dart' show MembersPage;
 
+/// Cache curto para evitar novo scan completo em `igrejas` a cada abertura da lista de membros do cargo.
+final Map<String, ({DateTime at, List<String> ids})> _cargoMergeTenantIdsCache = {};
+const Duration _kCargoMergeIdsTtl = Duration(minutes: 5);
+
+Future<List<String>> _cargoMemberMergeTenantIds(String seed) async {
+  final now = DateTime.now();
+  final cached = _cargoMergeTenantIdsCache[seed];
+  if (cached != null && now.difference(cached.at) < _kCargoMergeIdsTtl) {
+    return cached.ids;
+  }
+  var ids = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(seed);
+  if (ids.isEmpty) ids = [seed];
+  _cargoMergeTenantIdsCache[seed] = (at: now, ids: List<String>.from(ids));
+  return ids;
+}
+
 class _WelcomeCargoRow {
   final String docId;
   final String name;
@@ -129,12 +145,31 @@ class _CargosPageState extends State<CargosPage> {
   @override
   void initState() {
     super.initState();
-    _resolveAndLoad();
+    _cargosFuture = _bootstrapCargosSnapshot();
   }
 
-  Future<void> _resolveAndLoad() async {
-    _resolvedTenantId = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-    if (mounted) setState(() => _cargosFuture = _col.orderBy('name').get());
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosQuery(
+    CollectionReference<Map<String, dynamic>> col,
+  ) async {
+    try {
+      final snap = await col
+          .orderBy('name')
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 15));
+      if (snap.docs.isNotEmpty) return snap;
+    } catch (_) {}
+    return col.orderBy('name').get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 28));
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _bootstrapCargosSnapshot() async {
+    final id = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    if (mounted) {
+      setState(() => _resolvedTenantId = id);
+    } else {
+      _resolvedTenantId = id;
+    }
+    final col = FirebaseFirestore.instance.collection('igrejas').doc(id).collection('cargos');
+    return _loadCargosQuery(col);
   }
 
   /// Cria na base os cargos padrão quando a coleção está vazia (novas igrejas).
@@ -165,7 +200,7 @@ class _CargosPageState extends State<CargosPage> {
     } catch (e) {
       debugPrint('CargosPage _seedPadroes: $e');
     }
-    if (mounted) setState(() => _cargosFuture = _col.orderBy('name').get());
+    if (mounted) setState(() => _cargosFuture = _loadCargosQuery(_col));
   }
 
   static String _nameToKey(String name) {
@@ -182,7 +217,9 @@ class _CargosPageState extends State<CargosPage> {
   }
 
   void _refresh() {
-    setState(() => _cargosFuture = _col.orderBy('name').get());
+    final tid = _resolvedTenantId ?? widget.tenantId;
+    final col = FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('cargos');
+    setState(() => _cargosFuture = _loadCargosQuery(col));
   }
 
   Future<void> _restoreMissingDefaultCargos() async {
@@ -714,6 +751,7 @@ class _CargosPageState extends State<CargosPage> {
                                 label: const Text('Criar cargos padrão'),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: ThemeCleanPremium.primary,
+                                  foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                                 ),
@@ -777,8 +815,9 @@ class _CargosPageState extends State<CargosPage> {
           ? FloatingActionButton.extended(
               onPressed: () => _addOrEdit(),
               backgroundColor: ThemeCleanPremium.primary,
-              icon: const Icon(Icons.add_rounded, color: Colors.white),
-              label: const Text('Novo cargo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Novo cargo', style: TextStyle(fontWeight: FontWeight.w700)),
             )
           : null,
     );
@@ -917,57 +956,68 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   }
 
   Future<void> _loadMembers() async {
+    if (!mounted) return;
     setState(() => _loading = true);
-    var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
-    if (allIds.isEmpty) allIds = [widget.tenantId];
+    List<String> allIds;
+    try {
+      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
+    } catch (_) {
+      allIds = [widget.tenantId];
+    }
     final db = FirebaseFirestore.instance;
     final seen = <String>{};
     final list = <_MemberWithRef>[];
     final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
     final cargoNameNorm = widget.cargoName.toLowerCase().trim();
 
-    for (final tid in allIds) {
-      for (final col in [
-        db.collection('igrejas').doc(tid).collection('membros'),
-        db.collection('igrejas').doc(tid).collection('membros'),
-        db.collection('igrejas').doc(tid).collection('membros'),
-        db.collection('igrejas').doc(tid).collection('membros'),
-      ]) {
-        try {
-          final snap = await col.limit(500).get();
-          for (final doc in snap.docs) {
-            if (seen.contains(doc.id)) continue;
-            final d = doc.data();
-            final funcoes = d['FUNCOES'] ?? d['funcoes'];
-            final cargo = (d['CARGO'] ?? d['cargo'] ?? d['funcao'] ?? d['role'] ?? '').toString().trim().toLowerCase();
-            bool hasCargo = false;
-            if (funcoes is List) {
-              for (final f in funcoes) {
-                final s = (f ?? '').toString().trim().toLowerCase();
-                if (s == cargoKeyNorm || s == cargoNameNorm) {
-                  hasCargo = true;
-                  break;
-                }
+    try {
+      final snaps = await Future.wait(
+        allIds.map(
+          (tid) => db
+              .collection('igrejas')
+              .doc(tid)
+              .collection('membros')
+              .limit(500)
+              .get(const GetOptions(source: Source.serverAndCache)),
+        ),
+      );
+      for (final snap in snaps) {
+        for (final doc in snap.docs) {
+          if (seen.contains(doc.id)) continue;
+          final d = doc.data();
+          final funcoes = d['FUNCOES'] ?? d['funcoes'];
+          final cargo =
+              (d['CARGO'] ?? d['cargo'] ?? d['funcao'] ?? d['role'] ?? '').toString().trim().toLowerCase();
+          var hasCargo = false;
+          if (funcoes is List) {
+            for (final f in funcoes) {
+              final s = (f ?? '').toString().trim().toLowerCase();
+              if (s == cargoKeyNorm || s == cargoNameNorm) {
+                hasCargo = true;
+                break;
               }
             }
-            if (!hasCargo && (cargo == cargoKeyNorm || cargo == cargoNameNorm)) hasCargo = true;
-            if (hasCargo) {
-              seen.add(doc.id);
-              list.add(_MemberWithRef(id: doc.id, data: d, ref: doc.reference));
-            }
           }
-        } catch (_) {}
+          if (!hasCargo && (cargo == cargoKeyNorm || cargo == cargoNameNorm)) hasCargo = true;
+          if (hasCargo) {
+            seen.add(doc.id);
+            list.add(_MemberWithRef(id: doc.id, data: d, ref: doc.reference));
+          }
+        }
       }
-    }
+    } catch (_) {}
+
     list.sort((a, b) {
       final na = _nome(a.data).toLowerCase();
       final nb = _nome(b.data).toLowerCase();
       return na.compareTo(nb);
     });
-    if (mounted) setState(() {
-      _members = list;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _members = list;
+        _loading = false;
+      });
+    }
   }
 
   static String _nome(Map<String, dynamic> d) =>
@@ -989,21 +1039,34 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   }
 
   Future<List<_MemberWithRef>> _fetchAllMembersForPicker() async {
-    var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
-    if (allIds.isEmpty) allIds = [widget.tenantId];
+    List<String> allIds;
+    try {
+      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
+    } catch (_) {
+      allIds = [widget.tenantId];
+    }
     final db = FirebaseFirestore.instance;
     final seen = <String>{};
     final list = <_MemberWithRef>[];
-    for (final tid in allIds) {
-      try {
-        final snap = await db.collection('igrejas').doc(tid).collection('membros').limit(500).get();
+    try {
+      final snaps = await Future.wait(
+        allIds.map(
+          (tid) => db
+              .collection('igrejas')
+              .doc(tid)
+              .collection('membros')
+              .limit(500)
+              .get(const GetOptions(source: Source.serverAndCache)),
+        ),
+      );
+      for (final snap in snaps) {
         for (final doc in snap.docs) {
           if (seen.contains(doc.id)) continue;
           seen.add(doc.id);
           list.add(_MemberWithRef(id: doc.id, data: doc.data(), ref: doc.reference));
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
     list.sort((a, b) => _nome(a.data).toLowerCase().compareTo(_nome(b.data).toLowerCase()));
     return list;
   }
@@ -1044,8 +1107,12 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       updates['role'] = primary.toLowerCase();
     }
 
-    var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
-    if (allIds.isEmpty) allIds = [widget.tenantId];
+    List<String> allIds;
+    try {
+      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
+    } catch (_) {
+      allIds = [widget.tenantId];
+    }
     final db = FirebaseFirestore.instance;
     for (final tid in allIds) {
       try {
@@ -1157,20 +1224,17 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         'funcao': funcaoFinal,
         'role': funcaoFinal.toLowerCase(),
       };
-      var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
-      if (allIds.isEmpty) allIds = [widget.tenantId];
+      List<String> allIds;
+      try {
+        allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
+      } catch (_) {
+        allIds = [widget.tenantId];
+      }
       final db = FirebaseFirestore.instance;
       for (final tid in allIds) {
-        for (final col in [
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-        ]) {
-          try {
-            await col.doc(m.id).set(updates, SetOptions(merge: true));
-          } catch (_) {}
-        }
+        try {
+          await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+        } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
@@ -1264,20 +1328,17 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         'funcao': funcaoFinal,
         'role': funcaoFinal.toLowerCase(),
       };
-      var allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(widget.tenantId);
-      if (allIds.isEmpty) allIds = [widget.tenantId];
+      List<String> allIds;
+      try {
+        allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
+      } catch (_) {
+        allIds = [widget.tenantId];
+      }
       final db = FirebaseFirestore.instance;
       for (final tid in allIds) {
-        for (final col in [
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-          db.collection('igrejas').doc(tid).collection('membros'),
-        ]) {
-          try {
-            await col.doc(m.id).set(updates, SetOptions(merge: true));
-          } catch (_) {}
-        }
+        try {
+          await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+        } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
@@ -1336,9 +1397,10 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       floatingActionButton: _canWrite
           ? FloatingActionButton.extended(
               onPressed: _pickAndLinkMember,
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('Vincular membro'),
               backgroundColor: ThemeCleanPremium.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Vincular membro', style: TextStyle(fontWeight: FontWeight.w700)),
             )
           : null,
       body: _loading
@@ -1377,6 +1439,12 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                           onPressed: _pickAndLinkMember,
                           icon: const Icon(Icons.person_add_alt_1_rounded),
                           label: const Text('Vincular membro'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: ThemeCleanPremium.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                          ),
                         ),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(

@@ -3,13 +3,17 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 
 /// Aviso global (`config/global_announcement`) no painel da igreja e master.
 ///
 /// - [revision] (incrementado ao salvar) + [dismissedGlobalAnnouncementRev] no `users/{uid}`.
 /// - Legado: sem [revision], usa [updatedAt] como antes.
 /// - [validUntil]: o dia escolhido conta como **válido até o fim desse dia** (corrigido).
+/// - Campos opcionais: [title], [kind], botões [primaryButtonUrl] / [secondaryButtonUrl].
+/// - Links `https://` no texto ficam clicáveis ([Linkify] + [openHttpsUrlInBrowser]).
 /// - Ouve o documento em tempo real para novos avisos na sessão.
 class GlobalAnnouncementOverlay extends StatefulWidget {
   final Widget child;
@@ -54,6 +58,44 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
     final r = ann['revision'];
     if (r is num) return r.toInt();
     return 0;
+  }
+
+  static String _normalizeKind(dynamic v) {
+    final s = (v ?? 'info').toString().trim().toLowerCase();
+    if (s == 'maintenance' || s == 'manutencao' || s == 'manutenção') {
+      return 'maintenance';
+    }
+    if (s == 'promotion' || s == 'promocao' || s == 'promoção') {
+      return 'promotion';
+    }
+    return 'info';
+  }
+
+  static ({Color c1, Color c2, IconData icon, String defaultTitle}) _styleForKind(
+      String kind) {
+    switch (kind) {
+      case 'maintenance':
+        return (
+          c1: const Color(0xFFE65100),
+          c2: const Color(0xFFFF9800),
+          icon: Icons.build_circle_rounded,
+          defaultTitle: 'Manutenção',
+        );
+      case 'promotion':
+        return (
+          c1: const Color(0xFF6A1B9A),
+          c2: const Color(0xFFAB47BC),
+          icon: Icons.local_offer_rounded,
+          defaultTitle: 'Promoção',
+        );
+      default:
+        return (
+          c1: ThemeCleanPremium.primary,
+          c2: const Color(0xFF42A5F5),
+          icon: Icons.notifications_active_rounded,
+          defaultTitle: 'Aviso do sistema',
+        );
+    }
   }
 
   Future<void> _onAnnouncementSnap(
@@ -111,69 +153,199 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
       _lastShownRevision = message.hashCode;
     }
 
-    await _showDialog(
+    final kind = _normalizeKind(ann['kind']);
+    final title = (ann['title'] ?? '').toString().trim();
+    final primaryUrl = (ann['primaryButtonUrl'] ?? '').toString().trim();
+    final primaryLabel = (ann['primaryButtonLabel'] ?? '').toString().trim();
+    final secondaryUrl = (ann['secondaryButtonUrl'] ?? '').toString().trim();
+    final secondaryLabel = (ann['secondaryButtonLabel'] ?? '').toString().trim();
+
+    await _showAnnouncementDialog(
       context,
       message: message,
       revision: revision,
       updatedAt: updatedAt,
       uid: user.uid,
+      kind: kind,
+      title: title,
+      primaryUrl: primaryUrl,
+      primaryLabel: primaryLabel,
+      secondaryUrl: secondaryUrl,
+      secondaryLabel: secondaryLabel,
     );
   }
 
-  Future<void> _showDialog(
+  Future<void> _showAnnouncementDialog(
     BuildContext context, {
     required String message,
     required int revision,
     required Timestamp? updatedAt,
     required String uid,
+    required String kind,
+    required String title,
+    required String primaryUrl,
+    required String primaryLabel,
+    required String secondaryUrl,
+    required String secondaryLabel,
   }) async {
+    final style = _styleForKind(kind);
+    final displayTitle =
+        title.isEmpty ? style.defaultTitle : title;
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: Row(
-          children: [
-            Icon(Icons.info_outline_rounded,
-                color: ThemeCleanPremium.primary, size: 28),
-            const SizedBox(width: 12),
-            const Expanded(child: Text('Aviso do sistema')),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Text(message,
-              style: const TextStyle(fontSize: 15, height: 1.5)),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              final payload = <String, dynamic>{};
-              if (revision > 0) {
-                payload['dismissedGlobalAnnouncementRev'] = revision;
-                if (updatedAt != null) {
-                  payload['dismissedGlobalAnnouncementAt'] = updatedAt;
-                }
-              } else if (updatedAt != null) {
-                payload['dismissedGlobalAnnouncementAt'] = updatedAt;
-              } else {
-                payload['dismissedGlobalAnnouncementMsgHash'] =
-                    message.hashCode;
-              }
-              try {
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(uid)
-                    .set(payload, SetOptions(merge: true));
-              } catch (_) {}
-            },
-            style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.primary),
-            child: const Text('OK'),
+      builder: (ctx) {
+        final maxH = MediaQuery.sizeOf(ctx).height * 0.5;
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
           ),
-        ],
-      ),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [style.c1, style.c2],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(style.icon, color: Colors.white, size: 34),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          displayTitle,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxH),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    child: SelectableLinkify(
+                      text: message,
+                      onOpen: (link) =>
+                          openHttpsUrlInBrowser(ctx, link.url),
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.55,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                      linkStyle: TextStyle(
+                        color: ThemeCleanPremium.primary,
+                        fontWeight: FontWeight.w700,
+                        decoration: TextDecoration.underline,
+                        decorationColor: ThemeCleanPremium.primary,
+                      ),
+                      options: const LinkifyOptions(humanize: false),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (primaryUrl.isNotEmpty) ...[
+                        FilledButton.icon(
+                          onPressed: () =>
+                              openHttpsUrlInBrowser(ctx, primaryUrl),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                          label: Text(
+                            primaryLabel.isEmpty
+                                ? 'Abrir link'
+                                : primaryLabel,
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: ThemeCleanPremium.primary,
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14, horizontal: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (secondaryUrl.isNotEmpty) ...[
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              openHttpsUrlInBrowser(ctx, secondaryUrl),
+                          icon: const Icon(Icons.link_rounded, size: 20),
+                          label: Text(
+                            secondaryLabel.isEmpty
+                                ? 'Segundo link'
+                                : secondaryLabel,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: ThemeCleanPremium.primary,
+                            side: BorderSide(
+                              color: ThemeCleanPremium.primary.withOpacity(0.6),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 12, horizontal: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: FilledButton(
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      final payload = <String, dynamic>{};
+                      if (revision > 0) {
+                        payload['dismissedGlobalAnnouncementRev'] = revision;
+                        if (updatedAt != null) {
+                          payload['dismissedGlobalAnnouncementAt'] = updatedAt;
+                        }
+                      } else if (updatedAt != null) {
+                        payload['dismissedGlobalAnnouncementAt'] = updatedAt;
+                      } else {
+                        payload['dismissedGlobalAnnouncementMsgHash'] =
+                            message.hashCode;
+                      }
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(uid)
+                            .set(payload, SetOptions(merge: true));
+                      } catch (_) {}
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ThemeCleanPremium.onSurface
+                          .withOpacity(0.88),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Entendi'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -6,8 +6,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
-import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
+import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
     FirebaseFirestore.instance
@@ -387,6 +388,23 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                             } catch (_) {}
                             pendingFotoPath = photoPath;
                             pendingFotoUrl = downloadUrl;
+                            AppStorageImageService.instance.invalidate(
+                              storagePath: photoPath,
+                            );
+                            if (downloadUrl != null &&
+                                downloadUrl!.trim().isNotEmpty) {
+                              AppStorageImageService.instance.invalidate(
+                                imageUrl: downloadUrl!.trim(),
+                              );
+                            }
+                            final prevUrl =
+                                (ref?['fotoUrl'] as String?)?.trim() ?? '';
+                            if (prevUrl.isNotEmpty &&
+                                prevUrl != (downloadUrl ?? '').trim()) {
+                              AppStorageImageService.instance.invalidate(
+                                imageUrl: prevUrl,
+                              );
+                            }
                           }
 
                           final ordem = int.tryParse(ordemCtrl.text.trim()) ?? 0;
@@ -650,9 +668,6 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                         final it = items[i];
                         final id = (it['id'] ?? '').toString();
                         final nome = (it['nomeIgreja'] ?? '').toString();
-                        final path = MarketingStorageLayout.resolveClienteCapaStoragePath(
-                            Map<String, dynamic>.from(it));
-                        final url = (it['fotoUrl'] as String?)?.trim();
                         final active = it['ativo'] != false;
                         return Container(
                           decoration: BoxDecoration(
@@ -668,21 +683,26 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                ClipRRect(
+                                MarketingClienteCapaThumb(
+                                  key: ValueKey<String>(
+                                    'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['igrejaTenantId']}',
+                                  ),
+                                  item: Map<String, dynamic>.from(it),
+                                  width: 72,
+                                  height: 72,
+                                  fit: BoxFit.cover,
                                   borderRadius: BorderRadius.circular(12),
-                                  child: StableStorageImage(
-                                    storagePath: path,
-                                    imageUrl:
-                                        url != null && url.isNotEmpty ? url : null,
+                                  placeholder: Container(
                                     width: 72,
                                     height: 72,
-                                    fit: BoxFit.cover,
-                                    placeholder: Container(
-                                      width: 72,
-                                      height: 72,
-                                      color: ThemeCleanPremium.surfaceVariant,
-                                      child: const Icon(Icons.church_outlined),
-                                    ),
+                                    color: ThemeCleanPremium.surfaceVariant,
+                                    child: const Icon(Icons.church_outlined),
+                                  ),
+                                  errorWidget: Container(
+                                    width: 72,
+                                    height: 72,
+                                    color: ThemeCleanPremium.surfaceVariant,
+                                    child: const Icon(Icons.church_outlined),
                                   ),
                                 ),
                                 const SizedBox(width: 12),

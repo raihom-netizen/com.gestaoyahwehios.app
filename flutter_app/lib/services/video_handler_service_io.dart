@@ -10,7 +10,7 @@ import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 
-/// Mobile (IO): compressão com video_compress (MediumQuality) e geração de thumbnail.
+/// Mobile (IO): compressão rápida para feed (960×540), thumb do MP4 comprimido, uploads em paralelo.
 class VideoHandlerService implements IVideoHandlerService {
   VideoHandlerService._();
   static final VideoHandlerService instance = VideoHandlerService._();
@@ -34,19 +34,21 @@ class VideoHandlerService implements IVideoHandlerService {
     if (!File(path).existsSync()) return null;
 
     try {
-      // 1. Compressão — equilíbrio ideal entre peso e qualidade visual.
+      // 1. Compressão — 960×540: bem mais rápido que Medium/720p e suficiente para vídeos até 60s no mural.
       final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
         path,
-        quality: VideoQuality.MediumQuality,
+        quality: VideoQuality.Res960x540Quality,
         deleteOrigin: false,
         includeAudio: true,
       );
       if (mediaInfo == null || mediaInfo.file == null) return null;
 
-      // 2. Thumbnail — preview instantâneo no feed/listas.
+      final compressed = mediaInfo.file!;
+
+      // 2. Thumbnail a partir do MP4 já comprimido (ficheiro menor → extração mais leve).
       File? thumbFile;
       try {
-        thumbFile = await VideoCompress.getFileThumbnail(path);
+        thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
       } catch (_) {}
 
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
@@ -62,22 +64,22 @@ class VideoHandlerService implements IVideoHandlerService {
       final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
           tenantId, eventPostDocId, slot);
 
-      // 3. Upload do vídeo comprimido (path estável por evento + slot — substitui anterior)
-      final videoUrl = await MediaUploadService.uploadFileWithRetry(
+      // 3. Upload vídeo + miniatura em paralelo (menos tempo total na rede).
+      final videoFuture = MediaUploadService.uploadFileWithRetry(
         storagePath: videoPath,
-        file: mediaInfo.file!,
+        file: compressed,
         contentType: 'video/mp4',
       );
-
-      // 4. Miniatura no mesmo prefixo `eventos/videos/` (sem pasta `thumbs/`)
-      String thumbUrl = '';
-      if (thumbFile != null && thumbFile.existsSync()) {
-        thumbUrl = await MediaUploadService.uploadFileWithRetry(
-          storagePath: thumbPath,
-          file: thumbFile,
-          contentType: 'image/jpeg',
-        );
-      }
+      final thumbFuture = (thumbFile != null && thumbFile.existsSync())
+          ? MediaUploadService.uploadFileWithRetry(
+              storagePath: thumbPath,
+              file: thumbFile,
+              contentType: 'image/jpeg',
+            )
+          : Future<String>.value('');
+      final results = await Future.wait([videoFuture, thumbFuture]);
+      final videoUrl = results[0];
+      final thumbUrl = results[1];
 
       return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
     } finally {

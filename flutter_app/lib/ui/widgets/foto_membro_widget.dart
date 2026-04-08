@@ -1,27 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/entity_image_fields.dart';
-import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        ResilientNetworkImage,
         SafeCircleAvatarImage,
         imageUrlFromMap,
-        isValidImageUrl,
         memCacheExtentForLogicalSize,
         sanitizeImageUrl;
 
 /// Foto circular de membro com carregamento estável (menos “piscar” ao reconstruir listas).
 ///
-/// **Não** use [Image.network] nem [CachedNetworkImage] direto com URLs do Firebase Storage:
+/// **Não** use [Image.network] nem [CachedNetworkImage] **só** com URLs `firebasestorage.googleapis.com`:
 /// no **web** costuma falhar (CORS/CanvasKit); no **Android/iOS** URLs tokenizadas do Storage
-/// frequentemente travam no loading com cache HTTP puro. Este widget reutiliza o pipeline do app:
-/// [ResilientNetworkImage] / [SafeMemberProfilePhoto], cache em memória
-/// ([MemberProfilePhotoBytesCache]) e fallback para `igrejas/{tenant}/membros/{id}.jpg`.
+/// frequentemente travam no loading. Este widget usa [SafeMemberProfilePhoto] → [FirebaseStorageMemoryImage],
+/// cache de bytes em RAM com chave estável por **path** do objeto (30 dias) e [memCacheWidth] para não
+/// descodificar 4K na lista. Miniaturas `thumb_foto_perfil.jpg` (extensão Resize Images):
+/// `ChurchStorageLayout.memberProfileResizeThumbPath`.
 ///
-/// Quando [tenantId] e [memberId] estão preenchidos, o fallback de Storage é ativado
-/// (recomendado em listas, aniversariantes, carteirinha).
+/// Com [memberData] + [tenantId] + [memberId], **não** bloqueia a UI num `FutureBuilder` global
+/// de resolução de URL (isso gerava spinner longo em aniversariantes, listas, etc.). A foto
+/// aparece logo: URL do Firestore ou fallback `igrejas/{tenant}/membros/...` em paralelo.
 ///
 /// [size] é o diâmetro em pixels lógicos (equivalente a `radius * 2` do [CircleAvatar]).
 class FotoMembroWidget extends StatelessWidget {
@@ -30,18 +28,13 @@ class FotoMembroWidget extends StatelessWidget {
   final String? tenantId;
   final String? memberId;
   final String? cpfDigits;
-  /// Quando preenchido, resolve [photoStoragePath] / `gs://` do Firestore via [AppStorageImageService]
-  /// (URLs só https em [imageUrlFromMap] não cobrem path legado sem URL).
   final Map<String, dynamic>? memberData;
-  /// Quando a foto no Storage usa o UID (doc do membro pode ser CPF).
   final String? authUid;
   final Color? backgroundColor;
   final IconData fallbackIcon;
-  /// Quando preenchido, substitui o ícone padrão (ex.: inicial do nome em listas).
   final Widget? fallbackChild;
   final int? memCacheWidth;
   final int? memCacheHeight;
-  /// Se null e [memberData] preenchido, usa [memberPhotoDisplayCacheRevision].
   final int? imageCacheRevision;
 
   const FotoMembroWidget({
@@ -68,25 +61,11 @@ class FotoMembroWidget extends StatelessWidget {
     return m.isNotEmpty ? m : null;
   }
 
-  /// `gs://` por vezes vem em [fotoUrl]/[photoUrl] em vez de [MemberImageFields.gsPhotoUrl].
-  static String? _gsUrlForResolve(Map<String, dynamic> md, String? merged) {
-    final from = MemberImageFields.gsPhotoUrl(md);
-    if (from != null && from.trim().isNotEmpty) return from.trim();
-    final m = merged?.trim() ?? '';
-    if (m.toLowerCase().startsWith('gs://')) return m;
-    for (final k in [
-      'foto_url',
-      'fotoUrl',
-      'photoUrl',
-      'photoURL',
-      'FOTO_URL_OU_ID',
-      'foto',
-      'photo',
-    ]) {
-      final v = (md[k] ?? '').toString().trim();
-      if (v.toLowerCase().startsWith('gs://')) return v;
-    }
-    return null;
+  static String? _authUidFromData(Map<String, dynamic> md, String? explicit) {
+    final e = explicit?.trim() ?? '';
+    if (e.isNotEmpty) return e;
+    final a = (md['authUid'] ?? '').toString().trim();
+    return a.isEmpty ? null : a;
   }
 
   @override
@@ -119,113 +98,23 @@ class FotoMembroWidget extends StatelessWidget {
               .toString()
               .trim()
           : '';
-      final nomeOpt =
-          nomeCompletoMd.isEmpty ? null : nomeCompletoMd;
-      if (md != null) {
-        final sp = MemberImageFields.photoStoragePath(md);
-        final merged = _mergedMemberImageUrl(imageUrl, md);
-        final gs = _gsUrlForResolve(md, merged);
-        final cacheKey = AppStorageImageService.cacheKey(
-          storagePath: sp,
-          gsUrl: gs,
-          imageUrl: merged,
-        );
-        final future = AppStorageImageService.instance.resolveImageUrl(
-          storagePath: sp,
-          gsUrl: gs,
-          imageUrl: merged,
-        );
-        final mc = memCacheWidth ?? memCacheHeight ?? defaultMc;
-        return FutureBuilder<String?>(
-          key: ValueKey<String>('foto_membro_doc_${tid}_${mid}_${cacheKey}_$rev'),
-          future: future,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting && snap.data == null && !snap.hasError) {
-              return SizedBox(
-                width: size,
-                height: size,
-                child: ClipOval(
-                  child: ColoredBox(
-                    color: bg,
-                    child: Center(
-                      child: SizedBox(
-                        width: size * 0.32,
-                        height: size * 0.32,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: ThemeCleanPremium.primary.withOpacity(0.6),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-            final u = snap.hasError ? null : snap.data;
-            final clean = u != null ? sanitizeImageUrl(u) : '';
-            if (clean.isNotEmpty && isValidImageUrl(clean)) {
-              return ClipOval(
-                child: SizedBox(
-                  width: size,
-                  height: size,
-                  child: ResilientNetworkImage(
-                    key: ValueKey<String>('foto_membro_resolved_${clean}_$rev'),
-                    imageUrl: clean,
-                    fit: BoxFit.cover,
-                    width: size,
-                    height: size,
-                    memCacheWidth: mc,
-                    memCacheHeight: mc,
-                    placeholder: err,
-                    errorWidget: SafeMemberProfilePhoto(
-                      key: ValueKey<String>('foto_membro_fb_${tid}_${mid}_$rev'),
-                      imageUrl: imageUrl,
-                      tenantId: tid,
-                      memberId: mid,
-                      cpfDigits: cpfDigits,
-                      authUid: authUid,
-                      nomeCompleto: nomeOpt,
-                      imageCacheRevision: rev,
-                      width: size,
-                      height: size,
-                      circular: true,
-                      fit: BoxFit.cover,
-                      memCacheWidth: memCacheWidth ?? defaultMc,
-                      memCacheHeight: memCacheHeight ?? defaultMc,
-                      errorChild: err,
-                    ),
-                  ),
-                ),
-              );
-            }
-            return SafeMemberProfilePhoto(
-              key: ValueKey<String>('foto_membro_${tid}_${mid}_$rev'),
-              imageUrl: imageUrl,
-              tenantId: tid,
-              memberId: mid,
-              cpfDigits: cpfDigits,
-              authUid: authUid,
-              nomeCompleto: nomeOpt,
-              imageCacheRevision: rev,
-              width: size,
-              height: size,
-              circular: true,
-              fit: BoxFit.cover,
-              memCacheWidth: memCacheWidth ?? defaultMc,
-              memCacheHeight: memCacheHeight ?? defaultMc,
-              errorChild: err,
-            );
-          },
-        );
-      }
+      final nomeOpt = nomeCompletoMd.isEmpty ? null : nomeCompletoMd;
+      final merged =
+          md != null ? _mergedMemberImageUrl(imageUrl, md) : imageUrl?.trim();
+      final authRaw =
+          md != null ? _authUidFromData(md, authUid) : authUid?.trim();
+      final authOpt =
+          (authRaw == null || authRaw.isEmpty) ? null : authRaw;
+
       return SafeMemberProfilePhoto(
         key: ValueKey<String>('foto_membro_${tid}_${mid}_$rev'),
-        imageUrl: imageUrl,
+        imageUrl: merged,
         tenantId: tid,
         memberId: mid,
         cpfDigits: cpfDigits,
-        authUid: authUid,
+        authUid: authOpt,
         nomeCompleto: nomeOpt,
+        memberFirestoreHint: md,
         imageCacheRevision: rev,
         width: size,
         height: size,
@@ -233,6 +122,7 @@ class FotoMembroWidget extends StatelessWidget {
         fit: BoxFit.cover,
         memCacheWidth: memCacheWidth ?? defaultMc,
         memCacheHeight: memCacheHeight ?? defaultMc,
+        placeholder: err,
         errorChild: err,
       );
     }

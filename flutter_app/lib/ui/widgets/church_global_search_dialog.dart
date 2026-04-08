@@ -10,7 +10,7 @@ const int kChurchShellIndexMembers = 2;
 const int kChurchShellIndexMural = 6;
 const int kChurchShellIndexEvents = 7;
 const int kChurchShellIndexMySchedules = 10;
-const int kChurchShellIndexPatrimonio = 15;
+const int kChurchShellIndexPatrimonio = 20;
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +10,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         imageUrlFromMap,
         imageUrlsListFromMap,
         isValidImageUrl,
+        ResilientNetworkImage,
         sanitizeImageUrl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
@@ -30,6 +33,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_view/photo_view_gallery.dart';
 
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
@@ -247,6 +252,26 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
     outPaths.add(hasPath ? p : null);
   }
   return (urls: outUrls, paths: outPaths);
+}
+
+/// Miniatura na lista/galeria: prefere o primeiro slot com URL http(s) (evita `getDownloadURL` só com path).
+({String url, String? path}) _patrimonioThumbFromSlots(
+  List<String> urls,
+  List<String?> paths,
+) {
+  if (urls.isEmpty) return (url: '', path: null);
+  for (var i = 0; i < urls.length; i++) {
+    final pu = sanitizeImageUrl(urls[i]);
+    if (pu.isEmpty) continue;
+    if (isValidImageUrl(pu) &&
+        (pu.startsWith('https://') || pu.startsWith('http://'))) {
+      final p = i < paths.length ? paths[i] : null;
+      return (url: pu, path: p);
+    }
+  }
+  final u0 = sanitizeImageUrl(urls.first);
+  final p0 = paths.isNotEmpty ? paths.first : null;
+  return (url: u0, path: p0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1673,20 +1698,40 @@ class _BensTabState extends State<_BensTab> {
   @override
   void initState() {
     super.initState();
-    _future = _loadBens(cacheFirst: true);
+    _future = _loadBensFirstPaint();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadBens(
-      {required bool cacheFirst}) {
-    return widget.col.orderBy('nome').get(
-          GetOptions(
-              source: cacheFirst ? Source.serverAndCache : Source.server),
-        );
+  /// Cache local primeiro (lista aparece rápido); depois atualiza do servidor em segundo plano.
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
+    try {
+      final cached = await widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) {
+        unawaited(_refreshBensFromServer());
+        return cached;
+      }
+    } catch (_) {}
+    return widget.col
+        .orderBy('nome')
+        .get(const GetOptions(source: Source.server));
+  }
+
+  Future<void> _refreshBensFromServer() async {
+    try {
+      final server = await widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.server));
+      if (!mounted) return;
+      setState(() => _future = Future.value(server));
+    } catch (_) {}
   }
 
   void refresh() {
     setState(() {
-      _future = _loadBens(cacheFirst: false);
+      _future = widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.server));
     });
   }
 
@@ -2237,10 +2282,9 @@ class _PatrimonioCard extends StatelessWidget {
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
     final hasPhoto = slots.urls.isNotEmpty;
-    final thumbUrl =
-        slots.urls.isNotEmpty ? slots.urls.first : '';
-    final thumbPath =
-        slots.paths.isNotEmpty ? slots.paths.first : null;
+    final thumb = _patrimonioThumbFromSlots(slots.urls, slots.paths);
+    final thumbUrl = thumb.url;
+    final thumbPath = thumb.path;
     final dprList = MediaQuery.devicePixelRatioOf(context);
     const thumbSize = 76.0;
     final memListThumb = (thumbSize * dprList).round().clamp(160, 320);
@@ -2550,11 +2594,14 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
     final hasPhoto = slots.urls.isNotEmpty;
-    final thumbUrl = slots.urls.isNotEmpty ? slots.urls.first : '';
-    final thumbPath = slots.paths.isNotEmpty ? slots.paths.first : null;
+    final thumb = _patrimonioThumbFromSlots(slots.urls, slots.paths);
+    final thumbUrl = thumb.url;
+    final thumbPath = thumb.path;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     const thumbH = 120.0;
-    final memThumb = (thumbH * dpr).round().clamp(200, 480);
+    /// Miniaturas do grid: decode ~300px (memória leve na lista/galeria).
+    const kGridMemPx = 300;
+    final memThumb = (kGridMemPx * dpr).round().clamp(240, 900);
 
     Widget photoLoading() => Container(
           height: thumbH,
@@ -2818,12 +2865,33 @@ class _DashboardTabState extends State<_DashboardTab> {
   @override
   void initState() {
     super.initState();
-    _future = widget.col.get();
+    _future = _loadDashboardFirstPaint();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
+    try {
+      final cached =
+          await widget.col.get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) {
+        unawaited(_refreshDashboardFromServer());
+        return cached;
+      }
+    } catch (_) {}
+    return widget.col.get(const GetOptions(source: Source.server));
+  }
+
+  Future<void> _refreshDashboardFromServer() async {
+    try {
+      final server =
+          await widget.col.get(const GetOptions(source: Source.server));
+      if (!mounted) return;
+      setState(() => _future = Future.value(server));
+    } catch (_) {}
   }
 
   void refresh() {
     setState(() {
-      _future = widget.col.get();
+      _future = widget.col.get(const GetOptions(source: Source.server));
     });
   }
 
@@ -3390,12 +3458,40 @@ class _InventarioTabState extends State<_InventarioTab> {
   @override
   void initState() {
     super.initState();
-    _future = widget.col.orderBy('nome').get();
+    _future = _loadInventarioFirstPaint();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>>
+      _loadInventarioFirstPaint() async {
+    try {
+      final cached = await widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) {
+        unawaited(_refreshInventarioFromServer());
+        return cached;
+      }
+    } catch (_) {}
+    return widget.col
+        .orderBy('nome')
+        .get(const GetOptions(source: Source.server));
+  }
+
+  Future<void> _refreshInventarioFromServer() async {
+    try {
+      final server = await widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.server));
+      if (!mounted) return;
+      setState(() => _future = Future.value(server));
+    } catch (_) {}
   }
 
   void refresh() {
     setState(() {
-      _future = widget.col.orderBy('nome').get();
+      _future = widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.server));
     });
   }
 
@@ -3773,6 +3869,18 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
     );
   }
 
+  void _openFullscreenZoom() {
+    if (widget.urls.isEmpty) return;
+    final i =
+        (_controller.page ?? 0).round().clamp(0, widget.urls.length - 1);
+    unawaited(_PatrimonioFullscreenGallery.open(
+      context,
+      urls: widget.urls,
+      storagePaths: widget.storagePaths,
+      initialIndex: i,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final pageView = ScrollConfiguration(
@@ -3829,60 +3937,67 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
 
     return Column(
       children: [
-        SizedBox(
-          height: 220,
-          child: widget.urls.length > 1
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    pageView,
-                    Positioned(
-                      left: 2,
-                      child: Material(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        shape: const CircleBorder(),
-                        elevation: 1,
-                        child: IconButton(
-                          tooltip: 'Foto anterior',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
+        Tooltip(
+          message: 'Toque para ampliar com zoom',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openFullscreenZoom,
+            child: SizedBox(
+              height: 220,
+              child: widget.urls.length > 1
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        pageView,
+                        Positioned(
+                          left: 2,
+                          child: Material(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            shape: const CircleBorder(),
+                            elevation: 1,
+                            child: IconButton(
+                              tooltip: 'Foto anterior',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 40,
+                                minHeight: 40,
+                              ),
+                              icon: Icon(Icons.chevron_left_rounded,
+                                  color: widget.cor, size: 28),
+                              onPressed: () {
+                                final i = _controller.page?.round() ?? 0;
+                                _goToPage(i - 1);
+                              },
+                            ),
                           ),
-                          icon: Icon(Icons.chevron_left_rounded,
-                              color: widget.cor, size: 28),
-                          onPressed: () {
-                            final i = _controller.page?.round() ?? 0;
-                            _goToPage(i - 1);
-                          },
                         ),
-                      ),
-                    ),
-                    Positioned(
-                      right: 2,
-                      child: Material(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        shape: const CircleBorder(),
-                        elevation: 1,
-                        child: IconButton(
-                          tooltip: 'Próxima foto',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
+                        Positioned(
+                          right: 2,
+                          child: Material(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            shape: const CircleBorder(),
+                            elevation: 1,
+                            child: IconButton(
+                              tooltip: 'Próxima foto',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 40,
+                                minHeight: 40,
+                              ),
+                              icon: Icon(Icons.chevron_right_rounded,
+                                  color: widget.cor, size: 28),
+                              onPressed: () {
+                                final i = _controller.page?.round() ?? 0;
+                                _goToPage(i + 1);
+                              },
+                            ),
                           ),
-                          icon: Icon(Icons.chevron_right_rounded,
-                              color: widget.cor, size: 28),
-                          onPressed: () {
-                            final i = _controller.page?.round() ?? 0;
-                            _goToPage(i + 1);
-                          },
                         ),
-                      ),
-                    ),
-                  ],
-                )
-              : pageView,
+                      ],
+                    )
+                  : pageView,
+            ),
+          ),
         ),
         if (widget.urls.length > 1)
           Padding(
@@ -3900,6 +4015,178 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Zoom em tela cheia: miniatura rápida por baixo + mesma URL em alta definição por cima (pinch).
+class _PatrimonioFullscreenGallery extends StatefulWidget {
+  final List<String> urls;
+  final List<String?> storagePaths;
+  final int initialIndex;
+
+  const _PatrimonioFullscreenGallery({
+    required this.urls,
+    required this.storagePaths,
+    required this.initialIndex,
+  });
+
+  static Future<void> open(
+    BuildContext context, {
+    required List<String> urls,
+    required List<String?> storagePaths,
+    required int initialIndex,
+  }) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => _PatrimonioFullscreenGallery(
+          urls: urls,
+          storagePaths: storagePaths,
+          initialIndex: initialIndex,
+        ),
+      ),
+    );
+  }
+
+  @override
+  State<_PatrimonioFullscreenGallery> createState() =>
+      _PatrimonioFullscreenGalleryState();
+}
+
+class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGallery> {
+  late final PageController _pageController;
+  late int _current;
+
+  @override
+  void initState() {
+    super.initState();
+    final n = widget.urls.length;
+    _current = n <= 0 ? 0 : widget.initialIndex.clamp(0, n - 1);
+    _pageController = PageController(initialPage: _current);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.paddingOf(context);
+    if (widget.urls.isEmpty) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: const Text('Fotos'),
+        ),
+        body: const Center(
+          child: Text('Nenhuma imagem',
+              style: TextStyle(color: Colors.white54)),
+        ),
+      );
+    }
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          PhotoViewGallery.builder(
+            scrollPhysics: const BouncingScrollPhysics(),
+            pageController: _pageController,
+            itemCount: widget.urls.length,
+            onPageChanged: (i) => setState(() => _current = i),
+            builder: (context, index) {
+              final raw = widget.urls[index];
+              final path = index < widget.storagePaths.length
+                  ? widget.storagePaths[index]
+                  : null;
+              final sz = MediaQuery.sizeOf(context);
+              final dpr = MediaQuery.devicePixelRatioOf(context);
+              final h = sz.height * 0.88;
+              final previewW = (sz.width * dpr).round().clamp(240, 960);
+              final previewH = (h * dpr).round().clamp(240, 960);
+              if (raw.isEmpty) {
+                return PhotoViewGalleryPageOptions.customChild(
+                  child: const Center(
+                    child: Icon(Icons.broken_image_rounded,
+                        color: Colors.white54, size: 64),
+                  ),
+                  minScale: PhotoViewComputedScale.contained,
+                  maxScale: PhotoViewComputedScale.contained,
+                  initialScale: PhotoViewComputedScale.contained,
+                );
+              }
+              return PhotoViewGalleryPageOptions.customChild(
+                child: Stack(
+                  fit: StackFit.expand,
+                  alignment: Alignment.center,
+                  children: [
+                    FotoPatrimonioWidget(
+                      storagePath: path,
+                      candidateUrls: [raw],
+                      width: sz.width,
+                      height: h,
+                      memCacheWidth: previewW,
+                      memCacheHeight: previewH,
+                      fit: BoxFit.contain,
+                      placeholder: const ColoredBox(color: Colors.black),
+                      errorWidget: const SizedBox.shrink(),
+                    ),
+                    ResilientNetworkImage(
+                      imageUrl: raw,
+                      fit: BoxFit.contain,
+                      width: sz.width,
+                      height: h,
+                      memCacheWidth: 4096,
+                      memCacheHeight: 4096,
+                      placeholder: const SizedBox.shrink(),
+                      errorWidget: const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+                minScale: PhotoViewComputedScale.contained,
+                maxScale: PhotoViewComputedScale.covered * 3.5,
+                initialScale: PhotoViewComputedScale.contained,
+              );
+            },
+            backgroundDecoration: const BoxDecoration(color: Colors.black),
+          ),
+          Positioned(
+            top: padding.top + 4,
+            left: 12,
+            child: Material(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Text(
+                  '${_current + 1} / ${widget.urls.length}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: padding.top + 4,
+            right: 4,
+            child: Material(
+              color: Colors.black45,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: IconButton(
+                tooltip: 'Fechar',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded,
+                    color: Colors.white, size: 26),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -4140,12 +4427,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         final compressed = await Future.wait(
           List.generate(
             nBatch,
-            (j) => ImageHelper.compressImage(
-                  _newImages[j],
-                  minWidth: 800,
-                  minHeight: 600,
-                  quality: 70,
-                ),
+            (j) => ImageHelper.compressPatrimonioPhotoForUpload(_newImages[j]),
           ),
         );
         final progresses = List<double>.filled(nBatch, 0);
@@ -4157,29 +4439,41 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           setState(() => _uploadProgress = sum.clamp(0.0, 1.0));
         }
 
-        final results = await Future.wait(
-          List.generate(nBatch, (j) {
-            final slot = startSlot + j;
-            final path =
-                ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
-            return MediaUploadService.uploadBytesDetailed(
-              storagePath: path,
-              bytes: compressed[j],
-              contentType: 'image/jpeg',
-              skipClientPrepare: true,
-              onProgress: (p) {
-                progresses[j] = p.clamp(0.0, 1.0);
-                bumpUploadProgress();
-              },
-            );
-          }),
-        );
+        const uploadConcurrency = 3;
+        final results = <MediaUploadResult>[];
+        for (var batchStart = 0;
+            batchStart < nBatch;
+            batchStart += uploadConcurrency) {
+          final batchEnd = math.min(batchStart + uploadConcurrency, nBatch);
+          final chunk = await Future.wait(
+            List.generate(batchEnd - batchStart, (k) {
+              final j = batchStart + k;
+              final slot = startSlot + j;
+              final path =
+                  ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
+              return MediaUploadService.uploadBytesDetailed(
+                storagePath: path,
+                bytes: compressed[j],
+                contentType: 'image/webp',
+                skipClientPrepare: true,
+                onProgress: (p) {
+                  progresses[j] = p.clamp(0.0, 1.0);
+                  bumpUploadProgress();
+                },
+              );
+            }),
+          );
+          results.addAll(chunk);
+        }
         for (final r in results) {
           allUrls.add(r.downloadUrl);
           allPaths.add(r.storagePath);
         }
-        for (final r in results) {
-          await CachedNetworkImage.evictFromCache(r.downloadUrl);
+        if (results.isNotEmpty) {
+          await Future.wait([
+            for (final r in results)
+              CachedNetworkImage.evictFromCache(r.downloadUrl),
+          ]);
         }
       }
 
@@ -4209,22 +4503,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
-      final L = allUrls.length;
+      final occupiedSlots = allUrls.length;
       if (mounted) {
-        setState(() => _uploadProgress = 0.9);
-      }
-      await Future.wait([
-        for (var s = L; s < _maxFotosPorItem; s++)
-          FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-              tenantId: tenantId, itemDocId: itemId, slot: s),
-      ]);
-      await FirebaseStorageCleanupService.deleteGeneratedPatrimonioItemThumbnails(
-          tenantId: tenantId, itemDocId: itemId);
-      await FirebaseStorageCleanupService.deleteFlatLegacyPatrimonioDerivativesForItem(
-          tenantId: tenantId, itemDocId: itemId);
-
-      if (mounted) {
-        setState(() => _uploadProgress = 0.97);
+        setState(() => _uploadProgress = 0.92);
       }
       final valor = double.tryParse(_valor.text.replaceAll(',', '.'));
       final vidaUtil = int.tryParse(_vidaUtil.text);
@@ -4266,6 +4547,18 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         tenantId: tenantId,
         itemDocId: itemId,
       );
+      unawaited(() async {
+        try {
+          await Future.wait([
+            for (var s = occupiedSlots; s < _maxFotosPorItem; s++)
+              FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+                tenantId: tenantId,
+                itemDocId: itemId,
+                slot: s,
+              ),
+          ]);
+        } catch (_) {}
+      }());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(widget.doc == null
