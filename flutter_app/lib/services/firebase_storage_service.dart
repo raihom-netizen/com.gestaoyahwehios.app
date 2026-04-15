@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'media_handler_service.dart';
+import 'media_upload_service.dart';
 import 'storage_media_service.dart';
 
 /// Serviço de upload de mídia para Firebase Storage em alta resolução (Full HD).
@@ -67,7 +69,13 @@ class FirebaseStorageService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const [];
     final churchName = await _churchDisplayNameForLogoPath(tid, tenantData);
-    return ChurchStorageLayout.churchLogoObjectPathsToTry(tid, churchName);
+    final base = ChurchStorageLayout.churchLogoObjectPathsToTry(tid, churchName);
+    final custom = ChurchImageFields.logoStoragePath(tenantData);
+    if (custom == null || custom.isEmpty) return base;
+    final norm = custom.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+    if (norm.isEmpty) return base;
+    if (base.contains(norm)) return base;
+    return <String>[norm, ...base];
   }
 
   /// Logo institucional quando o Firestore não tem URL — tenta identidade em `configuracoes/`, depois legados.
@@ -104,6 +112,15 @@ class FirebaseStorageService {
     for (final p in paths) {
       try {
         final ref = FirebaseStorage.instance.ref(p);
+        final meta = await ref.getMetadata().timeout(timeout);
+        final sz = meta.size ?? 0;
+        // Ignora placeholder 1×1 / ficheiros corrompidos (~67 B) — URL válida mas imagem invisível no site.
+        if (sz > 0 &&
+            sz < ChurchStorageLayout.kChurchIdentityLogoMinBytesForFirestoreSync) {
+          debugPrint(
+              'FirebaseStorageService.getChurchLogoDownloadUrl: skip $p (${sz}B < min)');
+          continue;
+        }
         final url = await ref.getDownloadURL().timeout(timeout, onTimeout: () => '');
         if (url.isNotEmpty) {
           while (_churchLogoUrlCache.length >= _churchLogoCacheMax) {
@@ -407,35 +424,6 @@ class FirebaseStorageService {
   static const int quality = 90;
   static const int maxWidth = 1920;
   static const int maxHeight = 1080;
-  static const int _uploadAttempts = 3;
-
-  Future<String?> _putDataWithRetry(
-    Reference ref,
-    Uint8List bytes, {
-    required String contentType,
-  }) async {
-    Object? lastError;
-    for (var i = 1; i <= _uploadAttempts; i++) {
-      try {
-        final task = ref.putData(
-          bytes,
-          SettableMetadata(
-            contentType: contentType,
-            cacheControl: 'public, max-age=31536000',
-          ),
-        );
-        final snap = await task;
-        return await snap.ref.getDownloadURL();
-      } catch (e) {
-        lastError = e;
-        if (i < _uploadAttempts) {
-          await Future.delayed(Duration(milliseconds: 300 * i));
-        }
-      }
-    }
-    debugPrint('FirebaseStorageService._putDataWithRetry: $lastError');
-    return null;
-  }
 
   /// Seleciona imagem da galeria, comprime em alta resolução e envia para [folderPath].
   /// Retorna a URL pública com token (getDownloadURL) para salvar no Firestore.
@@ -457,10 +445,11 @@ class FirebaseStorageService {
       final bytes = await picked.readAsBytes();
       final name = fileName ?? '${DateTime.now().millisecondsSinceEpoch}.jpg';
       final ref = _refFullObjectPath(folderPath, name);
-      return await _putDataWithRetry(
-        ref,
-        bytes,
+      return await MediaUploadService.uploadBytesWithRetry(
+        storagePath: ref.fullPath,
+        bytes: bytes,
         contentType: picked.mimeType ?? 'image/jpeg',
+        skipClientPrepare: true,
       );
     } catch (e) {
       debugPrint('FirebaseStorageService.uploadChurchMedia: $e');
@@ -485,7 +474,12 @@ class FirebaseStorageService {
       }
       final name = fileName ?? '${DateTime.now().millisecondsSinceEpoch}.jpg';
       final ref = _refFullObjectPath(folderPath, name);
-      return await _putDataWithRetry(ref, bytes, contentType: contentType);
+      return await MediaUploadService.uploadBytesWithRetry(
+        storagePath: ref.fullPath,
+        bytes: bytes,
+        contentType: contentType,
+        skipClientPrepare: true,
+      );
     } catch (e) {
       debugPrint('FirebaseStorageService.uploadBytes: $e');
       return null;

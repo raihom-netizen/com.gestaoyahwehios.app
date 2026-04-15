@@ -6,15 +6,18 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/license_access_policy.dart';
+import '../pages/site_public_page.dart';
 
 import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
 import 'igreja_clean_shell.dart';
 import 'widgets/global_announcement_overlay.dart';
-import 'pages/web_blocked_page.dart';
+import '../services/app_connectivity_service.dart';
+import '../services/auth_profile_cache_service.dart';
 import '../services/biometric_service.dart';
 import '../services/church_funcoes_controle_service.dart';
 import '../services/fcm_service.dart';
@@ -108,7 +111,7 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Acesse a página inicial, digite seu e-mail (${user.email ?? "cadastrado"}) e clique em "Carregar igreja" para associar sua conta.',
+                      'Se você está abrindo uma igreja nova: use o botão abaixo e siga em duas etapas (seu nome e CPF, depois nome da igreja). Se já é membro de uma igreja no sistema, use a página inicial com seu e-mail para localizar o painel.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
@@ -131,7 +134,7 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                     FilledButton.icon(
                       onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/signup/completar-dados', (_) => false),
                       icon: const Icon(Icons.add_business),
-                      label: const Text('Sou gestor — Criar minha igreja (30 dias grátis)'),
+                      label: const Text('Nova igreja — continuar cadastro (30 dias grátis)'),
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         padding: const EdgeInsets.symmetric(vertical: 14),
@@ -305,29 +308,51 @@ class AuthGate extends StatefulWidget {
   /// Abre a lista Membros com a ficha deste documento (ex.: QR da carteirinha lido por gestor).
   final String? initialOpenMemberDocId;
 
-  const AuthGate({super.key, this.initialOpenMemberDocId});
+  /// Abre módulo do shell (ex.: Minha Escala) — deep link `/painel?openModule=minha_escala`.
+  final int? initialShellIndex;
+
+  const AuthGate({
+    super.key,
+    this.initialOpenMemberDocId,
+    this.initialShellIndex,
+  });
 
   @override
   State<AuthGate> createState() => _AuthGateState();
 }
 
 class _AuthGateState extends State<AuthGate> {
-  StreamSubscription<User?>? _authLogoutNavSub;
   bool _scheduledLoginRedirect = false;
 
   Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
+    Map<String, dynamic>? cached;
+    if (!kIsWeb) {
+      cached = await AuthProfileCacheService.instance.load(user.uid);
+    }
     try {
       final db = FirebaseFirestore.instance;
-
-      // Paraleliza token refresh + user doc fetch (independentes); timeout evita espera infinita em rede lenta
       const loadTimeout = Duration(seconds: 14);
-      final results = await Future.wait([
-        user.getIdTokenResult(true),
-        db.collection('users').doc(user.uid).get(),
-      ]).timeout(loadTimeout);
 
-      final token = results[0] as IdTokenResult;
-      final userDoc = results[1] as DocumentSnapshot<Map<String, dynamic>>;
+      // `false` = não força refresh na rede; permite abrir com sessão persistida sem internet.
+      late final IdTokenResult token;
+      try {
+        token = await user.getIdTokenResult(false).timeout(loadTimeout);
+      } catch (_) {
+        if (!kIsWeb &&
+            cached != null &&
+            (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+          return cached;
+        }
+        rethrow;
+      }
+      DocumentSnapshot<Map<String, dynamic>> userDoc;
+      try {
+        userDoc = await db.collection('users').doc(user.uid).get().timeout(loadTimeout);
+      } catch (_) {
+        userDoc = await db.collection('users').doc(user.uid).get(
+              const GetOptions(source: Source.cache),
+            );
+      }
 
       final claims = token.claims ?? {};
       var igrejaId = (claims['igrejaId'] ?? claims['tenantId'] ?? '').toString().trim();
@@ -338,8 +363,13 @@ class _AuthGateState extends State<AuthGate> {
       if (igrejaId.isEmpty) {
         igrejaId = (userData['igrejaId'] ?? userData['tenantId'] ?? '').toString().trim();
       }
-      // Fallback: resolve igreja pelo e-mail do gestor (ex.: Brasil para Cristo — membros em igrejas/.../membros)
-      if (igrejaId.isEmpty && (user.email ?? '').toString().trim().isNotEmpty) {
+      if (igrejaId.isEmpty && cached != null) {
+        igrejaId = (cached['igrejaId'] ?? '').toString().trim();
+      }
+      // Fallback: resolve igreja pelo e-mail do gestor (ex.: Brasil para Cristo — requer rede)
+      if (AppConnectivityService.instance.isOnline &&
+          igrejaId.isEmpty &&
+          (user.email ?? '').toString().trim().isNotEmpty) {
         try {
           final emailLower = (user.email ?? '').toString().trim().toLowerCase();
           final pair = await Future.wait([
@@ -371,33 +401,68 @@ class _AuthGateState extends State<AuthGate> {
       if (role.isEmpty) {
         role = (userData['role'] ?? '').toString().trim();
       }
+      if (role.isEmpty && cached != null) {
+        role = (cached['role'] ?? '').toString().trim();
+      }
       if (igrejaId.isEmpty) return null;
 
-      // Garante que igrejaId é o ID do documento em tenants (ex.: Brasil para Cristo → brasilparacristo_sistema)
-      igrejaId = await TenantResolverService.resolveEffectiveTenantId(igrejaId);
+      try {
+        igrejaId = await TenantResolverService.resolveEffectiveTenantId(igrejaId);
+      } catch (_) {}
 
-      // Só grava users/{uid} com igrejaId depois de confirmar que `igrejas/{id}` existe (evita fixar ID órfão).
       final hasIgrejaInDoc = (userData['igrejaId'] ?? '').toString().trim().isNotEmpty
           || (userData['tenantId'] ?? '').toString().trim().isNotEmpty;
-      final subFuture = _fetchSubscription(db, igrejaId);
-      final churchFuture = db.collection('igrejas').doc(igrejaId).get();
 
-      final waited = await Future.wait<dynamic>([subFuture, churchFuture]);
-      final subData = waited[0] as Map<String, dynamic>?;
+      Future<Map<String, dynamic>?> fetchSub() async {
+        try {
+          return await _fetchSubscription(db, igrejaId);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      Future<DocumentSnapshot<Map<String, dynamic>>> fetchChurch() async {
+        try {
+          return await db.collection('igrejas').doc(igrejaId).get().timeout(loadTimeout);
+        } catch (_) {
+          return db.collection('igrejas').doc(igrejaId).get(
+                const GetOptions(source: Source.cache),
+              );
+        }
+      }
+
+      final waited = await Future.wait<dynamic>([fetchSub(), fetchChurch()]);
+      var subData = waited[0] as Map<String, dynamic>?;
       final chSnap = waited[1] as DocumentSnapshot<Map<String, dynamic>>;
 
-      if (!chSnap.exists) {
-        if (repairDepth < 1) {
-          try {
-            final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-                .httpsCallable('repairMyChurchBinding');
-            await fn
-                .call(<String, dynamic>{})
-                .timeout(const Duration(seconds: 28));
-            await user.getIdToken(true);
-            return _loadProfile(user, repairDepth: repairDepth + 1);
-          } catch (_) {}
-        }
+      if (subData == null && cached != null && cached['subscription'] is Map) {
+        subData = Map<String, dynamic>.from(cached['subscription'] as Map);
+      }
+
+      Map<String, dynamic>? churchData;
+      if (chSnap.exists) {
+        churchData = chSnap.data();
+      } else if (cached != null && cached['church'] is Map) {
+        churchData = Map<String, dynamic>.from(cached['church'] as Map);
+      } else if (repairDepth < 1 && AppConnectivityService.instance.isOnline) {
+        try {
+          final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('repairMyChurchBinding');
+          await fn
+              .call(<String, dynamic>{})
+              .timeout(const Duration(seconds: 28));
+          await user.getIdToken(true);
+          return _loadProfile(user, repairDepth: repairDepth + 1);
+        } catch (_) {}
+      }
+      if (churchData == null &&
+          cached != null &&
+          (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        churchData = cached['church'] is Map
+            ? Map<String, dynamic>.from(cached['church'] as Map)
+            : <String, dynamic>{};
+      }
+      if (churchData == null) {
         return null;
       }
 
@@ -409,12 +474,12 @@ class _AuthGateState extends State<AuthGate> {
             .catchError((_) {});
       }
 
-      final Map<String, dynamic>? churchData = chSnap.data();
-
       // Membro em igrejas/igrejaId/membros: ativo = acesso ao painel; pendente = aguardando aprovação do gestor
       var active = userData['ativo'] == true;
       bool? podeVerFinanceiro;
       bool? podeVerPatrimonio;
+      bool? podeVerFornecedores;
+      bool? podeEmitirRelatoriosCompletos;
       var permissions = AppPermissions.normalizePermissions(
         userData['permissions'] ?? userData['permissoes'],
       );
@@ -442,6 +507,9 @@ class _AuthGateState extends State<AuthGate> {
           if (memberData != null) {
             podeVerFinanceiro = memberData['podeVerFinanceiro'] == true;
             podeVerPatrimonio = memberData['podeVerPatrimonio'] == true;
+            podeVerFornecedores = memberData['podeVerFornecedores'] == true;
+            podeEmitirRelatoriosCompletos =
+                memberData['podeEmitirRelatoriosCompletos'] == true;
             final memberPerms = AppPermissions.normalizePermissions(
               memberData['permissions'] ?? memberData['permissoes'],
             );
@@ -451,7 +519,6 @@ class _AuthGateState extends State<AuthGate> {
                 ...memberPerms,
               }.toList();
             }
-            // Papel efetivo: claims/users + FUNCOES (ex.: adm+gestor) — não usar só FUNCAO_PERMISSOES se estiver "membro".
             try {
               role = await ChurchFuncoesControleService.effectivePanelRoleFromMember(
                 igrejaId,
@@ -463,25 +530,69 @@ class _AuthGateState extends State<AuthGate> {
           if (active && userDoc.exists) {
             db.collection('users').doc(user.uid).update({'ativo': true}).catchError((_) {});
           }
-        } catch (_) {}
+        } catch (_) {
+          if (cached != null) {
+            active = cached['active'] == true;
+            memberStatusPending = cached['memberStatusPending'] == true;
+            podeVerFinanceiro = cached['podeVerFinanceiro'] as bool?;
+            podeVerPatrimonio = cached['podeVerPatrimonio'] as bool?;
+            podeVerFornecedores = cached['podeVerFornecedores'] as bool?;
+            podeEmitirRelatoriosCompletos =
+                cached['podeEmitirRelatoriosCompletos'] as bool?;
+            permissions = AppPermissions.normalizePermissions(cached['permissions']);
+            final r = (cached['role'] ?? '').toString().trim();
+            if (r.isNotEmpty) role = r;
+          }
+        }
       }
 
-      return {
+      final result = {
         'igrejaId': igrejaId,
         'role': role,
-        'cpf': (userData['cpf'] ?? '').toString(),
+        'cpf': (userData['cpf'] ?? cached?['cpf'] ?? '').toString(),
         'active': active,
         'memberStatusPending': memberStatusPending,
-        'mustChangePass': userData['mustChangePass'] == true,
-        'mustCompleteRegistration': userData['mustCompleteRegistration'] == true,
+        'mustChangePass': userData.containsKey('mustChangePass')
+            ? userData['mustChangePass'] == true
+            : (cached?['mustChangePass'] == true),
+        'mustCompleteRegistration': userData.containsKey('mustCompleteRegistration')
+            ? userData['mustCompleteRegistration'] == true
+            : (cached?['mustCompleteRegistration'] == true),
         'subscription': subData,
         'church': churchData,
         'podeVerFinanceiro': podeVerFinanceiro,
         'podeVerPatrimonio': podeVerPatrimonio,
+        'podeVerFornecedores': podeVerFornecedores,
+        'podeEmitirRelatoriosCompletos': podeEmitirRelatoriosCompletos,
         'permissions': permissions,
       };
+      if (!kIsWeb) {
+        await AuthProfileCacheService.instance.save(user.uid, result);
+      }
+      return result;
     } catch (_) {
-      return _loadProfileViaCallable(user);
+      if (!kIsWeb) {
+        final c = await AuthProfileCacheService.instance.load(user.uid);
+        if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+          return c;
+        }
+      }
+      if (AppConnectivityService.instance.isOnline) {
+        final via = await _loadProfileViaCallable(user);
+        if (via != null) {
+          if (!kIsWeb) {
+            await AuthProfileCacheService.instance.save(user.uid, via);
+          }
+          return via;
+        }
+      }
+      if (!kIsWeb) {
+        final c2 = await AuthProfileCacheService.instance.load(user.uid);
+        if (c2 != null && (c2['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+          return c2;
+        }
+      }
+      return null;
     }
   }
 
@@ -533,26 +644,6 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _authLogoutNavSub =
-        FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user != null || !mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        Navigator.of(context, rootNavigator: true)
-            .pushNamedAndRemoveUntil('/', (_) => false);
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _authLogoutNavSub?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
@@ -570,15 +661,29 @@ class _AuthGateState extends State<AuthGate> {
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          // Sem sessão: não ficar em spinner infinito (ex.: /painel após logout).
+          // Sem sessão: não ficar em spinner sobre fundo branco (web após logout).
           if (!_scheduledLoginRedirect) {
             _scheduledLoginRedirect = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
               if (FirebaseAuth.instance.currentUser != null) return;
-              Navigator.of(context, rootNavigator: true)
-                  .pushNamedAndRemoveUntil('/login', (_) => false);
+              final nav = Navigator.of(context, rootNavigator: true);
+              if (kIsWeb) {
+                try {
+                  final p = await SharedPreferences.getInstance();
+                  await p.remove('last_route');
+                } catch (_) {}
+              }
+              if (!mounted) return;
+              if (FirebaseAuth.instance.currentUser != null) return;
+              // Web → site de divulgação (/); app → /login.
+              final dest = kIsWeb ? '/' : '/login';
+              nav.pushNamedAndRemoveUntil(dest, (_) => false);
             });
+          }
+          // Web: mostrar divulgação já no 1º frame (evita tela branca até o replace da URL).
+          if (kIsWeb) {
+            return const SitePublicPage();
           }
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -589,6 +694,7 @@ class _AuthGateState extends State<AuthGate> {
           user: user,
           loadProfile: () => _loadProfile(user),
           initialOpenMemberDocId: widget.initialOpenMemberDocId,
+          initialShellIndex: widget.initialShellIndex,
         );
       },
     );
@@ -599,11 +705,13 @@ class _AuthGateProfileLoader extends StatefulWidget {
   final User user;
   final Future<Map<String, dynamic>?> Function() loadProfile;
   final String? initialOpenMemberDocId;
+  final int? initialShellIndex;
 
   const _AuthGateProfileLoader({
     required this.user,
     required this.loadProfile,
     this.initialOpenMemberDocId,
+    this.initialShellIndex,
   });
 
   @override
@@ -615,19 +723,89 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   late Future<bool> _biometricFuture;
   late Future<(Map<String, dynamic>?, bool)> _readyFuture;
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocRoleSub;
+  Timer? _userRoleSigDebounce;
+  String? _userRoleSig;
+
+  /// Evita tela de erro quando há perfil gravado localmente (sessão já abriu com rede antes).
+  Future<Map<String, dynamic>?> _profileFutureWithOfflineFallback() async {
+    try {
+      return await widget.loadProfile();
+    } catch (_) {
+      if (!kIsWeb) {
+        final c = await AuthProfileCacheService.instance.load(widget.user.uid);
+        if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+          return c;
+        }
+      }
+      rethrow;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _profileFuture = widget.loadProfile();
+    _profileFuture = _profileFutureWithOfflineFallback();
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
-    _biometricFuture = kIsWeb ? Future.value(false) : BiometricService().isEnabled();
+    _biometricFuture = kIsWeb
+        ? Future.value(false)
+        : BiometricService().isEnabled().catchError((_, __) => false);
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool));
+    _userDocRoleSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.user.uid)
+        .snapshots()
+        .listen(_onUsersDocSnapshotForRole);
+  }
+
+  String _roleRelevantSignature(Map<String, dynamic>? d) {
+    if (d == null) return '';
+    final r = (d['role'] ?? '').toString();
+    final roles = d['roles'];
+    final rs = roles is List
+        ? roles.map((e) => e.toString()).join('\u001f')
+        : '';
+    final fn = d['FUNCOES'] ?? d['funcoes'];
+    final fs = fn is List
+        ? fn.map((e) => e.toString()).join('\u001f')
+        : '';
+    return '$r|$rs|$fs';
+  }
+
+  void _onUsersDocSnapshotForRole(
+      DocumentSnapshot<Map<String, dynamic>> snap) {
+    if (!mounted) return;
+    final sig = _roleRelevantSignature(snap.data());
+    _userRoleSigDebounce?.cancel();
+    _userRoleSigDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      if (_userRoleSig == null) {
+        _userRoleSig = sig;
+        return;
+      }
+      if (sig != _userRoleSig) {
+        _userRoleSig = sig;
+        setState(() {
+          _profileFuture = _profileFutureWithOfflineFallback();
+          _readyFuture = Future.wait([_profileFuture, _biometricFuture]).then(
+              (list) =>
+                  (list[0] as Map<String, dynamic>?, list[1] as bool));
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _userRoleSigDebounce?.cancel();
+    _userDocRoleSub?.cancel();
+    super.dispose();
   }
 
   void _retryProfile() {
     setState(() {
-      _profileFuture = widget.loadProfile();
+      _profileFuture = _profileFutureWithOfflineFallback();
       _readyFuture = Future.wait([_profileFuture, _biometricFuture])
           .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool));
     });
@@ -767,31 +945,11 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
           );
         }
 
-        final expired = LicenseAccessPolicy.licenseAccessBlocked(subscription: sub, church: church);
+        final expired = AppConnectivityService.instance.isOnline
+            ? LicenseAccessPolicy.licenseAccessBlocked(subscription: sub, church: church)
+            : false;
 
         final roleTxt = (p['role'] ?? '').toString().toLowerCase();
-
-        if (kIsWeb &&
-            !(roleTxt == 'adm' ||
-                roleTxt == 'admin' ||
-                roleTxt == 'administrador' ||
-                roleTxt == 'administradora' ||
-                roleTxt == 'gestor' ||
-                roleTxt == 'master' ||
-                roleTxt == 'lider' ||
-                roleTxt == 'secretario' ||
-                roleTxt == 'pastor' ||
-                roleTxt == 'presbitero' ||
-                roleTxt == 'diacono' ||
-                roleTxt == 'evangelista' ||
-                roleTxt == 'musico' ||
-                roleTxt == 'tesoureiro' ||
-                roleTxt == 'tesouraria' ||
-                roleTxt == 'pastor_auxiliar' ||
-                roleTxt == 'pastor_presidente' ||
-                roleTxt == 'lider_departamento')) {
-          return const WebBlockedPage();
-        }
 
         if (!kIsWeb) {
           FcmService.instance.configure(
@@ -829,13 +987,20 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
           subscription: sub,
           podeVerFinanceiro: p['podeVerFinanceiro'] == true,
           podeVerPatrimonio: p['podeVerPatrimonio'] == true,
+          podeVerFornecedores: p['podeVerFornecedores'] == true,
+          podeEmitirRelatoriosCompletos:
+              p['podeEmitirRelatoriosCompletos'] == true,
           permissions: AppPermissions.normalizePermissions(p['permissions']),
           initialOpenMemberDocId: widget.initialOpenMemberDocId,
+          initialShellIndex: widget.initialShellIndex,
         );
         final withAnnouncement =
             GlobalAnnouncementOverlay(child: dashboard);
         // Aviso só depois do desbloqueio por biometria (filho do lock), senão o diálogo competia com a tela de digital.
         if (bioEnabled) {
+          if (BiometricService.consumeSkipNextDashboardBiometricLock()) {
+            return withAnnouncement;
+          }
           return BiometricLockPage(child: withAnnouncement);
         }
         return withAnnouncement;

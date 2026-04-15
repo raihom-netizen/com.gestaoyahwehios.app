@@ -4,8 +4,38 @@ class AppConstants {
   AppConstants._();
 
   // ——— Site público e cadastro (seu domínio) ———
-  /// URL base do site público da igreja e cadastro público de membros. Use seu domínio próprio.
+  /// URL base do site público da igreja, cadastro e site de divulgação (domínio atual em produção).
   static const String publicWebBaseUrl = 'https://gestaoyahweh.com.br';
+
+  /// Canais oficiais (site de divulgação + login Android/iOS). String vazia = botão oculto.
+  /// Ajuste para os links reais do projeto (handles @… ou URLs completas).
+  static const String marketingOfficialYoutubeUrl =
+      'https://www.youtube.com/@gestaoyahweh';
+  static const String marketingOfficialInstagramUrl =
+      'https://www.instagram.com/gestaoyahweh';
+  /// Apenas dígitos com DDI (ex.: 5562987654321) ou URL `https://wa.me/...`.
+  static const String marketingOfficialWhatsAppDigits = '';
+
+  /// Google Play — app **Gestão YAHWEH** (`com.gestaoyahweh.app`).
+  /// Usado no banner de atualização do painel, no site de divulgação e quando `config/appDownloads.androidUrl` está vazio.
+  static const String gestaoYahwehPlayStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.gestaoyahweh.app';
+
+  /// Alias legado — mesmo destino que [gestaoYahwehPlayStoreUrl].
+  static const String marketingPlayStoreAndroidUrl = gestaoYahwehPlayStoreUrl;
+
+  /// `config/appDownloads` — URL efetiva Android (Firestore ou Play Store Controle Total).
+  static String effectiveAppDownloadsAndroidUrl(Map<String, dynamic>? data) {
+    final raw = (data?['androidUrl'] ?? '').toString().trim();
+    return raw.isNotEmpty ? raw : marketingPlayStoreAndroidUrl;
+  }
+
+  /// `config/appDownloads` — iOS: `iosUrl` ou pasta de downloads.
+  static String effectiveAppDownloadsIosUrl(Map<String, dynamic>? data) {
+    final ios = (data?['iosUrl'] ?? '').toString().trim();
+    final folder = (data?['driveFolderUrl'] ?? '').toString().trim();
+    return ios.isNotEmpty ? ios : folder;
+  }
 
   /// Base https normalizada (sem path final). [raw] pode ser `dominio.com` ou URL completa.
   static String? normalizePublicSiteBaseUrl(String? raw) {
@@ -96,12 +126,29 @@ class AppConstants {
     return '${publicChurchHomeUrl(s)}/cadastro-membro';
   }
 
-  /// Link compartilhável da publicação: `/{slug}/{noticiaId}` (abre no app web com deep link).
+  /// Link da publicação no site: `/{slug}/{noticiaId}` (SPA / deep link no app).
+  /// Para **pré-visualização em redes** (og:image), use [shareNoticiaSocialPreviewUrl].
   static String shareNoticiaPublicUrl(String churchSlug, String noticiaId) {
     final s = churchSlug.trim();
     final e = noticiaId.trim();
     if (s.isEmpty || e.isEmpty) return publicWebBaseUrl;
     return '$publicWebBaseUrl/${Uri.encodeComponent(s)}/${Uri.encodeComponent(e)}';
+  }
+
+  /// Link servido pela Cloud Function [shareEvento] — **foto/vídeo no preview** do WhatsApp, etc.
+  /// Com [churchSlug] usa `/igreja/.../evento/...`; sem slug usa `/s/evento?c=tenantId&e=`.
+  static String shareNoticiaSocialPreviewUrl(
+    String churchSlug,
+    String noticiaId,
+    String tenantId,
+  ) {
+    final s = churchSlug.trim();
+    final e = noticiaId.trim();
+    final t = tenantId.trim();
+    if (e.isEmpty) return publicWebBaseUrl;
+    if (s.isNotEmpty) return shareNoticiaIgrejaEventoUrl(s, e);
+    if (t.isNotEmpty) return shareNoticiaCardUrl(t, e);
+    return publicWebBaseUrl;
   }
 
   /// Link “smart” para WhatsApp: `/igreja/{slug}/evento/{id}` → Hosting reescreve para [shareEvento] (OG + imagem).

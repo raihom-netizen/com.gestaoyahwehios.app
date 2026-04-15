@@ -71,6 +71,9 @@ const TEXTO_MODELO_PADRAO = {
     participacao: "Certificamos que {NOME} participou do evento/curso realizado por esta igreja na data de {DATA_CERTIFICADO}.\n\nAgradecemos sua presença e dedicação.",
     lideranca: "Certificamos que {NOME}, portador(a) do CPF {CPF}, exerce a função de líder nesta igreja, contribuindo para o crescimento espiritual da comunidade.\n\nEste certificado é emitido em {DATA_CERTIFICADO} como reconhecimento por sua dedicação.",
     conclusao_curso: "Certificamos que {NOME} concluiu com aproveitamento o curso ministrado por esta igreja na data de {DATA_CERTIFICADO}.\n\nParabéns pelo empenho e dedicação.",
+    ordenacao: "Certificamos que {NOME}, portador(a) do CPF {CPF}, foi ordenado(a) ao ministério nesta igreja na data de {DATA_CERTIFICADO}, após cumprir todos os requisitos estabelecidos pela liderança eclesiástica.\n\nQue o Senhor o(a) capacite e fortaleça no exercício do ministério.",
+    reconhecimento: "Certificamos que {NOME} recebe o presente reconhecimento por relevantes serviços prestados a esta igreja, em {DATA_CERTIFICADO}.\n\nAgradecemos sua dedicação e parceria.",
+    honra_merito: "A igreja outorga a {NOME} a Honra ao Mérito em {DATA_CERTIFICADO}, em reconhecimento ao seu destacado empenho e contribuição.\n\nQue o Senhor continue abençoando seus passos.",
 };
 const TITULO_PADRAO = {
     batismo: "Certificado de Batismo",
@@ -80,6 +83,9 @@ const TITULO_PADRAO = {
     participacao: "Certificado de Participação",
     lideranca: "Certificado de Liderança",
     conclusao_curso: "Certificado de Conclusão de Curso",
+    ordenacao: "Certificado de Ordenação",
+    reconhecimento: "Certificado de Reconhecimento",
+    honra_merito: "Honra ao Mérito",
 };
 async function downloadUrlBuffer(url) {
     const u = String(url || "").trim();

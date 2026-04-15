@@ -22,15 +22,45 @@ Future<void> showPdfActions(
           backgroundColor: ThemeCleanPremium.primary,
           foregroundColor: Colors.white,
           elevation: 0,
+          automaticallyImplyLeading: false,
           title: const Text('Visualizar PDF'),
           leading: IconButton(
-            tooltip: 'Fechar',
+            tooltip: 'Voltar',
             onPressed: () => Navigator.of(ctx).pop(),
-            icon: const Icon(Icons.close_rounded),
+            icon: const Icon(Icons.arrow_back_rounded),
             style: IconButton.styleFrom(
               minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget),
             ),
           ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => Navigator.of(ctx).pop(),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                  size: 18, color: Colors.white),
+              label: const Text(
+                'Voltar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(ctx).pop(),
+                icon: Icon(Icons.close_rounded,
+                    size: 20, color: Colors.white.withValues(alpha: 0.95)),
+                label: Text(
+                  'Cancelar',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -38,7 +68,7 @@ Future<void> showPdfActions(
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Text(
-                'Use dois dedos para ampliar ou mover o documento. Imprimir e compartilhar ficam na barra inferior.',
+                'Pinça ou Ctrl+scroll para reduzir ou ampliar. Arraste para mover. Imprimir e partilhar na barra inferior.',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700, height: 1.35),
                 textAlign: TextAlign.center,
               ),

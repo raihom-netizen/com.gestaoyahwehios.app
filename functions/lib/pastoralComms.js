@@ -33,13 +33,14 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.sendSegmentedPush = void 0;
+exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = void 0;
 exports.slugTopicPart = slugTopicPart;
 /**
  * Comunicação pastoral: push segmentado (tópicos), lembrete de escala (véspera), devocional diário.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const memberNotificationEmail_1 = require("./memberNotificationEmail");
 const db = admin.firestore();
 function normalizeRole(value) {
     return String(value || "").trim().toUpperCase();
@@ -179,6 +180,23 @@ async function firstNameForCpf(tenantId, cpfDigits) {
     const full = String((snap.data() || {}).NOME_COMPLETO || (snap.data() || {}).nome || "").trim();
     return (full.split(/\s+/)[0] || "Irmão(ã)").replace(/,$/, "");
 }
+/** E-mail do cadastro de membro (para notificações HTML). */
+async function memberEmailFromMembro(tenantId, cpfDigits) {
+    const col = db.collection("igrejas").doc(tenantId).collection("membros");
+    const digits = cpfDigits.replace(/\D/g, "");
+    if (digits.length !== 11)
+        return null;
+    let snap = await col.doc(digits).get();
+    if (!snap.exists) {
+        const q = await col.where("CPF", "==", digits).limit(1).get();
+        snap = q.docs[0] || snap;
+    }
+    if (!snap.exists)
+        return null;
+    const m = snap.data() || {};
+    const raw = String(m.EMAIL || m.email || "").trim().toLowerCase();
+    return raw.includes("@") ? raw : null;
+}
 async function sendEachInBatches(messages) {
     const batchSize = 400;
     for (let i = 0; i < messages.length; i += batchSize) {
@@ -191,7 +209,105 @@ async function sendEachInBatches(messages) {
         }
     }
 }
-/** Gestor ou pastoral: envia FCM para tópico (igreja, departamento ou cargo). */
+function parseStringArray(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    const out = [];
+    for (const x of raw) {
+        const s = String(x ?? "").trim();
+        if (s)
+            out.push(s);
+    }
+    return out;
+}
+/**
+ * Entrega FCM: vários departamentos/cargos = vários tópicos; vários membros = tokens agregados.
+ */
+async function runMultiSegmentDelivery(params) {
+    const { tenantId, title, body, messageId, segment: segIn, departmentId, departmentIds: deptIdsIn, cargoLabel, cargoLabels: cargosIn, memberDocId, memberDocIds: membersIn, } = params;
+    const segment = (segIn || "broadcast").toLowerCase();
+    const deptList = deptIdsIn.length > 0 ? deptIdsIn : departmentId ? [departmentId] : [];
+    const cargoList = cargosIn.length > 0 ? cargosIn : cargoLabel ? [cargoLabel] : [];
+    const memberList = membersIn.length > 0 ? membersIn : memberDocId ? [memberDocId] : [];
+    const baseData = (seg) => ({
+        tenantId,
+        type: "pastoral_comm",
+        pastoralMessageId: messageId,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+        segment: seg,
+    });
+    if (segment === "member") {
+        if (!memberList.length) {
+            throw new functions.https.HttpsError("invalid-argument", "Selecione ao menos um membro.");
+        }
+        const cpfs = [];
+        const col = db.collection("igrejas").doc(tenantId).collection("membros");
+        for (const mid of memberList) {
+            const msnap = await col.doc(mid).get();
+            if (!msnap.exists)
+                continue;
+            const md = msnap.data() || {};
+            const cpfRaw = String(md.CPF || md.cpf || "").replace(/\D/g, "");
+            if (cpfRaw.length === 11)
+                cpfs.push(cpfRaw);
+        }
+        if (!cpfs.length) {
+            throw new functions.https.HttpsError("failed-precondition", "Nenhum membro válido (CPF) na seleção.");
+        }
+        const tokens = await collectFcmTokensForCpfs(tenantId, cpfs);
+        if (!tokens.length) {
+            throw new functions.https.HttpsError("failed-precondition", "Nenhum aparelho com notificação para os membros selecionados.");
+        }
+        const messages = tokens.map((token) => ({
+            token,
+            notification: { title, body },
+            data: baseData("member"),
+            android: { priority: "high" },
+            apns: { payload: { aps: { sound: "default" } } },
+        }));
+        await sendEachInBatches(messages);
+        return { topic: `direct_members_${memberList.length}` };
+    }
+    const topicsOut = [];
+    if (segment === "department") {
+        if (!deptList.length) {
+            throw new functions.https.HttpsError("invalid-argument", "Selecione ao menos um departamento.");
+        }
+        for (const did of deptList) {
+            const topic = `dept_${did}`;
+            await admin.messaging().send({
+                topic,
+                notification: { title, body },
+                data: baseData("department"),
+            });
+            topicsOut.push(topic);
+        }
+        return { topic: topicsOut.join(",") };
+    }
+    if (segment === "cargo") {
+        if (!cargoList.length) {
+            throw new functions.https.HttpsError("invalid-argument", "Selecione ao menos um cargo.");
+        }
+        for (const lab of cargoList) {
+            const topic = `cargo_${slugTopicPart(lab)}`;
+            await admin.messaging().send({
+                topic,
+                notification: { title, body },
+                data: baseData("cargo"),
+            });
+            topicsOut.push(topic);
+        }
+        return { topic: topicsOut.join(",") };
+    }
+    const topic = `igreja_${tenantId}`;
+    await admin.messaging().send({
+        topic,
+        notification: { title, body },
+        data: baseData("broadcast"),
+    });
+    return { topic };
+}
+/** Gestor ou pastoral: envia FCM para tópico (igreja, departamento, cargo) ou direto a um membro. */
 exports.sendSegmentedPush = functions.region("us-central1").https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Faça login.");
@@ -202,6 +318,15 @@ exports.sendSegmentedPush = functions.region("us-central1").https.onCall(async (
     const segment = String(data?.segment || "broadcast").trim().toLowerCase();
     const departmentId = String(data?.departmentId || "").trim();
     const cargoLabel = String(data?.cargoLabel || "").trim();
+    const memberDocId = String(data?.memberDocId || "").trim();
+    const departmentIds = parseStringArray(data?.departmentIds);
+    const cargoLabels = parseStringArray(data?.cargoLabels);
+    const memberDocIds = parseStringArray(data?.memberDocIds);
+    const expMsRaw = data?.expiresAtMillis;
+    let expiresAt = null;
+    if (typeof expMsRaw === "number" && Number.isFinite(expMsRaw) && expMsRaw > 0) {
+        expiresAt = admin.firestore.Timestamp.fromMillis(Math.floor(expMsRaw));
+    }
     if (!tenantId || !title || !body) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId, title e body são obrigatórios.");
     }
@@ -209,53 +334,259 @@ exports.sendSegmentedPush = functions.region("us-central1").https.onCall(async (
     if (!allowed) {
         throw new functions.https.HttpsError("permission-denied", "Sem permissão para enviar comunicações.");
     }
-    let topic = "";
-    if (segment === "department") {
-        if (!departmentId) {
-            throw new functions.https.HttpsError("invalid-argument", "departmentId obrigatório para segmento departamento.");
-        }
-        topic = `dept_${departmentId}`;
+    const msgRef = db.collection("igrejas").doc(tenantId).collection("pastoral_mensagens").doc();
+    const messageId = msgRef.id;
+    let topicOut;
+    try {
+        const r = await runMultiSegmentDelivery({
+            tenantId,
+            title,
+            body,
+            messageId,
+            segment,
+            departmentId,
+            departmentIds,
+            cargoLabel,
+            cargoLabels,
+            memberDocId,
+            memberDocIds,
+        });
+        topicOut = r.topic;
     }
-    else if (segment === "cargo") {
-        if (!cargoLabel) {
-            throw new functions.https.HttpsError("invalid-argument", "cargoLabel obrigatório para segmento cargo.");
+    catch (e) {
+        if (e instanceof functions.https.HttpsError) {
+            throw e;
         }
-        topic = `cargo_${slugTopicPart(cargoLabel)}`;
+        functions.logger.error("sendSegmentedPush FCM", e);
+        throw new functions.https.HttpsError("internal", "Falha ao enviar notificação.");
     }
-    else {
-        topic = `igreja_${tenantId}`;
+    const msgPayload = {
+        title,
+        body,
+        segment,
+        topic: topicOut,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentByUid: context.auth.uid,
+        archived: false,
+    };
+    if (departmentIds.length) {
+        msgPayload.departmentIds = departmentIds;
+        msgPayload.departmentId = departmentIds[0];
+    }
+    else if (departmentId) {
+        msgPayload.departmentId = departmentId;
+    }
+    if (cargoLabels.length) {
+        msgPayload.cargoLabels = cargoLabels;
+        msgPayload.cargoLabel = cargoLabels[0];
+    }
+    else if (cargoLabel) {
+        msgPayload.cargoLabel = cargoLabel;
+    }
+    if (memberDocIds.length) {
+        msgPayload.memberDocIds = memberDocIds;
+        msgPayload.memberDocId = memberDocIds[0];
+    }
+    else if (memberDocId) {
+        msgPayload.memberDocId = memberDocId;
+    }
+    if (expiresAt)
+        msgPayload.expiresAt = expiresAt;
+    await msgRef.set(msgPayload);
+    const notifPayload = {
+        type: "push_segmentado",
+        messageId,
+        title,
+        body,
+        segment,
+        topic: topicOut,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentByUid: context.auth.uid,
+    };
+    if (departmentIds.length) {
+        notifPayload.departmentIds = departmentIds;
+        notifPayload.departmentId = departmentIds[0];
+    }
+    else if (departmentId) {
+        notifPayload.departmentId = departmentId;
+    }
+    if (cargoLabels.length) {
+        notifPayload.cargoLabels = cargoLabels;
+        notifPayload.cargoLabel = cargoLabels[0];
+    }
+    else if (cargoLabel) {
+        notifPayload.cargoLabel = cargoLabel;
+    }
+    if (memberDocIds.length) {
+        notifPayload.memberDocIds = memberDocIds;
+        notifPayload.memberDocId = memberDocIds[0];
+    }
+    else if (memberDocId) {
+        notifPayload.memberDocId = memberDocId;
+    }
+    if (expiresAt)
+        notifPayload.expiresAt = expiresAt;
+    await db.collection("igrejas").doc(tenantId).collection("notificacoes").add(notifPayload);
+    return { ok: true, topic: topicOut, messageId };
+});
+/** Arquivar mensagem pastoral (some do painel / histórico ativo). */
+exports.archivePastoralMessage = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+    }
+    const tenantId = String(data?.tenantId || "").trim();
+    const messageId = String(data?.messageId || "").trim();
+    if (!tenantId || !messageId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId e messageId são obrigatórios.");
+    }
+    const allowed = await canSendChurchCommunications(context.auth.uid, context.auth.token?.role, context.auth.token?.igrejaId || context.auth.token?.tenantId, tenantId);
+    if (!allowed) {
+        throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+    }
+    await db
+        .collection("igrejas")
+        .doc(tenantId)
+        .collection("pastoral_mensagens")
+        .doc(messageId)
+        .set({
+        archived: true,
+        archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        archivedByUid: context.auth.uid,
+    }, { merge: true });
+    return { ok: true };
+});
+/** Reenviar mesma notificação (novo push com o mesmo conteúdo). */
+exports.resendPastoralMessage = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+    }
+    const tenantId = String(data?.tenantId || "").trim();
+    const messageId = String(data?.messageId || "").trim();
+    if (!tenantId || !messageId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId e messageId são obrigatórios.");
+    }
+    const allowed = await canSendChurchCommunications(context.auth.uid, context.auth.token?.role, context.auth.token?.igrejaId || context.auth.token?.tenantId, tenantId);
+    if (!allowed) {
+        throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+    }
+    const ref = db.collection("igrejas").doc(tenantId).collection("pastoral_mensagens").doc(messageId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", "Mensagem não encontrada.");
+    }
+    const d = snap.data() || {};
+    if (d.archived === true) {
+        throw new functions.https.HttpsError("failed-precondition", "Mensagem arquivada — reative ou crie nova.");
+    }
+    const segment = String(d.segment || "broadcast").trim().toLowerCase();
+    const title = String(d.title || "").trim();
+    const body = String(d.body || "").trim();
+    if (!title || !body) {
+        throw new functions.https.HttpsError("failed-precondition", "Dados incompletos.");
+    }
+    const departmentIds = parseStringArray(d.departmentIds);
+    const cargoLabels = parseStringArray(d.cargoLabels);
+    const memberDocIds = parseStringArray(d.memberDocIds);
+    try {
+        await runMultiSegmentDelivery({
+            tenantId,
+            title,
+            body,
+            messageId,
+            segment,
+            departmentId: String(d.departmentId || "").trim(),
+            departmentIds,
+            cargoLabel: String(d.cargoLabel || "").trim(),
+            cargoLabels,
+            memberDocId: String(d.memberDocId || "").trim(),
+            memberDocIds,
+        });
+    }
+    catch (e) {
+        if (e instanceof functions.https.HttpsError) {
+            throw e;
+        }
+        functions.logger.error("resendPastoralMessage FCM", e);
+        throw new functions.https.HttpsError("internal", "Falha ao reenviar.");
+    }
+    await ref.set({
+        lastResentAt: admin.firestore.FieldValue.serverTimestamp(),
+        resendCount: admin.firestore.FieldValue.increment(1),
+    }, { merge: true });
+    return { ok: true };
+});
+/** Reenvia um devocional já registrado no histórico (mesmo texto/título no tópico da igreja). */
+exports.resendDevotionalEnvio = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+    }
+    const tenantId = String(data?.tenantId || "").trim();
+    const envioId = String(data?.envioId || "").trim();
+    if (!tenantId || !envioId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId e envioId são obrigatórios.");
+    }
+    const allowed = await canSendChurchCommunications(context.auth.uid, context.auth.token?.role, context.auth.token?.igrejaId || context.auth.token?.tenantId, tenantId);
+    if (!allowed) {
+        throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+    }
+    const ref = db.collection("igrejas").doc(tenantId).collection("devocional_envios").doc(envioId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", "Registro não encontrado.");
+    }
+    const d = snap.data() || {};
+    const titulo = String(d.titulo || "Bom dia").trim() || "Bom dia";
+    const texto = String(d.texto || "").trim();
+    const refBib = String(d.referencia || "").trim();
+    const body = [texto, refBib].filter((x) => x.length > 0).join("\n").trim();
+    if (!body) {
+        throw new functions.https.HttpsError("failed-precondition", "Conteúdo vazio.");
     }
     try {
         await admin.messaging().send({
-            topic,
-            notification: { title, body },
+            topic: `igreja_${tenantId}`,
+            notification: {
+                title: titulo,
+                body: body.length > 180 ? `${body.slice(0, 177)}...` : body,
+            },
             data: {
                 tenantId,
-                type: "segmented_push",
+                type: "devocional",
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
         });
     }
     catch (e) {
-        functions.logger.error("sendSegmentedPush FCM", e);
-        throw new functions.https.HttpsError("internal", "Falha ao enviar notificação.");
+        functions.logger.error("resendDevotionalEnvio FCM", e);
+        throw new functions.https.HttpsError("internal", "Falha ao reenviar notificação.");
     }
-    await db
-        .collection("igrejas")
-        .doc(tenantId)
-        .collection("notificacoes")
-        .add({
-        type: "push_segmentado",
-        title,
-        body,
-        segment,
-        departmentId: departmentId || null,
-        cargoLabel: cargoLabel || null,
-        topic,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        sentByUid: context.auth.uid,
-    });
-    return { ok: true, topic };
+    await ref.set({
+        lastResentAt: admin.firestore.FieldValue.serverTimestamp(),
+        resendCount: admin.firestore.FieldValue.increment(1),
+    }, { merge: true });
+    return { ok: true };
+});
+/** Remove uma linha do histórico de devocionais enviados (não altera a config atual). */
+exports.deleteDevotionalEnvio = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+    }
+    const tenantId = String(data?.tenantId || "").trim();
+    const envioId = String(data?.envioId || "").trim();
+    if (!tenantId || !envioId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId e envioId são obrigatórios.");
+    }
+    const allowed = await canSendChurchCommunications(context.auth.uid, context.auth.token?.role, context.auth.token?.igrejaId || context.auth.token?.tenantId, tenantId);
+    if (!allowed) {
+        throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+    }
+    const ref = db.collection("igrejas").doc(tenantId).collection("devocional_envios").doc(envioId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", "Registro não encontrado.");
+    }
+    await ref.delete();
+    return { ok: true };
 });
 async function userCpfDigitsFromUid(uid) {
     try {
@@ -348,6 +679,10 @@ exports.notifySchedulePublished = functions.region("us-central1").https.onCall(a
     const dateStr = eventDate ? formatDatePtBr(eventDate) : "data a definir";
     const deptName = String(d.departmentName || "").trim();
     const titleStr = String(d.title || "Escala").trim();
+    const timeStr = String(d.time || "19:00").trim();
+    const locLine = String(d.location || d.local || d.place || d.setor || "").trim() ||
+        deptName ||
+        "—";
     const messages = [];
     for (const cpf of memberCpfs) {
         const tokens = await collectFcmTokensForCpfs(tenantId, [cpf]);
@@ -377,8 +712,31 @@ exports.notifySchedulePublished = functions.region("us-central1").https.onCall(a
         }
     }
     await sendEachInBatches(messages);
+    let emailsSent = 0;
+    try {
+        for (const cpf of memberCpfs) {
+            const email = await memberEmailFromMembro(tenantId, cpf);
+            if (!email)
+                continue;
+            const nomeVol = await firstNameForCpf(tenantId, cpf);
+            const funcao = deptName || titleStr || "Ministério";
+            const { subject, html } = (0, memberNotificationEmail_1.buildEscalaEmail)({
+                volunteerName: nomeVol,
+                funcao,
+                dataEventoPt: dateStr,
+                horarioChegada: timeStr,
+                local: locLine,
+            });
+            const sent = await (0, memberNotificationEmail_1.sendGestaoYahwehHtmlEmail)({ to: email, subject, html });
+            if (sent)
+                emailsSent += 1;
+        }
+    }
+    catch (e) {
+        functions.logger.error("notifySchedulePublished email", e);
+    }
     await ref.set({ lastPushNotifiedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    return { ok: true, count: messages.length };
+    return { ok: true, count: messages.length, emailsSent };
 });
 /**
  * Quando um membro marca indisponível, avisa o tópico do departamento (líderes inscritos em dept_*).
@@ -522,28 +880,46 @@ exports.dailyBirthdayTopicPush = functions
             const last = String(st.data()?.lastSentYmd || "").trim();
             if (last === todaySp)
                 continue;
-            const membros = await db
-                .collection("igrejas")
-                .doc(tenantId)
-                .collection("membros")
-                .limit(500)
-                .get();
             const names = [];
-            for (const doc of membros.docs) {
-                const d = doc.data() || {};
-                const status = String(d.STATUS || d.status || "")
-                    .trim()
-                    .toLowerCase();
-                if (status.includes("inativ") || status.includes("bloq"))
-                    continue;
-                const bd = parseMemberBirthDate(d);
-                if (!bd)
-                    continue;
-                if (bd.getMonth() + 1 !== monthToday || bd.getDate() !== dayToday)
-                    continue;
-                const full = String(d.NOME_COMPLETO || d.nome || "").trim();
-                const first = (full.split(/\s+/)[0] || "Irmão(ã)").replace(/,$/, "");
-                names.push(first || "Irmão(ã)");
+            const birthdayEmailRecipients = [];
+            const col = db.collection("igrejas").doc(tenantId).collection("membros");
+            let lastDoc = null;
+            for (;;) {
+                const base = col
+                    .orderBy(admin.firestore.FieldPath.documentId())
+                    .limit(500);
+                const membros = lastDoc
+                    ? await base.startAfter(lastDoc).get()
+                    : await base.get();
+                if (membros.empty)
+                    break;
+                for (const doc of membros.docs) {
+                    const d = doc.data() || {};
+                    const status = String(d.STATUS || d.status || "")
+                        .trim()
+                        .toLowerCase();
+                    if (status.includes("inativ") || status.includes("bloq"))
+                        continue;
+                    const bd = parseMemberBirthDate(d);
+                    if (!bd)
+                        continue;
+                    if (bd.getMonth() + 1 !== monthToday || bd.getDate() !== dayToday) {
+                        continue;
+                    }
+                    const full = String(d.NOME_COMPLETO || d.nome || "").trim();
+                    const first = (full.split(/\s+/)[0] || "Irmão(ã)").replace(/,$/, "");
+                    names.push(first || "Irmão(ã)");
+                    const em = String(d.EMAIL || d.email || "")
+                        .trim()
+                        .toLowerCase();
+                    if (em.includes("@")) {
+                        const displayName = full || first || "Irmão(ã)";
+                        birthdayEmailRecipients.push({ email: em, displayName });
+                    }
+                }
+                lastDoc = membros.docs[membros.docs.length - 1];
+                if (membros.docs.length < 500)
+                    break;
             }
             if (names.length === 0) {
                 await stateRef.set({ lastSentYmd: todaySp, skippedEmpty: true, at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -565,6 +941,21 @@ exports.dailyBirthdayTopicPush = functions
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                 },
             });
+            let birthdayEmailsSent = 0;
+            try {
+                for (const r of birthdayEmailRecipients) {
+                    const { subject, html } = (0, memberNotificationEmail_1.buildAniversarianteEmail)({
+                        nomeDestinatario: r.displayName,
+                    });
+                    const ok = await (0, memberNotificationEmail_1.sendGestaoYahwehHtmlEmail)({ to: r.email, subject, html });
+                    if (ok)
+                        birthdayEmailsSent += 1;
+                }
+            }
+            catch (e) {
+                functions.logger.error("dailyBirthdayTopicPush email", { tenantId, e });
+            }
+            functions.logger.info("dailyBirthdayTopicPush emails", { tenantId, birthdayEmailsSent });
             await db.collection("igrejas").doc(tenantId).collection("notificacoes").add({
                 type: "aniversariantes_dia",
                 title: "Aniversariantes de hoje",
@@ -806,6 +1197,17 @@ exports.hourlyDevotionalBroadcast = functions
                     type: "devocional",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                 },
+            });
+            await db.collection("igrejas").doc(tenantId).collection("devocional_envios").add({
+                titulo,
+                texto,
+                referencia: ref,
+                sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                scheduledHour: hourCfg,
+                daySp: todaySp,
+                source: "scheduled",
+                topic: `igreja_${tenantId}`,
+                resendCount: 0,
             });
             await cfgSnap.ref.set({ devocionalUltimoEnvioDia: todaySp, devocionalUltimoEnvioAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         }

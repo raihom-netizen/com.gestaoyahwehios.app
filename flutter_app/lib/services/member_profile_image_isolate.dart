@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 /// Lado maior máximo (px) — um único JPEG leve para `foto_perfil.jpg`.
-const int kMemberProfileMaxEdgePx = 800;
+const int kMemberProfileMaxEdgePx = 768;
 
-const int kMemberProfileJpegQuality = 85;
+const int kMemberProfileJpegQuality = 82;
 
 /// Função top-level para [compute] — só Dart + `image` (sem plugins / MethodChannel).
 Uint8List compressMemberProfileForUploadIsolate(Uint8List raw) {

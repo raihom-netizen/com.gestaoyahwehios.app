@@ -5,8 +5,8 @@ import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 
 /// Certificados emitidos: **dados completos** em `igrejas/{tenantId}/certificados_emitidos/{id}`.
 ///
-/// Validação pública (QR sem saber a igreja): índice mínimo `certificados_protocol_index/{id}`
-/// com só `tenantId` (não duplica o snapshot do certificado).
+/// Validação pública (QR): índice mínimo `igrejas/{tenantId}/certificados_protocol_index/{id}`
+/// (collection group) — legado: `certificados_protocol_index/{id}` na raiz com `tenantId`.
 ///
 /// Legado: leitura ainda aceita `certificados_emitidos/{id}` na raiz até migração.
 class CertificateEmitidoService {
@@ -17,8 +17,11 @@ class CertificateEmitidoService {
   static CollectionReference<Map<String, dynamic>> _emitidosCol(String tid) =>
       _fs.collection('igrejas').doc(tid).collection('certificados_emitidos');
 
-  static DocumentReference<Map<String, dynamic>> _protocolIndex(String certId) =>
-      _fs.collection('certificados_protocol_index').doc(certId);
+  static DocumentReference<Map<String, dynamic>> _protocolIndexDoc(
+    String tenantId,
+    String certId,
+  ) =>
+      _fs.collection('igrejas').doc(tenantId).collection('certificados_protocol_index').doc(certId);
 
   /// Grava protocolo e devolve o [certificadoId] (UUID) para o QR.
   static Future<String> registerEmissao({
@@ -47,8 +50,7 @@ class CertificateEmitidoService {
 
     final batch = _fs.batch();
     batch.set(_emitidosCol(tid).doc(certificadoId), payload);
-    batch.set(_protocolIndex(certificadoId), {
-      'tenantId': tid,
+    batch.set(_protocolIndexDoc(tid, certificadoId), {
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
@@ -88,8 +90,7 @@ class CertificateEmitidoService {
           'dataEmissao': FieldValue.serverTimestamp(),
         };
         batch.set(_emitidosCol(tid).doc(certificadoId), payload);
-        batch.set(_protocolIndex(certificadoId), {
-          'tenantId': tid,
+        batch.set(_protocolIndexDoc(tid, certificadoId), {
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
@@ -107,10 +108,28 @@ class CertificateEmitidoService {
       return _fs.collection('certificados_emitidos').doc('__invalid__').get();
     }
 
-    final idx = await _protocolIndex(id).get();
-    final idxData = idx.data();
-    if (idx.exists && idxData != null) {
-      final tid = (idxData['tenantId'] ?? '').toString().trim();
+    try {
+      final cg = await _fs
+          .collectionGroup('certificados_protocol_index')
+          .where(FieldPath.documentId, isEqualTo: id)
+          .limit(1)
+          .get();
+      if (cg.docs.isNotEmpty) {
+        final idxDoc = cg.docs.first;
+        final tid = idxDoc.reference.parent.parent?.id ?? '';
+        if (tid.isNotEmpty) {
+          final doc = await _emitidosCol(tid).doc(id).get();
+          if (doc.exists) return doc;
+        }
+      }
+    } catch (_) {
+      /* índice ou permissões: tenta legado abaixo */
+    }
+
+    final idxRoot = await _fs.collection('certificados_protocol_index').doc(id).get();
+    final idxRootData = idxRoot.data();
+    if (idxRoot.exists && idxRootData != null) {
+      final tid = (idxRootData['tenantId'] ?? '').toString().trim();
       if (tid.isNotEmpty) {
         final doc = await _emitidosCol(tid).doc(id).get();
         if (doc.exists) return doc;
@@ -118,6 +137,23 @@ class CertificateEmitidoService {
     }
 
     return _fs.collection('certificados_emitidos').doc(id).get();
+  }
+
+  /// Reemissão no painel: leitura direta em `igrejas/{tenantId}/certificados_emitidos`.
+  /// Não depende do índice público nem de `collectionGroup` (evita «Protocolo não encontrado»
+  /// quando as regras ou o índice não expõem o protocolo ao utilizador autenticado).
+  static Future<DocumentSnapshot<Map<String, dynamic>>> getForTenant(
+    String tenantId,
+    String certificadoId,
+  ) async {
+    final id = certificadoId.trim();
+    final tid = tenantId.trim();
+    if (id.isEmpty || tid.isEmpty) {
+      return _fs.collection('certificados_emitidos').doc('__invalid__').get();
+    }
+    final local = await _emitidosCol(tid).doc(id).get();
+    if (local.exists) return local;
+    return getPublic(id);
   }
 
   /// Histórico no painel (mesma coleção que o protocolo completo).

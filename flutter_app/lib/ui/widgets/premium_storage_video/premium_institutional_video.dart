@@ -207,16 +207,26 @@ class _PremiumInstitutionalVideoCardState
       final u = sanitizeImageUrl(direct);
       if (u.startsWith('http://') || u.startsWith('https://')) {
         // Web + mobile: renovar token do Storage (padrão EcoFire — URL fresca antes do <video> / player).
-        final play = await resolveFirebaseStorageVideoPlayUrl(u);
+        var play = '';
+        for (var attempt = 0; attempt < 2; attempt++) {
+          if (attempt > 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 450));
+            if (!mounted) return;
+          }
+          try {
+            play = await resolveFirebaseStorageVideoPlayUrl(u);
+            if (play.trim().isNotEmpty) break;
+          } catch (_) {}
+        }
         if (mounted) {
           setState(() {
-            _resolved = play;
+            _resolved = play.isNotEmpty ? play : null;
             _loading = false;
-            _err = null;
-          _mobileInitFailed = false;
+            _err = play.isNotEmpty ? null : 'URL de vídeo indisponível';
+            _mobileInitFailed = false;
           });
         }
-        if (!kIsWeb) _initMobile(play);
+        if (play.isNotEmpty && !kIsWeb) _initMobile(play);
         return;
       }
     }
@@ -225,7 +235,7 @@ class _PremiumInstitutionalVideoCardState
       if (mounted) setState(() => _loading = false);
       return;
     }
-    try {
+    Future<void> tryPath() async {
       final ref = FirebaseStorage.instance.ref(path);
       final u = await ref.getDownloadURL();
       if (!mounted) return;
@@ -236,17 +246,27 @@ class _PremiumInstitutionalVideoCardState
         _mobileInitFailed = false;
       });
       if (!kIsWeb) _initMobile(u);
+    }
+
+    try {
+      await tryPath();
     } catch (e) {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
       if (!mounted) return;
-      setState(() {
-        _err = e.toString();
-        _loading = false;
-        _resolved = null;
-      });
+      try {
+        await tryPath();
+      } catch (e2) {
+        if (!mounted) return;
+        setState(() {
+          _err = e2.toString();
+          _loading = false;
+          _resolved = null;
+        });
+      }
     }
   }
 
-  Future<void> _initMobile(String url) async {
+  Future<void> _initMobile(String url, {bool allowRetry = true}) async {
     if (kIsWeb) return;
     if (mounted) {
       setState(() {
@@ -270,6 +290,12 @@ class _PremiumInstitutionalVideoCardState
       setState(() => _mobile = c);
     } catch (e) {
       await c.dispose();
+      if (allowRetry) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        if (!mounted) return;
+        await _initMobile(url, allowRetry: false);
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _mobile = null;

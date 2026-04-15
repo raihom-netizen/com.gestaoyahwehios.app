@@ -61,6 +61,14 @@ abstract final class HolidayHelper {
     return out;
   }
 
+  /// Feriados nacionais que caem em [month] de [year] (ordenados).
+  static List<NationalHoliday> nationalHolidaysInMonth(int year, int month) {
+    final m = month.clamp(1, 12);
+    return nationalHolidays(year)
+        .where((h) => h.date.year == year && h.date.month == m)
+        .toList();
+  }
+
   /// Chaves `yyyy-MM-dd` para marcar dias no calendário.
   static Set<String> nationalHolidayKeys(int year) {
     final y = year;

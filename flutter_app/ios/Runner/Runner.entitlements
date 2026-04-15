@@ -2,9 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.developer.applesignin</key>
-	<array>
-		<string>Default</string>
-	</array>
+	<!--
+	  Sign In with Apple removido do entitlement do target Runner para o archive
+	  App Store passar com perfis de provisionamento que não incluem essa capability
+	  (ex.: Codemagic com CM_PROVISIONING_PROFILE legado «gestaoyahwehiosapp»).
+
+	  O plugin sign_in_with_apple continua no projeto; o botão «Entrar com Apple»
+	  só aparece quando o SO reporta disponibilidade — sem entitlement, o login
+	  Apple no iOS deixa de ser oferecido até reativar.
+
+	  Para voltar a oferecer Sign In with Apple:
+	  1) developer.apple.com → App ID com.gestaoyahwehios.app → Sign In with Apple
+	  2) Profiles → novo .mobileprovision App Store com essa capability
+	  3) Codemagic → CM_PROVISIONING_PROFILE = Base64 do novo perfil
+	  4) Recoloque aqui a chave com.apple.developer.applesignin (Default).
+	  Ver: IOS/CODEMAGIC_SIGN_IN_APPLE.txt
+	-->
 </dict>
 </plist>

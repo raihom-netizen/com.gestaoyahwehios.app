@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
@@ -10,14 +10,12 @@ import 'pages/members_page.dart';
 import 'pages/departments_page.dart';
 import 'pages/events_manager_page.dart';
 import 'pages/mural_page.dart';
-import 'pages/notifications_page.dart';
-import 'pages/my_schedules_page.dart';
-import 'pages/schedules_page.dart';
 import 'pages/finance_page.dart';
-import 'pages/member_card_page.dart';
 import 'pages/usuarios_permissoes_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 
+/// Painel alternativo com menu lateral (não é o shell principal [`IgrejaCleanShell`];
+/// mantido para testes / rotas futuras). Dados em `igrejas/{tenantId}/`.
 class IgrejaPainelPage extends StatefulWidget {
   const IgrejaPainelPage({super.key});
 
@@ -62,19 +60,58 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     showDialog(context: context, builder: (_) => const BuscaGlobalWidget());
   }
 
+  static String _nomeMembro(Map<String, dynamic> m) =>
+      (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString().trim();
+
+  static String _sexoMembro(Map<String, dynamic> m) =>
+      (m['sexo'] ?? m['SEXO'] ?? '').toString().trim().toUpperCase();
+
+  static int? _idadeMembro(Map<String, dynamic> m) {
+    final raw = m['idade'] ?? m['IDADE'];
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '');
+  }
+
+  static DateTime? _nascimentoMembro(Map<String, dynamic> m) {
+    final raw = m['dataNascimento'] ?? m['DATA_NASCIMENTO'];
+    if (raw is Timestamp) return raw.toDate();
+    return null;
+  }
+
+  static bool _isLider(Map<String, dynamic> m) {
+    final l = m['lider'] ?? m['LIDER'] ?? m['ehLider'];
+    if (l is bool) return l;
+    final s = l?.toString().toLowerCase() ?? '';
+    return s == 'true' || s == '1' || s == 'sim';
+  }
+
+  static double _financeEntrada(Map<String, dynamic> m) {
+    final tipo = (m['type'] ?? m['tipo'] ?? 'entrada').toString().toLowerCase();
+    final valorRaw = m['amount'] ?? m['valor'] ?? 0;
+    final valor = valorRaw is num ? valorRaw.toDouble() : double.tryParse(valorRaw.toString()) ?? 0;
+    if (tipo.contains('entrada') || tipo == 'receita' || tipo.contains('oferta')) return valor;
+    return 0;
+  }
+
+  static double _financeSaida(Map<String, dynamic> m) {
+    final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
+    if (tipo == 'transferencia') return 0;
+    final valorRaw = m['amount'] ?? m['valor'] ?? 0;
+    final valor = valorRaw is num ? valorRaw.toDouble() : double.tryParse(valorRaw.toString()) ?? 0;
+    if (tipo.contains('entrada') || tipo == 'receita' || tipo.contains('oferta')) return 0;
+    return valor;
+  }
+
   Future<void> _abrirModulo(int index) async {
     if (index == 0) return; // Painel = fica na própria tela
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     String? tenantId;
     String role = 'user';
-    String cpf = '';
     try {
       final token = await user.getIdTokenResult(true);
       tenantId = (token.claims?['igrejaId'] ?? token.claims?['tenantId'] ?? '').toString().trim();
       role = (token.claims?['role'] ?? 'user').toString().toLowerCase();
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      cpf = (userDoc.data()?['cpf'] ?? '').toString().trim();
     } catch (_) {}
     if (tenantId == null || tenantId.isEmpty) {
       if (mounted) {
@@ -124,30 +161,65 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final membrosSnap = await FirebaseFirestore.instance.collection('membros').get();
-    final depsSnap = await FirebaseFirestore.instance.collection('departamentos').get();
-    final avisosSnap = await FirebaseFirestore.instance.collection('avisos').orderBy('data', descending: true).limit(5).get();
-    final ofertasSnap = await FirebaseFirestore.instance.collection('financeiro').where('tipo', isEqualTo: 'oferta').get();
-    final despesasSnap = await FirebaseFirestore.instance.collection('financeiro').where('tipo', isEqualTo: 'despesa').get();
-    final hoje = DateTime.now();
-    _membros = membrosSnap.size;
-    _homens = membrosSnap.docs.where((d) => d['sexo'] == 'M').length;
-    _mulheres = membrosSnap.docs.where((d) => d['sexo'] == 'F').length;
-    _criancas = membrosSnap.docs.where((d) => (d['idade'] ?? 0) < 13).length;
-    _departamentos = depsSnap.size;
-    _totalOfertas = ofertasSnap.docs.fold(0.0, (a, b) => a + (b['valor'] ?? 0));
-    _totalDespesas = despesasSnap.docs.fold(0.0, (a, b) => a + (b['valor'] ?? 0));
-    _aniversariantes = membrosSnap.docs.where((d) {
-      final data = d['dataNascimento'];
-      if (data is Timestamp) {
-        final dt = data.toDate();
-        return dt.month == hoje.month && dt.day == hoje.day;
+    String? tenantId;
+    try {
+      final u = FirebaseAuth.instance.currentUser;
+      if (u != null) {
+        final t = await u.getIdTokenResult(true);
+        tenantId = (t.claims?['igrejaId'] ?? t.claims?['tenantId'] ?? '').toString().trim();
       }
-      return false;
-    }).map((d) => d.data()).toList();
-    _lideres = membrosSnap.docs.where((d) => d['lider'] == true).map((d) => d.data()).toList();
-    _avisos = avisosSnap.docs.map((d) => d.data()).toList();
-    setState(() => _loading = false);
+    } catch (_) {}
+
+    if (tenantId == null || tenantId.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
+    try {
+      final snaps = await Future.wait([
+        base.collection('membros').get(),
+        base.collection('departamentos').get(),
+        base.collection('finance').limit(500).get(),
+      ]);
+
+      final membrosSnap = snaps[0];
+      final depsSnap = snaps[1];
+      final financeSnap = snaps[2];
+
+      QuerySnapshot<Map<String, dynamic>> avisosSnap;
+      try {
+        avisosSnap = await base
+            .collection(ChurchTenantPostsCollections.avisos)
+            .orderBy('createdAt', descending: true)
+            .limit(5)
+            .get();
+      } catch (_) {
+        avisosSnap = await base.collection(ChurchTenantPostsCollections.avisos).limit(5).get();
+      }
+
+      final hoje = DateTime.now();
+      _membros = membrosSnap.size;
+      _homens = membrosSnap.docs.where((d) => _sexoMembro(d.data()) == 'M').length;
+      _mulheres = membrosSnap.docs.where((d) => _sexoMembro(d.data()) == 'F').length;
+      _criancas = membrosSnap.docs.where((d) {
+        final id = _idadeMembro(d.data());
+        if (id != null) return id < 13;
+        return false;
+      }).length;
+      _departamentos = depsSnap.size;
+      _totalOfertas = financeSnap.docs.fold(0.0, (a, b) => a + _financeEntrada(b.data()));
+      _totalDespesas = financeSnap.docs.fold(0.0, (a, b) => a + _financeSaida(b.data()));
+      _aniversariantes = membrosSnap.docs.where((d) {
+        final dt = _nascimentoMembro(d.data());
+        if (dt == null) return false;
+        return dt.month == hoje.month && dt.day == hoje.day;
+      }).map((d) => d.data()).toList();
+      _lideres = membrosSnap.docs.where((d) => _isLider(d.data())).map((d) => d.data()).toList();
+      _avisos = avisosSnap.docs.map((d) => d.data()).toList();
+    } catch (_) {}
+
+    if (mounted) setState(() => _loading = false);
   }
 
   @override
@@ -182,7 +254,7 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                           children: [
                             Row(
                               children: [
-                                const Text('Painel Master', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 26, color: Color(0xFF0D47A1), letterSpacing: -0.5)),
+                                const Text('Painel da Igreja', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 26, color: Color(0xFF0D47A1), letterSpacing: -0.5)),
                                 const Spacer(),
                                 IconButton(
                                   icon: const Icon(Icons.search_rounded, color: Color(0xFF0D47A1), size: 26),
@@ -202,8 +274,8 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                                 _MetricCard(label: 'Mulheres', value: _mulheres, icon: Icons.female),
                                 _MetricCard(label: 'Crianças', value: _criancas, icon: Icons.child_care),
                                 _MetricCard(label: 'Departamentos', value: _departamentos, icon: Icons.groups),
-                                _MetricCardMoney(label: r'Ofertas (R$)', value: _totalOfertas, icon: Icons.attach_money),
-                                _MetricCardMoney(label: r'Despesas (R$)', value: _totalDespesas, icon: Icons.money_off),
+                                _MetricCardMoney(label: r'Ofertas / entradas (R$)', value: _totalOfertas, icon: Icons.attach_money),
+                                _MetricCardMoney(label: r'Despesas / saídas (R$)', value: _totalDespesas, icon: Icons.money_off),
                               ],
                             ),
                             const SizedBox(height: 32),
@@ -256,8 +328,8 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
           floatingActionButton: isMobile
               ? FloatingActionButton(
                   onPressed: () => setState(() => _menuCollapsed = !_menuCollapsed),
-                  child: Icon(_menuCollapsed ? Icons.menu : Icons.close),
                   backgroundColor: const Color(0xFF1565C0),
+                  child: Icon(_menuCollapsed ? Icons.menu : Icons.close),
                 )
               : null,
         );
@@ -269,14 +341,14 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.blue.withOpacity(0.15),
+      shadowColor: Colors.blue.withValues(alpha: 0.15),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Aniversariantes de hoje', style: TextStyle(fontWeight: FontWeight.bold)),
-            ..._aniversariantes.map((m) => Text(m['nome'] ?? '')),
+            ..._aniversariantes.map((m) => Text(_nomeMembro(m))),
           ],
         ),
       ),
@@ -287,14 +359,14 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.blue.withOpacity(0.15),
+      shadowColor: Colors.blue.withValues(alpha: 0.15),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Destaque de Líderes', style: TextStyle(fontWeight: FontWeight.bold)),
-            ..._lideres.take(5).map((m) => Text(m['nome'] ?? '')),
+            ..._lideres.take(5).map((m) => Text(_nomeMembro(m))),
           ],
         ),
       ),
@@ -305,45 +377,15 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.blue.withOpacity(0.15),
+      shadowColor: Colors.blue.withValues(alpha: 0.15),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Avisos do Painel', style: TextStyle(fontWeight: FontWeight.bold)),
-            ..._avisos.map((a) => Text(a['mensagem'] ?? '')),
+            ..._avisos.map((a) => Text((a['mensagem'] ?? a['titulo'] ?? a['body'] ?? '').toString())),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _graficoCrescimento() {
-    // Exemplo mock: crescimento por mês
-    final meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    final valores = [10, 12, 15, 18, 22, 25, 30, 35, 40, 45, 50, 60];
-    return LineChart(
-      LineChartData(
-        lineBarsData: [
-          LineChartBarData(
-            spots: [
-              for (var i = 0; i < meses.length; i++) FlSpot(i.toDouble(), valores[i].toDouble()),
-            ],
-            isCurved: true,
-            color: Colors.blue,
-            barWidth: 4,
-            dotData: FlDotData(show: false),
-          ),
-        ],
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (v, meta) => Text(meses[v.toInt() % 12]),
-            ),
-          ),
         ),
       ),
     );
@@ -369,7 +411,7 @@ class _MetricCard extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFF0D47A1).withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: const Color(0xFF0D47A1).withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: const Color(0xFF0D47A1), size: 28),
             ),
             const SizedBox(height: 14),
@@ -401,13 +443,13 @@ class _MetricCardMoney extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFF2E7D32).withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, color: const Color(0xFF2E7D32), size: 28),
+              decoration: BoxDecoration(color: const Color(0xFF0D47A1).withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: const Color(0xFF0D47A1), size: 28),
             ),
             const SizedBox(height: 14),
             Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey.shade700)),
             const SizedBox(height: 4),
-            Text('R\$ ${value.toStringAsFixed(2)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32))),
+            Text(value.toStringAsFixed(2), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF0D47A1))),
           ],
         ),
       ),
@@ -428,18 +470,19 @@ class _AtalhoCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+          width: 200,
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Row(
             children: [
-              Icon(icon, color: const Color(0xFF0D47A1), size: 30),
-              const SizedBox(height: 10),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF1A1A1A))),
+              Icon(icon, color: const Color(0xFF0D47A1)),
+              const SizedBox(width: 12),
+              Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
             ],
           ),
         ),

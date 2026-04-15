@@ -83,14 +83,22 @@ List<String> _patrimonioPhotoUrls(Map<String, dynamic> m) {
 
 /// Pré-carrega na memória do Flutter até ~10 itens recentes por módulo (membros, notícias,
 /// avisos, patrimônio) após abrir o painel da igreja — reduz “flash” ao navegar.
+///
+/// [resolvedTenantId]: quando já foi resolvido no painel, evita segunda ida ao Firestore
+/// só para resolver o id. Atraso curto: só o suficiente para não disputar o 1.º frame.
 Future<void> scheduleYahwehPanelImageWarmup(
   BuildContext context,
-  String tenantId,
-) async {
+  String tenantId, {
+  String? resolvedTenantId,
+}) async {
+  // Não disputa com o 1.º frame / streams de membros e departamentos.
+  await Future<void>.delayed(const Duration(milliseconds: 120));
   if (!context.mounted) return;
   final raw = tenantId.trim();
   if (raw.isEmpty) return;
-  final resolved = await TenantResolverService.resolveEffectiveTenantId(raw);
+  final resolved = (resolvedTenantId != null && resolvedTenantId.trim().isNotEmpty)
+      ? resolvedTenantId.trim()
+      : await TenantResolverService.resolveEffectiveTenantId(raw);
   if (resolved.isEmpty || !context.mounted) return;
   final base = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
   try {
@@ -135,7 +143,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
     await preloadNetworkImages(
       context,
       dedupeImageRefsByStorageIdentity(urls),
-      maxItems: 48,
+      maxItems: 36,
     );
   } catch (_) {}
 }

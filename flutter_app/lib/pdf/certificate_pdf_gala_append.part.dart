@@ -5,6 +5,9 @@ void _appendGalaLuxoCertificatePage(
   pw.Document doc,
   CertificatePdfInput input,
 ) {
+  final nomeMembroLinha2Efetiva =
+      _nomeCasamentoLinha2EfetivaParaDestaque(input);
+
   final textHex = _hexRgb(input.colorTextArgb);
   final pdfTextCor = PdfColor.fromHex(textHex);
 
@@ -20,7 +23,6 @@ void _appendGalaLuxoCertificatePage(
           : null,
   ];
 
-  const signatoryGap = 56.0;
   const signatoryBlockWidth = 140.0;
 
   pw.Widget buildSignatoryBlock(int i, PdfColor accent, PdfColor accentClaro) {
@@ -84,10 +86,10 @@ void _appendGalaLuxoCertificatePage(
           children: [blocks[0]],
         );
       }
-      return pw.Wrap(
-        alignment: pw.WrapAlignment.center,
-        spacing: signatoryGap,
-        runSpacing: 16,
+      // [Wrap] podia empilhar blocos fora da área visível em alguns motores; fileira explícita.
+      return pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: blocks,
       );
     }
@@ -212,11 +214,11 @@ void _appendGalaLuxoCertificatePage(
   final galaNameFont = (useLuxFonts && pinyonLux != null)
       ? pinyonLux
       : (fontForName() ?? pw.Font.timesItalic());
-  const wGalaTitle = pw.FontWeight.normal;
+  const wGalaTitle = pw.FontWeight.bold;
   const wGalaName = pw.FontWeight.normal;
 
-  /// Nome em manuscrito: mínimo 24 pt para legibilidade.
-  final galaNomeFontPts = math.max(24.0, nameSize(34).toDouble());
+  /// Nome em manuscrito: destaque ultra premium (mínimo 26 pt).
+  final galaNomeFontPts = math.max(26.0, nameSize(38).toDouble());
 
   /// Fundos claros: sombra suave em texto escuro para leitura (vetor no PDF).
   final useLightBgShadow = input.visualTemplateId.trim() != 'void';
@@ -449,7 +451,7 @@ void _appendGalaLuxoCertificatePage(
                   if (logoImage != null)
                     pw.Center(
                       child: pw.Opacity(
-                        opacity: 0.065,
+                        opacity: 0.082,
                         child: pw.Container(
                           width: 340,
                           height: 340,
@@ -463,18 +465,7 @@ void _appendGalaLuxoCertificatePage(
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
-                          if (logoImage != null) ...[
-                            pw.Center(
-                              child: pw.Container(
-                                width: 140,
-                                height: 140,
-                                alignment: pw.Alignment.center,
-                                child: pw.Image(logoImage,
-                                    fit: pw.BoxFit.contain),
-                              ),
-                            ),
-                            pw.SizedBox(height: 8),
-                          ],
+                          pw.SizedBox(height: 14),
                           if (input.nomeIgreja.trim().isNotEmpty) ...[
                             pw.Text(
                               input.nomeIgreja.toUpperCase(),
@@ -512,8 +503,9 @@ void _appendGalaLuxoCertificatePage(
                                 style: pw.TextStyle(
                                   fontSize: 11.5,
                                   fontStyle: pw.FontStyle.italic,
+                                  fontWeight: pw.FontWeight.bold,
                                   color: pdfTextCor,
-                                  font: pw.Font.timesItalic(),
+                                  font: galaBodyBold,
                                 ),
                                 textAlign: pw.TextAlign.center,
                                 maxLines: 3,
@@ -522,23 +514,57 @@ void _appendGalaLuxoCertificatePage(
                           ],
                           pw.SizedBox(height: 10),
                           pw.SizedBox(
-                            height: 64,
+                            height: nomeMembroLinha2Efetiva.isEmpty
+                                ? 68.0
+                                : 86.0,
                             width: double.infinity,
                             child: pw.Center(
                               child: pw.Padding(
                                 padding: const pw.EdgeInsets.symmetric(
                                     horizontal: 40),
-                                child: galaShadowedText(
-                                  text: input.nomeMembro,
-                                  style: pw.TextStyle(
-                                    fontSize: galaNomeFontPts,
-                                    fontWeight: wGalaName,
-                                    color: galaBronze,
-                                    font: galaNameFont,
-                                  ),
-                                  align: pw.TextAlign.center,
-                                  maxLines: 2,
-                                ),
+                                child: nomeMembroLinha2Efetiva.isEmpty
+                                    ? galaShadowedText(
+                                        text: input.nomeMembro,
+                                        style: pw.TextStyle(
+                                          fontSize: galaNomeFontPts,
+                                          fontWeight: wGalaName,
+                                          color: galaBronze,
+                                          letterSpacing: 0.35,
+                                          font: galaNameFont,
+                                        ),
+                                        align: pw.TextAlign.center,
+                                        maxLines: 2,
+                                      )
+                                    : pw.Column(
+                                        mainAxisSize: pw.MainAxisSize.min,
+                                        children: [
+                                          galaShadowedText(
+                                            text: input.nomeMembro,
+                                            style: pw.TextStyle(
+                                              fontSize: galaNomeFontPts,
+                                              fontWeight: wGalaName,
+                                              color: galaBronze,
+                                              letterSpacing: 0.35,
+                                              font: galaNameFont,
+                                            ),
+                                            align: pw.TextAlign.center,
+                                            maxLines: 2,
+                                          ),
+                                          pw.SizedBox(height: 3),
+                                          galaShadowedText(
+                                            text: nomeMembroLinha2Efetiva,
+                                            style: pw.TextStyle(
+                                              fontSize: galaNomeFontPts * 0.96,
+                                              fontWeight: wGalaName,
+                                              color: galaBronze,
+                                              letterSpacing: 0.35,
+                                              font: galaNameFont,
+                                            ),
+                                            align: pw.TextAlign.center,
+                                            maxLines: 2,
+                                          ),
+                                        ],
+                                      ),
                               ),
                             ),
                           ),
@@ -552,6 +578,7 @@ void _appendGalaLuxoCertificatePage(
                                 child: _certificateBodyRich(
                                   texto: input.texto,
                                   nome: input.nomeMembro,
+                                  nomeLinha2: nomeMembroLinha2Efetiva,
                                   cpfFormatado: input.cpfFormatado,
                                   fontSize: 11.2,
                                   color: pdfTextCor,

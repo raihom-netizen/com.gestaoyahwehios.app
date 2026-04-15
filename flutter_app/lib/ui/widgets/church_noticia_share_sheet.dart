@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +17,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart' show looksLikeHostedVideoFileUrl;
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show resolveNoticiaShareSheetMedia;
 
 /// Retângulo do botão para o popover de partilha no iPad.
 Rect? shareRectFromContext(BuildContext context) {
@@ -118,7 +122,65 @@ Future<void> noticiaOpenWhatsAppWithText(String message) async {
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
+/// Resolve mídia só quando o utilizador escolhe “Compartilhar…” — o sheet abre antes.
+Future<void> _runNativeShareWithOptionalLazyMedia({
+  required BuildContext rootContext,
+  required String shareMessage,
+  required String shareSubject,
+  String? previewImageUrl,
+  String? videoPlayUrl,
+  Rect? sharePositionOrigin,
+  Map<String, dynamic>? noticiaDataForLazyMedia,
+}) async {
+  var img = previewImageUrl;
+  var vid = videoPlayUrl;
+  if (noticiaDataForLazyMedia != null &&
+      (img == null || img.isEmpty) &&
+      (vid == null || vid.isEmpty)) {
+    if (rootContext.mounted) {
+      showDialog<void>(
+        context: rootContext,
+        barrierDismissible: false,
+        builder: (c) => Center(
+          child: Card(
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(28),
+              child: CircularProgressIndicator(),
+            ),
+          ),
+        ),
+      );
+    }
+    try {
+      final m = await resolveNoticiaShareSheetMedia(
+        noticiaDataForLazyMedia,
+        resolveTimeout: const Duration(seconds: 8),
+      );
+      img = m.previewImageUrl;
+      vid = m.videoPlayUrl;
+    } finally {
+      if (rootContext.mounted) {
+        Navigator.of(rootContext, rootNavigator: true).pop();
+      }
+    }
+  }
+  await noticiaShareNativeRich(
+    message: shareMessage,
+    subject: shareSubject,
+    imageUrl: img,
+    videoPlayUrl: vid,
+    sharePositionOrigin: sharePositionOrigin,
+  );
+}
+
 /// Bottom sheet estilo feed: copiar link, partilha nativa, WhatsApp.
+///
+/// [noticiaDataForLazyMedia]: quando preenchido, URLs de imagem/vídeo podem ser omitidas;
+/// a resolução (Storage) corre só ao tocar em **Compartilhar…**, para o sheet abrir na hora.
 Future<void> showChurchNoticiaShareSheet(
   BuildContext context, {
   required String shareLink,
@@ -127,6 +189,7 @@ Future<void> showChurchNoticiaShareSheet(
   String? previewImageUrl,
   String? videoPlayUrl,
   Rect? sharePositionOrigin,
+  Map<String, dynamic>? noticiaDataForLazyMedia,
 }) async {
   final rootContext = context;
   await showModalBottomSheet<void>(
@@ -191,13 +254,15 @@ Future<void> showChurchNoticiaShareSheet(
                 subtitle: 'Escolher app (mensagens, e-mail, etc.)',
                 onTap: () {
                   Navigator.pop(ctx);
-                  Future<void>.microtask(() => noticiaShareNativeRich(
-                        message: shareMessage,
-                        subject: shareSubject,
-                        imageUrl: previewImageUrl,
-                        videoPlayUrl: videoPlayUrl,
-                        sharePositionOrigin: sharePositionOrigin,
-                      ));
+                  unawaited(_runNativeShareWithOptionalLazyMedia(
+                    rootContext: rootContext,
+                    shareMessage: shareMessage,
+                    shareSubject: shareSubject,
+                    previewImageUrl: previewImageUrl,
+                    videoPlayUrl: videoPlayUrl,
+                    sharePositionOrigin: sharePositionOrigin,
+                    noticiaDataForLazyMedia: noticiaDataForLazyMedia,
+                  ));
                 },
               ),
               _ShareSheetTile(

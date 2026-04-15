@@ -1,5 +1,9 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/ui/pages/legal_pages.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Versículo padrão no rodapé (igual ao Controle Total). Padronizado em site, app, web, igreja e cadastro.
 const String kVersiculoRodape =
@@ -13,12 +17,32 @@ class VersionFooter extends StatelessWidget {
   final bool showLegalLinks;
   final String cnpjLabel;
 
+  /// Quando o rodapé fica **acima** de um [NavigationBar]/barra do sistema, use `false`
+  /// para não duplicar o padding inferior (evita faixa branca / rodapé “flutuando” no PWA).
+  final bool safeAreaBottom;
+
+  /// Na web, abre `/termodeuso` e `/privacidade` num **novo separador**
+  /// (mantém a landing aberta). No app nativo, mantém navegação na mesma pilha.
+  /// Só vale quando [useLegalPreviewModal] é `false`.
+  final bool openLegalLinksInNewTab;
+
+  /// Na **web**, com `true`, abre Termos/Privacidade num **modal premium** (fade + scale), como no site público.
+  /// No **app Android/iOS**, o mesmo `true` abre a **tela completa** com o documento inteiro (equivalente a `/termodeuso` e `/privacidade` no site), não o diálogo compacto.
+  final bool useLegalPreviewModal;
+
+  /// Mini-links YouTube / Instagram (ícones Material — fiáveis na web). `false` no painel ADM se quiser rodapé só legal.
+  final bool showOfficialSocialLinks;
+
   const VersionFooter({
     super.key,
     this.showVersion = true,
     this.versionLabel,
     this.showLegalLinks = true,
     this.cnpjLabel = 'CNPJ: não informado',
+    this.safeAreaBottom = true,
+    this.openLegalLinksInNewTab = false,
+    this.useLegalPreviewModal = true,
+    this.showOfficialSocialLinks = true,
   });
 
   static const Color _accentBlue = Color(0xFF1565C0);
@@ -51,6 +75,9 @@ class VersionFooter extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
+        bottom: safeAreaBottom,
+        left: true,
+        right: true,
         minimum: EdgeInsets.zero,
         child: Center(
           child: ConstrainedBox(
@@ -102,15 +129,19 @@ class VersionFooter extends StatelessWidget {
                         ),
                       if (showLegalLinks) ...[
                         InkWell(
-                          onTap: () =>
-                              Navigator.of(context).pushNamed('/termos-de-uso'),
+                          onTap: () => _openLegalPage(
+                            context,
+                            '/termodeuso',
+                            openLegalLinksInNewTab,
+                            useLegalPreviewModal,
+                          ),
                           borderRadius: BorderRadius.circular(4),
                           child: Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: 4,
                               vertical: isNarrow ? 8 : 3,
                             ),
-                            child: Text('Termos', style: linkStyle),
+                            child: Text('Termos de uso', style: linkStyle),
                           ),
                         ),
                         Padding(
@@ -118,8 +149,12 @@ class VersionFooter extends StatelessWidget {
                           child: Text('·', style: metaStyle),
                         ),
                         InkWell(
-                          onTap: () => Navigator.of(context)
-                              .pushNamed('/politica-de-privacidade'),
+                          onTap: () => _openLegalPage(
+                            context,
+                            '/privacidade',
+                            openLegalLinksInNewTab,
+                            useLegalPreviewModal,
+                          ),
                           borderRadius: BorderRadius.circular(4),
                           child: Padding(
                             padding: EdgeInsets.symmetric(
@@ -150,6 +185,13 @@ class VersionFooter extends StatelessWidget {
                             Text('SSL', style: metaStyle),
                           ],
                         ),
+                        if (showOfficialSocialLinks) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 5),
+                            child: Text('·', style: metaStyle),
+                          ),
+                          _OfficialSocialFooterIcons(metaSize: metaSize),
+                        ],
                       ],
                     ],
                   ),
@@ -158,6 +200,102 @@ class VersionFooter extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  static Future<void> _openLegalPage(
+    BuildContext context,
+    String route,
+    bool newTab,
+    bool usePreviewModal,
+  ) async {
+    final r = route.startsWith('/') ? route : '/$route';
+    final isPriv =
+        r.contains('privacidade') || r.contains('politica-de-privacidade');
+
+    // App nativo: mesma experiência das rotas web (página com AppBar, hero, seções e barra inferior).
+    if (!kIsWeb && usePreviewModal && context.mounted) {
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => isPriv
+              ? const PoliticaPrivacidadePage()
+              : const TermosDeUsoPage(),
+        ),
+      );
+      return;
+    }
+
+    if (usePreviewModal && context.mounted) {
+      await showGestaoYahwehLegalPreview(
+        context,
+        isPoliticaPrivacidade: isPriv,
+      );
+      return;
+    }
+
+    if (newTab && kIsWeb) {
+      final origin = Uri.base.origin;
+      final uri = Uri.parse('$origin/#$r');
+      await launchUrl(uri, webOnlyWindowName: '_blank');
+      return;
+    }
+    if (context.mounted) {
+      await Navigator.of(context).pushNamed(r);
+    }
+  }
+}
+
+/// YouTube / Instagram com [Icon] Material (evita glifos em falta de Font Awesome na web).
+class _OfficialSocialFooterIcons extends StatelessWidget {
+  final double metaSize;
+
+  const _OfficialSocialFooterIcons({required this.metaSize});
+
+  Future<void> _open(String raw) async {
+    final u = Uri.tryParse(raw.trim());
+    if (u == null) return;
+    final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
+    if (!ok) await launchUrl(u, mode: LaunchMode.platformDefault);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sz = (metaSize + 6).clamp(14.0, 22.0);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message: 'Canal oficial no YouTube',
+          child: InkWell(
+            onTap: () => _open(AppConstants.marketingOfficialYoutubeUrl),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              child: Icon(
+                Icons.play_circle_filled_rounded,
+                size: sz,
+                color: const Color(0xFFFF0000),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 2),
+        Tooltip(
+          message: 'Instagram Gestão YAHWEH',
+          child: InkWell(
+            onTap: () => _open(AppConstants.marketingOfficialInstagramUrl),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              child: Icon(
+                Icons.photo_camera_rounded,
+                size: sz,
+                color: const Color(0xFFE4405F),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,8 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart'
+    show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
@@ -14,9 +14,11 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Tela interna do sistema para o gestor/adm cadastrar um novo membro.
+/// Fluxo: cria Firebase Auth (UID) → `membros/{uid}` — CPF só como campo, não como id do documento.
 /// Salva direto como ativo (não usa o formulário público).
 class InternalNewMemberPage extends StatefulWidget {
   final String tenantId;
@@ -42,6 +44,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   final _estadoCtrl = TextEditingController();
   final _estadoCivilCtrl = TextEditingController();
   final _escolaridadeCtrl = TextEditingController();
+  final _profissaoCtrl = TextEditingController();
   final _conjugeCtrl = TextEditingController();
   final _filiacaoPaiCtrl = TextEditingController();
   final _filiacaoMaeCtrl = TextEditingController();
@@ -52,6 +55,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   String _tenantSlug = '';
 
   DateTime? _birthDate;
+  final _birthDateCtrl = TextEditingController();
   String _sexo = 'Masculino';
 
   XFile? _photoFile;
@@ -68,12 +72,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
     'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
   ];
-  static const List<String> _escolaridadeOptions = [
-    'Ensino Fundamental',
-    'Ensino Médio',
-    'Superior',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -94,6 +92,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     _estadoCtrl.dispose();
     _estadoCivilCtrl.dispose();
     _escolaridadeCtrl.dispose();
+    _profissaoCtrl.dispose();
+    _birthDateCtrl.dispose();
     _conjugeCtrl.dispose();
     _filiacaoPaiCtrl.dispose();
     _filiacaoMaeCtrl.dispose();
@@ -101,7 +101,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     super.dispose();
   }
 
-  String _onlyDigits(String v) => v.replaceAll(RegExp(r'[^0-9]'), '');
+  String _onlyDigits(String v) => memberSignupOnlyDigits(v);
 
   static String _buildFiliacaoLegado(String pai, String mae) {
     if (pai.isEmpty && mae.isEmpty) return '';
@@ -194,6 +194,24 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     });
   }
 
+  Future<void> _pickBirthDate() async {
+    final initial = _birthDate ??
+        memberSignupParseBirthDateBr(_birthDateCtrl.text.trim()) ??
+        DateTime(2000, 1, 1);
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(DateTime.now().year - 100),
+      lastDate: DateTime.now(),
+      initialDate: initial,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _birthDate = picked;
+        _birthDateCtrl.text = memberSignupFormatBirthDateBr(picked);
+      });
+    }
+  }
+
   Future<void> _pickPhoto({bool fromCamera = false}) async {
     final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
       source: fromCamera ? ImageSource.camera : ImageSource.gallery,
@@ -264,17 +282,22 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     return null;
   }
 
-  String _formatDate(DateTime d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(d.day)}/${two(d.month)}/${d.year}';
-  }
-
   Future<void> _submit() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
-    if (_birthDate == null) {
+    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    if (birthParsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe a data de nascimento.')),
+        const SnackBar(
+            content: Text('Informe a data de nascimento (DD/MM/AAAA).')),
+      );
+      return;
+    }
+    final today = DateTime.now();
+    if (birthParsed
+        .isAfter(DateTime(today.year, today.month, today.day))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Data de nascimento inválida.')),
       );
       return;
     }
@@ -350,31 +373,64 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     setState(() => _saving = true);
 
     try {
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      final emailForAuth = emailNorm.isNotEmpty
+          ? emailNorm
+          : (cpfDigits.length == 11
+              ? '$cpfDigits@membro.gestaoyahweh.com.br'
+              : '');
+      if (emailForAuth.isEmpty) {
+        if (mounted) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Informe e-mail ou CPF com 11 dígitos para criar o login do membro.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final pwd = _passwordCtrl.text.trim();
+      final authRes =
+          await functions.httpsCallable('createMemberAuthAccountForGestor').call({
+        'tenantId': widget.tenantId,
+        'email': emailForAuth,
+        'password': pwd.length >= 6 ? pwd : '123456',
+        'displayName': _nameCtrl.text.trim(),
+        'cpf': cpfDigits,
+      });
+      final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
+      final uid = (authMap['uid'] ?? '').toString().trim();
+      if (uid.isEmpty) {
+        throw Exception('UID do login não retornado pelo servidor.');
+      }
 
-      final ref = cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc();
-      final docPhotoId = cpfDigits.isNotEmpty ? cpfDigits : ref.id;
+      final ref = col.doc(uid);
       String? photoStoragePathField;
       final photoUrl = _photoFile != null
           ? await _uploadPhoto(widget.tenantId, ref.id, _photoFile!)
-          : _buildAutoAvatarUrl(docPhotoId);
+          : _buildAutoAvatarUrl(ref.id);
       if (_photoFile != null) {
         photoStoragePathField = ChurchStorageLayout.memberCanonicalProfilePhotoPath(
             widget.tenantId, ref.id);
       }
-      final age = _calcAge(_birthDate) ?? 0;
+      final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
       final slug = _tenantSlug.isNotEmpty ? _tenantSlug : widget.tenantId;
 
       final data = {
-        'MEMBER_ID': ref.id,
-        'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : ref.id,
+        'MEMBER_ID': uid,
+        'authUid': uid,
+        'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : uid,
         'alias': alias,
         'slug': slug,
         'tenantId': widget.tenantId,
         'NOME_COMPLETO': _nameCtrl.text.trim(),
         'EMAIL': _emailCtrl.text.trim(),
-        'DATA_NASCIMENTO': Timestamp.fromDate(_birthDate!),
+        'DATA_NASCIMENTO': Timestamp.fromDate(birthParsed),
         'TELEFONES': _phoneCtrl.text.trim(),
         'SEXO': _sexo,
         'FAIXA_ETARIA': ageRange,
@@ -388,6 +444,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'CPF': cpfDigits,
         'ESTADO_CIVIL': _estadoCivilCtrl.text.trim(),
         'ESCOLARIDADE': _escolaridadeCtrl.text.trim(),
+        'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
         'foto_url': photoUrl,
@@ -420,29 +477,20 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
           'igrejas/${widget.tenantId}/membros/${ref.id}');
 
       try {
-        final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-        final loginRes =
-            await functions.httpsCallable('createMemberLoginFromPublic').call({
+        await functions.httpsCallable('createMemberLoginFromPublic').call({
           'tenantId': widget.tenantId,
           'memberId': ref.id,
         });
-        final loginMap =
-            Map<String, dynamic>.from(loginRes.data as Map? ?? {});
-        final membroDocId =
-            (loginMap['membroFirestoreId'] ?? ref.id).toString().trim();
-        final senha = _passwordCtrl.text.trim();
-        final senhaFinal = senha.length >= 6 ? senha : '123456';
-        try {
-          await functions.httpsCallable('setMemberPassword').call({
-            'tenantId': widget.tenantId,
-            'memberId': membroDocId,
-            'newPassword': senhaFinal,
-          });
-        } catch (_) {}
       } catch (_) {}
 
       if (!mounted) return;
       setState(() => _submittedSuccess = true);
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      final msg = e.message ?? e.code;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao criar login: $msg')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -468,10 +516,12 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       _estadoCtrl.clear();
       _estadoCivilCtrl.clear();
       _escolaridadeCtrl.clear();
+      _profissaoCtrl.clear();
       _conjugeCtrl.clear();
       _filiacaoPaiCtrl.clear();
       _filiacaoMaeCtrl.clear();
       _birthDate = null;
+      _birthDateCtrl.clear();
       _photoFile = null;
       _photoBytes = null;
       _passwordCtrl.clear();
@@ -579,53 +629,33 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        side: BorderSide(color: Colors.grey.shade200),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          children: [
-                            Icon(Icons.person_add_rounded, size: 48, color: ThemeCleanPremium.primary.withOpacity(0.8)),
-                            const SizedBox(height: 12),
-                            Text(
-                              _tenantName,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Cadastro interno — o membro será salvo como ativo.',
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _Section(title: 'Dados pessoais'),
+                    InternalMemberSignupHeroCard(churchName: _tenantName),
+                    const SizedBox(height: 20),
+                    MemberSignupSectionTitle(title: 'Dados pessoais'),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome completo',
-                        border: OutlineInputBorder(),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Nome completo',
+                        icon: Icons.person_rounded,
                       ),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoMaeCtrl,
-                      decoration: const InputDecoration(labelText: 'Filiação (mãe)', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Filiação (mãe)',
+                        icon: Icons.family_restroom_rounded,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoPaiCtrl,
-                      decoration: const InputDecoration(labelText: 'Filiação (pai)', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Filiação (pai)',
+                        icon: Icons.family_restroom_rounded,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -634,11 +664,31 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                           child: TextFormField(
                             controller: _cpfCtrl,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'CPF', border: OutlineInputBorder()),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(14),
+                              TextInputFormatter.withFunction(
+                                (oldValue, newValue) {
+                                  final masked =
+                                      memberSignupFormatCpfMask(newValue.text);
+                                  return TextEditingValue(
+                                    text: masked,
+                                    selection: TextSelection.collapsed(
+                                        offset: masked.length),
+                                  );
+                                },
+                              ),
+                            ],
+                            decoration: memberSignupInputDecoration(
+                              label: 'CPF',
+                              icon: Icons.badge_rounded,
+                            ),
                             validator: (v) {
                               final msg = _req(v);
                               if (msg != null) return msg;
-                              if (_onlyDigits(v!).length != 11) return 'CPF inválido';
+                              if (_onlyDigits(v!).length != 11) {
+                                return 'CPF inválido';
+                              }
                               return null;
                             },
                           ),
@@ -646,23 +696,41 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              labelText: 'Data nascimento',
-                              border: const OutlineInputBorder(),
-                              suffixIcon: const Icon(Icons.calendar_today_rounded),
-                              hintText: _birthDate == null ? 'Selecione' : _formatDate(_birthDate!),
+                            controller: _birthDateCtrl,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              MemberSignupBirthDateInputFormatter(),
+                              LengthLimitingTextInputFormatter(10),
+                            ],
+                            decoration: memberSignupInputDecoration(
+                              label: 'Data de nascimento',
+                              icon: Icons.cake_rounded,
+                              hint: 'DD/MM/AAAA',
+                              suffixIcon: IconButton(
+                                icon: Icon(Icons.calendar_month_rounded,
+                                    color: ThemeCleanPremium.primary),
+                                tooltip: 'Calendário',
+                                onPressed: _pickBirthDate,
+                              ),
                             ),
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(DateTime.now().year - 100),
-                                lastDate: DateTime.now(),
-                                initialDate: _birthDate ?? DateTime(2000, 1, 1),
-                              );
-                              if (picked != null) setState(() => _birthDate = picked);
+                            validator: (v) {
+                              final t = (v ?? '').trim();
+                              if (t.isEmpty) return 'Campo obrigatório';
+                              final p = memberSignupParseBirthDateBr(t);
+                              if (p == null) return 'Use DD/MM/AAAA';
+                              final now = DateTime.now();
+                              if (p.isAfter(
+                                  DateTime(now.year, now.month, now.day))) {
+                                return 'Data inválida';
+                              }
+                              return null;
                             },
-                            validator: (_) => _birthDate == null ? 'Campo obrigatório' : null,
+                            onChanged: (v) {
+                              final p = memberSignupParseBirthDateBr(v);
+                              if (p != null) {
+                                setState(() => _birthDate = p);
+                              }
+                            },
                           ),
                         ),
                       ],
@@ -673,20 +741,46 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _sexo,
-                            decoration: const InputDecoration(labelText: 'Sexo', border: OutlineInputBorder()),
+                            decoration: memberSignupInputDecoration(
+                              label: 'Sexo',
+                              icon: Icons.wc_rounded,
+                            ),
                             items: const [
-                              DropdownMenuItem(value: 'Masculino', child: Text('Masculino')),
-                              DropdownMenuItem(value: 'Feminino', child: Text('Feminino')),
-                              DropdownMenuItem(value: 'Outro', child: Text('Outro')),
+                              DropdownMenuItem(
+                                  value: 'Masculino', child: Text('Masculino')),
+                              DropdownMenuItem(
+                                  value: 'Feminino', child: Text('Feminino')),
+                              DropdownMenuItem(
+                                  value: 'Outro', child: Text('Outro')),
                             ],
-                            onChanged: (v) => setState(() => _sexo = v ?? 'Masculino'),
+                            onChanged: (v) =>
+                                setState(() => _sexo = v ?? 'Masculino'),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: _phoneCtrl,
-                            decoration: const InputDecoration(labelText: 'Telefone', border: OutlineInputBorder()),
+                            keyboardType: TextInputType.phone,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(15),
+                              TextInputFormatter.withFunction(
+                                (oldValue, newValue) {
+                                  final masked = memberSignupFormatPhoneMask(
+                                      newValue.text);
+                                  return TextEditingValue(
+                                    text: masked,
+                                    selection: TextSelection.collapsed(
+                                        offset: masked.length),
+                                  );
+                                },
+                              ),
+                            ],
+                            decoration: memberSignupInputDecoration(
+                              label: 'Telefone',
+                              icon: Icons.phone_rounded,
+                            ),
                             validator: _req,
                           ),
                         ),
@@ -696,37 +790,76 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(labelText: 'E-mail', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'E-mail',
+                        icon: Icons.alternate_email_rounded,
+                      ),
                       validator: _req,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: MemberSignupPremiumUi.escolaridadeOptions
+                              .contains(_escolaridadeCtrl.text.trim())
+                          ? _escolaridadeCtrl.text.trim()
+                          : null,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Escolaridade',
+                        icon: Icons.school_rounded,
+                      ),
+                      hint: const Text('Opcional'),
+                      isExpanded: true,
+                      items: MemberSignupPremiumUi.escolaridadeOptions
+                          .map((e) => DropdownMenuItem<String>(
+                              value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (v) => setState(
+                          () => _escolaridadeCtrl.text = (v ?? '').trim()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _profissaoCtrl,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Profissão',
+                        icon: Icons.work_outline_rounded,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _passwordCtrl,
                       obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Senha (opcional)',
-                        hintText: 'Mín. 6 caracteres — para o membro acessar o app',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.lock_outline_rounded),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Senha (opcional)',
+                        hint:
+                            'Mín. 6 caracteres — para o membro acessar o app',
+                        icon: Icons.lock_outline_rounded,
                       ),
                       autofillHints: const [AutofillHints.newPassword],
                     ),
                     const SizedBox(height: 20),
-                    _Section(title: 'Endereço'),
+                    MemberSignupSectionTitle(title: 'Endereço'),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Digite o CEP e saia do campo para preencher automaticamente.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _cepCtrl,
                       keyboardType: TextInputType.number,
                       maxLength: 9,
-                      decoration: InputDecoration(
-                        labelText: 'CEP',
-                        border: const OutlineInputBorder(),
-                        hintText: '00000-000',
+                      decoration: memberSignupInputDecoration(
+                        label: 'CEP',
+                        icon: Icons.pin_drop_rounded,
+                        hint: '00000-000',
                         counterText: '',
                         suffixIcon: _loadingCep
                             ? const Padding(
                                 padding: EdgeInsets.all(12),
-                                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
                               )
                             : null,
                       ),
@@ -738,52 +871,58 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _enderecoCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Logradouro (rua, avenida)',
-                        border: OutlineInputBorder(),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Logradouro (rua, avenida)',
+                        icon: Icons.home_rounded,
+                        hint: 'Rua, avenida, alameda',
                       ),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _quadraLoteNumeroCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Quadra, Lote e Número',
-                        border: OutlineInputBorder(),
-                        hintText: 'Qd 1, Lt 5, Nº 123',
+                      decoration: memberSignupInputDecoration(
+                        label: 'Quadra, Lote e Número',
+                        icon: Icons.tag_rounded,
+                        hint: 'Qd 1, Lt 5, Nº 123',
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _bairroCtrl,
-                      decoration: const InputDecoration(labelText: 'Bairro', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Bairro',
+                        icon: Icons.location_city_rounded,
+                      ),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cityCtrl,
-                            decoration: const InputDecoration(labelText: 'Cidade', border: OutlineInputBorder()),
-                            onChanged: _searchCitySuggestions,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 100,
-                          child: DropdownButtonFormField<String>(
-                            value: _ufs.contains(_estadoCtrl.text.trim()) ? _estadoCtrl.text.trim() : null,
-                            decoration: const InputDecoration(labelText: 'UF', border: OutlineInputBorder()),
-                            isExpanded: true,
-                            items: _ufs.map((uf) => DropdownMenuItem(value: uf, child: Text(uf))).toList(),
-                            onChanged: (v) {
-                              if (v != null) _estadoCtrl.text = v;
-                              setState(() {});
-                            },
-                          ),
-                        ),
-                      ],
+                    TextFormField(
+                      controller: _cityCtrl,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Cidade',
+                        icon: Icons.apartment_rounded,
+                      ),
+                      onChanged: _searchCitySuggestions,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _ufs.contains(_estadoCtrl.text.trim())
+                          ? _estadoCtrl.text.trim()
+                          : null,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Estado (UF)',
+                        icon: Icons.map_rounded,
+                      ),
+                      isExpanded: true,
+                      items: _ufs
+                          .map((uf) =>
+                              DropdownMenuItem(value: uf, child: Text(uf)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) _estadoCtrl.text = v;
+                        setState(() {});
+                      },
                     ),
                     if (_loadingCitySuggestions || _citySuggestions.isNotEmpty) ...[
                       const SizedBox(height: 8),
@@ -823,57 +962,87 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       ),
                     ],
                     const SizedBox(height: 20),
-                    _Section(title: 'Família e escolaridade'),
+                    MemberSignupSectionTitle(title: 'Família'),
                     const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _estadoCivilCtrl,
-                      decoration: const InputDecoration(labelText: 'Estado civil', border: OutlineInputBorder()),
-                    ),
-                    const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _escolaridadeOptions.contains(_escolaridadeCtrl.text.trim())
-                          ? _escolaridadeCtrl.text.trim()
+                      value: MemberSignupPremiumUi.estadoCivilOptions
+                              .contains(_estadoCivilCtrl.text.trim())
+                          ? _estadoCivilCtrl.text.trim()
                           : null,
-                      decoration: const InputDecoration(labelText: 'Escolaridade', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Estado civil',
+                        icon: Icons.favorite_outline_rounded,
+                      ),
                       hint: const Text('Opcional'),
-                      items: _escolaridadeOptions
-                          .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
+                      isExpanded: true,
+                      items: MemberSignupPremiumUi.estadoCivilOptions
+                          .map((e) => DropdownMenuItem<String>(
+                              value: e, child: Text(e)))
                           .toList(),
-                      onChanged: (v) => setState(() => _escolaridadeCtrl.text = (v ?? '').trim()),
+                      onChanged: (v) => setState(
+                          () => _estadoCivilCtrl.text = (v ?? '').trim()),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _conjugeCtrl,
-                      decoration: const InputDecoration(labelText: 'Nome cônjuge', border: OutlineInputBorder()),
+                      decoration: memberSignupInputDecoration(
+                        label: 'Nome cônjuge',
+                        icon: Icons.people_alt_rounded,
+                      ),
                     ),
                     const SizedBox(height: 20),
-                    _Section(title: 'Foto do membro'),
+                    MemberSignupSectionTitle(title: 'Foto do membro'),
                     const SizedBox(height: 10),
                     Row(
                       children: [
                         CircleAvatar(
                           radius: 36,
-                          backgroundColor: Colors.grey.shade200,
-                          backgroundImage: _photoBytes == null ? null : MemoryImage(_photoBytes!),
-                          child: _photoBytes == null ? Icon(Icons.person_rounded, size: 40, color: Colors.grey.shade500) : null,
+                          backgroundColor: const Color(0xFFF1F5F9),
+                          backgroundImage: _photoBytes == null
+                              ? null
+                              : MemoryImage(_photoBytes!),
+                          child: _photoBytes == null
+                              ? Icon(Icons.person_rounded,
+                                  size: 40, color: Colors.grey.shade400)
+                              : null,
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: () => _pickPhoto(fromCamera: false),
-                                  icon: const Icon(Icons.photo_library_rounded, size: 20),
+                                  onPressed: () =>
+                                      _pickPhoto(fromCamera: false),
+                                  icon: const Icon(Icons.photo_library_outlined,
+                                      size: 20),
                                   label: const Text('Galeria'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusLg),
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: () => _pickPhoto(fromCamera: true),
-                                  icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                                  onPressed: () =>
+                                      _pickPhoto(fromCamera: true),
+                                  icon: const Icon(Icons.photo_camera_outlined,
+                                      size: 20),
                                   label: const Text('Câmera'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusLg),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
@@ -881,23 +1050,37 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'A foto será usada na carteirinha e no painel da igreja.',
+                      style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                    ),
                     const SizedBox(height: 24),
                     SizedBox(
-                      height: 52,
+                      height: 54,
                       child: FilledButton.icon(
                         onPressed: _saving ? null : _submit,
                         icon: _saving
                             ? const SizedBox(
                                 width: 22,
                                 height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
                               )
-                            : const Icon(Icons.check_circle_rounded, size: 22),
-                        label: Text(_saving ? 'Salvando...' : 'Cadastrar membro'),
+                            : const Icon(Icons.verified_rounded, size: 22),
+                        label: Text(
+                          _saving ? 'Salvando...' : 'Cadastrar membro',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800, fontSize: 15),
+                        ),
                         style: FilledButton.styleFrom(
                           backgroundColor: ThemeCleanPremium.primary,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg),
+                          ),
                         ),
                       ),
                     ),
@@ -913,16 +1096,3 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   }
 }
 
-class _Section extends StatelessWidget {
-  final String title;
-
-  const _Section({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-    );
-  }
-}

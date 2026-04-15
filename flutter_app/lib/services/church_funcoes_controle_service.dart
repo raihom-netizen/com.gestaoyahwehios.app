@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
@@ -89,7 +90,11 @@ class ChurchFuncoesControleService {
     if (AppPermissions.canViewFinance(r)) list.add('Financeiro');
     if (AppPermissions.canViewPatrimonio(r)) list.add('Patrimônio');
     if (AppPermissions.canViewSensitiveMembers(r)) list.add('Membros');
-    if (AppPermissions.canEditSchedules(r)) list.add('Escala Geral');
+    if (AppPermissions.canEditSchedules(r)) {
+      list.add('Escala Geral');
+    } else if (ChurchRolePermissions.isDepartmentLeaderRoleKey(r)) {
+      list.add('Escala (departamentos)');
+    }
     if (AppPermissions.canEditDepartments(r)) list.add('Departamentos');
     return list;
   }

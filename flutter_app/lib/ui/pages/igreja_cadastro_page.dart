@@ -1,8 +1,9 @@
+﻿// ignore_for_file: unused_element
+// (Funções legadas do bloco gestor/meta mantidas até remoção total.)
+
 import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -20,6 +21,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
@@ -29,7 +31,6 @@ import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        ResilientNetworkImage,
         churchTenantLogoUrl,
         imageUrlFromMap,
         sanitizeImageUrl,
@@ -58,13 +59,13 @@ String _slugFromChurchName(String name) {
   final normalized = name
       .trim()
       .toLowerCase()
-      .replaceAll(RegExp(r'[àáâãäåāăą]'), 'a')
-      .replaceAll(RegExp(r'[èéêëēėę]'), 'e')
-      .replaceAll(RegExp(r'[ìíîïīį]'), 'i')
-      .replaceAll(RegExp(r'[òóôõöōő]'), 'o')
-      .replaceAll(RegExp(r'[ùúûüūů]'), 'u')
-      .replaceAll(RegExp(r'[ç]'), 'c')
-      .replaceAll(RegExp(r'[ñ]'), 'n');
+      .replaceAll(RegExp('[àáâãäåāăą]'), 'a')
+      .replaceAll(RegExp('[èéêëēėę]'), 'e')
+      .replaceAll(RegExp('[ìíîïīį]'), 'i')
+      .replaceAll(RegExp('[òóôõöōő]'), 'o')
+      .replaceAll(RegExp('[ùúûüūů]'), 'u')
+      .replaceAll(RegExp('[ç]'), 'c')
+      .replaceAll(RegExp('[ñ]'), 'n');
   final words = normalized
       .split(RegExp(r'[\s\-_]+'))
       .where((w) => w.isNotEmpty && !stopWords.contains(w))
@@ -96,17 +97,6 @@ String _iniciaisFromChurchName(String name) {
   return words.map((w) => w.substring(0, 1).toLowerCase()).join();
 }
 
-/// Cor do site público (#RRGGBB). Retorna null se vazio ou inválido.
-String? _normalizeSitePrimaryHex(String raw) {
-  var t = raw.trim();
-  if (t.isEmpty) return null;
-  t = t.replaceFirst('#', '').trim();
-  if (t.length == 6 && RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(t)) {
-    return '#${t.toUpperCase()}';
-  }
-  return null;
-}
-
 String _buildFiliacaoLegadoGestor(String pai, String mae) {
   if (pai.isEmpty && mae.isEmpty) return '';
   if (pai.isEmpty) return 'Mãe: $mae';
@@ -134,8 +124,8 @@ String _ageRangeGestor(int? age) {
   return '51+';
 }
 
-/// Cadastro da Igreja — dados do tenant (nome, logo da galeria, endereço completo, dados do gestor).
-/// Edição apenas para gestor/admin/master.
+/// Cadastro da Igreja â€” dados do tenant (nome, logo da galeria, endereço completo, dados do gestor).
+/// EdiÃ§Ã£o apenas para gestor/admin/master.
 class IgrejaCadastroPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -157,6 +147,9 @@ class IgrejaCadastroPage extends StatefulWidget {
 class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
+
+  /// CPF (11) ou CNPJ (14) da instituição â€” rodapÃ© e relatórios.
+  final _cnpjIgrejaCtrl = TextEditingController();
   final _cidadeCtrl = TextEditingController();
   final _estadoCtrl = TextEditingController();
   final _bairroCtrl = TextEditingController();
@@ -170,43 +163,45 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   final _gestorEmailCtrl = TextEditingController();
   final _slugCtrl = TextEditingController();
 
-  /// Cor principal do site público (#RRGGBB) — botões e degradês.
-  final _sitePrimaryHexCtrl = TextEditingController();
   final _linkMapsCtrl = TextEditingController();
+  final _instagramUrlCtrl = TextEditingController();
+  final _youtubeUrlCtrl = TextEditingController();
+  final _facebookUrlCtrl = TextEditingController();
+  final _whatsappChatUrlCtrl = TextEditingController();
 
-  /// Meta ministerial no painel "Saúde ministerial & BI" (Firestore: metaMinisterial*).
+  /// Meta ministerial no painel "SaÃºde ministerial & BI" (Firestore: metaMinisterial*).
   final _metaMinisterialTituloCtrl = TextEditingController();
   final _metaMinisterialValorCtrl = TextEditingController();
   final _metaMinisterialAcumuladoCtrl = TextEditingController();
 
-  /// URL exibida / colada (fluxo EcoFire).
-  final _logoUrlFieldCtrl = TextEditingController();
-
   String? _logoUrl;
 
-  /// Caminho no Storage (renovação de token / cache central).
+  /// Caminho no Storage (renovaÃ§Ã£o de token / cache central).
   String? _logoStoragePath;
 
-  /// Logo em memória (exibido imediatamente ao escolher, antes do upload).
+  /// Logo em memÃ³ria (exibido imediatamente ao escolher, antes do upload).
   Uint8List? _logoBytes;
-  /// Há logo nova na galeria/corte ainda não publicada no Storage — [Salvar igreja] deve enviar antes do merge.
+
+  /// HÃ¡ logo nova na galeria/corte ainda não publicada no Storage â€” [Salvar igreja] deve enviar antes do merge.
   bool _logoStagedNotUploaded = false;
   double? _latitude;
   double? _longitude;
   bool _saving = false;
   bool _uploadingLogo = false;
   double _logoUploadProgress = 0;
-  /// Pré-visualização local antes do upload para `configuracoes/assinatura.png`.
-  Uint8List? _pastorSigBytes;
-  bool _uploadingPastorSig = false;
+
+  /// '' | encoding | uploading â€” feedback quando o progresso de rede ainda não comeÃ§ou.
+  String _logoUploadPhase = '';
+
   bool _loadingCep = false;
   bool _formHydrated = false;
   bool _logoTokenRefreshAttempted = false;
-  /// Evita múltiplas resoluções Storage→URL para o mesmo tenant na mesma sessão.
+
+  /// Evita mÃºltiplas resoluÃ§Ãµes Storageâ†’URL para o mesmo tenant na mesma sessÃ£o.
   String? _logoStorageHydrationTenantId;
   late Future<String> _resolvedIdFuture;
 
-  /// Ficha completa do gestor (espelha cadastro de Membros — função administrador).
+  /// Ficha completa do gestor (espelha cadastro de Membros â€” funÃ§Ã£o administrador).
   final _gFiliacaoMaeCtrl = TextEditingController();
   final _gFiliacaoPaiCtrl = TextEditingController();
   final _gEstadoCivilCtrl = TextEditingController();
@@ -217,14 +212,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Uint8List? _gPhotoBytes;
   String? _gestorExistingPhotoUrl;
 
-  /// Snapshot do doc `membros` do gestor — usado por [FotoMembroWidget] (path/`gs://` sem URL https).
+  /// Snapshot do doc `membros` do gestor â€” usado por [FotoMembroWidget] (path/`gs://` sem URL https).
   Map<String, dynamic>? _gestorMemberData;
 
-  /// ID real do documento em `membros` (pode ser CPF ou ID auto).
+  /// ID real do documento em `membros` (padrÃ£o: UID do Firebase; legado: CPF).
   String? _gestorMemberDocId;
   String? _lastHydratedCpf;
 
-  /// Invalida [setState] de hidratações antigas (ex.: concluem depois do salvar e zeravam a foto).
+  /// Invalida [setState] de hidrataÃ§Ãµes antigas (ex.: concluem depois do salvar e zeravam a foto).
   int _gestorHydrateSeq = 0;
 
   void _onNameChanged() {
@@ -264,20 +259,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
   }
 
-  void _onGestorCpfListener() {
-    final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
-    if (cpf.length == 11) {
-      _resolvedTenantId.then((id) {
-        if (mounted) _hydrateGestorFromMembros(id);
-      });
-    }
-  }
-
   @override
   void initState() {
     super.initState();
     _nameCtrl.addListener(_onNameChanged);
-    _gestorCpfCtrl.addListener(_onGestorCpfListener);
     _resolvedIdFuture =
         TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
   }
@@ -305,8 +290,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   @override
   void dispose() {
     _nameCtrl.removeListener(_onNameChanged);
-    _gestorCpfCtrl.removeListener(_onGestorCpfListener);
     _nameCtrl.dispose();
+    _cnpjIgrejaCtrl.dispose();
     _cidadeCtrl.dispose();
     _estadoCtrl.dispose();
     _bairroCtrl.dispose();
@@ -324,16 +309,46 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _gEscolaridadeCtrl.dispose();
     _gConjugeCtrl.dispose();
     _slugCtrl.dispose();
-    _sitePrimaryHexCtrl.dispose();
     _linkMapsCtrl.dispose();
+    _instagramUrlCtrl.dispose();
+    _youtubeUrlCtrl.dispose();
+    _facebookUrlCtrl.dispose();
+    _whatsappChatUrlCtrl.dispose();
     _metaMinisterialTituloCtrl.dispose();
     _metaMinisterialValorCtrl.dispose();
     _metaMinisterialAcumuladoCtrl.dispose();
-    _logoUrlFieldCtrl.dispose();
     super.dispose();
   }
 
-  /// Exibe valor numérico de meta como texto (pt-BR simples).
+  static String _firstNonEmptyString(
+      Map<String, dynamic> data, List<String> keys) {
+    for (final k in keys) {
+      final s = (data[k] ?? '').toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  /// WhatsApp no cadastro: só dígitos no campo; migra URLs legadas (`wa.me/...`) para o número.
+  static String _whatsappDigitsForCadastro(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return '';
+    final lower = s.toLowerCase();
+    if (lower.contains('wa.me') || lower.contains('api.whatsapp.com')) {
+      try {
+        final normalized =
+            s.startsWith(RegExp(r'https?://', caseSensitive: false))
+                ? s
+                : 'https://$s';
+        final u = Uri.parse(normalized);
+        final pathDigits = u.path.replaceAll(RegExp(r'[^0-9]'), '');
+        if (pathDigits.isNotEmpty) return pathDigits;
+      } catch (_) {}
+    }
+    return s.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  /// Exibe valor numÃ©rico de meta como texto (pt-BR simples).
   static String _metaMoneyDisplayFromFirestore(dynamic v) {
     if (v == null) return '';
     final d = v is num
@@ -343,10 +358,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return d.toStringAsFixed(2).replaceAll('.', ',');
   }
 
-  /// Interpreta campo monetário (ex.: 1500, 1.500,50 1500,50).
+  /// Interpreta campo monetÃ¡rio (ex.: 1500, 1.500,50 1500,50).
   static double? _parseMetaMoneyField(String raw) {
-    final cleaned =
-        raw.trim().replaceAll(RegExp(r'R\$\s*', caseSensitive: false), '').trim();
+    final cleaned = raw
+        .trim()
+        .replaceAll(RegExp(r'R\$\s*', caseSensitive: false), '')
+        .trim();
     if (cleaned.isEmpty) return null;
     var n = cleaned.replaceAll(' ', '');
     if (n.contains(',') && n.contains('.')) {
@@ -410,7 +427,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   void _applyData(Map<String, dynamic>? data) {
     if (data == null) return;
     _nameCtrl.text = (data['name'] ?? data['nome'] ?? '').toString();
-    // Logo: URL do Storage (vários campos) ou, se vazio, Base64 gravado no doc (legado / export).
+    _cnpjIgrejaCtrl.text =
+        (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? '').toString();
+    // Logo: URL do Storage (vÃ¡rios campos) ou, se vazio, Base64 gravado no doc (legado / export).
     final url = churchTenantLogoUrl(data);
     _logoUrl = url.isEmpty ? null : url;
     _logoStoragePath = ChurchImageFields.logoStoragePath(data);
@@ -466,18 +485,40 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final nome = (data['name'] ?? data['nome'] ?? '').toString().trim();
     _slugCtrl.text =
         savedSlug.isNotEmpty ? savedSlug : _slugFromChurchName(nome);
-    _sitePrimaryHexCtrl.text =
-        (data['sitePrimaryHex'] ?? data['sitePrimaryColor'] ?? '')
-            .toString()
-            .trim();
     _metaMinisterialTituloCtrl.text =
         (data['metaMinisterialTitulo'] ?? '').toString().trim();
-    _metaMinisterialValorCtrl.text = _metaMoneyDisplayFromFirestore(
-        data['metaMinisterialValor']);
-    _metaMinisterialAcumuladoCtrl.text = _metaMoneyDisplayFromFirestore(
-        data['metaMinisterialAcumulado']);
+    _metaMinisterialValorCtrl.text =
+        _metaMoneyDisplayFromFirestore(data['metaMinisterialValor']);
+    _metaMinisterialAcumuladoCtrl.text =
+        _metaMoneyDisplayFromFirestore(data['metaMinisterialAcumulado']);
     _gestorEmailCtrl.text =
         (data['gestorEmail'] ?? data['gestor_email'] ?? '').toString();
+    _instagramUrlCtrl.text = _firstNonEmptyString(data, const [
+      'instagramUrl',
+      'instagram',
+      'linkInstagram',
+      'instagram_link',
+    ]);
+    _youtubeUrlCtrl.text = _firstNonEmptyString(data, const [
+      'youtubeUrl',
+      'youtube',
+      'linkYoutube',
+      'youtube_link',
+    ]);
+    _facebookUrlCtrl.text = _firstNonEmptyString(data, const [
+      'facebookUrl',
+      'facebook',
+      'linkFacebook',
+      'facebook_link',
+    ]);
+    _whatsappChatUrlCtrl.text = _whatsappDigitsForCadastro(_firstNonEmptyString(
+        data,
+        const [
+          'whatsappChatUrl',
+          'socialWhatsappUrl',
+          'whatsappLink',
+          'linkWhatsapp',
+        ]));
     _lastHydratedCpf = null;
     _gestorMemberDocId = null;
     _gestorMemberData = null;
@@ -501,7 +542,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return '${digits.substring(0, 3)}.${digits.substring(3, 6)}.${digits.substring(6, 9)}-${digits.substring(9)}';
   }
 
-  /// CPF canônico (11 dígitos) a partir dos campos do membro.
+  /// IDs de documento em `membros` para contas com login = UID do Firebase Auth.
+  static bool _looksLikeFirebaseAuthUid(String s) {
+    final t = s.trim();
+    if (t.length < 20 || t.length > 128) return false;
+    return RegExp(r'^[A-Za-z0-9]+$').hasMatch(t);
+  }
+
+  /// CPF canÃ´nico (11 dígitos) a partir dos campos do membro.
   static String _cpfDigitsFromMemberData(Map<String, dynamic>? d) {
     if (d == null) return '';
     final raw =
@@ -509,8 +557,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return raw.length == 11 ? raw : '';
   }
 
-  /// Mesma lógica do cadastro interno de membros: ID do documento = CPF quando possível;
-  /// se já existir ficha com este CPF sob outro ID (legado), reutiliza esse documento (evita duplicata).
+  /// Legado / master: localiza documento por CPF (id ou campo). Com login, o padrÃ£o Ã© `membros/{uid}`.
   Future<String> _resolveGestorMembroDocumentId(
       String resolvedId, String cpfDigits) async {
     if (cpfDigits.length != 11) return cpfDigits;
@@ -540,12 +587,61 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       ('cpf', _cpfFormattedBr11(cpfDigits)),
     ]) {
       try {
-        final q =
-            await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
+        final q = await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
         if (q.docs.isNotEmpty) return q.docs.first.id;
       } catch (_) {}
     }
     return cpfDigits;
+  }
+
+  /// Remove outras fichas do mesmo gestor (mesmo CPF ou mesmo authUid), mantendo [canonicalId].
+  Future<void> _deleteDuplicateGestorMembroDocs(
+    CollectionReference<Map<String, dynamic>> col,
+    String canonicalId,
+    String cpfDigits,
+    String authUidForMatch,
+  ) async {
+    final refs = <DocumentReference<Map<String, dynamic>>>{};
+    if (cpfDigits.length == 11 && cpfDigits != canonicalId) {
+      final s = await col.doc(cpfDigits).get();
+      if (s.exists) refs.add(s.reference);
+      for (final pair in [
+        ('CPF', cpfDigits),
+        ('cpf', cpfDigits),
+        ('CPF', _cpfFormattedBr11(cpfDigits)),
+        ('cpf', _cpfFormattedBr11(cpfDigits)),
+      ]) {
+        try {
+          final q =
+              await col.where(pair.$1, isEqualTo: pair.$2).limit(25).get();
+          for (final d in q.docs) {
+            if (d.id != canonicalId) refs.add(d.reference);
+          }
+        } catch (_) {}
+      }
+    }
+    if (authUidForMatch.isNotEmpty) {
+      try {
+        final q = await col
+            .where('authUid', isEqualTo: authUidForMatch)
+            .limit(25)
+            .get();
+        for (final d in q.docs) {
+          if (d.id != canonicalId) refs.add(d.reference);
+        }
+      } catch (_) {}
+    }
+    if (refs.isEmpty) return;
+    const chunk = 400;
+    final list = refs.toList();
+    for (var i = 0; i < list.length; i += chunk) {
+      final batch = FirebaseFirestore.instance.batch();
+      final end = (i + chunk > list.length) ? list.length : i + chunk;
+      for (var j = i; j < end; j++) {
+        batch.delete(list[j]);
+      }
+      await batch.commit();
+    }
   }
 
   Future<void> _hydrateGestorFromMembros(String resolvedId,
@@ -561,28 +657,46 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           .collection('membros');
       DocumentSnapshot<Map<String, dynamic>>? memDoc;
 
-      final byId = await col.doc(cpf).get();
-      if (byId.exists) {
-        memDoc = byId;
-      } else {
-        QuerySnapshot<Map<String, dynamic>>? found;
-        for (final pair in [
-          ('CPF', cpf),
-          ('cpf', cpf),
-          ('CPF', _cpfFormattedBr11(cpf)),
-          ('cpf', _cpfFormattedBr11(cpf)),
-        ]) {
-          try {
-            final q =
-                await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
-            if (q.docs.isNotEmpty) {
-              found = q;
-              break;
-            }
-          } catch (_) {}
+      if (widget.role.toLowerCase() != 'master') {
+        final curUid = FirebaseAuth.instance.currentUser?.uid;
+        if (curUid != null && curUid.isNotEmpty) {
+          final bySelf = await col.doc(curUid).get();
+          if (bySelf.exists) {
+            memDoc = bySelf;
+          } else {
+            try {
+              final q =
+                  await col.where('authUid', isEqualTo: curUid).limit(1).get();
+              if (q.docs.isNotEmpty) memDoc = q.docs.first;
+            } catch (_) {}
+          }
         }
-        if (found != null && found.docs.isNotEmpty) {
-          memDoc = found.docs.first;
+      }
+
+      if (memDoc == null) {
+        final byId = await col.doc(cpf).get();
+        if (byId.exists) {
+          memDoc = byId;
+        } else {
+          QuerySnapshot<Map<String, dynamic>>? found;
+          for (final pair in [
+            ('CPF', cpf),
+            ('cpf', cpf),
+            ('CPF', _cpfFormattedBr11(cpf)),
+            ('cpf', _cpfFormattedBr11(cpf)),
+          ]) {
+            try {
+              final q =
+                  await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
+              if (q.docs.isNotEmpty) {
+                found = q;
+                break;
+              }
+            } catch (_) {}
+          }
+          if (found != null && found.docs.isNotEmpty) {
+            memDoc = found.docs.first;
+          }
         }
       }
 
@@ -607,8 +721,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final phRaw = fromMap.isNotEmpty ? fromMap : legacy;
       final ph = phRaw.isEmpty ? '' : sanitizeImageUrl(phRaw);
       final gestorDocId = memDoc.id;
-      final resolvedPhoto =
-          ph.isNotEmpty && isValidImageUrl(ph) ? ph : null;
+      final resolvedPhoto = ph.isNotEmpty && isValidImageUrl(ph) ? ph : null;
 
       if (!mounted || seqAtStart != _gestorHydrateSeq) return;
 
@@ -638,8 +751,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
       if (!mounted || seqAtStart != _gestorHydrateSeq) return;
       if (resolvedPhoto == null || resolvedPhoto.isEmpty) {
-        final mirror = await FirebaseStorageService.getGestorPublicMirrorPhotoUrl(
-            resolvedId);
+        final mirror =
+            await FirebaseStorageService.getGestorPublicMirrorPhotoUrl(
+                resolvedId);
         if (mirror != null &&
             mirror.isNotEmpty &&
             mounted &&
@@ -691,14 +805,40 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   String? _validateGestorMembroFields() {
     if (!_canEdit) return null;
+    final curUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uidGestorVal =
+        (_gestorMemberData?['authUid'] ?? '').toString().trim();
+    final docId = (_gestorMemberDocId ?? '').trim();
+    final selfGestor =
+        curUid.isNotEmpty && (curUid == uidGestorVal || curUid == docId);
+    final roleLower = widget.role.toLowerCase();
+    final staff =
+        roleLower == 'gestor' || roleLower == 'adm' || roleLower == 'admin';
+    if (selfGestor && staff) {
+      if (_gestorNomeCtrl.text.trim().isEmpty) {
+        return 'Preencha o nome completo.';
+      }
+      final cpfSelf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
+      if (cpfSelf.length != 11) {
+        return 'Informe seu CPF (11 dígitos).';
+      }
+      if (_gestorEmailCtrl.text.trim().isEmpty) {
+        final em = FirebaseAuth.instance.currentUser?.email?.trim() ?? '';
+        if (em.isNotEmpty) {
+          _gestorEmailCtrl.text = em;
+        }
+      }
+      if (_gestorEmailCtrl.text.trim().isEmpty) {
+        return 'E-mail é obrigatório.';
+      }
+      return null;
+    }
     if (_gestorNomeCtrl.text.trim().isEmpty)
       return 'Preencha o nome completo do gestor.';
     final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (cpf.isNotEmpty && cpf.length != 11) {
       return 'CPF do gestor deve ter 11 dígitos ou ficar em branco.';
     }
-    final uidGestorVal = (_gestorMemberData?['authUid'] ?? '').toString().trim();
-    final curUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final podeSemCpf = uidGestorVal.isNotEmpty ||
         (curUid.isNotEmpty && widget.role.toLowerCase() != 'master');
     if (cpf.length != 11 && !podeSemCpf) {
@@ -719,7 +859,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _gestorMemberDocId != null && _gestorMemberDocId!.trim().isNotEmpty;
     final hasPhoto = _gPhotoBytes != null || hasNet || hasStorageFallback;
     if (!hasPhoto)
-      return 'Envie a foto do gestor (mesmo padrão do cadastro de membros).';
+      return 'Envie a foto do gestor (mesmo padrÃ£o do cadastro de membros).';
     return null;
   }
 
@@ -728,8 +868,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || !_canEdit) return;
     final cpfDigits = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
-    final dataAuth =
-        (_gestorMemberData?['authUid'] ?? '').toString().trim();
+    final dataAuth = (_gestorMemberData?['authUid'] ?? '').toString().trim();
     if (cpfDigits.length != 11 &&
         dataAuth.isEmpty &&
         (uid.isEmpty || widget.role.toLowerCase() == 'master')) {
@@ -751,20 +890,42 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         .collection('igrejas')
         .doc(resolvedId)
         .collection('membros');
+    final roleLower = widget.role.toLowerCase();
+    final editorIsChurchStaff =
+        roleLower == 'gestor' || roleLower == 'adm' || roleLower == 'admin';
+
     late final String docId;
-    if (cpfDigits.length == 11) {
-      docId = await _resolveGestorMembroDocumentId(resolvedId, cpfDigits);
-    } else if (dataAuth.isNotEmpty) {
+    if (dataAuth.isNotEmpty) {
       docId = dataAuth;
-    } else {
+    } else if (editorIsChurchStaff && uid.isNotEmpty) {
       docId = uid;
+    } else if (cpfDigits.length == 11) {
+      docId = await _resolveGestorMembroDocumentId(resolvedId, cpfDigits);
+    } else if (uid.isNotEmpty) {
+      docId = uid;
+    } else {
+      return;
     }
+
+    final String authUidForPayload;
+    if (_looksLikeFirebaseAuthUid(docId)) {
+      authUidForPayload = docId;
+    } else if (dataAuth.isNotEmpty && _looksLikeFirebaseAuthUid(dataAuth)) {
+      authUidForPayload = dataAuth;
+    } else if (editorIsChurchStaff && uid.isNotEmpty) {
+      authUidForPayload = uid;
+    } else {
+      authUidForPayload = '';
+    }
+
     final ref = col.doc(docId);
     final existingSnap = await ref.get();
 
     String? photoUrl = _gestorExistingPhotoUrl;
     if ((photoUrl == null || photoUrl.isEmpty) && docId.isNotEmpty) {
-      final authGestor = (_gestorMemberData?['authUid'] ?? uid ?? '')
+      final authGestor = (authUidForPayload.isNotEmpty
+              ? authUidForPayload
+              : (_gestorMemberData?['authUid'] ?? uid))
           .toString()
           .trim();
       final nomeGestor = _gestorNomeCtrl.text.trim().isNotEmpty
@@ -809,7 +970,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           contentType: 'image/jpeg',
         ).catchError((Object _, StackTrace __) => ''),
       );
-      FirebaseStorageCleanupService.scheduleCleanupAfterGestorProfilePhotoUpload(
+      FirebaseStorageCleanupService
+          .scheduleCleanupAfterGestorProfilePhotoUpload(
         tenantId: resolvedId,
       );
       if (mounted) {
@@ -817,9 +979,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _gestorExistingPhotoUrl = photoUrl;
           _gPhotoBytes = null;
         });
-        final cacheAuthGestor = cpfDigits.length == 11
-            ? (dataAuth.isNotEmpty ? dataAuth : uid)
-            : docId;
+        final cacheAuthGestor = authUidForPayload.isNotEmpty
+            ? authUidForPayload
+            : (dataAuth.isNotEmpty ? dataAuth : uid);
         FirebaseStorageService.invalidateMemberPhotoCache(
           tenantId: resolvedId,
           memberId: docId,
@@ -834,7 +996,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
     }
     if (photoUrl == null || photoUrl.isEmpty) {
-      final seed = cpfDigits.isNotEmpty ? cpfDigits : uid;
+      final seed = authUidForPayload.isNotEmpty
+          ? authUidForPayload
+          : (cpfDigits.isNotEmpty ? cpfDigits : uid);
       photoUrl =
           'https://api.dicebear.com/7.x/initials/png?seed=${Uri.encodeComponent(seed)}&backgroundColor=EAF2FF,DDEBFF,CFE3FF';
     }
@@ -883,45 +1047,52 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'role': funcaoKey,
       'STATUS': 'ativo',
       'status': 'ativo',
-      'authUid': uid,
       'GESTOR_SYNC': true,
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
       'podeVerFinanceiro': false,
       'podeVerPatrimonio': false,
     };
+    if (authUidForPayload.isNotEmpty) {
+      payload['authUid'] = authUidForPayload;
+    }
     if (!existingSnap.exists) {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
     }
     await ref.set(payload, SetOptions(merge: true));
 
-    // Gravações em paralelo (menos tempo em "Salvando...").
-    final rootUserWrite = FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .set({
-      'role': funcaoKey,
-      'roles': funcoes,
-      'nome': nome,
-      'displayName': nome,
-      'name': nome,
-      'email': email,
-      'tenantId': resolvedId,
-      'igrejaId': resolvedId,
-      'FUNCOES': funcoes,
-      'funcao': funcaoKey,
-      'cargo': cargoLabel,
-      'CARGO': cargoLabel,
-      'photoURL': photoUrl,
-      'fotoUrl': photoUrl,
-      'FOTO_URL_OU_ID': photoUrl,
-    }, SetOptions(merge: true)).catchError((Object _, StackTrace __) {});
-    await Future.wait<void>([
-      rootUserWrite,
-      FirebaseFirestore.instance
+    await _deleteDuplicateGestorMembroDocs(
+        col, docId, cpfDigits, authUidForPayload);
+
+    final userWriteId = authUidForPayload.isNotEmpty
+        ? authUidForPayload
+        : (uid.isNotEmpty && editorIsChurchStaff ? uid : '');
+
+    // GravaÃ§Ãµes em paralelo (menos tempo em "Salvando...").
+    final parallel = <Future<void>>[];
+    if (userWriteId.isNotEmpty && _looksLikeFirebaseAuthUid(userWriteId)) {
+      parallel.add(
+          FirebaseFirestore.instance.collection('users').doc(userWriteId).set({
+        'role': funcaoKey,
+        'roles': funcoes,
+        'nome': nome,
+        'displayName': nome,
+        'name': nome,
+        'email': email,
+        'tenantId': resolvedId,
+        'igrejaId': resolvedId,
+        'FUNCOES': funcoes,
+        'funcao': funcaoKey,
+        'cargo': cargoLabel,
+        'CARGO': cargoLabel,
+        'photoURL': photoUrl,
+        'fotoUrl': photoUrl,
+        'FOTO_URL_OU_ID': photoUrl,
+      }, SetOptions(merge: true)).catchError((Object _, StackTrace __) {}));
+      parallel.add(FirebaseFirestore.instance
           .collection('igrejas')
           .doc(resolvedId)
           .collection('users')
-          .doc(uid)
+          .doc(userWriteId)
           .set({
         'role': funcaoKey,
         'roles': funcoes,
@@ -935,8 +1106,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'photoURL': photoUrl,
         'fotoUrl': photoUrl,
         'FOTO_URL_OU_ID': photoUrl,
-      }, SetOptions(merge: true)),
-      FirebaseFirestore.instance
+      }, SetOptions(merge: true)));
+    }
+    if (cpfDigits.length == 11) {
+      parallel.add(FirebaseFirestore.instance
           .collection('igrejas')
           .doc(resolvedId)
           .collection('usersIndex')
@@ -951,10 +1124,35 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'cargo': cargoLabel,
         'CARGO': cargoLabel,
         'FUNCOES': funcoes,
-        'authUid': uid,
+        if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
+        if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-    ]);
+      }, SetOptions(merge: true)));
+    }
+    if (authUidForPayload.isNotEmpty &&
+        _looksLikeFirebaseAuthUid(authUidForPayload) &&
+        authUidForPayload != cpfDigits) {
+      parallel.add(FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(resolvedId)
+          .collection('usersIndex')
+          .doc(authUidForPayload)
+          .set({
+        'email': email,
+        'cpf': cpfDigits,
+        'nome': nome,
+        'name': nome,
+        'tenantId': resolvedId,
+        'role': funcaoKey,
+        'cargo': cargoLabel,
+        'CARGO': cargoLabel,
+        'FUNCOES': funcoes,
+        'uid': authUidForPayload,
+        'authUid': authUidForPayload,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)));
+    }
+    await Future.wait<void>(parallel);
 
     if (mounted) {
       _gestorHydrateSeq++;
@@ -970,7 +1168,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Galeria ou câmera: alta resolução → bytes locais; use [Cortar] e [Enviar logo] para publicar.
+  /// Galeria ou câmera: alta resoluÃ§Ã£o â†’ bytes locais; use [Cortar] e [Enviar logo] para publicar.
   Future<void> _pickLogoFromGallery() async {
     if (!_canEdit) return;
     try {
@@ -1053,7 +1251,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (cropped != null && mounted) setState(() => _gPhotoBytes = cropped);
   }
 
-  Future<void> _deleteChurchLogoStorageObjectAndVariants(String? storagePath) async {
+  Future<void> _deleteChurchLogoStorageObjectAndVariants(
+      String? storagePath) async {
     final p = storagePath?.trim() ?? '';
     if (p.isEmpty) return;
     try {
@@ -1070,7 +1269,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           await FirebaseStorage.instance.ref('$base$suffix').delete();
         } catch (_) {}
       }
-      // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
+      // ExtensÃ£o Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
       final slash = p.lastIndexOf('/');
       if (slash >= 0 && dot > slash) {
         final dir = p.substring(0, slash);
@@ -1094,15 +1293,27 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     setState(() {
       _uploadingLogo = true;
       _logoUploadProgress = 0;
+      _logoUploadPhase = 'encoding';
     });
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final resolvedId =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      final png = await encodeChurchLogoAsPng(_logoBytes!);
+      final png =
+          await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1280);
+      if (!mounted) return true;
+      setState(() {
+        _logoUploadPhase = 'uploading';
+        _logoUploadProgress = 0;
+      });
       await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
-      await FirebaseStorageCleanupService.deleteLegacyChurchLogoMediaUnderTenant(
-          resolvedId);
+      // MantÃ©m sÃ³ a identidade canÃ³nica em PNG: remove legado `.jpg` no mesmo sÃ­tio.
+      try {
+        await FirebaseStorage.instance
+            .ref(
+                ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(resolvedId))
+            .delete();
+      } catch (_) {}
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
       final upload = await MediaUploadService.uploadBytesDetailed(
@@ -1121,8 +1332,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _logoBytes = png;
         _logoStoragePath = upload.storagePath;
         _uploadingLogo = false;
+        _logoUploadPhase = '';
       });
-      _logoUrlFieldCtrl.text = url;
       await CachedNetworkImage.evictFromCache(url);
       AppStorageImageService.instance
           .invalidateStoragePrefix('igrejas/$resolvedId/logo');
@@ -1144,6 +1355,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
         tenantId: resolvedId,
       );
+      unawaited(
+          FirebaseStorageCleanupService.deleteLegacyChurchLogoMediaUnderTenant(
+              resolvedId));
       if (!mounted) return true;
       setState(() {});
       if (mounted && showCommitSuccessSnack) {
@@ -1155,7 +1369,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return true;
     } catch (e) {
       if (mounted) {
-        setState(() => _uploadingLogo = false);
+        setState(() {
+          _uploadingLogo = false;
+          _logoUploadPhase = '';
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Erro ao enviar logo: $e'),
         );
@@ -1163,368 +1380,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return false;
     } finally {
       if (mounted) {
-        setState(() => _logoUploadProgress = 0);
+        setState(() {
+          _logoUploadProgress = 0;
+          if (!_uploadingLogo) _logoUploadPhase = '';
+        });
       }
     }
-  }
-
-  Future<void> _pickPastorSigFromGallery() async {
-    if (!_canEdit) return;
-    try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessFromGallery();
-      if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
-      if (!mounted) return;
-      setState(() => _pastorSigBytes = bytes);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-            'Assinatura carregada. Toque em Enviar para aplicar nos certificados.'),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao selecionar imagem: $e'),
-        );
-      }
-    }
-  }
-
-  Future<void> _pickPastorSigFromCamera() async {
-    if (!_canEdit) return;
-    try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessFromCamera();
-      if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
-      if (!mounted) return;
-      setState(() => _pastorSigBytes = bytes);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-            'Assinatura carregada. Toque em Enviar para aplicar nos certificados.'),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao capturar imagem: $e'),
-        );
-      }
-    }
-  }
-
-  Future<void> _openPastorSignatureSheet() async {
-    if (!_canEdit || !mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          margin: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.draw_rounded,
-                          color: ThemeCleanPremium.primary),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          'Assinatura do pastor (certificados)',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_rounded),
-                  title: const Text('Galeria'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickPastorSigFromGallery();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_camera_rounded),
-                  title: const Text('Câmera'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickPastorSigFromCamera();
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.cloud_upload_rounded,
-                      color: (_pastorSigBytes == null || _uploadingPastorSig)
-                          ? Colors.grey
-                          : ThemeCleanPremium.primary),
-                  title: Text(
-                      _uploadingPastorSig ? 'Enviando…' : 'Enviar ao Storage'),
-                  enabled: _pastorSigBytes != null && !_uploadingPastorSig,
-                  onTap: _pastorSigBytes == null || _uploadingPastorSig
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          _commitPastorSignatureUpload();
-                        },
-                ),
-                const SizedBox(height: 10),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _commitPastorSignatureUpload() async {
-    if (!_canEdit || _pastorSigBytes == null || !mounted) return;
-    setState(() => _uploadingPastorSig = true);
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final resolvedId =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      final png = await encodeChurchLogoAsPng(_pastorSigBytes!);
-      final paths = ChurchStorageLayout.pastorSignatureConfigPaths(resolvedId);
-      final path = paths.first;
-      await MediaUploadService.uploadBytesDetailed(
-        storagePath: path,
-        bytes: png,
-        contentType: 'image/png',
-      );
-      if (paths.length > 1) {
-        try {
-          await FirebaseStorage.instance.ref(paths[1]).delete();
-        } catch (_) {}
-      }
-      FirebaseStorageService.invalidatePastorSignatureCache(resolvedId);
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$resolvedId/configuracoes');
-      FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
-        tenantId: resolvedId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _uploadingPastorSig = false;
-        _pastorSigBytes = null;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-            'Assinatura guardada em configuracoes/assinatura.png — usada nos certificados PDF.'),
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _uploadingPastorSig = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao enviar assinatura: $e'),
-        );
-      }
-    }
-  }
-
-  Future<void> _removePastorSignatureFromStorage() async {
-    if (!_canEdit || !mounted) return;
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remover assinatura institucional?'),
-        content: const Text(
-            'O ficheiro configuracoes/assinatura.png será apagado. Os certificados deixam de incluir esta imagem até enviar outra.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remover'),
-          ),
-        ],
-      ),
-    );
-    if (go != true || !mounted) return;
-    try {
-      final resolvedId =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      for (final p
-          in ChurchStorageLayout.pastorSignatureConfigPaths(resolvedId)) {
-        try {
-          await FirebaseStorage.instance.ref(p).delete();
-        } catch (_) {}
-      }
-      FirebaseStorageService.invalidatePastorSignatureCache(resolvedId);
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$resolvedId/configuracoes');
-      if (mounted) {
-        setState(() => _pastorSigBytes = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Assinatura removida do Storage.'),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao remover: $e'),
-        );
-      }
-    }
-  }
-
-  Widget _buildPastorSignatureCertCard(String resolvedTenantId) {
-    final tid = resolvedTenantId.trim();
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: const Color(0xFFE8EEF5)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.workspace_premium_rounded,
-                  size: 20, color: ThemeCleanPremium.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Assinatura do pastor (certificados)',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: ThemeCleanPremium.onSurface,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Imagem aplicada automaticamente no rodapé dos certificados quando a opção de assinatura institucional estiver ativa (PDF). '
-            'Recomendado: PNG com fundo transparente e traço escuro — o PDF ajusta a escala para não desproporcionar. '
-            'Guardada em configuracoes/assinatura.png.',
-            style: TextStyle(
-                fontSize: 12, color: Colors.grey.shade600, height: 1.35),
-          ),
-          const SizedBox(height: 12),
-          Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 280, minHeight: 72),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: _pastorSigBytes != null
-                  ? Image.memory(_pastorSigBytes!, fit: BoxFit.contain)
-                  : tid.isEmpty
-                      ? Text(
-                          'ID da igreja indisponível.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        )
-                      : FutureBuilder<String?>(
-                          future: FirebaseStorageService
-                              .getPastorSignatureConfigDownloadUrl(tid),
-                          builder: (context, snap) {
-                            final url = snap.data;
-                            if (snap.connectionState == ConnectionState.waiting) {
-                              return const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Center(
-                                    child: SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )),
-                              );
-                            }
-                            if (url == null || url.isEmpty) {
-                              return Text(
-                                'Nenhuma assinatura enviada.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
-                              );
-                            }
-                            return ResilientNetworkImage(
-                              imageUrl: url,
-                              fit: BoxFit.contain,
-                              width: 260,
-                              height: 100,
-                            );
-                          },
-                        ),
-            ),
-          ),
-          if (_canEdit) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                TextButton.icon(
-                  onPressed: _uploadingPastorSig ? null : _openPastorSignatureSheet,
-                  icon: Icon(Icons.add_photo_alternate_rounded,
-                      size: 18, color: ThemeCleanPremium.primary),
-                  label: Text(
-                    _uploadingPastorSig ? 'A enviar…' : 'Carregar assinatura',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: ThemeCleanPremium.primary,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _uploadingPastorSig ? null : _removePastorSignatureFromStorage,
-                  icon: Icon(Icons.delete_outline_rounded,
-                      size: 18, color: Colors.red.shade700),
-                  label: Text(
-                    'Remover',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.red.shade700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
   }
 
   /// Busca CEP via ViaCEP e preenche rua, bairro, cidade, estado.
@@ -1567,7 +1428,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Monta o endereço completo para exibição e para o site público.
+  /// Monta o endereço completo para exibiÃ§Ã£o e para o site público.
   String _buildEnderecoCompleto() {
     final rua = _ruaCtrl.text.trim();
     final qdLt = _quadraLoteNumeroCtrl.text.trim();
@@ -1628,7 +1489,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Logo atualizado e disponível.'));
+            ThemeCleanPremium.successSnackBar(
+                'Logo atualizado e disponível.'));
       }
     } catch (e) {
       try {
@@ -1664,7 +1526,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Token do Firebase Storage expira: renova URL e grava no Firestore (logo “sempre disponível”).
+  /// Token do Firebase Storage expira: renova URL e grava no Firestore (logo â€œsempre disponívelâ€).
   Future<void> _maybeRefreshStorageLogoUrl() async {
     final u = _logoUrl;
     if (u == null || u.isEmpty) return;
@@ -1677,7 +1539,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted || fresh.isEmpty || fresh == s) return;
       setState(() {
         _logoUrl = fresh;
-        _logoUrlFieldCtrl.text = fresh;
         _logoBytes = null;
         _logoStagedNotUploaded = false;
       });
@@ -1692,8 +1553,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   ) async {
     if (!mounted) return;
     final existing = (_logoUrl ?? '').trim();
-    if (existing.isNotEmpty &&
-        isValidImageUrl(sanitizeImageUrl(existing))) {
+    if (existing.isNotEmpty && isValidImageUrl(sanitizeImageUrl(existing))) {
       return;
     }
     try {
@@ -1717,9 +1577,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           setState(() {
             _logoUrl = clean;
             _logoStoragePath = path;
-            if (_logoUrlFieldCtrl.text.trim().isEmpty) {
-              _logoUrlFieldCtrl.text = clean;
-            }
             _logoBytes = null;
             _logoStagedNotUploaded = false;
           });
@@ -1742,57 +1599,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (clean.isEmpty || !isValidImageUrl(clean)) return;
       setState(() {
         _logoUrl = clean;
-        if (_logoUrlFieldCtrl.text.trim().isEmpty) {
-          _logoUrlFieldCtrl.text = clean;
-        }
         _logoBytes = null;
         _logoStagedNotUploaded = false;
       });
       await _maybeRefreshStorageLogoUrl();
     } catch (_) {}
-  }
-
-  Future<void> _pasteLogoUrlFromClipboard() async {
-    if (!_canEdit) return;
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final t = data?.text?.trim() ?? '';
-    if (t.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-              'Área de transferência vazia. Copie a URL da imagem primeiro.'),
-        );
-      }
-      return;
-    }
-    _logoUrlFieldCtrl.text = t;
-    await _applyLogoUrlFromField();
-  }
-
-  Future<void> _applyLogoUrlFromField() async {
-    if (!_canEdit) return;
-    final raw = _logoUrlFieldCtrl.text.trim();
-    final u = sanitizeImageUrl(raw);
-    if (!isValidImageUrl(u)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-              'Cole uma URL https válida da logo (ex.: link do Firebase Storage).'),
-        );
-      }
-      return;
-    }
-    setState(() {
-      _logoUrl = u;
-      _logoBytes = null;
-      _logoStagedNotUploaded = false;
-    });
-    await _saveLogoUrl(u);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('Logo atualizada pela URL.'),
-      );
-    }
   }
 
   Future<String> get _resolvedTenantId =>
@@ -1801,14 +1612,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _save() async {
     if (!_canEdit) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final gestorErr = _validateGestorMembroFields();
-    if (gestorErr != null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(ThemeCleanPremium.feedbackSnackBar(gestorErr));
-      }
-      return;
-    }
     ThemeCleanPremium.hapticAction();
     setState(() => _saving = true);
     try {
@@ -1818,8 +1621,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _logoStagedNotUploaded &&
           _logoBytes != null &&
           !_uploadingLogo) {
-        final logoOk = await _commitLogoUploadFromPending(
-            showCommitSuccessSnack: false);
+        final logoOk =
+            await _commitLogoUploadFromPending(showCommitSuccessSnack: false);
         if (!mounted) return;
         if (!logoOk) {
           setState(() => _saving = false);
@@ -1832,6 +1635,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           .replaceAll(RegExp(r'[^a-z0-9\-]'), '-')
           .replaceAll(RegExp(r'-+'), '-')
           .replaceAll(RegExp(r'^-|-$'), '');
+      final cnpjDigits = _cnpjIgrejaCtrl.text.replaceAll(RegExp(r'\D'), '');
       final data = <String, dynamic>{
         'name': _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
         'nome': _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
@@ -1858,20 +1662,55 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'telefone': _telefoneCtrl.text.trim().isEmpty
             ? null
             : _telefoneCtrl.text.trim(),
-        'gestorNome': _gestorNomeCtrl.text.trim().isEmpty
-            ? null
-            : _gestorNomeCtrl.text.trim(),
-        'gestorCpf': _gestorCpfCtrl.text.trim().isEmpty
-            ? null
-            : _gestorCpfCtrl.text.trim(),
-        'gestorTelefone': _gestorTelefoneCtrl.text.trim().isEmpty
-            ? null
-            : _gestorTelefoneCtrl.text.trim(),
-        'gestorEmail': _gestorEmailCtrl.text.trim().isEmpty
-            ? null
-            : _gestorEmailCtrl.text.trim(),
+        ...(cnpjDigits.isEmpty
+            ? <String, dynamic>{
+                'cnpj': FieldValue.delete(),
+                'CNPJ': FieldValue.delete(),
+                'cnpjCpf': FieldValue.delete(),
+              }
+            : <String, dynamic>{
+                'cnpj': _cnpjIgrejaCtrl.text.trim(),
+                'CNPJ': _cnpjIgrejaCtrl.text.trim(),
+                'cnpjCpf': _cnpjIgrejaCtrl.text.trim(),
+              }),
         'updatedAt': FieldValue.serverTimestamp(),
       };
+
+      void mergeOptionalUrl(
+        String trimmed,
+        String primaryKey,
+        List<String> legacyKeys,
+      ) {
+        if (trimmed.isEmpty) {
+          data[primaryKey] = FieldValue.delete();
+          for (final k in legacyKeys) {
+            data[k] = FieldValue.delete();
+          }
+        } else {
+          data[primaryKey] = trimmed;
+        }
+      }
+
+      mergeOptionalUrl(_instagramUrlCtrl.text.trim(), 'instagramUrl', const [
+        'instagram',
+        'linkInstagram',
+      ]);
+      mergeOptionalUrl(_youtubeUrlCtrl.text.trim(), 'youtubeUrl', const [
+        'youtube',
+        'linkYoutube',
+      ]);
+      mergeOptionalUrl(_facebookUrlCtrl.text.trim(), 'facebookUrl', const [
+        'facebook',
+        'linkFacebook',
+      ]);
+      final waDigits =
+          _whatsappChatUrlCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+      mergeOptionalUrl(waDigits, 'whatsappChatUrl', const [
+        'socialWhatsappUrl',
+        'whatsappLink',
+        'linkWhatsapp',
+      ]);
+
       if (_logoUrl != null && _logoUrl!.isNotEmpty) {
         data['logoUrl'] = _logoUrl;
         data['logo_url'] = _logoUrl;
@@ -1889,7 +1728,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             setState(() => _saving = false);
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar(
-                'Este link está reservado pelo sistema. Ajuste o slug (link do site).',
+                'Este link está reservado pelo sistema. Altere o nome da igreja para gerar outro endereço.',
               ),
             );
           }
@@ -1905,7 +1744,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             setState(() => _saving = false);
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar(
-                'O link "$slugRaw" já está em uso por outra igreja. Escolha outro.',
+                'O link "$slugRaw" já está em uso por outra igreja. Altere o nome da igreja para gerar outro.',
               ),
             );
           }
@@ -1913,59 +1752,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         }
       }
 
-      final hexNorm = _normalizeSitePrimaryHex(_sitePrimaryHexCtrl.text);
-      if (_sitePrimaryHexCtrl.text.trim().isNotEmpty && hexNorm == null) {
-        if (mounted) {
-          setState(() => _saving = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(
-              'Cor do site inválida. Use o formato #RRGGBB (ex.: #2563EB).',
-            ),
-          );
-        }
-        return;
-      }
-      data['sitePrimaryHex'] = hexNorm ?? FieldValue.delete();
-
-      final metaTitulo = _metaMinisterialTituloCtrl.text.trim();
-      final metaValorRaw = _metaMinisterialValorCtrl.text.trim();
-      final metaAcuRaw = _metaMinisterialAcumuladoCtrl.text.trim();
-      double? metaValor;
-      double? metaAcu;
-      if (metaValorRaw.isNotEmpty) {
-        metaValor = _parseMetaMoneyField(metaValorRaw);
-        if (metaValor == null) {
-          if (mounted) {
-            setState(() => _saving = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar(
-                'Valor da meta ministerial inválido. Use números (ex.: 5000 ou 5.000,00).',
-              ),
-            );
-          }
-          return;
-        }
-      }
-      if (metaAcuRaw.isNotEmpty) {
-        metaAcu = _parseMetaMoneyField(metaAcuRaw);
-        if (metaAcu == null) {
-          if (mounted) {
-            setState(() => _saving = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar(
-                'Valor acumulado da meta inválido. Use números (ex.: 1200 ou 1.200,50).',
-              ),
-            );
-          }
-          return;
-        }
-      }
-      data['metaMinisterialTitulo'] =
-          metaTitulo.isEmpty ? FieldValue.delete() : metaTitulo;
-      data['metaMinisterialValor'] =
-          metaValor == null ? FieldValue.delete() : metaValor;
-      data['metaMinisterialAcumulado'] =
-          metaAcu == null ? FieldValue.delete() : metaAcu;
+      data['sitePrimaryHex'] = FieldValue.delete();
 
       await FirebaseFirestore.instance
           .collection('igrejas')
@@ -1973,22 +1760,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           .set(data, SetOptions(merge: true));
       if (!mounted) return;
       try {
-        final slugLive = slugRaw.isEmpty ? resolvedId : slugRaw;
-        await _syncGestorToMembros(resolvedId, {
-          'alias': slugLive,
-          'slug': slugLive,
-        });
+        await GestorMembroStubService.ensurePreCadastroGestor(
+          tenantId: resolvedId,
+          role: widget.role,
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'Dados da igreja e ficha do gestor em Membros (administrador) atualizados.'),
+              'Cadastro da igreja salvo. Complete sua ficha pessoal em Membros quando quiser.',
+            ),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar(
-                'Igreja salva. Ajuste a ficha do gestor e tente novamente: $e'),
+              'Igreja salva. Pré-cadastro em Membros: $e',
+            ),
           );
         }
       }
@@ -2054,7 +1842,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (picked != null && mounted) setState(() => _gBirthDate = picked);
   }
 
-  /// Prévia compacta — alinhada ao tamanho usado no cadastro de membros (~120px).
+  /// PrÃ©via compacta â€” alinhada ao tamanho usado no cadastro de membros (~120px).
   Widget _gestorPhotoPlaceholder(double side, {bool circular = true}) {
     final inner = Container(
       width: side,
@@ -2132,127 +1920,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         clipBehavior: Clip.antiAlias,
         child: child,
       ),
-    );
-  }
-
-  Widget _igGestorRing({
-    required double diameter,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(3.5),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: _igStoryRingGradient,
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: ClipOval(
-        child: SizedBox(
-          width: diameter,
-          height: diameter,
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openLogoInstagramSheet() async {
-    if (!_canEdit || !mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          margin: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.domain_rounded,
-                          color: ThemeCleanPremium.primary),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          'Logo da igreja',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_rounded),
-                  title: const Text('Galeria'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickLogoFromGallery();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_camera_rounded),
-                  title: const Text('Câmera'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _pickLogoFromCamera();
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.crop_rounded,
-                      color: _logoBytes == null ? Colors.grey : null),
-                  title: const Text('Cortar prévia'),
-                  enabled: _logoBytes != null && !_uploadingLogo,
-                  onTap: _logoBytes == null || _uploadingLogo
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          _cropPendingLogo();
-                        },
-                ),
-                ListTile(
-                  leading: Icon(Icons.cloud_upload_rounded,
-                      color: (_logoBytes == null || _uploadingLogo)
-                          ? Colors.grey
-                          : ThemeCleanPremium.primary),
-                  title: Text(
-                      _uploadingLogo ? 'Enviando…' : 'Enviar ao Storage'),
-                  enabled: _logoBytes != null && !_uploadingLogo,
-                  onTap: _logoBytes == null || _uploadingLogo
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          _commitLogoUploadFromPending();
-                        },
-                ),
-                const SizedBox(height: 10),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -2341,198 +2008,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     );
   }
 
-  Widget _buildIdentidadeVisualCard(
-      String resolvedTenantId, Map<String, dynamic>? tenantLive) {
-    final liveLogoUrl = churchTenantLogoUrl(tenantLive ?? {}).trim();
-    final liveUrlSan = liveLogoUrl.isNotEmpty
-        ? sanitizeImageUrl(liveLogoUrl)
-        : '';
-    /// OK: bytes locais ou URL https válida no doc (path sozinho gerava “OK” com prévia em branco).
-    final hasLogo = _logoBytes != null ||
-        (liveUrlSan.isNotEmpty && isValidImageUrl(liveUrlSan));
-    final gestorPhotoUrl = (_gestorExistingPhotoUrl ?? '').trim();
-    final md = _gestorMemberData;
-    final mdPhoto = md != null ? imageUrlFromMap(md).trim() : '';
-    final mdLegacy = md != null
-        ? (md['FOTO_URL_OU_ID'] ?? md['foto_url'] ?? '').toString().trim()
-        : '';
-    final mdUrlOk = (mdPhoto.isNotEmpty &&
-            isValidImageUrl(sanitizeImageUrl(mdPhoto))) ||
-        (mdLegacy.isNotEmpty && isValidImageUrl(sanitizeImageUrl(mdLegacy)));
-    final hasGestorPhoto = _gPhotoBytes != null ||
-        gestorPhotoUrl.isNotEmpty ||
-        mdUrlOk;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: const Color(0xFFE8EEF5)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded,
-                  size: 20, color: ThemeCleanPremium.primary),
-              const SizedBox(width: 8),
-              Text(
-                'Identidade visual ativa',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: ThemeCleanPremium.onSurface,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'A logo da igreja e a foto do gestor aparecem no painel e no fluxo de membros.',
-            style: TextStyle(
-                fontSize: 12, color: Colors.grey.shade600, height: 1.35),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _identityTile(
-                  title: 'Logo da igreja',
-                  ok: hasLogo,
-                  child: SizedBox(
-                    height: 100,
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final maxW =
-                            c.maxWidth > 0 ? c.maxWidth : 160.0;
-                        final iw = min(maxW - 10, 152.0);
-                        const ih = 74.0;
-                        final dpr =
-                            MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-                        final memW = (iw * dpr).round().clamp(120, 600);
-                        final memH = (ih * dpr).round().clamp(80, 400);
-                        return Center(
-                          child: _igLogoOuterFrame(
-                            width: iw,
-                            height: ih,
-                            child: _logoBytes != null
-                                ? Image.memory(_logoBytes!,
-                                    fit: BoxFit.contain)
-                                : (resolvedTenantId.isNotEmpty
-                                    ? StableChurchLogo(
-                                        storagePath: _logoStoragePath,
-                                        imageUrl: _logoUrl,
-                                        tenantId: resolvedTenantId,
-                                        tenantData: tenantLive,
-                                        width: iw,
-                                        height: ih,
-                                        fit: BoxFit.contain,
-                                        memCacheWidth: memW,
-                                        memCacheHeight: memH,
-                                      )
-                                    : _buildLogoPlaceholder(iconSize: 28)),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _identityTile(
-                  title: 'Foto do gestor',
-                  ok: hasGestorPhoto,
-                  child: SizedBox(
-                    height: 100,
-                    child: Center(
-                      child: _igGestorRing(
-                        diameter: 72,
-                        child: _gPhotoBytes != null
-                            ? Image.memory(
-                                _gPhotoBytes!,
-                                fit: BoxFit.cover,
-                                width: 72,
-                                height: 72,
-                              )
-                            : Builder(
-                                builder: (ctx) {
-                                  final tid = resolvedTenantId.trim();
-                                  final mid = _effectiveGestorMemberDocId();
-                                  final cpf = _gestorCpfCtrl.text
-                                      .replaceAll(RegExp(r'\D'), '');
-                                  final dpr =
-                                      MediaQuery.devicePixelRatioOf(ctx);
-                                  final mc =
-                                      (72 * dpr).round().clamp(120, 400);
-                                  return FotoMembroWidget(
-                                    key: ValueKey<String>(
-                                        'ig_idviz_${tid}_$mid'),
-                                    imageUrl: gestorPhotoUrl.isNotEmpty
-                                        ? gestorPhotoUrl
-                                        : null,
-                                    size: 72,
-                                    tenantId:
-                                        tid.isNotEmpty ? tid : null,
-                                    memberId:
-                                        mid.isNotEmpty ? mid : null,
-                                    cpfDigits: cpf.length == 11 ? cpf : null,
-                                    authUid: _gestorAuthUidFromMemberData(),
-                                    memberData: _gestorMemberData,
-                                    memCacheWidth: mc,
-                                    memCacheHeight: mc,
-                                    backgroundColor: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.12),
-                                    fallbackChild: _gestorPhotoPlaceholder(
-                                        72,
-                                        circular: false),
-                                  );
-                                },
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFDBEAFE)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.link_rounded,
-                    size: 18, color: Color(0xFF1D4ED8)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'A foto do gestor será usada também no cadastro de membros como Administrador.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// ID canónico = documento em `igrejas/{id}` (membros, mural, eventos, escalas usam este id).
+  /// ID canônico = documento em `igrejas/{id}` (membros, mural, eventos, escalas usam este id).
   Widget _buildChurchFirestoreIdBanner(String churchId) {
     final id = churchId.trim();
     if (id.isEmpty) return const SizedBox.shrink();
@@ -2570,7 +2046,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           const SizedBox(height: 4),
           Text(
             'Mural, eventos, escalas e demais dados ficam vinculados a este ID.',
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600, height: 1.3),
+            style: TextStyle(
+                fontSize: 11, color: Colors.grey.shade600, height: 1.3),
           ),
           if (_canEdit) ...[
             const SizedBox(height: 8),
@@ -2581,7 +2058,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   await Clipboard.setData(ClipboardData(text: id));
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    ThemeCleanPremium.successSnackBar('ID copiado para a área de transferência.'),
+                    ThemeCleanPremium.successSnackBar(
+                        'ID copiado para a área de transferência.'),
                   );
                 },
                 icon: Icon(Icons.copy_rounded,
@@ -2601,428 +2079,66 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     );
   }
 
-  Widget _identityTile({
-    required String title,
-    required bool ok,
-    required Widget child,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade700),
-            ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: ok ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                ok ? 'OK' : 'PENDENTE',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: ok ? const Color(0xFF166534) : const Color(0xFF991B1B),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        child,
-      ],
-    );
-  }
-
-  /// Ficha do gestor: mesmos blocos do cadastro público de membros + gravação em Membros como administrador.
-  Widget _buildGestorFichaCard(String resolvedTenantId) {
-    const preview = 120.0;
-
+  /// Rodapé: salvar cadastro da igreja + lembrete para completar dados pessoais em Membros.
+  Widget _buildChurchSaveFooter() {
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         border: Border.all(color: const Color(0xFFE8EEF5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9).withValues(alpha: 0.55),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                ),
-                child: Icon(Icons.groups_rounded,
-                    color: Colors.green.shade800, size: 24),
-              ),
-              const SizedBox(width: 14),
+              Icon(Icons.groups_2_rounded,
+                  color: ThemeCleanPremium.primary, size: 28),
+              const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Gestor — mesma ficha de Membros',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.35,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Os mesmos campos do cadastro público de membros. Ao salvar, o gestor entra automaticamente em Membros como Administrador.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          height: 1.4),
-                    ),
-                  ],
+                child: Text(
+                  'Sua foto, CPF e demais dados pessoais ficam em Membros (menu Pessoas). Ao salvar aqui, criamos um pré-cadastro mínimo se ainda não existir.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    height: 1.45,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.home_work_outlined,
-                      size: 20, color: Colors.grey.shade600),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Endereço do gestor na lista de Membros replica o endereço da igreja (bloco “Endereço” acima).',
-                      style: TextStyle(
-                          fontSize: 12,
-                          height: 1.35,
-                          color: Colors.grey.shade700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
-          _cadastroSectionLabel('Dados pessoais'),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _gestorNomeCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco('Nome completo', 'Nome do gestor'),
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          TextFormField(
-            controller: _gFiliacaoMaeCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco('Filiação (mãe)'),
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          TextFormField(
-            controller: _gFiliacaoPaiCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco('Filiação (pai)'),
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          LayoutBuilder(
-            builder: (context, c) {
-              final narrow = c.maxWidth < 420;
-              final cpfField = TextFormField(
-                controller: _gestorCpfCtrl,
-                readOnly: !_canEdit,
-                keyboardType: TextInputType.number,
-                decoration: _premiumInputDeco('CPF', '000.000.000-00'),
-                validator: (v) {
-                  final d = (v ?? '').replaceAll(RegExp(r'\D'), '');
-                  if (d.length != 11) return 'CPF com 11 dígitos';
-                  return null;
-                },
-              );
-              final birthField = TextFormField(
-                readOnly: true,
-                decoration: _premiumInputDeco(
-                  'Data de nascimento',
-                  _gBirthDate == null
-                      ? 'Toque para selecionar'
-                      : _formatGestorDate(_gBirthDate!),
-                ).copyWith(
-                  suffixIcon: const Icon(Icons.event_rounded),
-                ),
-                onTap: _pickGestorBirthDate,
-                validator: (_) => _gBirthDate == null ? 'Obrigatório' : null,
-              );
-              if (narrow) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    cpfField,
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    birthField,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: cpfField),
-                  const SizedBox(width: 12),
-                  Expanded(child: birthField),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          LayoutBuilder(
-            builder: (context, c) {
-              final narrow = c.maxWidth < 420;
-              final sexo = DropdownButtonFormField<String>(
-                value: ['Masculino', 'Feminino', 'Outro'].contains(_gSexo)
-                    ? _gSexo
-                    : 'Masculino',
-                decoration: _premiumInputDeco('Sexo'),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'Masculino', child: Text('Masculino')),
-                  DropdownMenuItem(value: 'Feminino', child: Text('Feminino')),
-                  DropdownMenuItem(value: 'Outro', child: Text('Outro')),
-                ],
-                onChanged: !_canEdit
-                    ? null
-                    : (v) => setState(() => _gSexo = v ?? 'Masculino'),
-              );
-              final tel = TextFormField(
-                controller: _gestorTelefoneCtrl,
-                readOnly: !_canEdit,
-                keyboardType: TextInputType.phone,
-                decoration:
-                    _premiumInputDeco('Telefone / WhatsApp', '(00) 00000-0000'),
-                validator: (v) =>
-                    (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
-              );
-              if (narrow) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    sexo,
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    tel,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: sexo),
-                  const SizedBox(width: 12),
-                  Expanded(child: tel),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          TextFormField(
-            controller: _gestorEmailCtrl,
-            readOnly: !_canEdit,
-            keyboardType: TextInputType.emailAddress,
-            decoration: _premiumInputDeco('E-mail', 'gestor@exemplo.com'),
-            validator: (v) {
-              final t = (v ?? '').trim();
-              if (t.isEmpty) return 'Obrigatório';
-              if (!t.contains('@')) return 'E-mail inválido';
-              return null;
-            },
-          ),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
-          _cadastroSectionLabel('Família e escolaridade'),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _gEstadoCivilCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco('Estado civil'),
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          TextFormField(
-            controller: _gEscolaridadeCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco('Escolaridade'),
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          TextFormField(
-            controller: _gConjugeCtrl,
-            readOnly: !_canEdit,
-            decoration: _premiumInputDeco(
-                'Nome do cônjuge', 'Se não houver, informe "—" ou "N/A"'),
-            validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceMd),
-          _cadastroSectionLabel('Foto do gestor'),
-          const SizedBox(height: 8),
-          Text(
-            'Prévia circular estilo perfil — toque para galeria ou câmera. Exibição resiliente (Storage), igual membros e galeria.',
-            style: TextStyle(
-                fontSize: 12, color: Colors.grey.shade600, height: 1.35),
-          ),
-          const SizedBox(height: 12),
           if (_canEdit)
-            Center(
-              child: TextButton.icon(
-                onPressed: _openGestorInstagramSheet,
-                icon: Icon(
-                  Icons.tune_rounded,
-                  size: 18,
-                  color: ThemeCleanPremium.primary,
-                ),
-                label: Text(
-                  'Opções da foto (galeria, câmera, cortar…)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: ThemeCleanPremium.primary,
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 14),
-          Builder(
-            builder: (context) {
-              final dpr = MediaQuery.devicePixelRatioOf(context);
-              final memImg = (preview * dpr).round().clamp(120, 400);
-              final tid = resolvedTenantId.trim();
-              final mid = _effectiveGestorMemberDocId();
-              final cpf =
-                  _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
-
-              Widget gestorPreview() {
-                if (_gPhotoBytes != null) {
-                  return Image.memory(
-                    _gPhotoBytes!,
-                    width: preview,
-                    height: preview,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.medium,
-                    isAntiAlias: true,
-                  );
-                }
-                final url = sanitizeImageUrl(_gestorExistingPhotoUrl ?? '');
-                if (tid.isNotEmpty && mid.isNotEmpty) {
-                  return FotoMembroWidget(
-                    key: ValueKey<String>('ig_gestor_prev_${tid}_$mid'),
-                    imageUrl: isValidImageUrl(url) ? url : null,
-                    size: preview,
-                    tenantId: tid,
-                    memberId: mid,
-                    cpfDigits: cpf.length == 11 ? cpf : null,
-                    authUid: _gestorAuthUidFromMemberData(),
-                    memberData: _gestorMemberData,
-                    memCacheWidth: memImg,
-                    memCacheHeight: memImg,
-                    backgroundColor:
-                        ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                    fallbackChild:
-                        _gestorPhotoPlaceholder(preview, circular: false),
-                  );
-                }
-                if (isValidImageUrl(url)) {
-                  return ResilientNetworkImage(
-                    key: ValueKey(url),
-                    imageUrl: url,
-                    width: preview,
-                    height: preview,
-                    fit: BoxFit.cover,
-                    memCacheWidth: memImg,
-                    memCacheHeight: memImg,
-                    placeholder: const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    errorWidget:
-                        _gestorPhotoPlaceholder(preview, circular: false),
-                  );
-                }
-                return _gestorPhotoPlaceholder(preview, circular: false);
-              }
-
-              return Center(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: !_canEdit ? null : _openGestorInstagramSheet,
-                    child: _igGestorRing(
-                      diameter: preview,
-                      child: gestorPreview(),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
-          if (_canEdit)
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.save_rounded),
-                label: Text(_saving
-                    ? 'Salvando...'
-                    : 'Salvar igreja e ficha do gestor'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
-                  shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.save_rounded),
+              label:
+                  Text(_saving ? 'Salvando...' : 'Salvar cadastro da igreja'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.primary,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
+                shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
                 ),
               ),
             )
           else
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Apenas gestores podem editar o cadastro da igreja e a ficha do gestor.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
+            Text(
+              'Apenas gestores podem editar o cadastro da igreja.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
         ],
       ),
@@ -3106,7 +2222,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'IDENTIDADE & GESTOR',
+                  'IDENTIDADE DA IGREJA',
                   style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
@@ -3115,7 +2231,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Cadastro premium',
+                  'Cadastro da igreja',
                   style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
@@ -3124,7 +2240,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Logo em prévia compacta, dados da igreja e a mesma ficha do cadastro de membros para o gestor — salvo em Membros como Administrador.',
+                  'Nome, CPF/CNPJ, logo, endereço com CEP e links públicos. Sua ficha pessoal fica em Membros.',
                   style: TextStyle(
                       fontSize: 13, color: Colors.grey.shade600, height: 1.45),
                 ),
@@ -3217,7 +2333,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   if (!mounted || _formHydrated) return;
                   _applyData(live);
                   final logo = churchTenantLogoUrl(live);
-                  _logoUrlFieldCtrl.text = logo;
                   _formHydrated = true;
                   if (!_logoTokenRefreshAttempted) {
                     _logoTokenRefreshAttempted = true;
@@ -3235,7 +2350,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                     await _hydrateLogoUrlFromStorageIfNeeded(resolvedId, live);
                   }
                   if (mounted) setState(() {});
-                  unawaited(_hydrateGestorFromMembros(resolvedId));
                 });
               } else if (!_uploadingLogo && !_logoStagedNotUploaded) {
                 final serverLogo = churchTenantLogoUrl(live);
@@ -3248,9 +2362,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                     setState(() {
                       _logoUrl = nu;
                       _logoBytes = null;
-                      if (_logoUrlFieldCtrl.text != nu) {
-                        _logoUrlFieldCtrl.text = nu;
-                      }
                     });
                   });
                 }
@@ -3277,10 +2388,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(
                       padding.left, padding.top, padding.right, bottomPadding),
-                  child: Center(
+                  child: Align(
+                    alignment: Alignment.topCenter,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                          maxWidth: fullWidth > 700 ? 700 : double.infinity),
+                        maxWidth: fullWidth > 1200 ? 1000 : fullWidth,
+                      ),
                       child: Form(
                         key: _formKey,
                         child: Column(
@@ -3336,7 +2449,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                             ),
                                             const SizedBox(height: 6),
                                             Text(
-                                              'Nome, logo (prévia compacta) e contatos no painel e no site público.',
+                                              'Nome, logo, endereço e contatos no painel e no site público.',
                                               style: TextStyle(
                                                   fontSize: 13,
                                                   color: Colors.grey.shade600,
@@ -3352,17 +2465,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   _buildChurchFirestoreIdBanner(resolvedId),
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
-                                  _buildIdentidadeVisualCard(resolvedId, live),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  _buildPastorSignatureCertCard(resolvedId),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
                                   TextFormField(
                                     controller: _nameCtrl,
                                     readOnly: !_canEdit,
                                     decoration: const InputDecoration(
-                                      labelText: 'Nome da igreja',
+                                      labelText: 'Nome completo da igreja',
                                       hintText:
                                           'Ex.: Igreja Brasil para Cristo',
                                       border: OutlineInputBorder(),
@@ -3374,71 +2481,172 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                     },
                                   ),
                                   const SizedBox(
+                                      height: ThemeCleanPremium.spaceMd),
+                                  TextFormField(
+                                    controller: _cnpjIgrejaCtrl,
+                                    readOnly: !_canEdit,
+                                    keyboardType: TextInputType.text,
+                                    decoration: const InputDecoration(
+                                      labelText: 'CPF ou CNPJ da igreja',
+                                      hintText:
+                                          'Somente números ou com máscara',
+                                      helperText:
+                                          'Opcional no início; use o mesmo CPF se for MEI.',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    validator: (v) {
+                                      final d = (v ?? '')
+                                          .replaceAll(RegExp(r'\D'), '');
+                                      if (d.isEmpty) return null;
+                                      if (d.length != 11 && d.length != 14) {
+                                        return 'Informe 11 (CPF) ou 14 (CNPJ) dígitos.';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
-                                  Text(
-                                    'Logo da igreja',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                      color: ThemeCleanPremium.onSurface,
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.07),
+                                          const Color(0xFFF8FAFC),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.14),
+                                      ),
+                                      boxShadow:
+                                          ThemeCleanPremium.softUiCardShadow,
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Estilo galeria: toque na prévia ou no botão da câmera — Galeria, Câmera, Cortar e Enviar ao Storage. Mesmo pipeline resiliente do Firebase que o mural.',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                        height: 1.35),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  if (_canEdit)
-                                    Align(
-                                      alignment: Alignment.center,
-                                      child: TextButton.icon(
-                                        onPressed: _uploadingLogo
-                                            ? null
-                                            : _openLogoInstagramSheet,
-                                        icon: Icon(
-                                          Icons.tune_rounded,
-                                          size: 18,
-                                          color: ThemeCleanPremium.primary,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(10),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(
+                                                            alpha: 0.05),
+                                                    blurRadius: 10,
+                                                    offset: const Offset(0, 3),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Icon(
+                                                Icons.photo_library_rounded,
+                                                color:
+                                                    ThemeCleanPremium.primary,
+                                                size: 22,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Logo da igreja',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      letterSpacing: -0.35,
+                                                      color: ThemeCleanPremium
+                                                          .onSurface,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    'Toque na moldura para escolher na galeria. Ao salvar, a imagem é otimizada e enviada automaticamente.',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color:
+                                                          Colors.grey.shade600,
+                                                      height: 1.35,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        label: Text(
-                                          _uploadingLogo
-                                              ? 'Enviando logo…'
-                                              : 'Opções da logo (galeria, câmera, cortar…)',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: ThemeCleanPremium.primary,
+                                        const SizedBox(height: 12),
+                                        if (_canEdit &&
+                                            _logoBytes != null &&
+                                            !_uploadingLogo)
+                                          Align(
+                                            alignment: Alignment.center,
+                                            child: TextButton.icon(
+                                              onPressed: _cropPendingLogo,
+                                              icon: Icon(
+                                                Icons.crop_rounded,
+                                                size: 18,
+                                                color:
+                                                    ThemeCleanPremium.primary,
+                                              ),
+                                              label: Text(
+                                                'Cortar pré-visualização',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  color:
+                                                      ThemeCleanPremium.primary,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    )
-                                  else
-                                    const SizedBox.shrink(),
-                                  if (_uploadingLogo) ...[
-                                    const SizedBox(height: 10),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: LinearProgressIndicator(
-                                        value: _logoUploadProgress <= 0
-                                            ? null
-                                            : _logoUploadProgress.clamp(
-                                                0.0, 1.0),
-                                        minHeight: 8,
-                                      ),
+                                        if (_uploadingLogo) ...[
+                                          const SizedBox(height: 10),
+                                          ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            child: LinearProgressIndicator(
+                                              value: _logoUploadPhase ==
+                                                          'uploading' &&
+                                                      _logoUploadProgress > 0
+                                                  ? _logoUploadProgress.clamp(
+                                                      0.0, 1.0)
+                                                  : null,
+                                              minHeight: 8,
+                                              backgroundColor: Colors.white
+                                                  .withValues(alpha: 0.85),
+                                              color: ThemeCleanPremium.primary,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _logoUploadPhase == 'encoding'
+                                                ? 'A otimizar imagem em segundo planoâ€¦'
+                                                : 'A enviar para a nuvem: ${(_logoUploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: ThemeCleanPremium.primary,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Upload da logo: ${(_logoUploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade700,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                   const SizedBox(height: 14),
                                   LayoutBuilder(
                                     builder: (context, constraints) {
@@ -3462,7 +2670,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                 onTap: (!_canEdit ||
                                                         _uploadingLogo)
                                                     ? null
-                                                    : _openLogoInstagramSheet,
+                                                    : _pickLogoFromGallery,
                                                 borderRadius:
                                                     BorderRadius.circular(24),
                                                 child: _igLogoOuterFrame(
@@ -3472,8 +2680,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                     child: _logoBytes != null
                                                         ? Image.memory(
                                                             _logoBytes!,
-                                                            fit: BoxFit
-                                                                .contain,
+                                                            fit: BoxFit.contain,
                                                             width: previewW,
                                                             height: boxH,
                                                             gaplessPlayback:
@@ -3483,12 +2690,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                                     .high,
                                                             isAntiAlias: true,
                                                             errorBuilder: (_,
-                                                                    __,
-                                                                    ___) =>
+                                                                    __, ___) =>
                                                                 _buildLogoPlaceholder(),
                                                           )
-                                                        : resolvedId
-                                                                .isNotEmpty
+                                                        : resolvedId.isNotEmpty
                                                             ? StableChurchLogo(
                                                                 storagePath:
                                                                     _logoStoragePath,
@@ -3498,15 +2703,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                                     resolvedId,
                                                                 tenantData:
                                                                     live,
-                                                                width:
-                                                                    previewW,
+                                                                width: previewW,
                                                                 height: boxH,
                                                                 fit: BoxFit
                                                                     .contain,
                                                               )
                                                             : SizedBox(
-                                                                width:
-                                                                    previewW,
+                                                                width: previewW,
                                                                 height: boxH,
                                                                 child:
                                                                     _buildLogoPlaceholder(),
@@ -3529,7 +2732,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                     customBorder:
                                                         const CircleBorder(),
                                                     onTap:
-                                                        _openLogoInstagramSheet,
+                                                        _pickLogoFromGallery,
                                                     child: const Padding(
                                                       padding:
                                                           EdgeInsets.all(11),
@@ -3547,137 +2750,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                         ),
                                       );
                                     },
-                                  ),
-                                  if (_canEdit) ...[
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Toque na moldura ou no ícone da câmera. URL do Storage abaixo (Ctrl+V) — mesma resiliência da galeria.',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade600,
-                                          height: 1.3),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    TextField(
-                                      controller: _logoUrlFieldCtrl,
-                                      decoration: InputDecoration(
-                                        labelText:
-                                            'URL da logo (Firebase Storage ou https)',
-                                        hintText:
-                                            'https://firebasestorage.googleapis.com/...',
-                                        border: const OutlineInputBorder(),
-                                        isDense: true,
-                                      ),
-                                      maxLines: 2,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Wrap(
-                                      spacing: 10,
-                                      runSpacing: 8,
-                                      children: [
-                                        OutlinedButton.icon(
-                                          onPressed: _uploadingLogo
-                                              ? null
-                                              : _pasteLogoUrlFromClipboard,
-                                          icon: const Icon(
-                                              Icons.content_paste_rounded,
-                                              size: 18),
-                                          label: const Text('Colar (Ctrl+V)'),
-                                        ),
-                                        FilledButton.tonal(
-                                          onPressed: _uploadingLogo
-                                              ? null
-                                              : _applyLogoUrlFromField,
-                                          child: const Text('Aplicar URL'),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  TextFormField(
-                                    controller: _slugCtrl,
-                                    decoration: InputDecoration(
-                                      labelText: 'Link do site público (slug)',
-                                      hintText: 'ex.: jardim-goiano',
-                                      helperText:
-                                          'Gerado pelo nome; você pode editar. URL: ${AppConstants.publicWebBaseUrl}/seu-slug — deve ser único.',
-                                      suffixIcon: _slugCtrl.text.isEmpty
-                                          ? null
-                                          : Icon(Icons.link_rounded,
-                                              size: 20,
-                                              color: Colors.grey.shade500),
-                                      border: const OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceMd),
-                                  TextFormField(
-                                    controller: _sitePrimaryHexCtrl,
-                                    decoration: const InputDecoration(
-                                      labelText:
-                                          'Cor principal do site (#RRGGBB)',
-                                      hintText: '#2563EB',
-                                      helperText:
-                                          'Opcional. Usada nos botões e degradês do site público da igreja.',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  _cadastroSectionLabel(
-                                      'Meta ministerial (painel)'),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Alimenta a barra de progresso em Saúde ministerial & BI no dashboard. Opcional; pode atualizar o acumulado quando quiser.',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade700,
-                                        height: 1.35),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _metaMinisterialTituloCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: _premiumInputDeco(
-                                      'Título da meta',
-                                      'ex.: Arrecadação anual — reforma',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller:
-                                              _metaMinisterialValorCtrl,
-                                          readOnly: !_canEdit,
-                                          keyboardType: const TextInputType
-                                              .numberWithOptions(decimal: true),
-                                          decoration: _premiumInputDeco(
-                                            'Valor da meta (R\$)',
-                                            'ex.: 50000 ou 50.000,00',
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller:
-                                              _metaMinisterialAcumuladoCtrl,
-                                          readOnly: !_canEdit,
-                                          keyboardType: const TextInputType
-                                              .numberWithOptions(decimal: true),
-                                          decoration: _premiumInputDeco(
-                                            'Já arrecadado / acumulado (R\$)',
-                                            'ex.: 12500',
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                   ),
                                   if (_nameCtrl.text.trim().isNotEmpty) ...[
                                     const SizedBox(height: 6),
@@ -3697,95 +2769,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                       ],
                                     ),
                                   ],
-                                  if (_slugCtrl.text.trim().isNotEmpty) ...[
-                                    const SizedBox(
-                                        height: ThemeCleanPremium.spaceMd),
-                                    Container(
-                                      padding: const EdgeInsets.all(
-                                          ThemeCleanPremium.spaceMd),
-                                      decoration: BoxDecoration(
-                                        color: ThemeCleanPremium.primary
-                                            .withOpacity(0.06),
-                                        borderRadius: BorderRadius.circular(
-                                            ThemeCleanPremium.radiusSm),
-                                        border: Border.all(
-                                            color: ThemeCleanPremium.primary
-                                                .withOpacity(0.2)),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(Icons.public_rounded,
-                                                  size: 20,
-                                                  color: ThemeCleanPremium
-                                                      .primary),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                'Seus links públicos',
-                                                style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: ThemeCleanPremium
-                                                        .primary),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Use estes links para divulgar o site da igreja e o cadastro de membros.',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Builder(builder: (ctx) {
-                                            final slug =
-                                                _slugCtrl.text.trim();
-                                            final homeUrl = slug.isEmpty
-                                                ? AppConstants.publicWebBaseUrl
-                                                : '${AppConstants.publicWebBaseUrl}/igreja/${Uri.encodeComponent(slug)}';
-                                            final cadUrl = slug.isEmpty
-                                                ? AppConstants.publicWebBaseUrl
-                                                : '$homeUrl/cadastro-membro';
-                                            return Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.stretch,
-                                              children: [
-                                                _LinkRow(
-                                                  label:
-                                                      'Site público (eventos e informações)',
-                                                  url: homeUrl,
-                                                  onOpen: () =>
-                                                      openHttpsUrlInBrowser(
-                                                          ctx, homeUrl),
-                                                  onCopy: () =>
-                                                      _copyAndSnack(
-                                                          context, homeUrl),
-                                                ),
-                                                const SizedBox(height: 8),
-                                                _LinkRow(
-                                                  label:
-                                                      'Cadastro de membros (público)',
-                                                  url: cadUrl,
-                                                  onOpen: () =>
-                                                      openHttpsUrlInBrowser(
-                                                          ctx, cadUrl),
-                                                  onCopy: () =>
-                                                      _copyAndSnack(
-                                                          context, cadUrl),
-                                                ),
-                                              ],
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
                                   const SizedBox(
-                                      height: ThemeCleanPremium.spaceMd),
+                                      height: ThemeCleanPremium.spaceLg),
                                   Text(
                                     'Endereço (Estado, Cidade, Bairro, CEP e localização)',
                                     style: TextStyle(
@@ -4016,11 +3001,162 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                       border: OutlineInputBorder(),
                                     ),
                                   ),
+                                  const SizedBox(
+                                      height: ThemeCleanPremium.spaceLg),
+                                  _cadastroSectionLabel(
+                                      'Site público — redes sociais'),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Aparecem na área de contato do site público. Instagram, YouTube e Facebook: links completos (https://…). WhatsApp: apenas o número com DDI (ex.: 5562999999999), sem link.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  TextFormField(
+                                    controller: _instagramUrlCtrl,
+                                    readOnly: !_canEdit,
+                                    decoration: _premiumInputDeco(
+                                      'Instagram',
+                                      'https://instagram.com/suaigreja',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _youtubeUrlCtrl,
+                                    readOnly: !_canEdit,
+                                    decoration: _premiumInputDeco(
+                                      'YouTube',
+                                      'https://youtube.com/@canal',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _facebookUrlCtrl,
+                                    readOnly: !_canEdit,
+                                    decoration: _premiumInputDeco(
+                                      'Facebook',
+                                      'https://facebook.com/suaigreja',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _whatsappChatUrlCtrl,
+                                    readOnly: !_canEdit,
+                                    keyboardType: TextInputType.phone,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: _premiumInputDeco(
+                                      'WhatsApp — número com DDI (opcional)',
+                                      '5562999999999',
+                                    ),
+                                  ),
+                                  if (_slugCtrl.text.trim().isNotEmpty) ...[
+                                    const SizedBox(
+                                        height: ThemeCleanPremium.spaceLg),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(
+                                          ThemeCleanPremium.spaceMd),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.06),
+                                            const Color(0xFFF8FAFC),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusMd),
+                                        border: Border.all(
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.18),
+                                        ),
+                                        boxShadow:
+                                            ThemeCleanPremium.softUiCardShadow,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(Icons.public_rounded,
+                                                  size: 22,
+                                                  color: ThemeCleanPremium
+                                                      .primary),
+                                              const SizedBox(width: 10),
+                                              Text(
+                                                'Seus links públicos',
+                                                style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: -0.3,
+                                                    color: ThemeCleanPremium
+                                                        .primary),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Gerados a partir do nome da igreja. Use para divulgar o site e o cadastro de membros.',
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade700,
+                                                height: 1.35),
+                                          ),
+                                          const SizedBox(height: 14),
+                                          Builder(builder: (ctx) {
+                                            final slug =
+                                                _slugCtrl.text.trim();
+                                            final homeUrl = slug.isEmpty
+                                                ? AppConstants.publicWebBaseUrl
+                                                : '${AppConstants.publicWebBaseUrl}/igreja/${Uri.encodeComponent(slug)}';
+                                            final cadUrl = slug.isEmpty
+                                                ? AppConstants.publicWebBaseUrl
+                                                : '$homeUrl/cadastro-membro';
+                                            return Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                _LinkRow(
+                                                  label:
+                                                      'Site público (eventos e informações)',
+                                                  url: homeUrl,
+                                                  onOpen: () =>
+                                                      openHttpsUrlInBrowser(
+                                                          ctx, homeUrl),
+                                                  onCopy: () => _copyAndSnack(
+                                                      context, homeUrl),
+                                                ),
+                                                const SizedBox(height: 10),
+                                                _LinkRow(
+                                                  label:
+                                                      'Cadastro de membros (público)',
+                                                  url: cadUrl,
+                                                  onOpen: () =>
+                                                      openHttpsUrlInBrowser(
+                                                          ctx, cadUrl),
+                                                  onCopy: () => _copyAndSnack(
+                                                      context, cadUrl),
+                                                ),
+                                              ],
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceMd),
-                            _buildGestorFichaCard(resolvedId),
+                            _buildChurchSaveFooter(),
                           ],
                         ),
                       ),
@@ -4086,7 +3222,8 @@ class _LinkRow extends StatelessWidget {
           icon: const Icon(Icons.copy_rounded, size: 20),
           tooltip: 'Copiar link',
           style: IconButton.styleFrom(
-            backgroundColor: ThemeCleanPremium.primary.withOpacity(0.12),
+            backgroundColor:
+                ThemeCleanPremium.primary.withValues(alpha: 0.12),
             foregroundColor: ThemeCleanPremium.primary,
           ),
         ),

@@ -3,14 +3,42 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:fl_chart/fl_chart.dart';
+
+/// Abre WhatsApp (app ou web) com o número informado. Normaliza para DDI 55 quando faltar.
+Future<void> launchWhatsAppContact(
+  String rawPhone, {
+  String? prefilledMessage,
+}) async {
+  var d = rawPhone.replaceAll(RegExp(r'\D'), '');
+  if (d.isEmpty) return;
+  if (d.length <= 11 && !d.startsWith('55')) {
+    d = '55$d';
+  }
+  final msg = prefilledMessage?.trim();
+  final uri = (msg != null && msg.isNotEmpty)
+      ? Uri.parse('https://wa.me/$d?text=${Uri.encodeComponent(msg)}')
+      : Uri.parse('https://wa.me/$d');
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 class VisitorsPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  const VisitorsPage({super.key, required this.tenantId, required this.role});
+  /// Dentro de [IgrejaCleanShell]: remove título duplicado e ajusta [SafeArea].
+  final bool embeddedInShell;
+  const VisitorsPage({
+    super.key,
+    required this.tenantId,
+    required this.role,
+    this.embeddedInShell = false,
+  });
 
   @override
   State<VisitorsPage> createState() => _VisitorsPageState();
@@ -19,10 +47,75 @@ class VisitorsPage extends StatefulWidget {
 /// Aba principal: Do Dia (cadastros de hoje, em aberto) | Histórico (consultas)
 enum _TabVisitante { doDia, historico }
 
-/// Quem pode gerir visitantes (igual critério da lista no módulo).
+/// Filtro in-place ao tocar nos cartões do painel (mesma base dos totais).
+enum _VisitorKpiDrill {
+  none,
+  esteMes,
+  novosSemana,
+  acompanhamento,
+  convertidos,
+}
+
+bool _visitorMatchesKpiDrill(_VisitorData v, _VisitorKpiDrill drill) {
+  if (drill == _VisitorKpiDrill.none) return true;
+  final now = DateTime.now();
+  final startOfMonth = DateTime(now.year, now.month);
+  final startOfWeek = now.subtract(Duration(days: now.weekday % 7));
+  switch (drill) {
+    case _VisitorKpiDrill.none:
+      return true;
+    case _VisitorKpiDrill.esteMes:
+      final d = v.createdAt;
+      return d != null && d.isAfter(startOfMonth);
+    case _VisitorKpiDrill.novosSemana:
+      final d = v.createdAt;
+      return d != null && d.isAfter(startOfWeek) && v.status == 'Novo';
+    case _VisitorKpiDrill.acompanhamento:
+      return v.status == 'Em acompanhamento';
+    case _VisitorKpiDrill.convertidos:
+      return v.status == 'Convertido';
+  }
+}
+
+String _kpiDrillTitle(_VisitorKpiDrill d) {
+  switch (d) {
+    case _VisitorKpiDrill.none:
+      return '';
+    case _VisitorKpiDrill.esteMes:
+      return 'Cadastros deste mês';
+    case _VisitorKpiDrill.novosSemana:
+      return 'Novos na semana (status Novo)';
+    case _VisitorKpiDrill.acompanhamento:
+      return 'Em acompanhamento';
+    case _VisitorKpiDrill.convertidos:
+      return 'Convertidos';
+  }
+}
+
+const List<String> _kMesesAbrPt = [
+  'Jan',
+  'Fev',
+  'Mar',
+  'Abr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Set',
+  'Out',
+  'Nov',
+  'Dez',
+];
+
+String _mesAbrPt(int month) =>
+    month >= 1 && month <= 12 ? _kMesesAbrPt[month - 1] : '$month';
+
+/// Quem pode gerir visitantes (cadastro, edição, exclusão de fichas — não confundir com [AppPermissions.canConvertVisitorToMember]).
 bool churchVisitorManagementRole(String role) {
-  final r = role.toLowerCase();
-  return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+  final s = ChurchRolePermissions.snapshotFor(role);
+  if (s.manageVisitors) return true;
+  final r = ChurchRolePermissions.normalize(role);
+  return r == ChurchRoleKeys.membro || r == ChurchRoleKeys.visitante;
 }
 
 /// Abre a ficha completa do visitante (editar, follow-up, excluir) sem trocar o módulo do shell.
@@ -97,6 +190,14 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int? _filtroAno;
   late Future<QuerySnapshot<Map<String, dynamic>>> _visitantesFuture;
 
+  /// Painel: lista filtrada ao tocar em Este mês / Novos / Acompanhamento / Convertidos.
+  _VisitorKpiDrill _kpiDrill = _VisitorKpiDrill.none;
+
+  /// Relatório: ano civil + mês opcional para totais e gráfico.
+  int _reportYear = DateTime.now().year;
+  int? _reportMonth;
+  bool _reportExpanded = true;
+
   bool get _canManage => churchVisitorManagementRole(widget.role);
 
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
@@ -150,10 +251,15 @@ class _VisitorsPageState extends State<VisitorsPage> {
               title: const Text('Visitantes / Primeiro Contato'),
               actions: [
                 IconButton(
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: Icon(Icons.refresh_rounded,
+                      color: ThemeCleanPremium.primary),
                   onPressed: _refresh,
                   tooltip: 'Atualizar',
                   style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: ThemeCleanPremium.primary,
+                    elevation: 1,
+                    shadowColor: Colors.black26,
                     minimumSize: const Size(
                       ThemeCleanPremium.minTouchTarget,
                       ThemeCleanPremium.minTouchTarget,
@@ -163,15 +269,45 @@ class _VisitorsPageState extends State<VisitorsPage> {
               ],
             ),
       floatingActionButton: _canManage
-          ? FloatingActionButton.extended(
-              onPressed: () => _openVisitorForm(context),
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('Novo Visitante'),
-              backgroundColor: ThemeCleanPremium.primary,
-              foregroundColor: Colors.white,
+          ? Container(
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    ThemeCleanPremium.primaryLight,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                  ...ThemeCleanPremium.softUiCardShadow,
+                ],
+              ),
+              child: FloatingActionButton.extended(
+                onPressed: () => _openVisitorForm(context),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Novo Visitante',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                hoverElevation: 0,
+                focusElevation: 0,
+                highlightElevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+              ),
             )
           : null,
       body: SafeArea(
+        top: !widget.embeddedInShell,
         child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
           future: _visitantesFuture,
           builder: (context, snap) {
@@ -195,7 +331,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
                 .map((d) => _VisitorData(id: d.id, data: d.data()))
                 .toList();
 
-            final filtered = _applyFilters(allVisitors);
+            final filtered = _filteredVisitors(allVisitors);
 
             return RefreshIndicator(
               onRefresh: () async => _refresh(),
@@ -205,7 +341,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
                     padding: ThemeCleanPremium.pagePadding(context),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        if (isMobile) ...[
+                        if (isMobile && !widget.embeddedInShell) ...[
                           Text(
                             'Visitantes',
                             style: tt.headlineMedium?.copyWith(
@@ -215,7 +351,26 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceLg),
                         ],
-                        _SummaryCards(visitors: allVisitors, isMobile: isMobile),
+                        _SummaryCards(
+                          visitors: allVisitors,
+                          isMobile: isMobile,
+                          selectedDrill: _kpiDrill,
+                          onDrillTap: (d) {
+                            setState(() {
+                              _kpiDrill =
+                                  _kpiDrill == d ? _VisitorKpiDrill.none : d;
+                            });
+                          },
+                        ),
+                        if (_kpiDrill != _VisitorKpiDrill.none) ...[
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          _KpiDrillHeader(
+                            drill: _kpiDrill,
+                            count: filtered.length,
+                            onClose: () =>
+                                setState(() => _kpiDrill = _VisitorKpiDrill.none),
+                          ),
+                        ],
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _buildTabBar(context),
                         const SizedBox(height: ThemeCleanPremium.spaceMd),
@@ -226,6 +381,19 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           _buildSearchField(tt),
                           const SizedBox(height: ThemeCleanPremium.spaceSm),
                         ],
+                        const SizedBox(height: ThemeCleanPremium.spaceMd),
+                        _VisitorsReportPanel(
+                          visitors: allVisitors,
+                          year: _reportYear,
+                          month: _reportMonth,
+                          expanded: _reportExpanded,
+                          onToggleExpanded: () => setState(
+                              () => _reportExpanded = !_reportExpanded),
+                          onYearChanged: (y) => setState(() {
+                            _reportYear = y;
+                          }),
+                          onMonthChanged: (m) => setState(() => _reportMonth = m),
+                        ),
                         const SizedBox(height: ThemeCleanPremium.spaceMd),
                       ]),
                     ),
@@ -428,6 +596,27 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
   Widget _buildEmptyState(TextTheme tt) {
     final hasFilters = _searchNome.isNotEmpty || _filtroData != null || _filtroDia != null || _filtroMes != null || _filtroAno != null;
+    final hasKpi = _kpiDrill != _VisitorKpiDrill.none;
+    String title;
+    if (hasKpi) {
+      title = 'Nenhum visitante neste indicador';
+    } else if (hasFilters) {
+      title = 'Nenhum visitante encontrado';
+    } else {
+      title = _tab == _TabVisitante.doDia
+          ? 'Nenhum visitante hoje'
+          : 'Nenhum visitante no histórico';
+    }
+    String subtitle;
+    if (hasKpi) {
+      subtitle = 'Toque no cabeçalho azul para voltar ao painel completo.';
+    } else if (hasFilters) {
+      subtitle = 'Tente outro filtro';
+    } else {
+      subtitle = _tab == _TabVisitante.doDia
+          ? 'Cadastros do culto aparecem aqui'
+          : 'Adicione o primeiro visitante com o botão +';
+    }
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -435,12 +624,14 @@ class _VisitorsPageState extends State<VisitorsPage> {
           Icon(Icons.people_outline_rounded, size: 72, color: Colors.grey.shade300),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
           Text(
-            hasFilters ? 'Nenhum visitante encontrado' : (_tab == _TabVisitante.doDia ? 'Nenhum visitante hoje' : 'Nenhum visitante no histórico'),
+            title,
+            textAlign: TextAlign.center,
             style: tt.titleMedium?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceXs),
           Text(
-            hasFilters ? 'Tente outro filtro' : (_tab == _TabVisitante.doDia ? 'Cadastros do culto aparecem aqui' : 'Adicione o primeiro visitante com o botão +'),
+            subtitle,
+            textAlign: TextAlign.center,
             style: tt.bodySmall?.copyWith(color: Colors.grey),
           ),
         ],
@@ -495,6 +686,23 @@ class _VisitorsPageState extends State<VisitorsPage> {
     }
 
     return result;
+  }
+
+  /// Lista principal: com filtro KPI (cartões) ignora aba Dia/Histórico — alinhado aos totais.
+  List<_VisitorData> _filteredVisitors(List<_VisitorData> all) {
+    if (_kpiDrill != _VisitorKpiDrill.none) {
+      var result =
+          all.where((v) => _visitorMatchesKpiDrill(v, _kpiDrill)).toList();
+      if (_searchNome.isNotEmpty) {
+        result = result.where((v) {
+          final name = (v.data['nome'] ?? '').toString().toLowerCase();
+          final phone = (v.data['telefone'] ?? '').toString().toLowerCase();
+          return name.contains(_searchNome) || phone.contains(_searchNome);
+        }).toList();
+      }
+      return result;
+    }
+    return _applyFilters(all);
   }
 
   // ─── Cadastro / Edição ──────────────────────────────────────────────────────
@@ -639,8 +847,15 @@ class _VisitorData {
 class _SummaryCards extends StatelessWidget {
   final List<_VisitorData> visitors;
   final bool isMobile;
+  final _VisitorKpiDrill selectedDrill;
+  final void Function(_VisitorKpiDrill drill) onDrillTap;
 
-  const _SummaryCards({required this.visitors, required this.isMobile});
+  const _SummaryCards({
+    required this.visitors,
+    required this.isMobile,
+    required this.selectedDrill,
+    required this.onDrillTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -658,24 +873,45 @@ class _SummaryCards extends StatelessWidget {
       return d != null && d.isAfter(startOfWeek) && v.status == 'Novo';
     }).length;
 
-    final accompanying = visitors.where((v) => v.status == 'Em acompanhamento').length;
+    final accompanying =
+        visitors.where((v) => v.status == 'Em acompanhamento').length;
     final converted = visitors.where((v) => v.status == 'Convertido').length;
 
-    final cards = [
-      _SummaryCardData('Este Mês', '$thisMonth', Icons.calendar_month_rounded, const Color(0xFF3B82F6)),
-      _SummaryCardData('Novos (Semana)', '$thisWeekNew', Icons.fiber_new_rounded, const Color(0xFF8B5CF6)),
-      _SummaryCardData('Acompanhamento', '$accompanying', Icons.support_agent_rounded, const Color(0xFFF59E0B)),
-      _SummaryCardData('Convertidos', '$converted', Icons.verified_rounded, const Color(0xFF16A34A)),
+    final cards = <(_SummaryCardData, _VisitorKpiDrill)>[
+      (
+        _SummaryCardData('Este Mês', '$thisMonth', Icons.calendar_month_rounded,
+            const Color(0xFF3B82F6)),
+        _VisitorKpiDrill.esteMes
+      ),
+      (
+        _SummaryCardData('Novos (Semana)', '$thisWeekNew',
+            Icons.fiber_new_rounded, const Color(0xFF8B5CF6)),
+        _VisitorKpiDrill.novosSemana
+      ),
+      (
+        _SummaryCardData('Acompanhamento', '$accompanying',
+            Icons.support_agent_rounded, const Color(0xFFF59E0B)),
+        _VisitorKpiDrill.acompanhamento
+      ),
+      (
+        _SummaryCardData('Convertidos', '$converted', Icons.verified_rounded,
+            const Color(0xFF16A34A)),
+        _VisitorKpiDrill.convertidos
+      ),
     ];
 
     if (isMobile) {
       return SizedBox(
-        height: 110,
+        height: 122,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: cards.length,
-          separatorBuilder: (_, __) => const SizedBox(width: ThemeCleanPremium.spaceSm),
-          itemBuilder: (_, i) => SizedBox(width: 156, child: _buildCard(context, cards[i])),
+          separatorBuilder: (_, __) =>
+              const SizedBox(width: ThemeCleanPremium.spaceSm),
+          itemBuilder: (_, i) => SizedBox(
+            width: 164,
+            child: _buildCard(context, cards[i].$1, cards[i].$2),
+          ),
         ),
       );
     }
@@ -683,48 +919,94 @@ class _SummaryCards extends StatelessWidget {
     return Wrap(
       spacing: ThemeCleanPremium.spaceMd,
       runSpacing: ThemeCleanPremium.spaceMd,
-      children: cards.map((c) => SizedBox(width: 200, child: _buildCard(context, c))).toList(),
+      children: cards
+          .map((e) => SizedBox(
+                width: 200,
+                child: _buildCard(context, e.$1, e.$2),
+              ))
+          .toList(),
     );
   }
 
-  Widget _buildCard(BuildContext context, _SummaryCardData c) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
+  Widget _buildCard(
+      BuildContext context, _SummaryCardData c, _VisitorKpiDrill drill) {
+    final selected = selectedDrill == drill;
+    final primary = ThemeCleanPremium.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onDrillTap(drill),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: c.color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+          decoration: BoxDecoration(
+            color: ThemeCleanPremium.cardBackground,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            border: Border.all(
+              color: selected
+                  ? primary.withValues(alpha: 0.55)
+                  : ThemeCleanPremium.primary.withValues(alpha: 0.12),
+              width: selected ? 2.2 : 1,
             ),
-            child: Icon(c.icon, color: c.color, size: 22),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: primary.withValues(alpha: 0.22),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                    ...ThemeCleanPremium.softUiCardShadow,
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
           ),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          Text(
-            c.value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: ThemeCleanPremium.onSurface,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: c.color.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: c.color.withValues(alpha: 0.38)),
+                    ),
+                    child: Icon(c.icon, color: c.color, size: 22),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.touch_app_rounded,
+                    size: 16,
+                    color: Colors.grey.shade400,
+                  ),
+                ],
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceSm),
+              Text(
+                c.value,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: ThemeCleanPremium.onSurface,
+                      letterSpacing: -0.5,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                c.label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            c.label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: ThemeCleanPremium.onSurfaceVariant,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -736,6 +1018,380 @@ class _SummaryCardData {
   final IconData icon;
   final Color color;
   const _SummaryCardData(this.label, this.value, this.icon, this.color);
+}
+
+/// Cabeçalho do filtro ao tocar num cartão KPI.
+class _KpiDrillHeader extends StatelessWidget {
+  final _VisitorKpiDrill drill;
+  final int count;
+  final VoidCallback onClose;
+
+  const _KpiDrillHeader({
+    required this.drill,
+    required this.count,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary,
+            Color.lerp(primary, const Color(0xFF0F172A), 0.22)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: Colors.white.withValues(alpha: 0.14),
+            shape: const CircleBorder(),
+            child: IconButton(
+              onPressed: onClose,
+              tooltip: 'Fechar lista filtrada',
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _kpiDrillTitle(drill),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.3,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$count ${count == 1 ? 'visitante' : 'visitantes'} · WhatsApp nas linhas quando houver telefone',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.9),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Relatório por ano/mês e gráfico de barras (cadastros por mês).
+class _VisitorsReportPanel extends StatelessWidget {
+  final List<_VisitorData> visitors;
+  final int year;
+  final int? month;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+  final ValueChanged<int> onYearChanged;
+  final ValueChanged<int?> onMonthChanged;
+
+  const _VisitorsReportPanel({
+    required this.visitors,
+    required this.year,
+    required this.month,
+    required this.expanded,
+    required this.onToggleExpanded,
+    required this.onYearChanged,
+    required this.onMonthChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final now = DateTime.now();
+    final years = List<int>.generate(now.year - 2019, (i) => 2020 + i);
+    final monthCounts = List<int>.filled(12, 0);
+    for (final v in visitors) {
+      final d = v.createdAt;
+      if (d == null) continue;
+      if (d.year != year) continue;
+      monthCounts[d.month - 1]++;
+    }
+    final totalYear = monthCounts.fold<int>(0, (a, b) => a + b);
+    final int totalPeriod = (month != null && month! >= 1 && month! <= 12)
+        ? monthCounts[month! - 1]
+        : totalYear;
+
+    final maxY = monthCounts.fold<int>(1, (a, b) => a > b ? a : b);
+    final maxChart = (maxY * 1.2).ceil().clamp(1, 99999).toDouble();
+
+    const meses = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+
+    return Material(
+      color: ThemeCleanPremium.cardBackground,
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      elevation: 0,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: onToggleExpanded,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.insights_rounded,
+                        color: ThemeCleanPremium.primary, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Relatório & evolução',
+                          style: tt.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                        Text(
+                          'Por ano e mês · gráfico de cadastros',
+                          style: tt.bodySmall?.copyWith(
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (expanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: DropdownButtonFormField<int>(
+                      value: year,
+                      decoration: InputDecoration(
+                        labelText: 'Ano',
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm),
+                        ),
+                      ),
+                      items: years
+                          .map((y) => DropdownMenuItem(value: y, child: Text('$y')))
+                          .toList(),
+                      onChanged: (y) {
+                        if (y != null) onYearChanged(y);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: DropdownButtonFormField<int?>(
+                      value: month,
+                      decoration: InputDecoration(
+                        labelText: 'Mês',
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm),
+                        ),
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                            value: null, child: Text('Todos')),
+                        ...List.generate(
+                          12,
+                          (i) => DropdownMenuItem<int?>(
+                            value: i + 1,
+                            child: Text(_mesAbrPt(i + 1)),
+                          ),
+                        ),
+                      ],
+                      onChanged: onMonthChanged,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Text(
+                    'Total no período: ',
+                    style: tt.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    '$totalPeriod',
+                    style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                  Text(
+                    month != null
+                        ? ' (${_mesAbrPt(month!)}/$year)'
+                        : ' ($year)',
+                    style: tt.bodySmall?.copyWith(color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+              child: Container(
+                height: 200,
+                padding: const EdgeInsets.only(
+                    right: 8, top: 8, left: 4, bottom: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                ),
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: maxChart,
+                    barTouchData: BarTouchData(enabled: true),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      horizontalInterval: maxChart > 5 ? maxChart / 5 : 1,
+                      getDrawingHorizontalLine: (_) => const FlLine(
+                        color: Color(0xFFE2E8F0),
+                        strokeWidth: 1,
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 22,
+                          getTitlesWidget: (v, meta) {
+                            final i = v.toInt();
+                            if (i < 0 || i >= 12) {
+                              return const SizedBox.shrink();
+                            }
+                            final highlight = month != null && month == i + 1;
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                meses[i],
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: highlight
+                                      ? FontWeight.w900
+                                      : FontWeight.w700,
+                                  color: highlight
+                                      ? ThemeCleanPremium.primary
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 28,
+                          getTitlesWidget: (v, meta) => Text(
+                            v.toInt().toString(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false)),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    barGroups: [
+                      for (var i = 0; i < 12; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barRods: [
+                            BarChartRodData(
+                              toY: monthCounts[i].toDouble(),
+                              color: month != null && month == i + 1
+                                  ? ThemeCleanPremium.primary
+                                  : Color.lerp(
+                                      ThemeCleanPremium.primary,
+                                      const Color(0xFF94A3B8),
+                                      0.45,
+                                    )!,
+                              width: 10,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(6),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -777,6 +1433,9 @@ class _VisitorCard extends StatelessWidget {
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+              ),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
             ),
             child: Row(
@@ -803,14 +1462,51 @@ class _VisitorCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       if (visitor.telefone.isNotEmpty)
-                        Row(
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 6,
                           children: [
-                            const Icon(Icons.phone_outlined, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                visitor.telefone,
-                                style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.phone_outlined, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
+                                const SizedBox(width: 4),
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 200),
+                                  child: Text(
+                                    visitor.telefone,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Material(
+                              color: const Color(0xFF25D366),
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                onTap: () => launchWhatsAppContact(visitor.telefone),
+                                borderRadius: BorderRadius.circular(10),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      FaIcon(FontAwesomeIcons.whatsapp, size: 14, color: Colors.white),
+                                      SizedBox(width: 5),
+                                      Text(
+                                        'WhatsApp',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -1257,6 +1953,37 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         child: Scaffold(
           appBar: AppBar(
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            iconTheme: const IconThemeData(color: Colors.white),
+            titleTextStyle: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+            ),
+            flexibleSpace: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    ThemeCleanPremium.primary.withValues(alpha: 0.88),
+                    ThemeCleanPremium.primaryLight,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+            ),
             title: Text(widget.visitor.nome),
             leading: IconButton(
               icon: const Icon(Icons.close_rounded),
@@ -1318,9 +2045,27 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.cardBackground,
+            ThemeCleanPremium.primary.withValues(alpha: 0.04),
+            ThemeCleanPremium.cardBackground,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+        ),
+        boxShadow: [
+          ...ThemeCleanPremium.softUiCardShadow,
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1329,7 +2074,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
             children: [
               CircleAvatar(
                 radius: 28,
-                backgroundColor: ThemeCleanPremium.primaryLight.withOpacity(0.12),
+                backgroundColor: ThemeCleanPremium.primaryLight.withValues(alpha: 0.14),
                 child: Text(
                   v.nome.isNotEmpty ? v.nome[0].toUpperCase() : '?',
                   style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: ThemeCleanPremium.primary),
@@ -1381,28 +2126,171 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
   }
 
   Widget _buildActionButtons(BuildContext context, _VisitorData v) {
-    return Wrap(
-      spacing: ThemeCleanPremium.spaceSm,
-      runSpacing: ThemeCleanPremium.spaceSm,
-      children: [
-        SizedBox(
-          height: ThemeCleanPremium.minTouchTarget,
-          child: OutlinedButton.icon(
-            onPressed: () => _changeStatus(context, v),
-            icon: const Icon(Icons.swap_horiz_rounded, size: 18),
-            label: const Text('Alterar Status'),
+    Widget waBtn() => Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF128C7E), Color(0xFF25D366)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF25D366).withValues(alpha: 0.45),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-        ),
-        if (widget.canConvertVisitor && v.status != 'Convertido')
-          SizedBox(
-            height: ThemeCleanPremium.minTouchTarget,
-            child: FilledButton.icon(
-              onPressed: () => _convertToMember(context, v),
-              icon: const Icon(Icons.verified_rounded, size: 18),
-              label: const Text('Converter para Membro'),
-              style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.success),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              onTap: () => launchWhatsAppContact(v.telefone),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ThemeCleanPremium.spaceMd,
+                  vertical: 14,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const FaIcon(FontAwesomeIcons.whatsapp,
+                        size: 20, color: Colors.white),
+                    const SizedBox(width: 10),
+                    Text(
+                      'WhatsApp',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
+        );
+
+    Widget outlinePremium({
+      required VoidCallback onPressed,
+      required IconData icon,
+      required String label,
+    }) {
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          gradient: LinearGradient(
+            colors: [
+              ThemeCleanPremium.primary.withValues(alpha: 0.08),
+              ThemeCleanPremium.primary.withValues(alpha: 0.02),
+            ],
+          ),
+          border: Border.all(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+            width: 1.5,
+          ),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: ThemeCleanPremium.spaceMd,
+                vertical: 14,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 20, color: ThemeCleanPremium.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget convertBtn() => Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.success,
+                ThemeCleanPremium.success.withValues(alpha: 0.85),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.success.withValues(alpha: 0.4),
+                blurRadius: 14,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              onTap: () => _convertToMember(context, v),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ThemeCleanPremium.spaceMd,
+                  vertical: 14,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_rounded,
+                        size: 20, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Converter para Membro',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (v.telefone.isNotEmpty) ...[
+          waBtn(),
+          const SizedBox(height: ThemeCleanPremium.spaceSm),
+        ],
+        outlinePremium(
+          onPressed: () => _changeStatus(context, v),
+          icon: Icons.swap_horiz_rounded,
+          label: 'Alterar Status',
+        ),
+        if (widget.canConvertVisitor && v.status != 'Convertido') ...[
+          const SizedBox(height: ThemeCleanPremium.spaceSm),
+          convertBtn(),
+        ],
       ],
     );
   }
@@ -1468,22 +2356,68 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     const statuses = ['Novo', 'Em acompanhamento', 'Convertido', 'Desistente'];
     final picked = await showDialog<String>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Alterar Status'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        children: statuses.map((s) {
-          return SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, s),
-            padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceSm),
-            child: Row(
-              children: [
-                _VisitorCard._statusBadge(s),
-                const SizedBox(width: ThemeCleanPremium.spaceSm),
-                if (s == v.status) const Icon(Icons.check_rounded, size: 18, color: ThemeCleanPremium.primary),
-              ],
-            ),
-          );
-        }).toList(),
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      ThemeCleanPremium.primary,
+                      ThemeCleanPremium.primaryLight,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(ThemeCleanPremium.radiusLg),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.swap_horiz_rounded, color: Colors.white.withValues(alpha: 0.95), size: 26),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Alterar Status',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                child: Column(
+                  children: statuses.map((s) {
+                    return ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      ),
+                      onTap: () => Navigator.pop(ctx, s),
+                      leading: _VisitorCard._statusBadge(s),
+                      trailing: s == v.status
+                          ? const Icon(Icons.check_rounded, color: ThemeCleanPremium.primary)
+                          : null,
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
     if (picked != null && picked != v.status && context.mounted) {
@@ -1495,15 +2429,63 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Converter para Membro'),
-        content: Text('Deseja converter "${v.nome}" em membro da igreja?'),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        contentPadding: EdgeInsets.zero,
+        titlePadding: EdgeInsets.zero,
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        title: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.success,
+                ThemeCleanPremium.success.withValues(alpha: 0.85),
+              ],
+            ),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(ThemeCleanPremium.radiusLg),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.verified_rounded, color: Colors.white, size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Converter para Membro',
+                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          child: Text(
+            'Deseja converter "${v.nome}" em membro da igreja?',
+            style: Theme.of(ctx).textTheme.bodyLarge,
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.success),
-            child: const Text('Converter'),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.success,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            icon: const Icon(Icons.check_rounded),
+            label: const Text('Converter'),
           ),
         ],
       ),

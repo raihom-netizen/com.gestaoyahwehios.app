@@ -21,17 +21,47 @@ String normalizeMemberRoleKey(String raw) {
 }
 
 /// Extrai lista de chaves de função/cargo do documento do membro (mesma lógica da tela de membros).
+///
+/// Se [FUNCOES] existir só como `["membro"]` mas a ficha tiver [CARGO]/[FUNCAO] de liderança,
+/// usa o cargo da ficha — evita lista vazia de signatários em certificados/carteirinha.
 List<String> extractMemberFuncoesKeys(Map<String, dynamic> d) {
   final funcoesRaw = d['FUNCOES'] ?? d['funcoes'];
   var keys = <String>[];
   if (funcoesRaw is List) {
-    keys = funcoesRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toSet().toList();
+    keys = funcoesRaw
+        .map((e) => (e ?? '').toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+  final single = (d['FUNCAO'] ??
+          d['funcao'] ??
+          d['CARGO'] ??
+          d['cargo'] ??
+          d['role'] ??
+          '')
+      .toString()
+      .trim();
+  if (single.isNotEmpty) {
+    if (keys.isEmpty) {
+      keys = [single];
+    } else {
+      final norms = keys.map(normalizeMemberRoleKey).toList();
+      final onlyMembro = keys.length == 1 &&
+          norms.length == 1 &&
+          norms.first == 'membro';
+      final singleNorm = normalizeMemberRoleKey(single);
+      if (onlyMembro && singleNorm != 'membro') {
+        keys = [single];
+      } else if (!onlyMembro &&
+          singleNorm.isNotEmpty &&
+          !norms.contains(singleNorm)) {
+        keys = [...keys, single];
+      }
+    }
   }
   if (keys.isEmpty) {
-    final f = (d['FUNCAO'] ?? d['funcao'] ?? d['CARGO'] ?? d['cargo'] ?? d['role'] ?? '').toString().trim();
-    if (f.isNotEmpty) keys = [f];
+    keys = ['membro'];
   }
-  if (keys.isEmpty) keys = ['membro'];
   return keys;
 }
 
@@ -46,7 +76,10 @@ bool memberNeedsAssinaturaFieldFromFuncoes(List<String> funcoes) {
 }
 
 /// Membro pode figurar como signatário na carteirinha (cargo de liderança / não só membro).
+/// Opcional na ficha: `certificadoSignatario` / `podeAssinarCertificado` = true.
 bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) {
+  final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
+  if (ex == true) return true;
   return memberNeedsAssinaturaFieldFromFuncoes(extractMemberFuncoesKeys(d));
 }
 

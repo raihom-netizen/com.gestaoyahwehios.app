@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 
 /// Modelo de departamento padrão (kit de boas-vindas) — cores, ícone e nome editável depois no Firestore.
 class DepartmentTemplate {
@@ -32,6 +33,11 @@ class DepartmentTemplate {
         'description': description,
         'iconKey': iconKey,
         'themeKey': iconKey,
+        ChurchDepartmentFirestoreFields.iconName: iconKey,
+        ChurchDepartmentFirestoreFields.colorHex:
+            ChurchDepartmentVisualMapper.hexStringFromArgb(bgColor1),
+        ChurchDepartmentFirestoreFields.colorHexSecondary:
+            ChurchDepartmentVisualMapper.hexStringFromArgb(bgColor2),
         'bgColor1': bgColor1,
         'bgColor2': bgColor2,
         'bgImageUrl': '',

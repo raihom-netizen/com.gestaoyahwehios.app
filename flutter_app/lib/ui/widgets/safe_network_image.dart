@@ -44,8 +44,8 @@ class _AsyncLimiter {
   }
 }
 
-final _mediaDownloadLimiter = _AsyncLimiter(18);
-final _mediaPreloadLimiter = _AsyncLimiter(6);
+final _mediaDownloadLimiter = _AsyncLimiter(26);
+final _mediaPreloadLimiter = _AsyncLimiter(10);
 final Set<String> _preloadedMediaUrls = <String>{};
 
 /// Corrige URLs do Firebase Storage gravadas no Firestore **sem** `https://` e sem o prefixo
@@ -103,6 +103,7 @@ String normalizeFirebaseStorageDownloadUrl(String raw) {
           low.contains('event_templates/') ||
           low.contains('templates/') ||
           low.contains('branding/') ||
+          low.contains('configuracoes/') ||
           low.contains('logo/') ||
           low.contains('public/') ||
           low.contains('gestao_yahweh') ||
@@ -283,6 +284,10 @@ bool firebaseStorageMediaUrlLooksLike(String url) {
           low.contains('noticias%2f') ||
           low.contains('avisos/') ||
           low.contains('avisos%2f') ||
+          low.contains('configuracoes/') ||
+          low.contains('configuracoes%2f') ||
+          low.contains('branding/') ||
+          low.contains('branding%2f') ||
           low.contains('videos/') ||
           low.contains('videos%2f') ||
           low.contains('comprovantes/') ||
@@ -339,13 +344,43 @@ bool firebaseStorageDownloadUrlLooksTokenized(String rawUrl) {
 
 /// Renova token / resolve caminho — **única fonte** para painel, avisos, site público, patrimônio e vídeos.
 /// Nunca lança: em timeout ou falha do SDK, devolve a URL já sanitizada (a que abre no navegador).
+///
+/// **Importante:** não devolver cedo só porque a URL já tem `token=` — tokens do Firestore **expiram**;
+/// sempre que possível obtemos uma URL nova via [Reference.getDownloadURL].
+///
+/// **Coalescência:** listas (membros, mural) pediam a mesma URL em paralelo — vários `getDownloadURL`
+/// competindo deixavam fotos/vídeos lentos. Uma única Future por objeto resolve todos os waiters.
+final Map<String, Future<String>> _freshFirebaseStorageDisplayUrlInflight = {};
+
+String _freshFirebaseStorageDisplayUrlCoalesceKey(String u) {
+  final path = firebaseStorageObjectPathFromHttpUrl(u);
+  if (path != null && path.isNotEmpty) {
+    return normalizeFirebaseStorageObjectPath(path).toLowerCase();
+  }
+  return u.toLowerCase();
+}
+
 Future<String> freshFirebaseStorageDisplayUrl(String rawUrl) async {
   final u = sanitizeImageUrl(rawUrl).trim();
   if (u.isEmpty) return u;
   if (!firebaseStorageMediaUrlLooksLike(u)) return u;
-  if (firebaseStorageDownloadUrlLooksTokenized(u)) {
-    return u;
-  }
+
+  final key = _freshFirebaseStorageDisplayUrlCoalesceKey(u);
+  final inflight = _freshFirebaseStorageDisplayUrlInflight[key];
+  if (inflight != null) return inflight;
+
+  final created = _freshFirebaseStorageDisplayUrlUncached(u);
+  _freshFirebaseStorageDisplayUrlInflight[key] = created;
+  created.whenComplete(() {
+    final cur = _freshFirebaseStorageDisplayUrlInflight[key];
+    if (identical(cur, created)) {
+      _freshFirebaseStorageDisplayUrlInflight.remove(key);
+    }
+  });
+  return created;
+}
+
+Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
@@ -1934,7 +1969,7 @@ class _FirebaseStorageMemoryImageState
     }
   }
 
-  Future<void> _fetch(String url) async {
+  Future<void> _fetch(String url, {bool fromTransientRetry = false}) async {
     final cached0 = MemberProfilePhotoBytesCache.get(url);
     if (cached0 != null) {
       if (!kIsWeb || await storageBytesRenderWithImageMemory(cached0)) {
@@ -2029,6 +2064,18 @@ class _FirebaseStorageMemoryImageState
     }
 
     if (!mounted) return;
+    if (!fromTransientRetry && isFirebaseStorageHttpUrl(url)) {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      if (!mounted) return;
+      setState(() {
+        _loading = true;
+        _failed = false;
+        _didFreshTokenRetry = false;
+        _loadFailureReported = false;
+      });
+      await _fetch(url, fromTransientRetry: true);
+      return;
+    }
     if (!_loadFailureReported) {
       _loadFailureReported = true;
       widget.onLoadError?.call(

@@ -1,15 +1,18 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/pages/completar_cadastro_membro_page.dart';
+import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -28,10 +31,10 @@ const String _keyNotifMinutos = 'notif_minutos'; // personalizado
 class ConfiguracoesPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  /// CPF do usuário (login) — usado em "Meu cadastro" para papel [membro].
-  final String? cpf;
+  /// Permissões granulares (ex.: `configuracoes_banco`) definidas pelo gestor no cadastro.
+  final List<String>? permissions;
 
-  const ConfiguracoesPage({super.key, required this.tenantId, required this.role, this.cpf});
+  const ConfiguracoesPage({super.key, required this.tenantId, required this.role, this.permissions});
 
   @override
   State<ConfiguracoesPage> createState() => _ConfiguracoesPageState();
@@ -75,11 +78,32 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       capable = await _biometricService.isDeviceBiometricCapable();
       bioOn = await _biometricService.isEnabled();
     }
+    var av = prefs.getBool(_keyNotifAvisos) ?? true;
+    var ev = prefs.getBool(_keyNotifEventos) ?? true;
+    var es = prefs.getBool(_keyNotifEscalas) ?? true;
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(u.uid)
+            .get();
+        final d = doc.data();
+        if (d != null) {
+          if (d['pushAvisos'] is bool) av = d['pushAvisos'] as bool;
+          if (d['pushEventos'] is bool) ev = d['pushEventos'] as bool;
+          if (d['pushEscalas'] is bool) es = d['pushEscalas'] as bool;
+        }
+      } catch (_) {}
+    }
+    await prefs.setBool(_keyNotifAvisos, av);
+    await prefs.setBool(_keyNotifEventos, ev);
+    await prefs.setBool(_keyNotifEscalas, es);
     if (!mounted) return;
     setState(() {
-      _notifAvisos = prefs.getBool(_keyNotifAvisos) ?? true;
-      _notifEscalas = prefs.getBool(_keyNotifEscalas) ?? true;
-      _notifEventos = prefs.getBool(_keyNotifEventos) ?? true;
+      _notifAvisos = av;
+      _notifEscalas = es;
+      _notifEventos = ev;
       _notifAniversariantes = prefs.getBool(_keyNotifAniversariantes) ?? true;
       _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
       _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
@@ -133,6 +157,30 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     if (value is String) await prefs.setString(key, value);
   }
 
+  /// Avisos, eventos e escalas: Firestore + tópicos FCM (app instalado). Padrão true.
+  Future<void> _savePushPref(String spKey, String firestoreField, bool v) async {
+    await _saveNotif(spKey, v);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
+        {firestoreField: v},
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
+    if (!kIsWeb) {
+      await FcmService.instance.syncPreferencePushTopics(
+        uid: user.uid,
+        tenantId: widget.tenantId,
+      );
+    }
+  }
+
+  bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
+
+  bool get _showMercadoPagoChurchSettings =>
+      AppPermissions.canViewChurchMercadoPagoSettings(widget.role, permissions: widget.permissions);
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -150,12 +198,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             : ListView(
                 padding: padding,
                 children: [
-                  if (AppPermissions.isRestrictedMember(widget.role) &&
-                      (widget.cpf ?? '').replaceAll(RegExp(r'\D'), '').length == 11) ...[
-                    _SectionTitle(icon: Icons.person_outline_rounded, title: 'Minha conta'),
+                  if (!_restrictedMemberSettings) ...[
+                    _SectionTitle(icon: Icons.palette_outlined, title: 'Aparência'),
                     _Card(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           ListTile(
                             leading: Container(
@@ -164,79 +211,43 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                                 color: ThemeCleanPremium.primary.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(Icons.edit_note_rounded, color: ThemeCleanPremium.primary),
+                              child: Icon(Icons.light_mode_rounded, color: ThemeCleanPremium.primary),
                             ),
-                            title: const Text('Meus dados e senha', style: TextStyle(fontWeight: FontWeight.w700)),
-                            subtitle: const Text(
-                              'Atualize telefone, endereço e outros dados. Troque sua senha com senha atual e nova senha — só o seu login.',
-                              style: TextStyle(fontSize: 13),
-                            ),
-                            trailing: const Icon(Icons.chevron_right_rounded),
-                            onTap: () {
-                              final cpfDigits = widget.cpf!.replaceAll(RegExp(r'\D'), '');
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (ctx) => CompletarCadastroMembroPage(
-                                    tenantId: widget.tenantId,
-                                    cpf: cpfDigits,
-                                    appBarTitle: 'Meu cadastro',
-                                    onComplete: () => Navigator.of(ctx).pop(),
-                                  ),
-                                ),
-                              );
-                            },
+                            title: const Text('Modo claro', style: TextStyle(fontWeight: FontWeight.w700)),
+                            subtitle: const Text('O app utiliza apenas o tema claro.'),
+                            trailing: const Icon(Icons.check_circle_rounded, color: ThemeCleanPremium.success),
                           ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Para melhor leitura e consistência, o Gestão YAHWEH está disponível somente no modo claro.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                          ),
+                          if (ThemeModeScope.of(context) != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    ThemeModeScope.of(context)?.setMode(ThemeMode.light);
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tema: modo claro ativado.')));
+                                  },
+                                  icon: const Icon(Icons.light_mode_rounded, size: 18),
+                                  label: const Text('Garantir modo claro'),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 24),
                   ],
-                  _SectionTitle(icon: Icons.palette_outlined, title: 'Aparência'),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ListTile(
-                          leading: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: ThemeCleanPremium.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.light_mode_rounded, color: ThemeCleanPremium.primary),
-                          ),
-                          title: const Text('Modo claro', style: TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: const Text('O app utiliza apenas o tema claro.'),
-                          trailing: const Icon(Icons.check_circle_rounded, color: ThemeCleanPremium.success),
-                        ),
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            'Para melhor leitura e consistência, o Gestão YAHWEH está disponível somente no modo claro.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                        ),
-                        if (ThemeModeScope.of(context) != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  ThemeModeScope.of(context)?.setMode(ThemeMode.light);
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tema: modo claro ativado.')));
-                                },
-                                icon: const Icon(Icons.light_mode_rounded, size: 18),
-                                label: const Text('Garantir modo claro'),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
+                  if (_showMercadoPagoChurchSettings) ...[
+                    MercadoPagoChurchSettingsSection(tenantId: widget.tenantId),
+                  ],
                   _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),
                   _Card(
                     child: Column(
@@ -281,22 +292,45 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações'),
+                  _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _Card(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Receber lembretes por:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
-                        const SizedBox(height: 10),
+                        Text(
+                          'Onde receber lembretes e avisos',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.grey.shade900),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Ative por canal: no celular (app Android/iOS), no navegador (painel web / PWA) e por e-mail. O mesmo login em web e mobile usa estas preferências neste aparelho.',
+                          style: TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 14),
                         _SwitchRow('E-mail', _notifEmail, (v) => setState(() { _notifEmail = v; _saveNotif(_keyNotifEmail, v); })),
-                        _SwitchRow('Celular / App', _notifCelular, (v) => setState(() { _notifCelular = v; _saveNotif(_keyNotifCelular, v); })),
-                        _SwitchRow('Web (quando instalado)', _notifWeb, (v) => setState(() { _notifWeb = v; _saveNotif(_keyNotifWeb, v); })),
+                        _SwitchRow('Celular / app (push no aparelho)', _notifCelular, (v) => setState(() { _notifCelular = v; _saveNotif(_keyNotifCelular, v); })),
+                        _SwitchRow('Navegador / Web (painel e PWA)', _notifWeb, (v) => setState(() { _notifWeb = v; _saveNotif(_keyNotifWeb, v); })),
                         const Divider(height: 24),
                         Text('O que notificar:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
                         const SizedBox(height: 10),
-                        _SwitchRow('Avisos', _notifAvisos, (v) => setState(() { _notifAvisos = v; _saveNotif(_keyNotifAvisos, v); })),
-                        _SwitchRow('Escalas', _notifEscalas, (v) => setState(() { _notifEscalas = v; _saveNotif(_keyNotifEscalas, v); })),
-                        _SwitchRow('Eventos', _notifEventos, (v) => setState(() { _notifEventos = v; _saveNotif(_keyNotifEventos, v); })),
+                        _SwitchRow('Avisos', _notifAvisos, (v) {
+                          setState(() => _notifAvisos = v);
+                          unawaited(_savePushPref(_keyNotifAvisos, 'pushAvisos', v));
+                        }),
+                        _SwitchRow('Escalas', _notifEscalas, (v) {
+                          setState(() => _notifEscalas = v);
+                          unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
+                        }),
+                        _SwitchRow('Eventos', _notifEventos, (v) {
+                          setState(() => _notifEventos = v);
+                          unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
+                        }),
                         _SwitchRow('Aniversariantes do dia', _notifAniversariantes, (v) => setState(() { _notifAniversariantes = v; _saveNotif(_keyNotifAniversariantes, v); })),
                         const Divider(height: 24),
                         Text('Antecedência:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
@@ -319,102 +353,120 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Text('As notificações serão enviadas por e-mail e no app conforme suas preferências.', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _SectionTitle(icon: Icons.backup_rounded, title: 'Backup'),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text('Exportar e importar dados do painel.', style: TextStyle(fontSize: 13)),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () => _exportarBackup(context),
-                                icon: const Icon(Icons.upload_file_rounded, size: 20),
-                                label: const Text('Exportar'),
-                                style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 12)),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _importarBackup(context),
-                                icon: const Icon(Icons.download_rounded, size: 20),
-                                label: const Text('Importar'),
-                                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          kIsWeb
+                              ? 'Neste navegador, use os interruptores acima. No celular (app), as mesmas preferências de tipo de aviso podem ser ajustadas no app — cada ambiente guarda o que for suportado (push no app, e-mail, etc.).'
+                              : 'No app, avisos/eventos/escalas novos podem gerar push (padrão ligado). No painel web, ative o canal «Navegador / Web» se usar o painel no computador. E-mail segue o interruptor de e-mail.',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 24),
-                  _SectionTitle(icon: Icons.lightbulb_outline_rounded, title: 'Dicas, sugestões e críticas'),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Envie sua opinião ao criador do sistema. Sua mensagem será lida e agradecemos pelo feedback!', style: TextStyle(fontSize: 13)),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _sugestaoCtrl,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            hintText: 'Digite dicas, sugestões ou críticas...',
-                            border: OutlineInputBorder(),
-                            alignLabelWithHint: true,
-                          ),
-                          enabled: !_sugestaoEnviando && !_sugestaoEnviada,
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: (_sugestaoEnviando || _sugestaoEnviada) ? null : _enviarSugestao,
-                            icon: _sugestaoEnviando
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Icon(Icons.send_rounded, size: 20),
-                            label: Text(_sugestaoEnviada ? 'Enviado!' : (_sugestaoEnviando ? 'Enviando...' : 'Enviar')),
-                            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
-                          ),
-                        ),
-                        if (_sugestaoEnviada)
-                          Container(
-                            margin: const EdgeInsets.only(top: 14),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: ThemeCleanPremium.success.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: ThemeCleanPremium.success.withOpacity(0.3)),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.thumb_up_rounded, color: ThemeCleanPremium.success),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Obrigado! Sua mensagem foi recebida. O criador do sistema agradece sua contribuição e retornará quando possível.',
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.success),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                  ...(_restrictedMemberSettings
+                      ? <Widget>[..._buildDicasSection(), ..._buildBackupSection(context)]
+                      : <Widget>[..._buildBackupSection(context), ..._buildDicasSection()]),
                   const SizedBox(height: 32),
                 ],
               ),
       ),
     );
+  }
+
+  List<Widget> _buildBackupSection(BuildContext context) {
+    return [
+      _SectionTitle(icon: Icons.backup_rounded, title: 'Backup'),
+      _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Exportar e importar dados do painel.', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _exportarBackup(context),
+                    icon: const Icon(Icons.upload_file_rounded, size: 20),
+                    label: const Text('Exportar'),
+                    style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 12)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _importarBackup(context),
+                    icon: const Icon(Icons.download_rounded, size: 20),
+                    label: const Text('Importar'),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 24),
+    ];
+  }
+
+  List<Widget> _buildDicasSection() {
+    return [
+      _SectionTitle(icon: Icons.lightbulb_outline_rounded, title: 'Dicas, sugestões e críticas'),
+      _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Envie sua opinião ao criador do sistema. Sua mensagem será lida e agradecemos pelo feedback!', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _sugestaoCtrl,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'Digite dicas, sugestões ou críticas...',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+              enabled: !_sugestaoEnviando && !_sugestaoEnviada,
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: (_sugestaoEnviando || _sugestaoEnviada) ? null : _enviarSugestao,
+                icon: _sugestaoEnviando
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send_rounded, size: 20),
+                label: Text(_sugestaoEnviada ? 'Enviado!' : (_sugestaoEnviando ? 'Enviando...' : 'Enviar')),
+                style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
+              ),
+            ),
+            if (_sugestaoEnviada)
+              Container(
+                margin: const EdgeInsets.only(top: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.success.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: ThemeCleanPremium.success.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.thumb_up_rounded, color: ThemeCleanPremium.success),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Obrigado! Sua mensagem foi recebida. O criador do sistema agradece sua contribuição e retornará quando possível.',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.success),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ];
   }
 
   Future<void> _exportarBackup(BuildContext context) async {
@@ -426,8 +478,12 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final data = {
         'tenantId': resolvedTenantId,
         'exportedAt': DateTime.now().toIso8601String(),
-        'members': membersSnap.docs.map((d) => {'id': d.id, 'data': d.data()}).toList(),
-        'noticias': noticiasSnap.docs.map((d) => {'id': d.id, 'data': d.data()}).toList(),
+        'members': membersSnap.docs
+            .map((d) => {'id': d.id, 'data': firestoreToJsonSafe(d.data())})
+            .toList(),
+        'noticias': noticiasSnap.docs
+            .map((d) => {'id': d.id, 'data': firestoreToJsonSafe(d.data())})
+            .toList(),
       };
       final json = const JsonEncoder.withIndent('  ').convert(data);
       await Share.share(

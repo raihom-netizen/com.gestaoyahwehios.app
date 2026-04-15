@@ -2,10 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
-import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
@@ -27,12 +28,20 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
   /// Disparado após carregar (ou erro) quando [deferFinanceBlock] é true, para o pai dar [setState].
   final VoidCallback? onDeferredFinanceReady;
 
+  /// Janela do filtro financeiro (saldos por conta + intel). Ignorado se [canViewFinance] for false.
+  final DateTimeRange financePeriodRange;
+
+  /// Preset atual (rótulos). Alinhado ao painel principal.
+  final ChurchDashboardFinancePreset financePeriodPreset;
+
   const ChurchMinistryHealthPanel({
     super.key,
     required this.tenantId,
     required this.role,
     required this.memberDocs,
     required this.canViewFinance,
+    required this.financePeriodRange,
+    required this.financePeriodPreset,
     this.onNavigateToMembers,
     this.onRefreshDashboard,
     this.deferFinanceBlock = false,
@@ -49,8 +58,13 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   String? _error;
   ChurchMinistryIntel? _intel;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _visitanteDocs = const [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _financePanelDocs = const [];
+  /// Todos os lançamentos carregados (para saldo cumulativo e refiltragem sem novo fetch).
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _financeAllDocs = const [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _contasDocs = const [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _cachedEscalasDocs = const [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _cachedNoticiasDocs = const [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _cachedVisitantesDocs = const [];
+  Map<String, dynamic>? _cachedChurchData;
 
   @override
   void initState() {
@@ -71,7 +85,66 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     if (oldWidget.tenantId != widget.tenantId ||
         oldWidget.memberDocs.length != widget.memberDocs.length) {
       _load();
+      return;
     }
+    final periodChanged =
+        oldWidget.financePeriodPreset != widget.financePeriodPreset ||
+            !ChurchDashboardFinancePeriod.sameRange(
+              oldWidget.financePeriodRange,
+              widget.financePeriodRange,
+            );
+    if (periodChanged &&
+        widget.canViewFinance &&
+        _financeAllDocs.isNotEmpty) {
+      _recomputeIntelOnly();
+      return;
+    }
+    if (periodChanged) {
+      _load();
+    }
+  }
+
+  void _recomputeIntelOnly() {
+    if (!widget.canViewFinance || _financeAllDocs.isEmpty) return;
+    final w = widget.financePeriodRange;
+    final finWindow = _financeAllDocs.where((d) {
+      final dt = _lancamentoDate(d.data());
+      if (dt == null) return false;
+      return !dt.isBefore(w.start) && !dt.isAfter(w.end);
+    }).toList();
+    final intel = ChurchMinistryIntelService.build(
+      members: widget.memberDocs,
+      escalas: _cachedEscalasDocs,
+      noticias: _cachedNoticiasDocs,
+      visitantes: _cachedVisitantesDocs,
+      financeDocs: finWindow,
+      churchData: _cachedChurchData,
+      includeFinance: true,
+      financeWindow: w,
+    );
+    if (mounted) {
+      setState(() {
+        _intel = intel;
+      });
+      _notifyDeferredReady();
+    }
+  }
+
+  static DateTime? _lancamentoDate(Map<String, dynamic> m) {
+    final raw = m['createdAt'] ?? m['date'];
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is Map) {
+      final sec = raw['seconds'] ?? raw['_seconds'];
+      if (sec != null) {
+        final n = sec is num ? sec.toInt() : int.tryParse(sec.toString());
+        if (n != null) {
+          return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+        }
+      }
+    }
+    return DateTime.tryParse(raw.toString());
   }
 
   Future<void> _load() async {
@@ -84,18 +157,15 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       final base = FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId.trim());
-      // Limites menores: painel usa janela ~45d; menos docs = menos tempo na 1ª pintura.
       final futures = <Future<dynamic>>[
         base.collection('escalas').orderBy('date', descending: true).limit(220).get(),
         base.collection('noticias').orderBy('createdAt', descending: true).limit(120).get(),
         base.collection('visitantes').orderBy('createdAt', descending: true).limit(200).get(),
       ];
       if (widget.canViewFinance) {
-        futures.add(base
-            .collection('finance')
-            .orderBy('createdAt', descending: true)
-            .limit(500)
-            .get());
+        futures.add(
+          base.collection('finance').orderBy('createdAt', descending: true).get(),
+        );
         futures.add(base.collection('contas').orderBy('nome').get());
       }
       futures.add(base.get());
@@ -105,10 +175,17 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       final not = out[i++] as QuerySnapshot<Map<String, dynamic>>;
       final vis = out[i++] as QuerySnapshot<Map<String, dynamic>>;
       List<QueryDocumentSnapshot<Map<String, dynamic>>> finDocs = const [];
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> finAll = const [];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> contasList = const [];
       if (widget.canViewFinance) {
-        finDocs = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+        finAll = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
         contasList = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+        final w = widget.financePeriodRange;
+        finDocs = finAll.where((d) {
+          final dt = _lancamentoDate(d.data());
+          if (dt == null) return false;
+          return !dt.isBefore(w.start) && !dt.isAfter(w.end);
+        }).toList();
       }
       final church =
           (out[i] as DocumentSnapshot<Map<String, dynamic>>).data();
@@ -121,12 +198,17 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         financeDocs: finDocs,
         churchData: church,
         includeFinance: widget.canViewFinance,
+        financeWindow: widget.canViewFinance ? widget.financePeriodRange : null,
       );
       if (mounted) {
         setState(() {
           _intel = intel;
           _visitanteDocs = vis.docs;
-          _financePanelDocs = finDocs;
+          _financeAllDocs = finAll;
+          _cachedEscalasDocs = esc.docs;
+          _cachedNoticiasDocs = not.docs;
+          _cachedVisitantesDocs = vis.docs;
+          _cachedChurchData = church;
           _contasDocs = contasList;
           _loading = false;
         });
@@ -146,7 +228,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   /// Bloco de finanças (saldos + intel) para colocar no fim do painel quando [deferFinanceBlock] é true.
   Widget? buildDeferredFinanceSection(BuildContext context) {
     if (!widget.canViewFinance || !widget.deferFinanceBlock) return null;
-    if (_loading || _error != null) return null;
+    if (_error != null && _intel == null) return null;
+    if (_loading && _intel == null) return null;
     final fi = _intel?.finance;
     if (fi == null) return null;
     final narrow =
@@ -359,62 +442,198 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     );
   }
 
+  static const String _kPastoralWhatsPrefill =
+      'Olá! Aqui é a pastoral da igreja. Como está? Gostaríamos de manter contato com você.';
+
+  Future<void> _contactPastoralMemberViaWhatsApp(
+    BuildContext rootCtx,
+    MemberPastoralAlert a,
+  ) async {
+    final raw = a.phoneDigits.trim();
+    if (raw.length < 10) {
+      if (!rootCtx.mounted) return;
+      ScaffoldMessenger.of(rootCtx).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Cadastre o telefone na ficha do membro (Membros) para contactar pelo WhatsApp.',
+        ),
+      );
+      return;
+    }
+    await launchWhatsAppContact(
+      raw,
+      prefilledMessage: _kPastoralWhatsPrefill,
+    );
+  }
+
   Future<void> _openPastoralAlertsSheet(
       BuildContext context, List<MemberPastoralAlert> alerts) async {
     final rootCtx = context;
 
     Widget alertTile(MemberPastoralAlert a, VoidCallback closeModal) {
+      final hasPhone = a.phoneDigits.trim().length >= 10;
       return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.only(bottom: 10),
         child: Material(
-          color: const Color(0xFFFEF2F2),
-          borderRadius: BorderRadius.circular(14),
+          color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             onTap: () async {
               closeModal();
               if (!rootCtx.mounted) return;
-              await Navigator.push(
-                rootCtx,
-                MaterialPageRoute(
-                  builder: (_) => MemberCardPage(
-                    tenantId: widget.tenantId,
-                    role: widget.role,
-                    memberId: a.memberId,
-                    onNavigateToMembers: widget.onNavigateToMembers,
-                  ),
-                ),
-              );
+              await _contactPastoralMemberViaWhatsApp(rootCtx, a);
               widget.onRefreshDashboard?.call();
             },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(Icons.person_search_rounded,
-                      color: Colors.red.shade400, size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(a.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 14)),
-                        Text(a.summary,
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey.shade700)),
-                      ],
-                    ),
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white,
+                    const Color(0xFFFFF8F8),
+                    const Color(0xFFFEF2F2).withValues(alpha: 0.92),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: hasPhone
+                      ? const Color(0xFF25D366).withValues(alpha: 0.35)
+                      : const Color(0xFFFCA5A5).withValues(alpha: 0.75),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.07),
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
                   ),
-                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
                 ],
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF25D366), Color(0xFF128C7E)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF25D366).withValues(alpha: 0.35),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const FaIcon(
+                        FontAwesomeIcons.whatsapp,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            a.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            a.summary,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                              height: 1.25,
+                            ),
+                          ),
+                          if (!hasPhone)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                'Sem telefone na ficha — cadastre em Membros.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 15,
+                      color: Colors.grey.shade400,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       );
     }
+
+    Widget pastoralHeaderTitle(String title, VoidCallback onClose,
+        {bool light = false}) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: light
+                    ? Colors.white.withValues(alpha: 0.2)
+                    : ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.volunteer_activism_rounded,
+                color: light ? Colors.white : ThemeCleanPremium.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                  letterSpacing: -0.3,
+                  color: light ? Colors.white : null,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: onClose,
+              icon: Icon(
+                Icons.close_rounded,
+                color: light ? Colors.white : null,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final desc =
+        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Toque no cartão para abrir o WhatsApp.';
 
     if (kIsWeb) {
       await showDialog<void>(
@@ -429,7 +648,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             insetPadding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20)),
+                borderRadius: BorderRadius.circular(22)),
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
               width: boxW,
@@ -437,34 +656,41 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Atenção pastoral (${alerts.length})',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 17,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: close,
-                          icon: const Icon(Icons.close_rounded),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(8, 16, 8, 14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.navSidebar,
+                          ThemeCleanPremium.primary,
+                          ThemeCleanPremium.primaryLight,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
                         ),
                       ],
                     ),
+                    child: pastoralHeaderTitle(
+                      'Atenção pastoral (${alerts.length})',
+                      close,
+                      light: true,
+                    ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
                     child: Text(
-                      'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Toque para abrir a ficha.',
+                      desc,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade700,
-                        height: 1.35,
+                        height: 1.38,
                       ),
                     ),
                   ),
@@ -476,8 +702,15 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                           close();
                           widget.onNavigateToMembers!();
                         },
-                        icon: const Icon(Icons.people_rounded, size: 18),
-                        label: const Text('Ir para Membros'),
+                        icon: Icon(Icons.people_rounded,
+                            size: 18, color: ThemeCleanPremium.primary),
+                        label: Text(
+                          'Ir para Membros',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                        ),
                       ),
                     ),
                   Expanded(
@@ -513,92 +746,107 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (sheetCtx) {
         return DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.55,
+          initialChildSize: 0.58,
           minChildSize: 0.28,
           maxChildSize: 0.92,
           builder: (_, sc) {
-            return Column(
-              children: [
-                const SizedBox(height: 8),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius:
+                    BorderRadius.vertical(top: Radius.circular(22)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Atenção pastoral (${alerts.length})',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 17,
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.navSidebar,
+                          ThemeCleanPremium.primary,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: pastoralHeaderTitle(
+                      'Atenção pastoral (${alerts.length})',
+                      () => Navigator.pop(sheetCtx),
+                      light: true,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+                    child: Text(
+                      desc,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        height: 1.38,
+                      ),
+                    ),
+                  ),
+                  if (widget.onNavigateToMembers != null) ...[
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetCtx);
+                          widget.onNavigateToMembers!();
+                        },
+                        icon: Icon(Icons.people_rounded,
+                            size: 18, color: ThemeCleanPremium.primary),
+                        label: Text(
+                          'Ir para Membros',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.primary,
                           ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(sheetCtx),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos — últimos ${ChurchMinistryIntelService.staleDays} dias). Toque para abrir a ficha.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                      height: 1.35,
                     ),
-                  ),
-                ),
-                if (widget.onNavigateToMembers != null) ...[
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () {
-                        Navigator.pop(sheetCtx);
-                        widget.onNavigateToMembers!();
-                      },
-                      icon: const Icon(Icons.people_rounded, size: 18),
-                      label: const Text('Ir para Membros'),
-                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: alerts.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                'Nenhum membro nesta situação.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: sc,
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            itemCount: alerts.length,
+                            itemBuilder: (context, i) =>
+                                alertTile(alerts[i], () => Navigator.pop(sheetCtx)),
+                          ),
                   ),
                 ],
-                const SizedBox(height: 6),
-                Expanded(
-                  child: alerts.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              'Nenhum membro nesta situação.',
-                              style: TextStyle(color: Colors.grey.shade600),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: sc,
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                          itemCount: alerts.length,
-                          itemBuilder: (context, i) =>
-                              alertTile(alerts[i], () => Navigator.pop(sheetCtx)),
-                        ),
-                ),
-              ],
+              ),
             );
           },
         );
@@ -814,36 +1062,11 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     final tel = (m['telefone'] ?? '').toString();
     final st = (m['status'] ?? '').toString();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: const Color(0xFFF5F3FF),
-        borderRadius: BorderRadius.circular(14),
-        child: ListTile(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          leading: CircleAvatar(
-            backgroundColor: const Color(0xFF8B5CF6).withValues(alpha: 0.2),
-            child: Text(
-              nome.isNotEmpty ? nome[0].toUpperCase() : '?',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF6D28D9),
-              ),
-            ),
-          ),
-          title: Text(
-            nome,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          subtitle: Text(
-            tel.isNotEmpty ? tel : st,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          trailing: const Icon(Icons.chevron_right_rounded),
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
           onTap: () async {
             Navigator.pop(sheetCtx);
             if (!rootCtx.mounted) return;
@@ -855,6 +1078,97 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             );
             widget.onRefreshDashboard?.call();
           },
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white,
+                  const Color(0xFFF5F3FF).withValues(alpha: 0.85),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: const Color(0xFF8B5CF6).withValues(alpha: 0.22),
+                    child: Text(
+                      nome.isNotEmpty ? nome[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                        color: Color(0xFF6D28D9),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nome,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          tel.isNotEmpty ? tel : st,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (tel.isNotEmpty)
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => launchWhatsAppContact(tel),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF128C7E), Color(0xFF25D366)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const FaIcon(
+                            FontAwesomeIcons.whatsapp,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -1303,6 +1617,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         maxChildSize: 0.96,
         builder: (_, scrollCtrl) => _PanelFinanceContaMovimentos(
           tenantId: widget.tenantId,
+          role: widget.role,
           contaId: contaId,
           contaNome: contaNome,
           scrollController: scrollCtrl,
@@ -1324,42 +1639,12 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         : 0.0;
     final contasAtivas =
         _contasDocs.where((c) => c.data()['ativo'] != false).toList();
-    final saldoPorConta = <String, double>{};
-    for (final c in contasAtivas) {
-      saldoPorConta[c.id] = 0.0;
-    }
-    for (final d in _financePanelDocs) {
-      final data = d.data();
-      if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
-      final tipo = (data['type'] ?? '').toString().toLowerCase();
-      final valor =
-          _churchPanelParseValor(data['amount'] ?? data['valor']);
-      if (tipo == 'transferencia') {
-        final origemId = (data['contaOrigemId'] ?? '').toString();
-        final destinoId = (data['contaDestinoId'] ?? '').toString();
-        if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
-          saldoPorConta[destinoId] =
-              (saldoPorConta[destinoId] ?? 0) + valor;
-        }
-        if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
-          saldoPorConta[origemId] = (saldoPorConta[origemId] ?? 0) - valor;
-        }
-        continue;
-      }
-      if (tipo.contains('entrada') || tipo.contains('receita')) {
-        final destinoId = (data['contaDestinoId'] ?? '').toString();
-        if (destinoId.isNotEmpty && saldoPorConta.containsKey(destinoId)) {
-          saldoPorConta[destinoId] =
-              (saldoPorConta[destinoId] ?? 0) + valor;
-        }
-      } else {
-        final origemId = (data['contaOrigemId'] ?? '').toString();
-        if (origemId.isNotEmpty && saldoPorConta.containsKey(origemId)) {
-          saldoPorConta[origemId] =
-              (saldoPorConta[origemId] ?? 0) - valor;
-        }
-      }
-    }
+    final idsAtivos = contasAtivas.map((c) => c.id).toSet();
+    final saldoPorConta = financeSaldoPorContaAteInclusive(
+      contaIdsAtivas: idsAtivos,
+      lancamentos: _financeAllDocs.map((d) => d.data()),
+      ateInclusive: widget.financePeriodRange.end,
+    );
 
     Widget contaCards() {
       if (contasAtivas.isEmpty) {
@@ -1495,7 +1780,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                     ),
                     Text(
-                      'Saldos por conta (receitas recebidas e despesas pagas + transferências). Toque para ver, editar e alterar pendente/recebido.',
+                      'Saldo por conta até o fim do período (${ChurchDashboardFinancePeriod.presetLabel(widget.financePeriodPreset)}), incluindo saldo anterior — receitas recebidas, despesas pagas e transferências. Toque para detalhes.',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade700, height: 1.3),
                     ),
@@ -1506,7 +1791,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           ),
           const SizedBox(height: 14),
           Text(
-            'Saldos por conta',
+            'Saldos por conta (período)',
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 12,
@@ -1532,7 +1817,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                         color: Colors.green.shade700, size: 18),
                     const SizedBox(width: 6),
                     Text(
-                      'Inteligência (últimos lançamentos carregados)',
+                      'Inteligência (equiv. mensal no período)',
                       style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 12,
@@ -1635,12 +1920,19 @@ bool _churchPanelFinanceDocTouchesAccount(
     return (data['contaOrigemId'] ?? '').toString() == contaId ||
         (data['contaDestinoId'] ?? '').toString() == contaId;
   }
+  if (tipo.contains('entrada') || tipo.contains('receita')) {
+    return financeContaDestinoReceitaId(data) == contaId;
+  }
+  if (tipo.contains('saida') || tipo.contains('despesa')) {
+    return (data['contaOrigemId'] ?? '').toString() == contaId;
+  }
   return (data['contaDestinoId'] ?? '').toString() == contaId ||
       (data['contaOrigemId'] ?? '').toString() == contaId;
 }
 
 class _PanelFinanceContaMovimentos extends StatefulWidget {
   final String tenantId;
+  final String role;
   final String contaId;
   final String contaNome;
   final ScrollController scrollController;
@@ -1648,6 +1940,7 @@ class _PanelFinanceContaMovimentos extends StatefulWidget {
 
   const _PanelFinanceContaMovimentos({
     required this.tenantId,
+    required this.role,
     required this.contaId,
     required this.contaNome,
     required this.scrollController,
@@ -2016,6 +2309,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                                             context,
                                             tenantId: widget.tenantId,
                                             existingDoc: doc,
+                                            panelRole: widget.role,
                                           );
                                           await _afterMutation();
                                         },

@@ -6,6 +6,7 @@
  */
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
+import { ensureMercadoPagoContaForNewChurch } from "./churchMercadoPago";
 
 const WELCOME_DEPARTMENTS: ReadonlyArray<{
   docId: string;
@@ -119,6 +120,15 @@ export async function ensureChurchWelcomeSeed(
     }
     await batch.commit();
     console.log(`ensureChurchWelcomeSeed: ${cargosCreated} cargo(s) em igrejas/${tid}/cargos`);
+  }
+
+  try {
+    const ok = await ensureMercadoPagoContaForNewChurch(tid);
+    if (ok) {
+      console.log(`ensureChurchWelcomeSeed: conta Mercado Pago criada em igrejas/${tid}/contas/mercado_pago`);
+    }
+  } catch (e) {
+    console.warn("ensureChurchWelcomeSeed ensureMercadoPagoContaForNewChurch:", e);
   }
 
   return { departmentsCreated, cargosCreated };

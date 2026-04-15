@@ -24,6 +24,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required String eventPostDocId,
     required int videoSlotIndex,
     Duration maxDuration = const Duration(seconds: 60),
+    void Function(double uploadProgress01)? onUploadProgress,
   }) async {
     final xfile = await _picker.pickVideo(
       source: ImageSource.gallery,
@@ -51,6 +52,7 @@ class VideoHandlerService implements IVideoHandlerService {
       storagePath: videoPath,
       bytes: bytes,
       contentType: mime,
+      onProgress: onUploadProgress,
     );
     final thumbBytesFuture = kIsWeb
         ? captureVideoFirstFrameJpeg(bytes, mimeType: mime)

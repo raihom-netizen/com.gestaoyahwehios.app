@@ -7,25 +7,69 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
+import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart';
 import '../../services/app_permissions.dart';
 
 /// Fecha no máximo uma rota (relatório sobre o painel). Nunca usa rootNavigator.
 void _popUmaRotaRelatorio(BuildContext context) {
   final nav = Navigator.of(context);
   if (nav.canPop()) nav.pop();
+}
+
+/// Chip de filtro com texto sempre legível (Material 3 / tema podem deixar label invisível quando não selecionado).
+class _PremiumFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+  final Color accent;
+
+  const _PremiumFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      showCheckmark: true,
+      checkmarkColor: accent,
+      selectedColor: accent.withValues(alpha: 0.2),
+      backgroundColor: ThemeCleanPremium.cardBackground,
+      side: BorderSide(
+        color: selected ? accent : const Color(0xFFE2E8F4),
+        width: selected ? 1.5 : 1,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          fontSize: 13,
+          color: selected ? accent : ThemeCleanPremium.onSurface,
+        ),
+      ),
+      selected: selected,
+      onSelected: onSelected,
+    );
+  }
 }
 
 /// Módulo Relatórios: Membros (campos selecionáveis), Aniversariantes (dia/semana/mês/anual/período), Financeiro (se tiver permissão).
@@ -36,6 +80,8 @@ class RelatoriosPage extends StatelessWidget {
   final bool? podeVerFinanceiro;
   /// Gestor liberou patrimônio para este membro (role membro).
   final bool? podeVerPatrimonio;
+  /// Gestor liberou PDFs de membros/aniversariantes; senão só Relatório de Eventos.
+  final bool? podeEmitirRelatoriosCompletos;
   final List<String>? permissions;
   /// Dentro do [IgrejaCleanShell]: sem AppBar duplicada no mobile e sem “voltar” que pareça sair do painel.
   final bool embeddedInShell;
@@ -46,6 +92,7 @@ class RelatoriosPage extends StatelessWidget {
     required this.role,
     this.podeVerFinanceiro,
     this.podeVerPatrimonio,
+    this.podeEmitirRelatoriosCompletos,
     this.permissions,
     this.embeddedInShell = false,
   });
@@ -58,6 +105,13 @@ class RelatoriosPage extends StatelessWidget {
   bool get _canPatrimonio => AppPermissions.canViewPatrimonio(
         role,
         memberCanViewPatrimonio: podeVerPatrimonio,
+        permissions: permissions,
+      );
+
+  /// Membro/visitante: só eventos, salvo gestor liberar ou permissão `relatorios`.
+  bool get _canFullReports => AppPermissions.canEmitFullChurchReports(
+        role,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
         permissions: permissions,
       );
 
@@ -77,38 +131,93 @@ class RelatoriosPage extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
-        child: ListView(
-          padding: padding,
-          children: [
-            if (isMobile && !embeddedInShell) ...[
-              Text('Relatórios', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: ThemeCleanPremium.churchPanelBodyGradient,
+          ),
+          child: ListView(
+            padding: padding,
+            children: [
+              if (isMobile && !embeddedInShell) ...[
+                Text('Relatórios', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
+                const SizedBox(height: ThemeCleanPremium.spaceMd),
+              ],
+              if (AppPermissions.isRestrictedMember(role) && !_canFullReports) ...[
+                Container(
+                  padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    border: Border.all(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: ThemeCleanPremium.spaceSm),
+                      Expanded(
+                        child: Text(
+                          'Seu perfil permite apenas o Relatório de Eventos. '
+                          'Para exportar membros, aniversariantes ou outros PDFs, o gestor pode liberar em seu cadastro (Membros → editar ficha).',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.4,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: ThemeCleanPremium.spaceMd),
+              ],
+            _ReportCard(
+              icon: Icons.event_rounded,
+              title: 'Relatório de Eventos',
+              subtitle: 'Eventos ativos, confirmações de presença (RSVP). Filtros: diário, mensal, anual ou por período. Exportar PDF.',
+              color: const Color(0xFF0EA5E9),
+              onTap: () => _openRelatorioEventos(context),
+            ),
+            if (_canFullReports) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
+              _ReportCard(
+                icon: Icons.people_rounded,
+                title: 'Relatório de Membros',
+                subtitle: 'Escolha os campos que deseja incluir e exporte em PDF.',
+                color: ThemeCleanPremium.primary,
+                onTap: () => _openRelatorioMembros(context),
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceMd),
+              _ReportCard(
+                icon: Icons.cake_rounded,
+                title: 'Relatório de Aniversariantes',
+                subtitle:
+                    'Filtro Hoje/Semana/Mês/Personalizado/Ano, fotos, WhatsApp e PDF mural.',
+                color: const Color(0xFFE11D48),
+                onTap: () => _openRelatorioAniversariantes(context),
+              ),
             ],
-            _ReportCard(
-              icon: Icons.people_rounded,
-              title: 'Relatório de Membros',
-              subtitle: 'Escolha os campos que deseja incluir e exporte em PDF.',
-              color: ThemeCleanPremium.primary,
-              onTap: () => _openRelatorioMembros(context),
-            ),
-            const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _ReportCard(
-              icon: Icons.cake_rounded,
-              title: 'Relatório de Aniversariantes',
-              subtitle:
-                  'Filtro Hoje/Semana/Mês/Personalizado/Ano, fotos, WhatsApp e PDF mural.',
-              color: const Color(0xFFE11D48),
-              onTap: () => _openRelatorioAniversariantes(context),
-            ),
             if (_canFinance) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _ReportCard(
-              icon: Icons.account_balance_wallet_rounded,
-              title: 'Relatório Financeiro',
-              subtitle:
-                  'Dashboard com gráficos, tabela paginada, CSV e fechamento de mês em PDF.',
-              color: const Color(0xFF059669),
+              _ReportCard(
+                icon: Icons.account_balance_wallet_rounded,
+                title: 'Relatório Financeiro',
+                subtitle:
+                    'Dashboard com gráficos, tabela paginada, CSV e fechamento de mês em PDF.',
+                color: const Color(0xFF059669),
                 onTap: () => _openRelatorioFinanceiro(context),
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceMd),
+              _ReportCard(
+                icon: Icons.business_center_rounded,
+                title: 'Fornecedores e prestadores',
+                subtitle:
+                    'Despesas e receitas por período, gráficos, PDF e exportação CSV.',
+                color: const Color(0xFF0F766E),
+                onTap: () => _openRelatorioGastosFornecedores(context),
               ),
             ],
             if (_canPatrimonio) ...[
@@ -121,32 +230,37 @@ class RelatoriosPage extends StatelessWidget {
                 onTap: () => _openRelatorioPatrimonio(context),
               ),
             ],
-            const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _ReportCard(
-              icon: Icons.event_rounded,
-              title: 'Relatório de Eventos',
-              subtitle: 'Eventos ativos, confirmações de presença (RSVP). Filtros: diário, mensal, anual ou por período. Exportar PDF.',
-              color: const Color(0xFF0EA5E9),
-              onTap: () => _openRelatorioEventos(context),
-            ),
             const SizedBox(height: 80),
           ],
+        ),
         ),
       ),
     );
   }
 
   void _openRelatorioMembros(BuildContext context) {
+    if (!_canFullReports) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioMembrosPage(tenantId: tenantId, role: role)));
   }
 
   void _openRelatorioAniversariantes(BuildContext context) {
+    if (!_canFullReports) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioAniversariantesPage(tenantId: tenantId)));
   }
 
   void _openRelatorioFinanceiro(BuildContext context) {
     if (!_canFinance) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioFinanceiroPage(tenantId: tenantId)));
+  }
+
+  void _openRelatorioGastosFornecedores(BuildContext context) {
+    if (!_canFinance) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RelatorioGastosFornecedoresPage(tenantId: tenantId),
+      ),
+    );
   }
 
   void _openRelatorioPatrimonio(BuildContext context) {
@@ -156,45 +270,6 @@ class RelatoriosPage extends StatelessWidget {
 
   void _openRelatorioEventos(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioEventosPage(tenantId: tenantId)));
-  }
-}
-
-/// Seletor de orientação do PDF: vertical (retrato) ou paisagem.
-class _PdfOrientationSelector extends StatelessWidget {
-  final bool landscape;
-  final ValueChanged<bool> onChanged;
-
-  const _PdfOrientationSelector({required this.landscape, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('Orientação do PDF', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.onSurfaceVariant)),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            FilterChip(
-              label: const Text('Vertical (retrato)'),
-              selected: !landscape,
-              onSelected: (v) { if (v) onChanged(false); },
-              selectedColor: ThemeCleanPremium.primary.withOpacity(0.15),
-              checkmarkColor: ThemeCleanPremium.primary,
-            ),
-            const SizedBox(width: 10),
-            FilterChip(
-              label: const Text('Paisagem'),
-              selected: landscape,
-              onSelected: (v) { if (v) onChanged(true); },
-              selectedColor: ThemeCleanPremium.primary.withOpacity(0.15),
-              checkmarkColor: ThemeCleanPremium.primary,
-            ),
-          ],
-        ),
-      ],
-    );
   }
 }
 
@@ -209,41 +284,90 @@ class _ReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentEnd = Color.lerp(color, const Color(0xFF0F172A), 0.28) ?? color;
     return Material(
-      color: ThemeCleanPremium.cardBackground,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-      elevation: 0,
-      shadowColor: ThemeCleanPremium.softUiCardShadow.first.color,
+      color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        child: Container(
-          padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+        onTap: () {
+          ThemeCleanPremium.hapticAction();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            color: ThemeCleanPremium.cardBackground,
             boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFF1F5F9)),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                color.withValues(alpha: 0.07),
+                ThemeCleanPremium.cardBackground,
+              ],
+            ),
           ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                child: Icon(icon, color: color, size: 28),
-              ),
-              const SizedBox(width: ThemeCleanPremium.spaceMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ThemeCleanPremium.onSurface)),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: TextStyle(fontSize: 13, color: ThemeCleanPremium.onSurfaceVariant)),
-                  ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: ThemeCleanPremium.spaceLg,
+              vertical: ThemeCleanPremium.spaceMd + 2,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [color, accentEnd],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.45),
+                        blurRadius: 14,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 28),
                 ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
-            ],
+                const SizedBox(width: ThemeCleanPremium.spaceMd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: color.withValues(alpha: 0.75),
+                  size: 28,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -296,21 +420,6 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     }
   }
 
-  static int? _parseIdade(dynamic raw) {
-    if (raw == null) return null;
-    DateTime? dt;
-    if (raw is Timestamp) dt = raw.toDate();
-    else if (raw is Map) {
-      final sec = raw['seconds'] ?? raw['_seconds'];
-      if (sec != null) dt = DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
-    }
-    if (dt == null) return null;
-    final now = DateTime.now();
-    int age = now.year - dt.year;
-    if (now.month < dt.month || (now.month == dt.month && now.day < dt.day)) age--;
-    return age;
-  }
-
   List<Map<String, dynamic>> _aplicarFiltros(List<Map<String, dynamic>> list) {
     var out = list;
     if (_busca.trim().isNotEmpty) {
@@ -344,7 +453,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     }
     if (_filtroFaixaEtaria != 'todas') {
       out = out.where((m) {
-        final idade = _parseIdade(m['DATA_NASCIMENTO'] ?? m['dataNascimento'] ?? m['birthDate']);
+        final idade = ageFromMemberData(m);
         if (idade == null) return _filtroFaixaEtaria == 'todas';
         switch (_filtroFaixaEtaria) {
           case 'criancas': return idade < 13;
@@ -419,9 +528,65 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       if (t is Timestamp) return DateFormat('dd/MM/yyyy').format(t.toDate());
       return t.toString();
     }
-    if (key == 'departamento') return (m['departamento'] ?? m['DEPARTAMENTO'] ?? '').toString();
-    if (key == 'status') return (m['STATUS'] ?? m['status'] ?? '').toString();
+    if (key == 'sexo') {
+      final s = (m['SEXO'] ?? m['sexo'] ?? '').toString().trim();
+      if (s.isEmpty) return '';
+      final sl = s.toLowerCase();
+      if (sl.startsWith('m')) return 'Masculino';
+      if (sl.startsWith('f')) return 'Feminino';
+      return s;
+    }
+    if (key == 'faixaEtaria') {
+      final idade = ageFromMemberData(m);
+      if (idade == null) return '—';
+      if (idade < 13) return 'Criança';
+      if (idade < 18) return 'Adolescente';
+      if (idade < 60) return 'Adulto';
+      return 'Idoso';
+    }
+    if (key == 'departamento') {
+      final depts = m['DEPARTAMENTOS'] ?? m['departamentos'];
+      if (depts is List && depts.isNotEmpty) {
+        final names = <String>[];
+        for (final raw in depts) {
+          final idStr = raw.toString().trim();
+          if (idStr.isEmpty) continue;
+          for (final e in _departamentos) {
+            if (e.id == idStr) {
+              names.add(e.name);
+              break;
+            }
+          }
+        }
+        if (names.isNotEmpty) return names.join(', ');
+      }
+      return (m['departamento'] ?? m['DEPARTAMENTO'] ?? '').toString();
+    }
+    if (key == 'status') {
+      final raw = (m['STATUS'] ?? m['status'] ?? '').toString().trim();
+      if (raw.isEmpty) return '';
+      return raw
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .map((w) =>
+              '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}')
+          .join(' ');
+    }
     return '';
+  }
+
+  /// Evita quebras de linha no meio de e-mail/telefone no PDF (coluna # e índice ficam legíveis).
+  String _pdfSanitizeCell(String fieldKey, String value) {
+    var s = value.trim();
+    if (fieldKey == 'telefone') {
+      s = s.replaceAll(RegExp(r'[\r\n]+'), ' ');
+      s = s.replaceAll(RegExp(r' +'), ' ');
+    } else if (fieldKey == 'email') {
+      s = s.replaceAll(RegExp(r'[\r\n\t]+'), '');
+      s = s.replaceAll(RegExp(r' +'), '');
+      return pdfEmailBreakOpportunities(s);
+    }
+    return s;
   }
 
   Future<void> _exportPdf() async {
@@ -437,6 +602,15 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhum membro para exportar.')));
         return;
       }
+      list.sort((a, b) {
+        final na = (a['NOME_COMPLETO'] ?? a['nome'] ?? a['name'] ?? '')
+            .toString()
+            .toLowerCase();
+        final nb = (b['NOME_COMPLETO'] ?? b['nome'] ?? b['name'] ?? '')
+            .toString()
+            .toLowerCase();
+        return na.compareTo(nb);
+      });
       final keys = _fieldOptions.where((e) => _selected.contains(e.$1)).map((e) => e.$1).toList();
       final headers = [
         '#',
@@ -445,13 +619,13 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       final data = list.asMap().entries.map((e) {
         return [
           '${e.key + 1}',
-          ...keys.map((k) => _val(e.value, k)),
+          ...keys.map((k) => _pdfSanitizeCell(k, _val(e.value, k))),
         ];
       }).toList();
 
       final branding = await loadReportPdfBranding(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -473,6 +647,8 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
               headers: headers,
               data: data,
               accent: branding.accent,
+              columnWidths:
+                  PdfSuperPremiumTheme.columnWidthsMemberReport(keys),
             ),
           ],
         ),
@@ -515,12 +691,11 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
               runSpacing: 8,
               children: ['todos', 'ativos', 'inativos'].map((v) {
                 final lbl = v == 'todos' ? 'Todos' : v == 'ativos' ? 'Ativos' : 'Inativos';
-                return FilterChip(
-                  label: Text(lbl),
+                return _PremiumFilterChip(
+                  label: lbl,
                   selected: _filtroStatus == v,
+                  accent: color,
                   onSelected: (x) => setState(() => _filtroStatus = x ? v : 'todos'),
-                  selectedColor: color.withOpacity(0.2),
-                  checkmarkColor: color,
                 );
               }).toList(),
             )),
@@ -530,12 +705,11 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
               runSpacing: 8,
               children: ['todos', 'masculino', 'feminino'].map((v) {
                 final lbl = v == 'todos' ? 'Todos' : v == 'masculino' ? 'Masculino' : 'Feminino';
-                return FilterChip(
-                  label: Text(lbl),
+                return _PremiumFilterChip(
+                  label: lbl,
                   selected: _filtroGenero == v,
+                  accent: color,
                   onSelected: (x) => setState(() => _filtroGenero = x ? v : 'todos'),
-                  selectedColor: color.withOpacity(0.2),
-                  checkmarkColor: color,
                 );
               }).toList(),
             )),
@@ -545,12 +719,11 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
               runSpacing: 8,
               children: ['todas', 'criancas', 'adolescentes', 'adultos', 'idosos'].map((v) {
                 final lbl = v == 'todas' ? 'Todas' : v == 'criancas' ? 'Crianças (<13)' : v == 'adolescentes' ? 'Adolescentes (13-17)' : v == 'adultos' ? 'Adultos (18-59)' : 'Idosos (60+)';
-                return FilterChip(
-                  label: Text(lbl),
+                return _PremiumFilterChip(
+                  label: lbl,
                   selected: _filtroFaixaEtaria == v,
+                  accent: color,
                   onSelected: (x) => setState(() => _filtroFaixaEtaria = x ? v : 'todas'),
-                  selectedColor: color.withOpacity(0.2),
-                  checkmarkColor: color,
                 );
               }).toList(),
             )),
@@ -579,7 +752,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
                   controlAffinity: ListTileControlAffinity.leading,
                 )),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
-            _PdfOrientationSelector(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
+            PremiumPdfOrientationBar(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _loading ? null : _exportPdf,
@@ -671,24 +844,8 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
     }
   }
 
-  static DateTime? _parseBirth(dynamic v) {
-    if (v == null) return null;
-    if (v is Timestamp) return v.toDate();
-    return null;
-  }
-
-  static int _idadeCompletando(DateTime birth, DateTime ref) {
-    var age = ref.year - birth.year;
-    if (ref.month < birth.month ||
-        (ref.month == birth.month && ref.day < birth.day)) {
-      age--;
-    }
-    return age + 1;
-  }
-
   List<Map<String, dynamic>> _listaAniversariantesFiltrada() {
-    DateTime? parseBirth(Map m) =>
-        _parseBirth(m['DATA_NASCIMENTO'] ?? m['dataNascimento'] ?? m['birthDate']);
+    DateTime? parseBirth(Map<String, dynamic> m) => birthDateFromMemberData(m);
 
     final now = DateTime.now();
     List<Map<String, dynamic>> filter(bool Function(DateTime b) fn) {
@@ -737,9 +894,9 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
 
   String _nome(Map<String, dynamic> m) => (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString();
   String _dataNasc(Map<String, dynamic> m) {
-    final t = m['DATA_NASCIMENTO'] ?? m['dataNascimento'] ?? m['birthDate'];
-    if (t is Timestamp) return DateFormat('dd/MM').format(t.toDate());
-    return '';
+    final dt = birthDateFromMemberData(m);
+    if (dt == null) return '';
+    return DateFormat('dd/MM').format(dt);
   }
 
   String _telefoneRaw(Map<String, dynamic> m) {
@@ -792,7 +949,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                       : 'Aniversariantes — Período';
       final branding = await loadReportPdfBranding(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -822,9 +979,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
             if (mural) {
               final byDay = <int, List<Map<String, dynamic>>>{};
               for (final m in list) {
-                final b = _parseBirth(m['DATA_NASCIMENTO'] ??
-                    m['dataNascimento'] ??
-                    m['birthDate']);
+                final b = birthDateFromMemberData(m);
                 if (b == null) continue;
                 byDay.putIfAbsent(b.day, () => []).add(m);
               }
@@ -848,11 +1003,9 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   PdfSuperPremiumTheme.fromTextArray(
                     headers: const ['#', 'Nome', 'Nasc.', 'Idade'],
                     data: sub.map((m) {
-                      final b = _parseBirth(m['DATA_NASCIMENTO'] ??
-                          m['dataNascimento'] ??
-                          m['birthDate'])!;
+                      final b = birthDateFromMemberData(m)!;
                       final ref = DateTime.now();
-                      final idade = _idadeCompletando(b, ref);
+                      final idade = ageInYearsAt(b, ref);
                       return [
                         '${seq++}',
                         _nome(m),
@@ -861,6 +1014,8 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                       ];
                     }).toList(),
                     accent: branding.accent,
+                    columnWidths:
+                        PdfSuperPremiumTheme.columnWidthsAniversariantesSimples,
                   ),
                 );
               }
@@ -872,19 +1027,19 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   '#',
                   'Nome',
                   'Data (dia/mês)',
-                  'Idade a completar'
+                  'Idade (atual)'
                 ],
                 data: list.asMap().entries.map((e) {
                   final m = e.value;
-                  final b = _parseBirth(m['DATA_NASCIMENTO'] ??
-                      m['dataNascimento'] ??
-                      m['birthDate']);
+                  final b = birthDateFromMemberData(m);
                   final idade = b == null
                       ? '—'
-                      : '${_idadeCompletando(b, DateTime.now())} anos';
+                      : '${ageInYearsAt(b, DateTime.now())} anos';
                   return ['${e.key + 1}', _nome(m), _dataNasc(m), idade];
                 }).toList(),
                 accent: branding.accent,
+                columnWidths:
+                    PdfSuperPremiumTheme.columnWidthsAniversariantesSimples,
               ),
             ];
           },
@@ -1097,12 +1252,10 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                         )
                       else
                         ...slice.map((m) {
-                          final b = _parseBirth(m['DATA_NASCIMENTO'] ??
-                              m['dataNascimento'] ??
-                              m['birthDate']);
+                          final b = birthDateFromMemberData(m);
                           final idade = b == null
                               ? null
-                              : _idadeCompletando(b, DateTime.now());
+                              : ageInYearsAt(b, DateTime.now());
                           final mid = (m['id'] ?? '').toString();
                           return Card(
                             margin: const EdgeInsets.only(bottom: 10),
@@ -1127,7 +1280,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                                     fontWeight: FontWeight.w700),
                               ),
                               subtitle: Text(
-                                '${_dataNasc(m)}${idade != null ? ' • completando $idade anos' : ''}',
+                                '${_dataNasc(m)}${idade != null ? ' • $idade anos' : ''}',
                               ),
                               trailing: IconButton(
                                 tooltip: 'Parabéns no WhatsApp',
@@ -1163,7 +1316,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                           ],
                         ),
                       const SizedBox(height: ThemeCleanPremium.spaceLg),
-                      _PdfOrientationSelector(
+                      PremiumPdfOrientationBar(
                           landscape: _pdfLandscape,
                           onChanged: (v) => setState(() => _pdfLandscape = v)),
                       const SizedBox(height: 16),
@@ -1217,6 +1370,13 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
   final filtroCategoria = (input['filtroCategoria'] ?? 'todas').toString();
   final filtroConta = (input['filtroConta'] ?? 'todas').toString();
   final filtroStatusDespesa = (input['filtroStatusDespesa'] ?? 'todas').toString();
+  final contaLabels = <String, String>{};
+  final rawLabels = input['contaLabels'];
+  if (rawLabels is Map) {
+    for (final e in rawLabels.entries) {
+      contaLabels[e.key.toString()] = e.value.toString();
+    }
+  }
 
   /// Visão do mês completo (ignora filtros da tabela) — gráficos de BI.
   double dizimosMes = 0;
@@ -1247,6 +1407,9 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
   final saidasPorCategoria = <String, double>{};
   double entradas = 0;
   double saidas = 0;
+  double aReceberPendente = 0;
+  double aPagarPendente = 0;
+  final porConta = <String, Map<String, double>>{};
 
   for (final raw in rowsRaw) {
     final m = Map<String, dynamic>.from(raw.cast<String, dynamic>());
@@ -1275,12 +1438,34 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
       outRows.add(m);
       continue;
     }
+    final rowPolicy = <String, dynamic>{
+      'type': m['tipo'] ?? '',
+      'recebimentoConfirmado': m['recebimentoConfirmado'],
+      'pagamentoConfirmado': m['pagamentoConfirmado'],
+    };
+    if (financeLancamentoPendenteRecebimento(rowPolicy)) {
+      aReceberPendente += valor;
+    }
+    if (financeLancamentoPendentePagamento(rowPolicy)) {
+      aPagarPendente += valor;
+    }
     if (tipo.contains('entrada') || tipo.contains('receita')) {
       entradas += valor;
+      final cid = contaDestinoId;
+      if (cid.isNotEmpty) {
+        porConta.putIfAbsent(cid, () => {'entradas': 0.0, 'saidas': 0.0});
+        porConta[cid]!['entradas'] =
+            (porConta[cid]!['entradas'] ?? 0) + valor;
+      }
     } else {
       saidas += valor;
       final cat = categoria.isEmpty ? 'Sem categoria' : categoria;
       saidasPorCategoria[cat] = (saidasPorCategoria[cat] ?? 0) + valor;
+      final cid = contaOrigemId;
+      if (cid.isNotEmpty) {
+        porConta.putIfAbsent(cid, () => {'entradas': 0.0, 'saidas': 0.0});
+        porConta[cid]!['saidas'] = (porConta[cid]!['saidas'] ?? 0) + valor;
+      }
     }
     outRows.add(m);
   }
@@ -1299,11 +1484,33 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
     };
   }).toList();
 
+  final porContaLista = porConta.entries.map((e) {
+    final inn = ((e.value['entradas'] ?? 0) as num).toDouble();
+    final out = ((e.value['saidas'] ?? 0) as num).toDouble();
+    final liq = inn - out;
+    final id = e.key;
+    return {
+      'id': id,
+      'nome': (contaLabels[id] ?? id).toString(),
+      'entradas': inn,
+      'saidas': out,
+      'liquido': liq,
+    };
+  }).toList()
+    ..sort((a, b) => ((b['liquido'] as num).toDouble().abs())
+        .compareTo((a['liquido'] as num).toDouble().abs()));
+
+  final fluxoPrevisto = saldo + aReceberPendente - aPagarPendente;
+
   return {
     'rows': outRows,
     'entradas': entradas,
     'saidas': saidas,
     'saldo': saldo,
+    'aReceberPendente': aReceberPendente,
+    'aPagarPendente': aPagarPendente,
+    'fluxoPrevisto': fluxoPrevisto,
+    'porConta': porContaLista,
     'categoriasResumo': categoriasResumo,
     'dizimosMes': dizimosMes,
     'ofertasMes': ofertasMes,
@@ -1311,6 +1518,111 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
         .map((e) => {'categoria': e.key, 'valor': e.value})
         .toList(),
   };
+}
+
+/// Modo de período do relatório financeiro (mês, ano civil ou intervalo).
+enum _FinancePeriodMode { month, fullYear, custom }
+
+/// Série temporal para gráfico de linhas (entradas x saídas no período filtrado).
+class _FinanceEvolucao {
+  final List<String> labels;
+  final List<double> entradas;
+  final List<double> saidas;
+
+  const _FinanceEvolucao({
+    required this.labels,
+    required this.entradas,
+    required this.saidas,
+  });
+
+  bool get isEffectivelyEmpty {
+    if (labels.isEmpty) return true;
+    double t = 0;
+    for (final v in entradas) {
+      t += v;
+    }
+    for (final v in saidas) {
+      t += v;
+    }
+    return t < 0.0001;
+  }
+}
+
+_FinanceEvolucao _computeFinanceEvolucao(
+  List<Map<String, dynamic>> rows,
+  _FinancePeriodMode mode,
+  DateTime inicio,
+  DateTime fim,
+) {
+  final inicioD = DateTime(inicio.year, inicio.month, inicio.day);
+  final fimD = DateTime(fim.year, fim.month, fim.day);
+  final spanDays = fimD.difference(inicioD).inDays + 1;
+
+  late final int n;
+  late final bool monthly;
+  if (mode == _FinancePeriodMode.fullYear) {
+    monthly = true;
+    n = 12;
+  } else if (mode == _FinancePeriodMode.month) {
+    monthly = false;
+    n = DateTime(inicio.year, inicio.month + 1, 0).day;
+  } else {
+    monthly = spanDays > 90;
+    n = monthly
+        ? (fim.year - inicio.year) * 12 + (fim.month - inicio.month) + 1
+        : spanDays;
+  }
+
+  final ent = List<double>.filled(n, 0);
+  final sai = List<double>.filled(n, 0);
+
+  for (final m in rows) {
+    final tipo = (m['tipo'] ?? '').toString().toLowerCase();
+    if (tipo == 'transferencia') continue;
+    final ms = (m['createdAtMs'] ?? 0) as int;
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final valor = (m['valor'] is num) ? (m['valor'] as num).toDouble() : 0.0;
+    var idx = -1;
+    if (mode == _FinancePeriodMode.fullYear) {
+      if (dt.year == inicio.year) idx = dt.month - 1;
+    } else if (mode == _FinancePeriodMode.month) {
+      if (dt.year == inicio.year && dt.month == inicio.month) {
+        idx = dt.day - 1;
+      }
+    } else if (monthly) {
+      idx = (dt.year - inicio.year) * 12 + (dt.month - inicio.month);
+      if (idx < 0 || idx >= n) idx = -1;
+    } else {
+      idx = DateTime(dt.year, dt.month, dt.day).difference(inicioD).inDays;
+      if (idx < 0 || idx >= n) idx = -1;
+    }
+    if (idx < 0) continue;
+    if (tipo.contains('entrada') || tipo.contains('receita')) {
+      ent[idx] += valor;
+    } else if (tipo.contains('saida') || tipo.contains('despesa')) {
+      sai[idx] += valor;
+    }
+  }
+
+  final labels = <String>[];
+  if (monthly) {
+    if (mode == _FinancePeriodMode.fullYear) {
+      const ab = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      labels.addAll(ab);
+    } else {
+      for (var i = 0; i < n; i++) {
+        final d = DateTime(inicio.year, inicio.month + i);
+        labels.add(DateFormat('MMM/yy', 'pt_BR').format(d));
+      }
+    }
+  } else {
+    for (var i = 0; i < n; i++) {
+      final d = inicioD.add(Duration(days: i));
+      labels.add('${d.day}/${d.month}');
+    }
+  }
+
+  return _FinanceEvolucao(labels: labels, entradas: ent, saidas: sai);
 }
 
 /// BI financeiro no cliente (Firestore `igrejas/{id}/finance`).
@@ -1340,6 +1652,9 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
   String _buscaLancamentos = '';
   int _pageLancamentos = 0;
   static const int _rowsPerPageLancamentos = 12;
+  _FinancePeriodMode _periodMode = _FinancePeriodMode.month;
+  DateTime? _customRangeStart;
+  DateTime? _customRangeEnd;
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
       FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
@@ -1370,14 +1685,93 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
     _loadCategoriasContas();
   }
 
-  ({DateTime inicio, DateTime fim}) _periodoMensal() {
-    final inicio = DateTime(_ano, _mes, 1);
-    final fim = DateTime(_ano, _mes + 1, 0, 23, 59, 59);
-    return (inicio: inicio, fim: fim);
+  ({DateTime inicio, DateTime fim}) _periodoSelecionado() {
+    switch (_periodMode) {
+      case _FinancePeriodMode.month:
+        final inicio = DateTime(_ano, _mes, 1);
+        final fim = DateTime(_ano, _mes + 1, 0, 23, 59, 59);
+        return (inicio: inicio, fim: fim);
+      case _FinancePeriodMode.fullYear:
+        return (
+          inicio: DateTime(_ano, 1, 1),
+          fim: DateTime(_ano, 12, 31, 23, 59, 59),
+        );
+      case _FinancePeriodMode.custom:
+        final now = DateTime.now();
+        var a = _customRangeStart ?? DateTime(_ano, _mes, 1);
+        var b = _customRangeEnd ?? DateTime(_ano, _mes + 1, 0);
+        var inicio = DateTime(a.year, a.month, a.day);
+        var fim = DateTime(b.year, b.month, b.day, 23, 59, 59);
+        if (inicio.isAfter(fim)) {
+          final t = inicio;
+          inicio = DateTime(fim.year, fim.month, fim.day);
+          fim = DateTime(t.year, t.month, t.day, 23, 59, 59);
+        }
+        if (fim.isAfter(DateTime(now.year + 1, 12, 31))) {
+          fim = DateTime(now.year + 1, 12, 31, 23, 59, 59);
+        }
+        return (inicio: inicio, fim: fim);
+    }
+  }
+
+  String _periodoLabelHumano() {
+    final p = _periodoSelecionado();
+    switch (_periodMode) {
+      case _FinancePeriodMode.month:
+        return DateFormat('MM/yyyy').format(p.inicio);
+      case _FinancePeriodMode.fullYear:
+        return 'Ano ${_ano}';
+      case _FinancePeriodMode.custom:
+        return '${DateFormat('dd/MM/yyyy').format(p.inicio)} — ${DateFormat('dd/MM/yyyy').format(p.fim)}';
+    }
+  }
+
+  String _fechamentoPdfFilename() {
+    final p = _periodoSelecionado();
+    switch (_periodMode) {
+      case _FinancePeriodMode.month:
+        return 'fechamento_${_ano}_${_mes.toString().padLeft(2, '0')}.pdf';
+      case _FinancePeriodMode.fullYear:
+        return 'fechamento_ano_${_ano}.pdf';
+      case _FinancePeriodMode.custom:
+        return 'fechamento_${DateFormat('yyyyMMdd').format(p.inicio)}_${DateFormat('yyyyMMdd').format(p.fim)}.pdf';
+    }
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final start = _customRangeStart ?? DateTime(_ano, _mes, 1);
+    final end = _customRangeEnd ?? DateTime(_ano, _mes + 1, 0);
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 8),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: DateTimeRange(start: start, end: end),
+      builder: (ctx, child) {
+        return Theme(
+          data: Theme.of(ctx).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: const Color(0xFF059669),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: ThemeCleanPremium.onSurface,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (range == null || !mounted) return;
+    setState(() {
+      _periodMode = _FinancePeriodMode.custom;
+      _customRangeStart = range.start;
+      _customRangeEnd = range.end;
+      _pageLancamentos = 0;
+    });
   }
 
   Future<List<Map<String, dynamic>>> _queryFinanceRows() async {
-    final p = _periodoMensal();
+    final p = _periodoSelecionado();
     final snap = await _tenantRef
         .collection('finance')
         .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(p.inicio))
@@ -1403,6 +1797,8 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
         'pago': m['pago'] == true,
         'statusPagamento': (m['statusPagamento'] ?? m['status'] ?? '').toString(),
         'comprovanteUrl': (m['comprovanteUrl'] ?? '').toString(),
+        'recebimentoConfirmado': m['recebimentoConfirmado'],
+        'pagamentoConfirmado': m['pagamentoConfirmado'],
       };
     }).toList();
   }
@@ -1410,12 +1806,16 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
   Future<Map<String, dynamic>> _loadFinanceSummary() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final rows = await _queryFinanceRows();
+    final contaLabels = <String, String>{
+      for (final c in _contas) c.id: c.nome,
+    };
     return compute(_financeSummaryCompute, {
       'rows': rows,
       'filtroTipo': _filtroTipo,
       'filtroCategoria': _filtroCategoria,
       'filtroConta': _filtroConta,
       'filtroStatusDespesa': _filtroStatusDespesa,
+      'contaLabels': contaLabels,
     });
   }
 
@@ -1440,17 +1840,99 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
       }
 
       final cnpj = (tenant['cnpj'] ?? tenant['CNPJ'] ?? '').toString().trim();
-      final p = _periodoMensal();
+      final periodoTxt = _periodoLabelHumano();
+      final tituloFechamento = fechamentoOficial
+          ? (_periodMode == _FinancePeriodMode.fullYear
+              ? 'Fechamento anual (oficial)'
+              : _periodMode == _FinancePeriodMode.custom
+                  ? 'Fechamento do período (oficial)'
+                  : 'Fechamento de mês (oficial)')
+          : 'Relatório financeiro';
       final extraFinance = <String>[
         if (cnpj.isNotEmpty) 'CNPJ: $cnpj',
-        'Período: ${DateFormat('MM/yyyy').format(p.inicio)}',
+        'Período: $periodoTxt',
         'Total de lançamentos: ${rows.length}',
         if (fechamentoOficial)
           'DOCUMENTO OFICIAL DE FECHAMENTO — gerado em ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
         if (_resumoFiltros().isNotEmpty) 'Filtros: ${_resumoFiltros()}',
       ];
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
+
+      final headerRowPdf = pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.blue50),
+        children: [
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('#', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Data', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Tipo', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Categoria', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Descrição', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Valor', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+        ],
+      );
+      final dataRowsPdf = List<pw.TableRow>.generate(rows.length, (i) {
+        final m = rows[i];
+        final dt = DateTime.fromMillisecondsSinceEpoch((m['createdAtMs'] ?? 0) as int);
+        final tipo = (m['tipo'] ?? '').toString();
+        final cat = (m['categoria'] ?? '').toString();
+        final desc = (m['descricao'] ?? '').toString();
+        final val = ((m['valor'] ?? 0) as num).toDouble();
+        return pw.TableRow(
+          decoration: pw.BoxDecoration(color: i.isEven ? PdfColors.white : PdfColors.grey100),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${i + 1}', style: const pw.TextStyle(fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(DateFormat('dd/MM/yyyy').format(dt), style: const pw.TextStyle(fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(tipo, style: const pw.TextStyle(fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(cat.isEmpty ? '-' : cat, style: const pw.TextStyle(fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(desc.isEmpty ? '-' : desc, style: const pw.TextStyle(fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('R\$ ${val.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8))),
+          ],
+        );
+      });
+      const tableChunk = 28;
+      final tableWidgets = <pw.Widget>[];
+      for (var start = 0; start < dataRowsPdf.length; start += tableChunk) {
+        final end = math.min(start + tableChunk, dataRowsPdf.length);
+        if (start > 0) {
+          tableWidgets.add(
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 6, bottom: 4),
+              child: pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.yellow50,
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Text(
+                  'Continuação — linhas ${start + 1} a $end',
+                  style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
+                ),
+              ),
+            ),
+          );
+        }
+        tableWidgets.add(
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: const {
+              0: pw.FlexColumnWidth(0.55),
+              1: pw.FlexColumnWidth(1.25),
+              2: pw.FlexColumnWidth(1.1),
+              3: pw.FlexColumnWidth(1.45),
+              4: pw.FlexColumnWidth(3.15),
+              5: pw.FlexColumnWidth(1.35),
+            },
+            children: [
+              if (start == 0) headerRowPdf,
+              ...dataRowsPdf.sublist(start, end),
+            ],
+          ),
+        );
+        if (end < dataRowsPdf.length) {
+          tableWidgets.add(pw.SizedBox(height: 10));
+        }
+      }
+
       pdf.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -1458,9 +1940,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
           header: (ctx) => pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 10),
             child: PdfSuperPremiumTheme.header(
-              fechamentoOficial
-                  ? 'Fechamento de Mês (oficial)'
-                  : 'Relatório financeiro',
+              tituloFechamento,
               branding: branding,
               extraLines: extraFinance,
             ),
@@ -1471,40 +1951,38 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
           ),
           build: (ctx) => [
             if (fechamentoOficial)
-              pw.Stack(
-                children: [
-                  pw.Positioned(
-                    left: 40,
-                    top: 120,
-                    child: pw.Transform.rotate(
-                      angle: -0.35,
-                      child: pw.Opacity(
-                        opacity: 0.07,
-                        child: pw.Text(
-                          'FECHAMENTO MENSAL',
-                          style: pw.TextStyle(
-                            fontSize: 42,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.grey800,
-                          ),
-                        ),
+              pw.Container(
+                height: 48,
+                alignment: pw.Alignment.center,
+                margin: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Transform.rotate(
+                  angle: -0.3,
+                  child: pw.Opacity(
+                    opacity: 0.08,
+                    child: pw.Text(
+                      'FECHAMENTO OFICIAL',
+                      style: pw.TextStyle(
+                        fontSize: 28,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.grey800,
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
-            pw.Row(
+            pw.Table(
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1),
+                1: pw.FlexColumnWidth(1),
+                2: pw.FlexColumnWidth(1),
+              },
               children: [
-                pw.Expanded(
-                  child: _pdfKpiCard('Total Entradas', entradas, PdfColors.green700),
-                ),
-                pw.SizedBox(width: 8),
-                pw.Expanded(
-                  child: _pdfKpiCard('Total Saídas', saidas, PdfColors.red700),
-                ),
-                pw.SizedBox(width: 8),
-                pw.Expanded(
-                  child: _pdfKpiCard('Saldo Final', saldo, saldo >= 0 ? PdfColors.blue700 : PdfColors.grey700),
+                pw.TableRow(
+                  children: [
+                    _pdfKpiCard('Total Entradas', entradas, PdfColors.green700),
+                    _pdfKpiCard('Total Saídas', saidas, PdfColors.red700),
+                    _pdfKpiCard('Saldo Final', saldo, saldo >= 0 ? PdfColors.blue700 : PdfColors.grey700),
+                  ],
                 ),
               ],
             ),
@@ -1541,49 +2019,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
               }),
               pw.SizedBox(height: 8),
             ],
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(0.55),
-                1: pw.FlexColumnWidth(1.25),
-                2: pw.FlexColumnWidth(1.1),
-                3: pw.FlexColumnWidth(1.45),
-                4: pw.FlexColumnWidth(3.15),
-                5: pw.FlexColumnWidth(1.35),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.blue50),
-                  children: [
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('#', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Data', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Tipo', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Categoria', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Descrição', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: pw.EdgeInsets.all(6), child: pw.Text('Valor', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                  ],
-                ),
-                ...List.generate(rows.length, (i) {
-                  final m = rows[i];
-                  final dt = DateTime.fromMillisecondsSinceEpoch((m['createdAtMs'] ?? 0) as int);
-                  final tipo = (m['tipo'] ?? '').toString();
-                  final cat = (m['categoria'] ?? '').toString();
-                  final desc = (m['descricao'] ?? '').toString();
-                  final val = ((m['valor'] ?? 0) as num).toDouble();
-                  return pw.TableRow(
-                    decoration: pw.BoxDecoration(color: i.isEven ? PdfColors.white : PdfColors.grey100),
-                    children: [
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${i + 1}', style: const pw.TextStyle(fontSize: 8))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(DateFormat('dd/MM/yyyy').format(dt), style: const pw.TextStyle(fontSize: 8))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(tipo, style: const pw.TextStyle(fontSize: 8))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(cat.isEmpty ? '-' : cat, style: const pw.TextStyle(fontSize: 8))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(desc.isEmpty ? '-' : desc, style: const pw.TextStyle(fontSize: 8))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('R\$ ${val.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8))),
-                    ],
-                  );
-                }),
-              ],
-            ),
+            ...tableWidgets,
             pw.SizedBox(height: 22),
             if (fechamentoOficial)
               pw.Padding(
@@ -1595,35 +2031,40 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                 ),
               ),
             pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Expanded(
+                pw.SizedBox(
+                  width: 200,
                   child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                    mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Container(height: 1, color: PdfColors.grey500),
                       pw.SizedBox(height: 3),
-                      pw.Text('Tesoureiro', style: const pw.TextStyle(fontSize: 9)),
+                      pw.Center(child: pw.Text('Tesoureiro', style: const pw.TextStyle(fontSize: 9))),
                     ],
                   ),
                 ),
-                pw.SizedBox(width: 32),
-                pw.Expanded(
+                pw.SizedBox(
+                  width: 200,
                   child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                    mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Container(height: 1, color: PdfColors.grey500),
                       pw.SizedBox(height: 3),
-                      pw.Text('Pastor Presidente', style: const pw.TextStyle(fontSize: 9)),
+                      pw.Center(child: pw.Text('Pastor Presidente', style: const pw.TextStyle(fontSize: 9))),
                     ],
                   ),
                 ),
               ],
-            )
+            ),
           ],
         ),
       );
       final bytes = Uint8List.fromList(await pdf.save());
-      final fname = fechamentoOficial
-          ? 'fechamento_${_ano}_${_mes.toString().padLeft(2, '0')}.pdf'
-          : 'relatorio_financeiro.pdf';
+      final fname = fechamentoOficial ? _fechamentoPdfFilename() : 'relatorio_financeiro.pdf';
       if (mounted) await showPdfActions(context, bytes: bytes, filename: fname);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
@@ -1654,9 +2095,12 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
         );
       }
       final bytes = utf8.encode(buf.toString());
-      final p = _periodoMensal();
-      final name =
-          'financeiro_${p.inicio.year}_${p.inicio.month.toString().padLeft(2, '0')}.csv';
+      final p = _periodoSelecionado();
+      final name = _periodMode == _FinancePeriodMode.month
+          ? 'financeiro_${p.inicio.year}_${p.inicio.month.toString().padLeft(2, '0')}.csv'
+          : _periodMode == _FinancePeriodMode.fullYear
+              ? 'financeiro_ano_${p.inicio.year}.csv'
+              : 'financeiro_${DateFormat('yyyyMMdd').format(p.inicio)}_${DateFormat('yyyyMMdd').format(p.fim)}.csv';
       await Share.shareXFiles(
         [XFile.fromData(Uint8List.fromList(bytes), name: name, mimeType: 'text/csv')],
         subject: 'Exportação financeira CSV',
@@ -1716,7 +2160,10 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
       'Dezembro',
     ];
     final anos = List<int>.generate(6, (i) => DateTime.now().year - 3 + i);
+    const finEmerald = Color(0xFF059669);
+    final isNarrow = MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile;
     return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
@@ -1724,83 +2171,311 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
           tooltip: 'Voltar',
           style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
         ),
-        title: const Text('Relatório Financeiro'),
-        backgroundColor: const Color(0xFF059669),
+        title: const Text('Relatório Financeiro', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2)),
+        backgroundColor: finEmerald,
         foregroundColor: Colors.white,
+        elevation: 0,
+        shadowColor: finEmerald.withValues(alpha: 0.35),
       ),
       body: SafeArea(
         child: ListView(
           padding: ThemeCleanPremium.pagePadding(context),
           children: [
-            _FilterSection(title: 'Período', icon: Icons.date_range_rounded, child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        value: _mes,
-                        decoration: const InputDecoration(labelText: 'Mês', border: OutlineInputBorder()),
-                        items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(meses[i]))),
-                        onChanged: (v) => setState(() {
-                          _mes = v ?? DateTime.now().month;
+            Container(
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white,
+                    finEmerald.withValues(alpha: 0.06),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                border: Border.all(color: const Color(0xFFE2E8F4)),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.date_range_rounded, color: finEmerald, size: 24),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Período',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _periodoLabelHumano(),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<_FinancePeriodMode>(
+                    showSelectedIcon: false,
+                    style: SegmentedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                      selectedBackgroundColor: finEmerald,
+                      selectedForegroundColor: Colors.white,
+                      foregroundColor: ThemeCleanPremium.onSurfaceVariant,
+                      side: const BorderSide(color: Color(0xFFE2E8F4)),
+                    ),
+                    segments: const [
+                      ButtonSegment<_FinancePeriodMode>(
+                        value: _FinancePeriodMode.month,
+                        label: Text('Mês', style: TextStyle(fontWeight: FontWeight.w700)),
+                        icon: Icon(Icons.calendar_month_rounded, size: 18),
+                      ),
+                      ButtonSegment<_FinancePeriodMode>(
+                        value: _FinancePeriodMode.fullYear,
+                        label: Text('Ano inteiro', style: TextStyle(fontWeight: FontWeight.w700)),
+                        icon: Icon(Icons.calendar_view_month_rounded, size: 18),
+                      ),
+                      ButtonSegment<_FinancePeriodMode>(
+                        value: _FinancePeriodMode.custom,
+                        label: Text('Período', style: TextStyle(fontWeight: FontWeight.w700)),
+                        icon: Icon(Icons.edit_calendar_rounded, size: 18),
+                      ),
+                    ],
+                    selected: {_periodMode},
+                    onSelectionChanged: (next) {
+                      if (next.isEmpty) return;
+                      setState(() {
+                        _periodMode = next.first;
+                        _pageLancamentos = 0;
+                        if (_periodMode == _FinancePeriodMode.custom &&
+                            (_customRangeStart == null || _customRangeEnd == null)) {
+                          _customRangeStart = DateTime(_ano, _mes, 1);
+                          _customRangeEnd = DateTime(_ano, _mes + 1, 0);
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        final ref = DateTime(_ano, _mes);
+                        final prev = DateTime(ref.year, ref.month - 1);
+                        setState(() {
+                          _periodMode = _FinancePeriodMode.month;
+                          _mes = prev.month;
+                          _ano = prev.year;
                           _pageLancamentos = 0;
-                        }),
+                        });
+                      },
+                      icon: const Icon(Icons.history_rounded, size: 20),
+                      label: const Text('Mês anterior'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: finEmerald,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        value: _ano,
-                        decoration: const InputDecoration(labelText: 'Ano', border: OutlineInputBorder()),
-                        items: anos.map((a) => DropdownMenuItem(value: a, child: Text('$a'))).toList(),
-                        onChanged: (v) => setState(() {
-                          _ano = v ?? DateTime.now().year;
-                          _pageLancamentos = 0;
-                        }),
+                  ),
+                  const SizedBox(height: 6),
+                  if (_periodMode == _FinancePeriodMode.month)
+                    isNarrow
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              DropdownButtonFormField<int>(
+                                value: _mes,
+                                decoration: InputDecoration(
+                                  labelText: 'Mês',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                                ),
+                                items: List.generate(
+                                    12, (i) => DropdownMenuItem(value: i + 1, child: Text(meses[i]))),
+                                onChanged: (v) => setState(() {
+                                  _mes = v ?? DateTime.now().month;
+                                  _pageLancamentos = 0;
+                                }),
+                              ),
+                              const SizedBox(height: 10),
+                              DropdownButtonFormField<int>(
+                                value: _ano,
+                                decoration: InputDecoration(
+                                  labelText: 'Ano',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                                ),
+                                items: anos.map((a) => DropdownMenuItem(value: a, child: Text('$a'))).toList(),
+                                onChanged: (v) => setState(() {
+                                  _ano = v ?? DateTime.now().year;
+                                  _pageLancamentos = 0;
+                                }),
+                              ),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<int>(
+                                  value: _mes,
+                                  decoration: InputDecoration(
+                                    labelText: 'Mês',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                                  ),
+                                  items: List.generate(
+                                      12, (i) => DropdownMenuItem(value: i + 1, child: Text(meses[i]))),
+                                  onChanged: (v) => setState(() {
+                                    _mes = v ?? DateTime.now().month;
+                                    _pageLancamentos = 0;
+                                  }),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: DropdownButtonFormField<int>(
+                                  value: _ano,
+                                  decoration: InputDecoration(
+                                    labelText: 'Ano',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                                  ),
+                                  items: anos.map((a) => DropdownMenuItem(value: a, child: Text('$a'))).toList(),
+                                  onChanged: (v) => setState(() {
+                                    _ano = v ?? DateTime.now().year;
+                                    _pageLancamentos = 0;
+                                  }),
+                                ),
+                              ),
+                            ],
+                          ),
+                  if (_periodMode == _FinancePeriodMode.fullYear)
+                    DropdownButtonFormField<int>(
+                      value: _ano,
+                      decoration: InputDecoration(
+                        labelText: 'Ano (1 jan — 31 dez)',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                       ),
+                      items: anos.map((a) => DropdownMenuItem(value: a, child: Text('$a'))).toList(),
+                      onChanged: (v) => setState(() {
+                        _ano = v ?? DateTime.now().year;
+                        _pageLancamentos = 0;
+                      }),
+                    ),
+                  if (_periodMode == _FinancePeriodMode.custom) ...[
+                    OutlinedButton.icon(
+                      onPressed: _pickCustomRange,
+                      icon: const Icon(Icons.date_range_rounded),
+                      label: const Text('Escolher datas no calendário'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: finEmerald,
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        side: BorderSide(color: finEmerald.withValues(alpha: 0.45)),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _periodoLabelHumano(),
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
                     ),
                   ],
-                )
-              ],
-            )),
+                ],
+              ),
+            ),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _FilterSection(title: 'Tipo', icon: Icons.swap_horiz_rounded, child: Wrap(
+            _FilterSection(title: 'Tipo', icon: Icons.swap_horiz_rounded, color: finEmerald, child: Wrap(
               spacing: 8,
               runSpacing: 8,
               children: ['todos', 'receitas', 'despesas', 'transferencias'].map((v) {
                 final lbl = v == 'todos' ? 'Todos' : v == 'receitas' ? 'Receitas' : v == 'despesas' ? 'Despesas' : 'Transferências';
-                return FilterChip(
-                  label: Text(lbl),
-                  selected: _filtroTipo == v,
-                  onSelected: (x) => setState(() {
-                    _filtroTipo = x ? v : 'todos';
-                    _pageLancamentos = 0;
-                  }),
-                  selectedColor: const Color(0xFF059669).withOpacity(0.2),
-                  checkmarkColor: const Color(0xFF059669),
+                final sel = _filtroTipo == v;
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(22),
+                    onTap: () => setState(() {
+                      _filtroTipo = sel ? 'todos' : v;
+                      _pageLancamentos = 0;
+                    }),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(22),
+                        gradient: sel
+                            ? LinearGradient(colors: [finEmerald, Color.lerp(finEmerald, Colors.white, 0.12)!])
+                            : null,
+                        color: sel ? null : Colors.white,
+                        border: Border.all(color: sel ? Colors.transparent : const Color(0xFFE2E8F4)),
+                        boxShadow: sel
+                            ? [BoxShadow(color: finEmerald.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 4))]
+                            : ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Text(
+                        lbl,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: sel ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
                 );
               }).toList(),
             )),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _FilterSection(title: 'Status despesas', icon: Icons.payment_rounded, child: Wrap(
+            _FilterSection(title: 'Status despesas', icon: Icons.payment_rounded, color: finEmerald, child: Wrap(
               spacing: 8,
               runSpacing: 8,
               children: ['todas', 'aberta', 'paga'].map((v) {
                 final lbl = v == 'todas' ? 'Todas' : v == 'aberta' ? 'Em aberto' : 'Pagas';
-                return FilterChip(
-                  label: Text(lbl),
-                  selected: _filtroStatusDespesa == v,
-                  onSelected: (x) => setState(() {
-                    _filtroStatusDespesa = x ? v : 'todas';
-                    _pageLancamentos = 0;
-                  }),
-                  selectedColor: const Color(0xFF059669).withOpacity(0.2),
-                  checkmarkColor: const Color(0xFF059669),
+                final sel = _filtroStatusDespesa == v;
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(22),
+                    onTap: () => setState(() {
+                      _filtroStatusDespesa = sel ? 'todas' : v;
+                      _pageLancamentos = 0;
+                    }),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(22),
+                        gradient: sel
+                            ? LinearGradient(colors: [finEmerald, Color.lerp(finEmerald, Colors.white, 0.12)!])
+                            : null,
+                        color: sel ? null : Colors.white,
+                        border: Border.all(color: sel ? Colors.transparent : const Color(0xFFE2E8F4)),
+                        boxShadow: sel
+                            ? [BoxShadow(color: finEmerald.withValues(alpha: 0.25), blurRadius: 10, offset: const Offset(0, 4))]
+                            : ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Text(
+                        lbl,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: sel ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
                 );
               }).toList(),
             )),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _FilterSection(title: 'Categoria', icon: Icons.category_rounded, child: _initLoaded
+            _FilterSection(title: 'Categoria', icon: Icons.category_rounded, color: finEmerald, child: _initLoaded
                 ? DropdownButtonFormField<String>(
                     value: _filtroCategoria,
                     decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
@@ -1818,7 +2493,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                     ),
                   )),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
-            _FilterSection(title: 'Conta', icon: Icons.account_balance_rounded, child: _initLoaded
+            _FilterSection(title: 'Conta', icon: Icons.account_balance_rounded, color: finEmerald, child: _initLoaded
                 ? DropdownButtonFormField<String>(
                     value: _filtroConta,
                     decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
@@ -1838,7 +2513,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
             const SizedBox(height: ThemeCleanPremium.spaceLg),
             FutureBuilder<Map<String, dynamic>>(
               key: ValueKey<String>(
-                  '${widget.tenantId}_$_mes$_ano$_filtroTipo$_filtroCategoria$_filtroConta$_filtroStatusDespesa'),
+                  '${widget.tenantId}_$_periodMode$_mes$_ano${_customRangeStart?.millisecondsSinceEpoch}_${_customRangeEnd?.millisecondsSinceEpoch}_$_filtroTipo$_filtroCategoria$_filtroConta$_filtroStatusDespesa'),
               future: _loadFinanceSummary(),
               builder: (context, snap) {
                 if (snap.hasError) {
@@ -1860,6 +2535,15 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                 final entradas = ((snap.data!['entradas'] ?? 0) as num).toDouble();
                 final saidas = ((snap.data!['saidas'] ?? 0) as num).toDouble();
                 final saldo = ((snap.data!['saldo'] ?? 0) as num).toDouble();
+                final aReceberPendente =
+                    ((snap.data!['aReceberPendente'] ?? 0) as num).toDouble();
+                final aPagarPendente =
+                    ((snap.data!['aPagarPendente'] ?? 0) as num).toDouble();
+                final fluxoPrevisto =
+                    ((snap.data!['fluxoPrevisto'] ?? 0) as num).toDouble();
+                final porContaDetalhe = (snap.data!['porConta'] as List?)
+                        ?.cast<Map<String, dynamic>>() ??
+                    <Map<String, dynamic>>[];
                 final dizimos = ((snap.data!['dizimosMes'] ?? 0) as num).toDouble();
                 final ofertas = ((snap.data!['ofertasMes'] ?? 0) as num).toDouble();
                 final gastosMes = (snap.data!['gastosPorCategoriaMes'] as List?)
@@ -1886,6 +2570,13 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                     .skip(page * _rowsPerPageLancamentos)
                     .take(_rowsPerPageLancamentos)
                     .toList();
+                final periodoSel = _periodoSelecionado();
+                final evolucao = _computeFinanceEvolucao(
+                  allRows,
+                  _periodMode,
+                  periodoSel.inicio,
+                  periodoSel.fim,
+                );
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1915,9 +2606,86 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Previsão (contas a receber / a pagar)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Valores em aberto: receitas não confirmadas e despesas não pagas (lançamentos do período).',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.25,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (ctx, c) {
+                        final narrow = c.maxWidth < 520;
+                        final w = narrow ? double.infinity : null;
+                        Widget cardARec = SizedBox(
+                          width: w,
+                          child: _FinanceStatCard(
+                            title: 'A receber (pendente)',
+                            value: aReceberPendente,
+                            color: const Color(0xFF0891B2),
+                          ),
+                        );
+                        Widget cardAPag = SizedBox(
+                          width: w,
+                          child: _FinanceStatCard(
+                            title: 'A pagar (pendente)',
+                            value: aPagarPendente,
+                            color: const Color(0xFFEA580C),
+                          ),
+                        );
+                        Widget cardFluxo = SizedBox(
+                          width: w,
+                          child: _FinanceStatCard(
+                            title: 'Saldo + previsão',
+                            value: fluxoPrevisto,
+                            color: fluxoPrevisto >= 0
+                                ? const Color(0xFF0D9488)
+                                : const Color(0xFFB91C1C),
+                          ),
+                        );
+                        if (narrow) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              cardARec,
+                              const SizedBox(height: 8),
+                              cardAPag,
+                              const SizedBox(height: 8),
+                              cardFluxo,
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: cardARec),
+                            const SizedBox(width: 8),
+                            Expanded(child: cardAPag),
+                            const SizedBox(width: 8),
+                            Expanded(child: cardFluxo),
+                          ],
+                        );
+                      },
+                    ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Text(
-                      'Painel visual (mês completo)',
+                      _periodMode == _FinancePeriodMode.month
+                          ? 'Painel visual (mês selecionado)'
+                          : _periodMode == _FinancePeriodMode.fullYear
+                              ? 'Painel visual (ano completo)'
+                              : 'Painel visual (período personalizado)',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
@@ -1925,6 +2693,12 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    _FinanceEvolucaoLineChart(data: evolucao),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    if (porContaDetalhe.isNotEmpty)
+                      _FinancePorContaPanel(rows: porContaDetalhe),
+                    if (porContaDetalhe.isNotEmpty)
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
                     _FinanceBiCharts(
                         dizimos: dizimos,
                         ofertas: ofertas,
@@ -2084,7 +2858,7 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
               },
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
-            _PdfOrientationSelector(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
+            PremiumPdfOrientationBar(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
             Wrap(
               spacing: 10,
@@ -2147,6 +2921,345 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
           pw.Text(title, style: pw.TextStyle(fontSize: 9, color: color, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 3),
           pw.Text('R\$ ${value.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 11)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Linhas: entradas e saídas agregadas por dia ou mês no período.
+class _FinanceEvolucaoLineChart extends StatelessWidget {
+  final _FinanceEvolucao data;
+
+  const _FinanceEvolucaoLineChart({required this.data});
+
+  static const _anim = Duration(milliseconds: 650);
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.labels.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    if (data.isEffectivelyEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+        decoration: BoxDecoration(
+          color: ThemeCleanPremium.cardBackground,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+          border: Border.all(color: const Color(0xFFF1F5F9)),
+        ),
+        child: Text(
+          'Sem movimentação no período para o gráfico de evolução.',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+        ),
+      );
+    }
+    final maxVal = [
+      ...data.entradas,
+      ...data.saidas,
+    ].reduce(math.max);
+    final maxY = maxVal <= 0 ? 100.0 : maxVal * 1.12;
+    final n = data.labels.length;
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            const Color(0xFF059669).withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF059669).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.show_chart_rounded,
+                    color: Color(0xFF059669), size: 22),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Evolução no período',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Entradas e saídas por dia ou mês, conforme o filtro.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 220,
+            child: LineChart(
+              LineChartData(
+                minY: 0,
+                maxY: maxY,
+                clipData: const FlClipData.all(),
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: maxY > 0 ? maxY / 4 : 25,
+                  getDrawingHorizontalLine: (_) => FlLine(
+                    color: Colors.grey.shade200,
+                    strokeWidth: 1,
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 46,
+                      getTitlesWidget: (v, _) => Text(
+                        NumberFormat.compactCurrency(
+                                locale: 'pt_BR', symbol: r'R$')
+                            .format(v),
+                        style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      interval: n > 14 ? (n / 8).ceilToDouble() : 1,
+                      getTitlesWidget: (v, _) {
+                        final i = v.toInt();
+                        if (i >= 0 && i < n) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              data.labels[i],
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          );
+                        }
+                        return const SizedBox();
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: List.generate(
+                      n,
+                      (i) => FlSpot(i.toDouble(), data.entradas[i]),
+                    ),
+                    isCurved: true,
+                    curveSmoothness: 0.22,
+                    color: const Color(0xFF16A34A),
+                    barWidth: 3,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      color: const Color(0xFF16A34A).withValues(alpha: 0.08),
+                    ),
+                  ),
+                  LineChartBarData(
+                    spots: List.generate(
+                      n,
+                      (i) => FlSpot(i.toDouble(), data.saidas[i]),
+                    ),
+                    isCurved: true,
+                    curveSmoothness: 0.22,
+                    color: const Color(0xFFDC2626),
+                    barWidth: 3,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      color: const Color(0xFFDC2626).withValues(alpha: 0.06),
+                    ),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                      return touchedSpots.map((t) {
+                        final i = t.x.toInt();
+                        if (i < 0 || i >= n) return null;
+                        final isEntradas = t.barIndex == 0;
+                        final label = isEntradas ? 'Entradas' : 'Saídas';
+                        final val =
+                            isEntradas ? data.entradas[i] : data.saidas[i];
+                        return LineTooltipItem(
+                          '$label\n${NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(val)}',
+                          const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        );
+                      }).whereType<LineTooltipItem>().toList();
+                    },
+                  ),
+                ),
+              ),
+              duration: _anim,
+              curve: Curves.easeOutCubic,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _LegendDotFinance(color: const Color(0xFF16A34A), label: 'Entradas'),
+              const SizedBox(width: 20),
+              _LegendDotFinance(color: const Color(0xFFDC2626), label: 'Saídas'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendDotFinance extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _LegendDotFinance({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Resumo por conta no período (entradas na conta / saídas da conta).
+class _FinancePorContaPanel extends StatelessWidget {
+  final List<Map<String, dynamic>> rows;
+
+  const _FinancePorContaPanel({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.account_balance_wallet_rounded,
+                  color: const Color(0xFF059669), size: 22),
+              const SizedBox(width: 8),
+              const Text(
+                'Por conta (detalhe)',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Entradas creditadas e saídas debitadas em cada conta no período filtrado.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor:
+                  WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+              columns: const [
+                DataColumn(label: Text('Conta')),
+                DataColumn(label: Text('Entradas')),
+                DataColumn(label: Text('Saídas')),
+                DataColumn(label: Text('Líquido')),
+              ],
+              rows: [
+                for (final m in rows.take(24))
+                  DataRow(
+                    cells: [
+                      DataCell(Text(
+                        (m['nome'] ?? '').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      )),
+                      DataCell(Text(
+                        'R\$ ${((m['entradas'] ?? 0) as num).toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            color: Color(0xFF16A34A),
+                            fontWeight: FontWeight.w600),
+                      )),
+                      DataCell(Text(
+                        'R\$ ${((m['saidas'] ?? 0) as num).toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            color: Color(0xFFDC2626),
+                            fontWeight: FontWeight.w600),
+                      )),
+                      DataCell(Text(
+                        'R\$ ${((m['liquido'] ?? 0) as num).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: ((m['liquido'] ?? 0) as num).toDouble() >= 0
+                              ? const Color(0xFF0D9488)
+                              : const Color(0xFFB91C1C),
+                        ),
+                      )),
+                    ],
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -2423,10 +3536,20 @@ class _FilterSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        gradient: color != null
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  ThemeCleanPremium.cardBackground,
+                  c.withValues(alpha: 0.05),
+                ],
+              )
+            : null,
+        color: color != null ? null : ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
+        border: Border.all(color: const Color(0xFFE2E8F4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2632,7 +3755,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
         if (_filterStatus.isNotEmpty) 'Filtro: ${_statusLabel(_filterStatus)}',
       ];
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -2654,6 +3777,8 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
               headers: headers,
               data: data,
               accent: branding.accent,
+              columnWidths:
+                  PdfSuperPremiumTheme.columnWidthsPatrimonioReport(keys),
             ),
           ],
         ),
@@ -2710,14 +3835,11 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                         runSpacing: 8,
                         children: _statusOptions.map((e) {
                           final selected = _filterStatus == e.$1;
-                          return FilterChip(
-                            label: Text(e.$2, style: TextStyle(fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+                          return _PremiumFilterChip(
+                            label: e.$2,
                             selected: selected,
+                            accent: const Color(0xFF7C3AED),
                             onSelected: (v) => setState(() => _filterStatus = v == true ? e.$1 : ''),
-                            selectedColor: const Color(0xFF7C3AED).withOpacity(0.2),
-                            checkmarkColor: const Color(0xFF7C3AED),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                           );
                         }).toList(),
                       ),
@@ -2732,14 +3854,11 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                         runSpacing: 8,
                         children: _sortOptions.map((e) {
                           final selected = _sortBy == e.$1;
-                          return FilterChip(
-                            label: Text(e.$2, style: TextStyle(fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+                          return _PremiumFilterChip(
+                            label: e.$2,
                             selected: selected,
+                            accent: const Color(0xFF7C3AED),
                             onSelected: (v) => setState(() => _sortBy = v == true ? e.$1 : _sortBy),
-                            selectedColor: const Color(0xFF7C3AED).withOpacity(0.2),
-                            checkmarkColor: const Color(0xFF7C3AED),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                           );
                         }).toList(),
                       ),
@@ -2754,17 +3873,14 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                         runSpacing: 8,
                         children: _fieldOptions.map((e) {
                           final selected = _selectedFields.contains(e.$1);
-                          return FilterChip(
-                            label: Text(e.$2, style: TextStyle(fontSize: 13, fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+                          return _PremiumFilterChip(
+                            label: e.$2,
                             selected: selected,
+                            accent: const Color(0xFF7C3AED),
                             onSelected: (v) => setState(() {
                               if (v == true) _selectedFields.add(e.$1);
                               else _selectedFields.remove(e.$1);
                             }),
-                            selectedColor: const Color(0xFF7C3AED).withOpacity(0.2),
-                            checkmarkColor: const Color(0xFF7C3AED),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                           );
                         }).toList(),
                       ),
@@ -2810,7 +3926,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       ),
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceLg),
-                    _PdfOrientationSelector(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
+                    PremiumPdfOrientationBar(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
                     const SizedBox(height: ThemeCleanPremium.spaceLg),
                     FilledButton.icon(
                       onPressed: (_exporting || _selectedFields.isEmpty) ? null : _exportPdf,
@@ -2932,7 +4048,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
       final titulo = _tipo == 'dia' ? 'Relatório de Eventos — Dia' : _tipo == 'mes' ? 'Relatório de Eventos — Mês' : _tipo == 'anual' ? 'Relatório de Eventos — Ano' : 'Relatório de Eventos — Período';
       final branding = await loadReportPdfBranding(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -2976,6 +4092,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
                   ];
                 }).toList(),
                 accent: branding.accent,
+                columnWidths: PdfSuperPremiumTheme.columnWidthsEventosReport,
               ),
           ],
         ),
@@ -3101,7 +4218,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
-              _PdfOrientationSelector(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
+              PremiumPdfOrientationBar(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: _loading ? null : _exportPdf,
@@ -3168,4 +4285,18 @@ class _SectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Abre o relatório de membros com filtros (sexo, faixa etária, departamento, busca)
+/// e escolha de campos para PDF — mesma tela do menu Relatórios.
+void openRelatorioMembrosAvancado(
+  BuildContext context, {
+  required String tenantId,
+  required String role,
+}) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => _RelatorioMembrosPage(tenantId: tenantId, role: role),
+    ),
+  );
 }

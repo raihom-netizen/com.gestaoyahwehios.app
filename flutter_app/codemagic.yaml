@@ -1,6 +1,7 @@
-# Codemagic — Flutter na RAIZ do repo (sem pasta flutter_app nos scripts).
-# Assinatura: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — ver codemagic.yaml do monorepo.
-# Preferir o workflow em ../codemagic.yaml (monorepo com flutter_app/) para o mesmo repositório.
+# Codemagic — Flutter na RAIZ do clone quando o directório da aplicação é flutter_app/.
+# Assinatura: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — ver ../codemagic.yaml.
+# Preferir ../codemagic.yaml (monorepo): inclui deteção mono/root, iOS deployment 14 e scripts extra.
+# Runner.entitlements sem Sign In with Apple — perfil App Store sem essa capability assina o IPA.
 
 workflows:
   ios-release:
@@ -16,7 +17,7 @@ workflows:
         - appstore_credentials
       vars:
         APP_STORE_APPLE_ID: 6761656626
-        FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
+        FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac8e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       flutter: stable
       xcode: latest
@@ -53,10 +54,6 @@ workflows:
           fi
           [ -s /tmp/_cm_verify_p12.bin ] || { echo "ERRO: P12 decodificado vazio."; exit 1; }
           echo "OK: P12 + provisioning Base64 validos (prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin) bytes)."
-      - name: CocoaPods
-        script: |
-          cd ios
-          pod install
       - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
@@ -154,6 +151,25 @@ workflows:
           PY
           echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
           _persist_asc_pem_to_cm_env
+      - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPT=""
+          if [ -f "$ROOT/../scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            SCRIPT="$ROOT/../scripts/codemagic_ios_verify_profile_matches_p12.sh"
+          elif [ -f "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            SCRIPT="$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+          fi
+          if [ -z "$SCRIPT" ] || [ ! -f "$SCRIPT" ]; then
+            echo "ERRO: codemagic_ios_verify_profile_matches_p12.sh nao encontrado (monorepo: ../scripts/)."
+            exit 1
+          fi
+          bash "$SCRIPT"
+      - name: CocoaPods
+        script: |
+          cd ios
+          pod install
       - name: Code signing (Xcode)
         script: |
           set -e
@@ -164,16 +180,61 @@ workflows:
       - name: Flutter build IPA
         script: |
           set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          echo "--- Re-validar perfil vs P12 (antes de flutter build ipa) ---"
+          if [ -f "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+          elif [ -f "$ROOT/../scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            bash "$ROOT/../scripts/codemagic_ios_verify_profile_matches_p12.sh"
+          else
+            echo "AVISO: scripts/codemagic_ios_verify_profile_matches_p12.sh nao encontrado (copie scripts/ do monorepo)."
+          fi
           VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
           BUILD_NAME="${VERSION_LINE%%+*}"
           if [ -z "$BUILD_NAME" ]; then echo "ERRO: version no pubspec"; exit 1; fi
           if [ -n "${CM_BUILD_NUMBER:-}" ]; then BN="$CM_BUILD_NUMBER"; else BN="${VERSION_LINE##*+}"; echo "AVISO: CM_BUILD_NUMBER vazio — pubspec +$BN"; fi
           [ -n "$BN" ] || BN="1"
           echo "build-name=$BUILD_NAME build-number=$BN"
+          set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \
             --build-number="$BN" \
-            --export-options-plist=/tmp/ExportOptions.plist
+            --export-options-plist=/tmp/ExportOptions.plist > /tmp/cm_flutter_ipa.log 2>&1
+          FL=$?
+          set -e
+          if [ "$FL" -ne 0 ]; then
+            tail -120 /tmp/cm_flutter_ipa.log
+            if grep -q "doesn't include signing certificate" /tmp/cm_flutter_ipa.log 2>/dev/null; then
+              echo ""
+              echo "=== DICA: Perfil App Store sem o certificado Apple Distribution do P12 (CM_CERTIFICATE)."
+              echo "Atualize o perfil em developer.apple.com → Profiles → Edit → Certificates → Save → Download."
+              echo "Codemagic: CM_PROVISIONING_PROFILE = Base64 do novo .mobileprovision (uma linha)."
+            fi
+            exit "$FL"
+          fi
+          IPA_PATH=""
+          for trydir in build/ios/ipa "$PWD/build/ios/ipa"; do
+            [ -d "$trydir" ] || continue
+            IPA_PATH=$(find "$trydir" -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
+            [ -n "$IPA_PATH" ] && [ -f "$IPA_PATH" ] && break
+          done
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            ARCH=$(find build/ios -name "Runner.xcarchive" -type d 2>/dev/null | head -n 1)
+            if [ -n "$ARCH" ]; then
+              mkdir -p build/ios/ipa
+              set +e
+              xcodebuild -exportArchive -archivePath "$ARCH" -exportPath build/ios/ipa -exportOptionsPlist /tmp/ExportOptions.plist
+              set -e
+              IPA_PATH=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
+            fi
+          fi
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            echo "ERRO: sem .ipa apos flutter build ipa + fallback."
+            find . -name "*.ipa" -type f 2>/dev/null | head -20 || true
+            tail -80 /tmp/cm_flutter_ipa.log || true
+            exit 1
+          fi
+          echo "IPA OK: $IPA_PATH"
       - name: IPA na raiz do clone (artefactos)
         script: |
           set -e

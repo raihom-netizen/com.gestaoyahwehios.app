@@ -1,13 +1,12 @@
 import 'dart:async' show unawaited;
 
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
-import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class SignupPage extends StatefulWidget {
@@ -23,22 +22,12 @@ class SignupPage extends StatefulWidget {
 class _SignupPageState extends State<SignupPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final _igrejaNome = TextEditingController();
-  final _igrejaDoc = TextEditingController();
-  final _nome = TextEditingController();
-  final _cpf = TextEditingController();
   final _email = TextEditingController();
   final _senha = TextEditingController();
 
-  String _planId =
-      planosOficiais.isNotEmpty ? planosOficiais.first.id : 'essencial';
   bool _loading = false;
   bool _obscure = true;
   bool _appleSignInAvailable = false;
-  Map<String, ({double? monthly, double? annual})>? _effectivePrices;
-
-  FirebaseFunctions get _fnUsCentral1 =>
-      FirebaseFunctions.instanceFor(region: 'us-central1');
 
   bool get _showAppleButton => !kIsWeb && _appleSignInAvailable;
 
@@ -54,17 +43,10 @@ class _SignupPageState extends State<SignupPage> {
         if (mounted) setState(() => _appleSignInAvailable = ok);
       });
     }
-    PlanPriceService.getEffectivePrices().then((p) {
-      if (mounted) setState(() => _effectivePrices = p);
-    });
   }
 
   @override
   void dispose() {
-    _igrejaNome.dispose();
-    _igrejaDoc.dispose();
-    _nome.dispose();
-    _cpf.dispose();
     _email.dispose();
     _senha.dispose();
     super.dispose();
@@ -101,6 +83,21 @@ class _SignupPageState extends State<SignupPage> {
               ? 'Adicione este domínio em Firebase Console > Authentication > Authorized domains.'
               : 'Falha no login Google: $msg'),
           duration: const Duration(seconds: 5),
+        ),
+      );
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      final isDevErr = isGoogleSignInAndroidConfigError(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isDevErr
+                ? 'Login Google indisponível neste aparelho (assinatura/SHA-1). '
+                    'Adicione o SHA-1 do keystore em Firebase Console → Configurações do projeto → App Android, '
+                    'ou use e-mail e senha. Depois de alterar o SHA-1, aguarde alguns minutos e tente de novo.'
+                : 'Falha no Google: ${e.code} ${e.message ?? ''}',
+          ),
+          duration: const Duration(seconds: 8),
         ),
       );
     } catch (e) {
@@ -150,38 +147,30 @@ class _SignupPageState extends State<SignupPage> {
     setState(() => _loading = true);
 
     try {
-      final fn = _fnUsCentral1.httpsCallable('createChurchAndGestorWithPlan');
-      final res = await fn.call({
-        'igrejaNome': _igrejaNome.text.trim(),
-        'igrejaDoc': _igrejaDoc.text.trim(),
-        'nome': _nome.text.trim(),
-        'cpf': _cpf.text.trim(),
-        'email': _email.text.trim(),
-        'senha': _senha.text,
-        'planId': _planId,
-      });
-
-      final data = Map<String, dynamic>.from(res.data as Map);
-      final igrejaSlug = (data['igrejaSlug'] ?? '').toString();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            igrejaSlug.isNotEmpty
-                ? 'Conta criada! Sua igreja: /igreja/$igrejaSlug — Teste grátis até: ${data['trialEndsAt'] ?? ''}'
-                : 'Conta criada! Teste grátis até: ${data['trialEndsAt'] ?? ''}',
-          ),
-        ),
+      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _email.text.trim(),
+        password: _senha.text,
       );
-
-      final target =
-          igrejaSlug.isNotEmpty ? '/igreja/$igrejaSlug' : '/igreja/login';
-      Navigator.pushNamedAndRemoveUntil(context, target, (_) => false);
-    } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/signup/completar-dados',
+        (_) => false,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final code = e.code.toLowerCase();
+      String msg = e.message ?? e.code;
+      if (code == 'email-already-in-use') {
+        msg =
+            'Este e-mail já está em uso. Use Entrar ou outro endereço.';
+      } else if (code == 'weak-password') {
+        msg = 'Senha fraca. Use pelo menos 6 caracteres.';
+      } else if (code == 'invalid-email') {
+        msg = 'E-mail inválido.';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha no cadastro: ${e.message ?? e.code}')),
+        SnackBar(content: Text(msg)),
       );
     } catch (e) {
       if (!mounted) return;
@@ -198,7 +187,7 @@ class _SignupPageState extends State<SignupPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          'Comece rápido com Google ou Apple (app) e depois complete os dados da igreja — ou use o formulário abaixo com e-mail e senha.',
+          'Entre com Google ou Apple (app). Depois você informa nome, CPF e os dados da igreja em duas etapas rápidas — ou crie só e-mail e senha abaixo.',
           style: TextStyle(color: Colors.black54, height: 1.35),
         ),
         const SizedBox(height: 16),
@@ -240,7 +229,8 @@ class _SignupPageState extends State<SignupPage> {
             Expanded(child: Divider()),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 10),
-              child: Text('ou cadastre com e-mail', style: TextStyle(fontSize: 13, color: Colors.black54)),
+              child: Text('ou e-mail e senha',
+                  style: TextStyle(fontSize: 13, color: Colors.black54)),
             ),
             Expanded(child: Divider()),
           ],
@@ -273,59 +263,17 @@ class _SignupPageState extends State<SignupPage> {
               child: ListView(
                 children: [
                   const Text(
-                    'Crie sua conta de gestor. Você terá 30 dias completos para testar.',
+                    'Abra sua conta em poucos passos. O teste completo (30 dias) começa quando você criar a igreja no sistema.',
                     style: TextStyle(
                         color: Colors.black54, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 16),
                   _socialHeader(),
-                  const Text('Dados da igreja',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _igrejaNome,
-                    decoration: const InputDecoration(
-                      labelText: 'Nome da igreja',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) => _req(v, 'Informe o nome da igreja'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _igrejaDoc,
-                    decoration: const InputDecoration(
-                      labelText: 'CNPJ ou CPF (opcional)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  const Text('Dados do gestor',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _nome,
-                    decoration: const InputDecoration(
-                      labelText: 'Seu nome (gestor)',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) => _req(v, 'Informe seu nome'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _cpf,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'CPF (11 números)',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) => _req(v, 'Informe seu CPF'),
-                  ),
-                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
-                      labelText: 'E-mail (receberá o link de reset)',
+                      labelText: 'E-mail',
                       border: OutlineInputBorder(),
                     ),
                     validator: (v) => _req(v, 'Informe seu e-mail'),
@@ -346,43 +294,11 @@ class _SignupPageState extends State<SignupPage> {
                     validator: (v) {
                       final msg = _req(v, 'Informe a senha');
                       if (msg != null) return msg;
-                      if ((v ?? '').length < 6) return 'Senha mínima: 6 caracteres';
+                      if ((v ?? '').length < 6) {
+                        return 'Senha mínima: 6 caracteres';
+                      }
                       return null;
                     },
-                  ),
-                  const SizedBox(height: 18),
-                  const Text('Plano para iniciar',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: planosOficiais.any((p) => p.id == _planId)
-                        ? _planId
-                        : (planosOficiais.isNotEmpty
-                            ? planosOficiais.first.id
-                            : null),
-                    decoration: const InputDecoration(
-                      labelText: 'Selecione o plano',
-                      border: OutlineInputBorder(),
-                    ),
-                    isExpanded: true,
-                    items: planosOficiais.map((p) {
-                      final monthly =
-                          _effectivePrices?[p.id]?.monthly ?? p.monthlyPrice;
-                      final price = monthly != null
-                          ? 'R\$ ${monthly.toStringAsFixed(2).replaceFirst('.', ',')}/mês'
-                          : (p.note ?? 'Sob consulta');
-                      return DropdownMenuItem<String>(
-                        value: p.id,
-                        child: Text(
-                            '${p.name.replaceFirst('Plano ', '')} ($price)'),
-                      );
-                    }).toList(),
-                    onChanged: _loading
-                        ? null
-                        : (v) => setState(() => _planId = v ??
-                            (planosOficiais.isNotEmpty
-                                ? planosOficiais.first.id
-                                : 'essencial')),
                   ),
                   const SizedBox(height: 18),
                   SizedBox(
@@ -396,7 +312,7 @@ class _SignupPageState extends State<SignupPage> {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Criar conta e iniciar teste'),
+                          : const Text('Criar conta e continuar'),
                     ),
                   ),
                   const SizedBox(height: 10),

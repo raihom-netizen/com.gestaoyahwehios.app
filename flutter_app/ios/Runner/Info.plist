@@ -64,5 +64,19 @@
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<false/>
+	<!-- Obrigatório para Google Sign-In (OAuth): mesmo valor que REVERSED_CLIENT_ID em GoogleService-Info.plist -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -1,0 +1,67 @@
+================================================================================
+Codemagic — CM_CERTIFICATE e CM_PROVISIONING_PROFILE (colar nos secrets)
+================================================================================
+
+ERRO COMUM (build falha no passo "JWT + keychain P12"):
+  security: SecKeychainItemImport: Unknown format in import.
+
+CAUSA: Foi colado Base64 do ficheiro ERRADO.
+  - O ficheiro "distribution" (tipo "Certificado de Segurança") costuma ser .CER
+    — só tem o certificado público, NÃO tem chave privada. NÃO serve para CM_CERTIFICATE.
+  - CM_CERTIFICATE tem de ser o Apple Distribution exportado como .P12
+    (Acesso às chaves / Keychain: certificado + chave privada → Exportar .p12).
+
+NUNCA use:  Get-Item .\dist*   → isso pode apanhar o .cer "distribution" por engano.
+
+
+--------------------------------------------------------------------------------
+OPÇÃO A — Script automático (recomendado)
+--------------------------------------------------------------------------------
+Na raiz do repositório (PowerShell):
+
+  .\scripts\encode_ios_codemagic_secrets.ps1
+
+Gera em D:\Temporarios\gestao_yahweh_codemagic\ :
+  CM_CERTIFICATE_base64.txt
+  CM_PROVISIONING_PROFILE_base64.txt
+
+Abra cada .txt, Ctrl+A, Ctrl+C → Codemagic → variável → apagar valor antigo → colar → Guardar.
+
+ANTES de subir o novo .mobileprovision (evita erro exportArchive 10+ min):
+  Na raiz do repo:  .\scripts\ios_verificar_perfil_com_p12.ps1
+  Tem de mostrar «OK: o .mobileprovision inclui o mesmo certificado… que o .p12».
+  Se falhar: Apple Developer → Profiles → gestaoyahwehiosapp → Edit → Certificates
+  → marque «Apple Distribution: Raihom Barbosa (82RC6YL7KL)» → Save → Download.
+
+
+--------------------------------------------------------------------------------
+OPÇÃO B — Manual (PowerShell, uma linha cada)
+--------------------------------------------------------------------------------
+Ajuste o nome do .p12 se o Windows mostrar só "gestaoyahwehiosapp" sem extensão:
+
+  cd "C:\gestao_yahweh_premium_final\IOS"
+
+  # P12 — use o ficheiro .p12 de exportação do Keychain (não use "distribution"/.cer)
+  $p12 = Get-ChildItem -Filter "*.p12" -File | Select-Object -First 1
+  if (-not $p12) { $p12 = Get-Item -LiteralPath ".\gestaoyahwehiosapp" -ErrorAction SilentlyContinue }
+  if (-not $p12) { throw "Coloque o Apple Distribution.p12 nesta pasta." }
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes($p12.FullName)) | Set-Clipboard
+  # → Codemagic: CM_CERTIFICATE = Colar
+
+  # Provisioning profile App Store
+  $prov = Get-ChildItem -Filter "*.mobileprovision" -File | Select-Object -First 1
+  if (-not $prov) { throw "Coloque o .mobileprovision App Store nesta pasta." }
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes($prov.FullName)) | Set-Clipboard
+  # → Codemagic: CM_PROVISIONING_PROFILE = Colar
+
+
+--------------------------------------------------------------------------------
+Secrets que devem bater certo na Codemagic (grupo appstore_credentials)
+--------------------------------------------------------------------------------
+  CM_CERTIFICATE              = Base64 de ficheiro .p12 (Apple Distribution + chave)
+  CM_CERTIFICATE_PASSWORD     = password definida ao exportar o .p12
+  CM_PROVISIONING_PROFILE     = Base64 do .mobileprovision (App Store)
+  APP_STORE_CONNECT_PRIVATE_KEY / KEY_ID / ISSUER_ID = API Key App Store Connect (.p8)
+
+
+Depois: novo build no Codemagic. O IPA pode ser enviado ao App Store Connect pelo workflow.

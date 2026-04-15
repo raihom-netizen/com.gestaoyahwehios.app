@@ -2,9 +2,11 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
@@ -28,6 +30,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/event_template_schedule.dart'
+    show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -40,7 +44,9 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaExternalVideoUrl,
-        looksLikeHostedVideoFileUrl;
+        looksLikeHostedVideoFileUrl,
+        postFeedCarouselAspectRatioForIndex;
+import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_post_card.dart'
     show yahwehPostGalleryRefs;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
@@ -48,7 +54,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage, resolveNoticiaShareSheetMedia;
+    show buildNoticiaInviteShareMessage;
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
@@ -60,6 +66,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
 import 'aniversariantes_ano_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
@@ -77,6 +84,7 @@ import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
 /// Membros em tempo real via `snapshots()` (um stream ou merge de vários tenants com mesmo slug).
@@ -84,15 +92,13 @@ class IgrejaDashboardModerno extends StatefulWidget {
   final String tenantId;
   final String role;
   final String cpf;
-  /// Quando definido, "Ver mais" em Eventos da semana/mês leva para o módulo Eventos no shell em vez de push.
-  final VoidCallback? onNavigateToEventos;
-
   /// Abre o módulo Membros no shell (atalho a partir do painel de saúde ministerial).
   final VoidCallback? onNavigateToMembers;
 
-  /// Mesmas flags do shell — financeiro e patrimônio só no painel para quem pode ver.
+  /// Mesmas flags do shell — financeiro, patrimônio e fornecedores só no painel para quem pode ver.
   final bool? podeVerFinanceiro;
   final bool? podeVerPatrimonio;
+  final bool? podeVerFornecedores;
   final List<String>? permissions;
 
   /// Abre módulo pelo índice do menu [IgrejaCleanShell] (1 = cadastro, 2 = membros, …).
@@ -103,10 +109,10 @@ class IgrejaDashboardModerno extends StatefulWidget {
     required this.tenantId,
     required this.role,
     required this.cpf,
-    this.onNavigateToEventos,
     this.onNavigateToMembers,
     this.podeVerFinanceiro,
     this.podeVerPatrimonio,
+    this.podeVerFornecedores,
     this.permissions,
     required this.onNavigateToShellModule,
   });
@@ -130,6 +136,72 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
   String _churchNome = '';
   final ChurchDashboardEngagementController _engagementCtrl =
       ChurchDashboardEngagementController();
+
+  ChurchDashboardFinancePreset _dashFinancePreset =
+      ChurchDashboardFinancePreset.currentMonth;
+  DateTimeRange? _dashCustomFinanceRange;
+
+  DateTimeRange get _resolvedDashFinanceRange =>
+      ChurchDashboardFinancePeriod.resolve(
+        preset: _dashFinancePreset,
+        custom: _dashCustomFinanceRange,
+      );
+
+  void _rebindFinanceStream() {
+    if (_effectiveTenantId.isEmpty) return;
+    if (!_dashCanFinance) {
+      _financeStream = null;
+      return;
+    }
+    // Stream estável: o filtro por período é aplicado no cliente — evita “sumir” gráficos ao trocar preset.
+    _financeStream = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(_effectiveTenantId)
+        .collection('finance')
+        .orderBy('createdAt', descending: true)
+        .limit(6000)
+        .snapshots();
+  }
+
+  Future<void> _onDashFinancePresetTap(
+      ChurchDashboardFinancePreset preset) async {
+    if (preset == ChurchDashboardFinancePreset.custom) {
+      final now = DateTime.now();
+      final initial = _dashCustomFinanceRange ??
+          DateTimeRange(
+            start: DateTime(now.year, now.month, 1),
+            end: DateTime(now.year, now.month, now.day),
+          );
+      final picked = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(now.year - 6),
+        lastDate: DateTime(now.year + 1, 12, 31),
+        initialDateRange: initial,
+        locale: const Locale('pt', 'BR'),
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: ThemeCleanPremium.primary,
+                brightness: Brightness.light,
+              ),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+      );
+      if (!mounted || picked == null) return;
+      setState(() {
+        _dashFinancePreset = ChurchDashboardFinancePreset.custom;
+        _dashCustomFinanceRange = picked;
+      });
+      return;
+    }
+    setState(() {
+      _dashFinancePreset = preset;
+      _dashCustomFinanceRange = null;
+    });
+  }
 
   @override
   void initState() {
@@ -155,32 +227,47 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
       );
 
   Future<void> _loadStreams() async {
-    // Evita getIdToken(true) a cada abertura/pull: força ida ao servidor e atrasa o painel.
+    // Refresca o token antes dos snapshots — regras Firestore com auth costumam falhar
+    // com token velho (painel “perde” dados até novo login sem isto).
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (_) {}
     final resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
     final tenantRef = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
     var churchSlug = '';
     var churchNome = '';
+    late final List<String> allIds;
     try {
-      final igSnap = await tenantRef.get();
+      // Paralelo: metadados da igreja + IDs irmãos (mesmo slug) — menos latência na 1.ª pintura.
+      final parallel = await Future.wait([
+        tenantRef.get(),
+        TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved),
+      ]);
+      final igSnap = parallel[0] as DocumentSnapshot<Map<String, dynamic>>;
+      allIds = List<String>.from(parallel[1] as Iterable<dynamic>);
       final id = igSnap.data() ?? {};
       churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
-    } catch (_) {}
-    if (!mounted) return;
-    final allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved);
+    } catch (_) {
+      try {
+        final igSnap = await tenantRef.get();
+        final id = igSnap.data() ?? {};
+        churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
+        churchNome = (id['name'] ?? id['nome'] ?? '').toString();
+        allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved);
+      } catch (_) {
+        allIds = [resolved];
+      }
+    }
     if (!mounted) return;
     setState(() {
       _effectiveTenantId = resolved;
       _churchSlug = churchSlug;
       _churchNome = churchNome;
       _membersStream = _createMembersSnapshotStream(allIds);
-      _deptStream = tenantRef.collection('departamentos').snapshots();
-      // Menos documentos em tempo real no painel — suficiente para o gráfico e menos carga no celular.
-      _financeStream = tenantRef.collection('finance').limit(100).snapshots();
+      _deptStream = _createDepartmentsSnapshotStream(allIds);
+      _rebindFinanceStream();
       _noticiasStream = tenantRef
           .collection(ChurchTenantPostsCollections.noticias)
           .orderBy('createdAt', descending: true)
@@ -194,7 +281,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(scheduleYahwehPanelImageWarmup(context, resolved));
+      unawaited(scheduleYahwehPanelImageWarmup(
+        context,
+        resolved,
+        resolvedTenantId: resolved,
+      ));
     });
   }
 
@@ -245,7 +336,68 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                   latest[id] = snap.docs.toList();
                   emit();
                 },
-                onError: ctrl.addError,
+                onError: (Object _, StackTrace __) {
+                  latest[id] = [];
+                  emit();
+                },
+              ),
+        );
+      }
+
+      ctrl.onCancel = () {
+        for (final s in subs) {
+          s.cancel();
+        }
+      };
+    });
+  }
+
+  /// Mesmo padrão de [membros]: slug/alias pode ter vários docs em `igrejas/` — departamentos devem agregar todos.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsSnapshotStream(
+    List<String> allIds,
+  ) {
+    final db = FirebaseFirestore.instance;
+    if (allIds.isEmpty) {
+      return Stream<QuerySnapshot<Map<String, dynamic>>>.value(_MergedQuerySnapshot([]));
+    }
+    if (allIds.length == 1) {
+      return db
+          .collection('igrejas')
+          .doc(allIds.first)
+          .collection('departamentos')
+          .snapshots();
+    }
+    return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
+      final latest = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+
+      void emit() {
+        final seen = <String>{};
+        final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        for (final id in allIds) {
+          for (final d in latest[id] ?? const []) {
+            if (seen.add(d.id)) merged.add(d);
+          }
+        }
+        ctrl.addSync(_MergedQuerySnapshot(merged));
+      }
+
+      for (final id in allIds) {
+        subs.add(
+          db
+              .collection('igrejas')
+              .doc(id)
+              .collection('departamentos')
+              .snapshots()
+              .listen(
+                (snap) {
+                  latest[id] = snap.docs.toList();
+                  emit();
+                },
+                onError: (Object _, StackTrace __) {
+                  latest[id] = [];
+                  emit();
+                },
               ),
         );
       }
@@ -308,9 +460,29 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                           snap: mergedSnap,
                           tenantId: _effectiveTenantId,
                           engagement: _engagementCtrl,
+                          onRetry: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _LideresGaleria(membersSnap: mergedSnap, deptStream: _deptStream!, tenantId: _effectiveTenantId),
+                        PastoralInboxHomeCard(
+                          tenantId: _effectiveTenantId,
+                          cpfDigits:
+                              widget.cpf.replaceAll(RegExp(r'\D'), ''),
+                          memberDocs: mergedSnap.data?.docs ?? const [],
+                        ),
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        _LideresGaleria(
+                          membersSnap: mergedSnap,
+                          deptStream: _deptStream!,
+                          tenantId: _effectiveTenantId,
+                          onRetry: _loadStreams,
+                        ),
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        _CorpoAdministrativoGaleria(
+                          membersSnap: mergedSnap,
+                          deptStream: _deptStream!,
+                          tenantId: _effectiveTenantId,
+                          onRetry: _loadStreams,
+                        ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _DestaqueEventos(
                           tenantId: _effectiveTenantId,
@@ -339,6 +511,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                             role: widget.role,
                             memberDocs: mergedSnap.data?.docs ?? const [],
                             canViewFinance: _dashCanFinance,
+                            financePeriodRange: _dashCanFinance
+                                ? _resolvedDashFinanceRange
+                                : ChurchDashboardFinancePeriod.resolve(
+                                    preset:
+                                        ChurchDashboardFinancePreset.currentMonth,
+                                  ),
+                            financePeriodPreset: _dashCanFinance
+                                ? _dashFinancePreset
+                                : ChurchDashboardFinancePreset.currentMonth,
                             deferFinanceBlock: _dashCanFinance,
                             onDeferredFinanceReady: () {
                               if (mounted) setState(() {});
@@ -376,19 +557,17 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceLg),
                         ],
-                        _DashboardInstitutionalVideoStrip(tenantId: widget.tenantId),
+                        _DashboardInstitutionalVideoStrip(tenantId: _effectiveTenantId),
                         const SizedBox(height: ThemeCleanPremium.spaceSm),
-                        _LinksPublicosStrip(tenantId: widget.tenantId, role: widget.role),
+                        _LinksPublicosStrip(tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _ProgramacaoDiasCard(tenantId: widget.tenantId, role: widget.role, onNavigateToEventos: widget.onNavigateToEventos),
+                        _ProgramacaoDiasCard(tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _StatsCards(snap: mergedSnap, tenantId: widget.tenantId, role: widget.role),
+                        _StatsCards(snap: mergedSnap, tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _CorpoAdministrativoGaleria(membersSnap: mergedSnap, deptStream: _deptStream!, tenantId: _effectiveTenantId),
-                        const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _TarefasPendentes(tenantId: widget.tenantId, role: widget.role),
+                        _TarefasPendentes(tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         SizedBox(
                           width: isNarrow ? double.infinity : 380,
@@ -396,6 +575,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                         ),
                         if (_dashCanFinance) ...[
                           const SizedBox(height: ThemeCleanPremium.spaceXl),
+                          _DashboardFinancePeriodStrip(
+                            resolvedRange: _resolvedDashFinanceRange,
+                            preset: _dashFinancePreset,
+                            isNarrow: isNarrow,
+                            onSelect: (p) {
+                              unawaited(_onDashFinancePresetTap(p));
+                            },
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
                           if (!AppPermissions.isRestrictedMember(widget.role))
                             Builder(
                               builder: (context) {
@@ -418,20 +606,34 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
                             ),
                           SizedBox(
                             width: isNarrow ? double.infinity : 380,
-                            child: _GraficoFinanceiro(stream: _financeStream!),
+                            child: _financeStream == null
+                                ? const SizedBox(
+                                    height: 120,
+                                    child: Center(
+                                        child: CircularProgressIndicator()),
+                                  )
+                                : _GraficoFinanceiro(
+                                    stream: _financeStream!,
+                                    range: _resolvedDashFinanceRange,
+                                    preset: _dashFinancePreset,
+                                  ),
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceLg),
                           SizedBox(
                             width: isNarrow ? double.infinity : 380,
-                            child: _PainelDespesasDashboard(
-                              stream: _financeStream!,
-                              tenantId: _effectiveTenantId,
-                              role: widget.role,
-                              cpf: widget.cpf,
-                              podeVerFinanceiro: widget.podeVerFinanceiro,
-                              permissions: widget.permissions,
-                              isNarrow: isNarrow,
-                            ),
+                            child: _financeStream == null
+                                ? const SizedBox.shrink()
+                                : _PainelDespesasDashboard(
+                                    stream: _financeStream!,
+                                    range: _resolvedDashFinanceRange,
+                                    preset: _dashFinancePreset,
+                                    tenantId: _effectiveTenantId,
+                                    role: widget.role,
+                                    cpf: widget.cpf,
+                                    podeVerFinanceiro: widget.podeVerFinanceiro,
+                                    permissions: widget.permissions,
+                                    isNarrow: isNarrow,
+                                  ),
                           ),
                         ],
                         const SizedBox(height: 32),
@@ -603,6 +805,12 @@ Color _anivAvatarColor(Map<String, dynamic> d) =>
     avatarColorForMember(d, hasPhoto: _anivFotoUrl(d) != null) ??
     Colors.grey.shade600;
 
+/// Decode proporcional à tela — fotos nítidas sem exagerar na memória.
+int _anivMemCachePx(BuildContext context, double logicalDiameter) {
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return (logicalDiameter * dpr).round().clamp(120, 360);
+}
+
 String _anivDiaLabel(DateTime? dt, {required bool isToday}) {
   if (dt == null) return '';
   if (isToday) return 'Hoje';
@@ -671,7 +879,6 @@ void _openAniversarianteDetalheSheet(
   final primeiro = _anivPrimeiroNome(data);
   final fone = _anivPhoneDigits(data);
   final email = _anivEmail(data);
-  final idade = ageFromMemberData(data);
   final cargo = (data['CARGO'] ?? data['FUNCAO'] ?? data['role'] ?? '')
       .toString()
       .trim();
@@ -687,22 +894,6 @@ void _openAniversarianteDetalheSheet(
       ),
     ),
   );
-  final bigPhoto = SafeMemberProfilePhoto(
-    imageUrl: _anivFotoUrl(data),
-    tenantId: tenantId,
-    memberId: doc.id,
-    cpfDigits: cpf.length >= 9 ? cpf : null,
-    width: 112,
-    height: 112,
-    circular: true,
-    fit: BoxFit.cover,
-    enableStorageFallback: false,
-    memCacheWidth: 280,
-    memCacheHeight: 280,
-    placeholder: letterFallback,
-    errorChild: letterFallback,
-  );
-
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -710,6 +901,24 @@ void _openAniversarianteDetalheSheet(
     barrierColor: Colors.black.withOpacity(0.4),
     builder: (ctx) {
       final bottom = MediaQuery.viewPaddingOf(ctx).bottom;
+      final bigCache = _anivMemCachePx(ctx, 112);
+      final bigPhoto = SafeMemberProfilePhoto(
+        imageUrl: _anivFotoUrl(data),
+        tenantId: tenantId,
+        memberId: doc.id,
+        cpfDigits: cpf.length >= 9 ? cpf : null,
+        authUid: _dashboardMemberAuthUid(data),
+        nomeCompleto: nomeCompleto.isNotEmpty ? nomeCompleto : null,
+        memberFirestoreHint: data,
+        width: 112,
+        height: 112,
+        circular: true,
+        fit: BoxFit.cover,
+        memCacheWidth: bigCache,
+        memCacheHeight: bigCache,
+        placeholder: letterFallback,
+        errorChild: letterFallback,
+      );
       return Padding(
         padding: EdgeInsets.only(bottom: bottom),
         child: Container(
@@ -805,24 +1014,6 @@ void _openAniversarianteDetalheSheet(
                               ),
                             ),
                           ],
-                        ),
-                      ),
-                    if (idade != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
-                        ),
-                        child: Text(
-                          '$idade anos',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: Color(0xFF1D4ED8),
-                          ),
                         ),
                       ),
                   ],
@@ -979,7 +1170,7 @@ Future<void> _anivOpenParabensWhatsApp(
   }
 }
 
-/// Avatar com anel em gradiente (estilo Stories) + selo de bolo no aniversário do dia.
+/// Avatar com anel em gradiente (estilo Stories premium) + selo de bolo no aniversário do dia.
 class _StoryRingBirthdayAvatar extends StatelessWidget {
   final double radius;
   final Widget child;
@@ -994,30 +1185,49 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const ringColors = [
+      Color(0xFF38BDF8),
       Color(0xFFF97316),
       Color(0xFFEC4899),
       Color(0xFF8B5CF6),
     ];
-    final ring = 3.0;
-    final glow = isToday ? 6.0 : 0.0;
+    const ringColorsToday = [
+      Color(0xFFFBBF24),
+      Color(0xFFF97316),
+      Color(0xFFEC4899),
+      Color(0xFFA855F7),
+    ];
+    final ring = 3.5;
+    final glow = isToday ? 10.0 : 0.0;
     return Container(
       padding: EdgeInsets.all(ring),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: ringColors,
+        gradient: LinearGradient(
+          colors: isToday ? ringColorsToday : ringColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: isToday
             ? [
                 BoxShadow(
-                  color: const Color(0xFFEC4899).withValues(alpha: 0.45),
+                  color: const Color(0xFFEC4899).withValues(alpha: 0.42),
                   blurRadius: glow,
                   spreadRadius: 0.5,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: const Color(0xFFFBBF24).withValues(alpha: 0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
                 ),
               ]
-            : null,
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.07),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
       ),
       child: Stack(
         clipBehavior: Clip.none,
@@ -1025,25 +1235,33 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
           Container(
             width: radius * 2,
             height: radius * 2,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             clipBehavior: Clip.antiAlias,
             child: child,
           ),
           if (isToday)
             Positioned(
-              right: -2,
-              bottom: -2,
+              right: -3,
+              bottom: -3,
               child: Container(
-                padding: const EdgeInsets.all(4),
+                padding: const EdgeInsets.all(5),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFCE7F3), width: 1.5),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
-                child: const Text('🎂', style: TextStyle(fontSize: 14)),
+                child: const Text('🎂', style: TextStyle(fontSize: 15)),
               ),
             ),
         ],
@@ -1052,54 +1270,289 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
   }
 }
 
+/// Lembrete: push diário às 8h (Brasília) no tópico `igreja_{tenantId}` — [dailyBirthdayTopicPush].
+class _AniversariantesPushInfoBanner extends StatelessWidget {
+  final int count;
+  final List<String> previewNames;
+
+  const _AniversariantesPushInfoBanner({
+    required this.count,
+    required this.previewNames,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = previewNames.where((s) => s.isNotEmpty).take(4).toList();
+    final preview = parts.join(', ');
+    final more = count > parts.length ? '…' : '';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFF7ED), Color(0xFFFFEDD5)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: const Color(0xFFFDBA74).withValues(alpha: 0.55),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF97316).withValues(alpha: 0.14),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.95),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.orange.withValues(alpha: 0.2),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.notifications_active_rounded,
+              color: Colors.orange.shade800,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  count == 1
+                      ? 'Aniversariante de hoje'
+                      : '$count aniversariantes hoje',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    color: Color(0xFF9A3412),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Quem usa o app nesta igreja recebe um aviso por volta das 8h '
+                  '(horário de Brasília). '
+                  '${preview.isNotEmpty ? 'Inclui: $preview$more.' : ''}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.38,
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Falha ao ler Firestore no painel — permite religar streams sem sair da tela.
+class _DashboardPanelLoadError extends StatelessWidget {
+  final String message;
+  final Future<void> Function() onRetry;
+
+  const _DashboardPanelLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.cloud_off_rounded,
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.88),
+          size: 22,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                message,
+                style: TextStyle(
+                  color: Colors.grey.shade800,
+                  fontSize: 14,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.tonalIcon(
+                onPressed: () => unawaited(onRetry()),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Tentar novamente'),
+                style: FilledButton.styleFrom(
+                  foregroundColor: ThemeCleanPremium.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (WhatsApp).
 class _AniversariantesCard extends StatelessWidget {
+  /// Raio do círculo interno da foto (anel +3.5px — visual ~93px).
+  static const double kAvatarRadius = 43;
+  static const double kRowHeight = 212;
+  static const double kColWidth = 116;
+
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final String tenantId;
   final ChurchDashboardEngagementController engagement;
+  final Future<void> Function() onRetry;
 
   const _AniversariantesCard({
     required this.snap,
     required this.tenantId,
     required this.engagement,
+    required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
-    return _CleanCard(
-      title: 'Aniversariantes',
-      icon: Icons.cake_rounded,
-      child: ListenableBuilder(
-        listenable: engagement,
-        builder: (context, _) => _buildContent(context),
+    return ListenableBuilder(
+      listenable: engagement,
+      builder: (context, _) => _buildShell(context),
+    );
+  }
+
+  Widget _buildShell(BuildContext context) {
+    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+      return _premiumContainer(
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _premiumHeaderPlaceholder(),
+              const SizedBox(height: 18),
+              YahwehPremiumFeedShimmer.segmentedBarSkeleton(height: 50),
+              const SizedBox(height: 16),
+              YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(
+                listHeight: kRowHeight,
+                avatarRingRadius: kAvatarRadius,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (snap.hasError) {
+      return _premiumContainer(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: _DashboardPanelLoadError(
+            message:
+                'Não foi possível carregar aniversariantes. Verifique a conexão ou toque abaixo para recarregar.',
+            onRetry: onRetry,
+          ),
+        ),
+      );
+    }
+    if (!snap.hasData) return const SizedBox.shrink();
+    return _premiumContainer(child: _buildContent(context));
+  }
+
+  Widget _premiumHeaderPlaceholder() => Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 18,
+                  width: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 12,
+                  width: 220,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  Widget _premiumContainer({required Widget child}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFFFDF4FF),
+              Colors.white,
+              const Color(0xFFEFF6FF),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF8B5CF6).withValues(alpha: 0.09),
+              blurRadius: 36,
+              offset: const Offset(0, 18),
+            ),
+            ...ThemeCleanPremium.softUiCardShadow,
+          ],
+          border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
+        ),
+        child: CustomPaint(
+          painter: _AniversariantesCardMeshPainter(),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: child,
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildContent(BuildContext context) {
-    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-      return Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            YahwehPremiumFeedShimmer.segmentedBarSkeleton(),
-            const SizedBox(height: 14),
-            YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(),
-          ],
-        ),
-      );
-    }
-    if (snap.hasError) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          'Não foi possível carregar aniversariantes.',
-          style: TextStyle(color: Colors.grey.shade700),
-        ),
-      );
-    }
-    if (!snap.hasData) return const SizedBox.shrink();
     final docs = snap.data!.docs;
     final preloadUrls = docs
         .map((d) => _anivFotoUrl(d.data()) ?? '')
@@ -1108,7 +1561,7 @@ class _AniversariantesCard extends StatelessWidget {
         .toList();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
-      preloadNetworkImages(context, preloadUrls, maxItems: 14);
+      preloadNetworkImages(context, preloadUrls, maxItems: 16);
     });
 
     final now = DateTime.now();
@@ -1156,40 +1609,153 @@ class _AniversariantesCard extends StatelessWidget {
       emptyMsg = 'Nenhum aniversariante neste mês.';
     }
 
+    final cachePx = _anivMemCachePx(context, kAvatarRadius * 2);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SegmentedButton<int>(
-          segments: const [
-            ButtonSegment(
-              value: 0,
-              label: Text('Hoje'),
-              icon: Icon(Icons.wb_sunny_outlined, size: 18),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    ThemeCleanPremium.primary.withValues(alpha: 0.78),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.cake_rounded,
+                color: Colors.white,
+                size: 26,
+              ),
             ),
-            ButtonSegment(
-              value: 1,
-              label: Text('Semana'),
-              icon: Icon(Icons.date_range_rounded, size: 18),
-            ),
-            ButtonSegment(
-              value: 2,
-              label: Text('Mês'),
-              icon: Icon(Icons.calendar_month_rounded, size: 18),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Aniversariantes',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      color: Color(0xFF0F172A),
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Celebre com a família da igreja',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
-          selected: {tab},
-          onSelectionChanged: (s) {
-            if (s.isEmpty) return;
-            engagement.setBirthdayTab(s.first);
-          },
-          style: ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            padding: WidgetStateProperty.all(
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        ),
+        const SizedBox(height: 14),
+        if (hoje.isNotEmpty)
+          _AniversariantesPushInfoBanner(
+            count: hoje.length,
+            previewNames:
+                hoje.map((d) => _anivPrimeiroNome(d.data())).toList(),
+          ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                Colors.white.withValues(alpha: 0.95),
+                const Color(0xFFF8FAFC),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFE2E8F0).withValues(alpha: 0.9),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(5),
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(
+                  value: 0,
+                  label: Text('Hoje'),
+                  icon: Icon(Icons.wb_sunny_outlined, size: 18),
+                ),
+                ButtonSegment(
+                  value: 1,
+                  label: Text('Semana'),
+                  icon: Icon(Icons.date_range_rounded, size: 18),
+                ),
+                ButtonSegment(
+                  value: 2,
+                  label: Text('Mês'),
+                  icon: Icon(Icons.calendar_month_rounded, size: 18),
+                ),
+              ],
+              selected: {tab},
+              onSelectionChanged: (s) {
+                if (s.isEmpty) return;
+                engagement.setBirthdayTab(s.first);
+              },
+              style: ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                padding: WidgetStateProperty.all(
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                ),
+                side: WidgetStateProperty.all(BorderSide.none),
+                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return Colors.white;
+                  }
+                  return Colors.transparent;
+                }),
+                foregroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return ThemeCleanPremium.primary;
+                  }
+                  return const Color(0xFF64748B);
+                }),
+                shadowColor: WidgetStateProperty.all(Colors.transparent),
+                elevation: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) return 1.0;
+                  return 0.0;
+                }),
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 18),
         if (lista.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1202,11 +1768,15 @@ class _AniversariantesCard extends StatelessWidget {
           )
         else
           SizedBox(
-            height: 168,
+            height: kRowHeight,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
               itemCount: lista.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
+              separatorBuilder: (_, __) => const SizedBox(width: 16),
               itemBuilder: (context, i) {
                 final d = lista[i];
                 final data = d.data();
@@ -1223,8 +1793,8 @@ class _AniversariantesCard extends StatelessWidget {
                   alignment: Alignment.center,
                   child: Text(
                     primeiro.isNotEmpty ? primeiro[0].toUpperCase() : '?',
-                    style: TextStyle(
-                      fontSize: 22,
+                    style: const TextStyle(
+                      fontSize: 28,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
@@ -1235,19 +1805,24 @@ class _AniversariantesCard extends StatelessWidget {
                   tenantId: tenantId,
                   memberId: d.id,
                   cpfDigits: cpf.length >= 9 ? cpf : null,
-                  width: 68,
-                  height: 68,
+                  authUid: _dashboardMemberAuthUid(data),
+                  nomeCompleto: _anivNomeCompleto(data).trim().isEmpty
+                      ? null
+                      : _anivNomeCompleto(data).trim(),
+                  memberFirestoreHint: data,
+                  width: kAvatarRadius * 2,
+                  height: kAvatarRadius * 2,
                   circular: true,
                   fit: BoxFit.cover,
-                  enableStorageFallback: false,
-                  memCacheWidth: 160,
-                  memCacheHeight: 160,
+                  memCacheWidth: cachePx,
+                  memCacheHeight: cachePx,
                   placeholder: letterFallback,
                   errorChild: letterFallback,
                 );
                 final fone = _anivPhoneDigits(data);
-                return SizedBox(
-                  width: 88,
+                return RepaintBoundary(
+                  child: SizedBox(
+                  width: kColWidth,
                   child: Column(
                     children: [
                       Material(
@@ -1259,35 +1834,42 @@ class _AniversariantesCard extends StatelessWidget {
                             tenantId: tenantId,
                             isToday: isToday,
                           ),
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(24),
+                          splashColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          highlightColor: ThemeCleanPremium.primary.withValues(alpha: 0.06),
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+                            padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
                             child: Column(
                               children: [
                                 _StoryRingBirthdayAvatar(
-                                  radius: 34,
+                                  radius: kAvatarRadius,
                                   isToday: isToday,
                                   child: inner,
                                 ),
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 8),
                                 Text(
                                   primeiro.isNotEmpty ? primeiro : '?',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.2,
+                                    color: Color(0xFF0F172A),
                                   ),
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
                                   _anivDiaLabel(dt, isToday: isToday),
                                   maxLines: 1,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 11,
+                                    color: isToday
+                                        ? const Color(0xFFDB2777)
+                                        : const Color(0xFF64748B),
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ],
@@ -1295,35 +1877,52 @@ class _AniversariantesCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      TextButton(
+                      const SizedBox(height: 6),
+                      FilledButton.tonalIcon(
                         onPressed: () => _anivOpenParabensWhatsApp(
                           context,
                           primeiro,
                           fone,
                         ),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(48, 32),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          foregroundColor: const Color(0xFF16A34A),
+                        icon: Icon(
+                          Icons.chat_rounded,
+                          size: 15,
+                          color: Colors.green.shade800,
                         ),
-                        child: const Text(
+                        label: Text(
                           'Parabenizar',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 11,
                             fontWeight: FontWeight.w800,
+                            color: Colors.green.shade800,
                           ),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFDCFCE7),
+                          foregroundColor: const Color(0xFF166534),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
                         ),
                       ),
                     ],
                   ),
+                ),
                 );
               },
             ),
           ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Center(
-          child: TextButton.icon(
+          child: FilledButton.tonal(
             onPressed: () {
               Navigator.of(context).push(
                 ThemeCleanPremium.fadeSlideRoute(
@@ -1331,16 +1930,54 @@ class _AniversariantesCard extends StatelessWidget {
                 ),
               );
             },
-            icon: const Icon(Icons.calendar_month_rounded, size: 20),
-            label: const Text('Ver ano todo (mês a mês)'),
-            style: TextButton.styleFrom(
+            style: FilledButton.styleFrom(
               foregroundColor: ThemeCleanPremium.primary,
+              backgroundColor: Colors.white.withValues(alpha: 0.85),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                ),
+              ),
+              elevation: 0,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_month_rounded,
+                    size: 20, color: ThemeCleanPremium.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Ver ano todo (mês a mês)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ],
     );
   }
+}
+
+/// Textura sutil no fundo do card de aniversariantes.
+class _AniversariantesCardMeshPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = const Color(0xFF6366F1).withValues(alpha: 0.045)
+      ..strokeWidth = 1;
+    for (double x = -size.height; x < size.width + size.height; x += 32) {
+      canvas.drawLine(Offset(x, 0), Offset(x + size.height * 0.9, size.height), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Vídeo institucional (Firestore: `institutionalVideoUrl` ou `institutionalVideoStoragePath`) — mesmo padrão EcoFire na web.
@@ -1362,8 +1999,9 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
           data,
           height: MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile ? 200 : 260,
           caption: 'VÍDEO INSTITUCIONAL',
-          hintBelow: 'Assista em alta qualidade no painel (na web: PiP, velocidade e download no menu do vídeo).',
-          heroAutoplay: true,
+          hintBelow: 'Toque para reproduzir. Na web: PiP, velocidade e download no menu do vídeo.',
+          // Sem autoplay: libera CPU/rede para fotos (aniversariantes, líderes, destaques) no primeiro scroll.
+          heroAutoplay: false,
         );
       },
     );
@@ -1600,7 +2238,7 @@ String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
 String _funcaoDisplayLabel(String v) {
   const labels = {
     'pastor': 'Pastor', 'pastora': 'Pastora', 'presbitero': 'Presbítero', 'diacono': 'Diácono',
-    'secretario': 'Secretário', 'tesoureiro': 'Tesoureiro', 'evangelista': 'Evangelista',
+    'secretario': 'Secretário', 'secretaria': 'Secretária', 'tesoureiro': 'Tesoureiro', 'tesoureira': 'Tesoureira', 'evangelista': 'Evangelista',
     'musico': 'Músico', 'auxiliar': 'Auxiliar', 'divulgacao': 'Divulgação',
     'membro': 'Membro', 'adm': 'Administrador', 'gestor': 'Gestor',
   };
@@ -1728,13 +2366,161 @@ void _openLiderDetalhe(
   );
 }
 
+/// Cartão premium para Galeria de Líderes / Corpo Administrativo (lista no telefone, grelha no desktop).
+class _PremiumLeaderGalleryTile extends StatelessWidget {
+  const _PremiumLeaderGalleryTile({
+    required this.narrow,
+    required this.nome,
+    required this.subtitle,
+    required this.avatar,
+    required this.onTap,
+  });
+
+  final bool narrow;
+  final String nome;
+  final String subtitle;
+  final Widget avatar;
+  final VoidCallback onTap;
+
+  static Widget _ringAvatar(Widget inner, double diameter) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [ThemeCleanPremium.primary, ThemeCleanPremium.primaryLight],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.25),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: SizedBox(
+          width: diameter,
+          height: diameter,
+          child: ColoredBox(color: Colors.white, child: inner),
+        ),
+      ),
+    );
+  }
+
+  BoxDecoration get _shellDecoration => BoxDecoration(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            ThemeCleanPremium.primary.withValues(alpha: 0.045),
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFE2E8F4)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final nameStyle = TextStyle(
+      fontWeight: FontWeight.w800,
+      fontSize: narrow ? 15 : 14,
+      letterSpacing: 0.2,
+      color: ThemeCleanPremium.onSurface,
+    );
+    final subStyle = TextStyle(
+      fontSize: narrow ? 12.5 : 12,
+      height: 1.25,
+      color: ThemeCleanPremium.onSurfaceVariant,
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        child: narrow
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: _shellDecoration,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _ringAvatar(avatar, 52),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: nameStyle),
+                          if (subtitle.trim().isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: subStyle),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: ThemeCleanPremium.primary.withValues(alpha: 0.55)),
+                  ],
+                ),
+              )
+            : Container(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+                decoration: _shellDecoration,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ringAvatar(avatar, 72),
+                    const SizedBox(height: 12),
+                    Text(nome, style: nameStyle, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (subtitle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(subtitle, style: subStyle, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// Lista vertical (mobile) ou grelha [Wrap] (desktop) para galerias de liderança.
+Widget _layoutPremiumLeaderGallery({required bool narrow, required List<Widget> tiles}) {
+  if (narrow) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < tiles.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          tiles[i],
+        ],
+      ],
+    );
+  }
+  return Wrap(
+    spacing: 14,
+    runSpacing: 14,
+    children: tiles.map((w) => SizedBox(width: 160, child: w)).toList(),
+  );
+}
+
 /// Galeria de Líderes — agrupa por líder (um líder pode ser de vários departamentos); ao clicar abre tela full-screen com contato e WhatsApp.
 class _LideresGaleria extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap;
   final Stream<QuerySnapshot<Map<String, dynamic>>> deptStream;
   final String tenantId;
+  final Future<void> Function() onRetry;
 
-  const _LideresGaleria({required this.membersSnap, required this.deptStream, required this.tenantId});
+  const _LideresGaleria({
+    required this.membersSnap,
+    required this.deptStream,
+    required this.tenantId,
+    required this.onRetry,
+  });
 
   static String _normalizeCpf(String cpf) => cpf.replaceAll(RegExp(r'\D'), '');
 
@@ -1745,6 +2531,20 @@ class _LideresGaleria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (membersSnap.hasError) {
+      return _CleanCard(
+        title: 'Galeria de Líderes',
+        icon: Icons.leaderboard_rounded,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: _DashboardPanelLoadError(
+            message:
+                'Não foi possível carregar os dados dos membros para a galeria de líderes.',
+            onRetry: onRetry,
+          ),
+        ),
+      );
+    }
     return _CleanCard(
       title: 'Galeria de Líderes',
       icon: Icons.leaderboard_rounded,
@@ -1767,7 +2567,11 @@ class _LideresGaleria extends StatelessWidget {
           if (deptSnap.hasError) {
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('Não foi possível carregar os líderes.', style: TextStyle(color: Colors.grey.shade700, fontSize: 14)),
+              child: _DashboardPanelLoadError(
+                message:
+                    'Não foi possível carregar departamentos e liderança. Toque para tentar de novo.',
+                onRetry: onRetry,
+              ),
             );
           }
           if (!deptSnap.hasData || deptSnap.data!.docs.isEmpty) {
@@ -1833,6 +2637,17 @@ class _LideresGaleria extends StatelessWidget {
           }
           final entries =
               leaderToDepts.entries.where((e) => e.value.isNotEmpty).toList();
+          entries.sort((a, b) {
+            final na = _nome(
+              leaderToMember[a.key],
+              a.value.isNotEmpty ? a.value.first : '',
+            );
+            final nb = _nome(
+              leaderToMember[b.key],
+              b.value.isNotEmpty ? b.value.first : '',
+            );
+            return na.toLowerCase().compareTo(nb.toLowerCase());
+          });
 
           if (entries.isEmpty) {
             return Padding(
@@ -1845,28 +2660,62 @@ class _LideresGaleria extends StatelessWidget {
             );
           }
 
-          return Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: entries.map((e) {
-              final cpf = e.key;
-              final deptNames = e.value;
-              final memberData = leaderToMember[cpf];
-              final nome = _nome(memberData, deptNames.first);
-              final foto = _photoUrl(memberData);
-              final hasFoto = isValidImageUrl(foto);
-              final memberDocId = memberDocIdByCpf[cpf];
-              final avatarColor = avatarColorForMember(memberData, hasPhoto: hasFoto);
-              final funcoes = <String>[];
-              if (memberData != null) {
-                final f = memberData['FUNCAO'] ?? memberData['funcao'] ?? memberData['CARGO'] ?? memberData['role'];
-                final flist = memberData['FUNCOES'] ?? memberData['funcoes'];
-                if (f != null && f.toString().trim().isNotEmpty) funcoes.add(f.toString().trim().toLowerCase());
-                if (flist is List) for (final x in flist) { final s = x.toString().trim().toLowerCase(); if (s.isNotEmpty && !funcoes.contains(s)) funcoes.add(s); }
-              }
-              return SizedBox(
-                width: 140,
-                child: InkWell(
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
+              final tiles = entries.map((e) {
+                final cpf = e.key;
+                final deptNames = e.value;
+                final memberData = leaderToMember[cpf];
+                final nome = _nome(memberData, deptNames.first);
+                final foto = _photoUrl(memberData);
+                final hasFoto = isValidImageUrl(foto);
+                final memberDocId = memberDocIdByCpf[cpf];
+                final avatarColor = avatarColorForMember(memberData, hasPhoto: hasFoto);
+                final funcoes = <String>[];
+                if (memberData != null) {
+                  final f = memberData['FUNCAO'] ?? memberData['funcao'] ?? memberData['CARGO'] ?? memberData['role'];
+                  final flist = memberData['FUNCOES'] ?? memberData['funcoes'];
+                  if (f != null && f.toString().trim().isNotEmpty) funcoes.add(f.toString().trim().toLowerCase());
+                  if (flist is List) {
+                    for (final x in flist) {
+                      final s = x.toString().trim().toLowerCase();
+                      if (s.isNotEmpty && !funcoes.contains(s)) funcoes.add(s);
+                    }
+                  }
+                }
+                final avatarSize = narrow ? 52.0 : 72.0;
+                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 360);
+                final avatarWidget = memberDocId != null
+                    ? FotoMembroWidget(
+                        imageUrl: hasFoto ? foto : null,
+                        memberData: memberData,
+                        tenantId: tenantId,
+                        memberId: memberDocId,
+                        cpfDigits: cpf.length == 11 ? cpf : null,
+                        authUid: _dashboardMemberAuthUid(memberData),
+                        size: avatarSize,
+                        memCacheWidth: memPx,
+                        memCacheHeight: memPx,
+                        backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
+                      )
+                    : CircleAvatar(
+                        radius: avatarSize / 2,
+                        backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
+                        child: Text(
+                          (nome.isNotEmpty ? nome[0] : '?').toUpperCase(),
+                          style: TextStyle(
+                            fontSize: narrow ? 18 : 22,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      );
+                return _PremiumLeaderGalleryTile(
+                  narrow: narrow,
+                  nome: nome,
+                  subtitle: deptNames.join(', '),
+                  avatar: avatarWidget,
                   onTap: () => _openLiderDetalhe(
                     context,
                     memberData: memberData ?? {'NOME_COMPLETO': nome, 'TELEFONES': ''},
@@ -1875,44 +2724,10 @@ class _LideresGaleria extends StatelessWidget {
                     tenantId: tenantId,
                     memberDocId: memberDocId,
                   ),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          memberDocId != null
-                              ? FotoMembroWidget(
-                                  imageUrl: hasFoto ? foto : null,
-                                  memberData: memberData,
-                                  tenantId: tenantId,
-                                  memberId: memberDocId,
-                                  cpfDigits: cpf.length == 11 ? cpf : null,
-                                  authUid: _dashboardMemberAuthUid(memberData),
-                                  size: 64,
-                                  memCacheWidth: 150,
-                                  memCacheHeight: 150,
-                                  backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
-                                )
-                              : CircleAvatar(
-                                  radius: 32,
-                                  backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
-                                  child: Text((nome.isNotEmpty ? nome[0] : '?').toUpperCase(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-                                ),
-                          const SizedBox(height: 8),
-                          Text(nome, style: const TextStyle(fontWeight: FontWeight.w700), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, maxLines: 1),
-                          Text(deptNames.join(', '), style: TextStyle(fontSize: 12, color: Colors.grey.shade600), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, maxLines: 2),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+                );
+              }).toList();
+              return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
+            },
           );
         },
       ),
@@ -1920,36 +2735,92 @@ class _LideresGaleria extends StatelessWidget {
   }
 }
 
-/// Corpo Administrativo — pastores, presbíteros, diáconos, secretário, tesoureiro, divulgação etc.; ao clicar abre mesma tela full-screen.
+/// Corpo Administrativo — apenas pastores, secretários e tesoureiros (painel); ao clicar abre mesma tela full-screen.
 class _CorpoAdministrativoGaleria extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap;
   final Stream<QuerySnapshot<Map<String, dynamic>>> deptStream;
   final String tenantId;
+  final Future<void> Function() onRetry;
 
-  static const List<String> _funcoesCorpo = [
-    'pastor', 'pastora', 'presbitero', 'diacono', 'secretario', 'tesoureiro', 'divulgacao', 'evangelista', 'musico', 'auxiliar',
-  ];
+  const _CorpoAdministrativoGaleria({
+    required this.membersSnap,
+    required this.deptStream,
+    required this.tenantId,
+    required this.onRetry,
+  });
 
-  const _CorpoAdministrativoGaleria({required this.membersSnap, required this.deptStream, required this.tenantId});
+  /// Normaliza para comparar cargo com/sem acento (ex.: secretário → secretario).
+  static String _foldFuncaoKey(String raw) {
+    var s = raw.trim().toLowerCase();
+    const pairs = <String, String>{
+      'ã': 'a', 'â': 'a', 'á': 'a', 'à': 'a', 'ä': 'a',
+      'é': 'e', 'ê': 'e', 'è': 'e',
+      'í': 'i', 'ì': 'i',
+      'ó': 'o', 'ô': 'o', 'õ': 'o', 'ò': 'o',
+      'ú': 'u', 'ü': 'u',
+      'ç': 'c',
+    };
+    pairs.forEach((a, b) => s = s.replaceAll(a, b));
+    return s;
+  }
+
+  /// Pastores (incl. pastora), secretário/secretária, tesoureiro/tesoureira — exclui diácono, músico, etc.
+  static bool _isAllowedCorpoAdminRole(String raw) {
+    final k = _foldFuncaoKey(raw);
+    if (k == 'pastor' || k == 'pastora') return true;
+    if (k == 'secretario' || k == 'secretaria') return true;
+    if (k == 'tesoureiro' || k == 'tesoureira') return true;
+    return false;
+  }
+
+  /// Chaves aceites por [_funcaoDisplayLabel] (sem acento).
+  static String _canonicalCorpoFuncao(String foldedKey) {
+    if (foldedKey == 'pastor' || foldedKey == 'pastora') return foldedKey;
+    if (foldedKey == 'secretario' || foldedKey == 'secretaria') {
+      return 'secretario';
+    }
+    if (foldedKey == 'tesoureiro' || foldedKey == 'tesoureira') {
+      return 'tesoureiro';
+    }
+    return foldedKey;
+  }
 
   static bool _memberHasFuncaoCorpo(Map<String, dynamic> data) {
-    final f = (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString().toLowerCase();
-    if (_funcoesCorpo.any((x) => x == f)) return true;
+    final f = (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString();
+    if (_isAllowedCorpoAdminRole(f)) return true;
     final flist = data['FUNCOES'] ?? data['funcoes'];
     if (flist is! List) return false;
     for (final x in flist) {
-      if (_funcoesCorpo.contains((x.toString().trim().toLowerCase()))) return true;
+      if (_isAllowedCorpoAdminRole(x.toString())) return true;
     }
     return false;
   }
 
   static List<String> _memberFuncoes(Map<String, dynamic> data) {
+    final seen = <String>{};
     final out = <String>[];
-    final f = (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString().trim().toLowerCase();
-    if (f.isNotEmpty && _funcoesCorpo.contains(f)) out.add(f);
+    void tryAdd(String raw) {
+      final t = raw.trim();
+      if (t.isEmpty || !_isAllowedCorpoAdminRole(t)) return;
+      final key = _foldFuncaoKey(t);
+      if (seen.contains(key)) return;
+      seen.add(key);
+      out.add(_canonicalCorpoFuncao(key));
+    }
+
+    tryAdd((data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString());
     final flist = data['FUNCOES'] ?? data['funcoes'];
-    if (flist is List) for (final x in flist) { final s = x.toString().trim().toLowerCase(); if (s.isNotEmpty && _funcoesCorpo.contains(s) && !out.contains(s)) out.add(s); }
+    if (flist is List) {
+      for (final x in flist) {
+        tryAdd(x.toString());
+      }
+    }
     return out;
+  }
+
+  static String _nomeMembroDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final data = d.data();
+    return (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
   }
 
   @override
@@ -1960,6 +2831,26 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: deptStream,
         builder: (context, deptSnap) {
+          if (membersSnap.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: _DashboardPanelLoadError(
+                message:
+                    'Não foi possível carregar o corpo administrativo. Verifique a conexão ou tente novamente.',
+                onRetry: onRetry,
+              ),
+            );
+          }
+          if (deptSnap.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: _DashboardPanelLoadError(
+                message:
+                    'Não foi possível carregar departamentos (nomes nos cargos). Toque para recarregar.',
+                onRetry: onRetry,
+              ),
+            );
+          }
           if (!membersSnap.hasData || membersSnap.data == null) {
             return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
           }
@@ -1971,62 +2862,66 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
           }
           final members = membersSnap.data!.docs;
           final list = members.where((m) => _memberHasFuncaoCorpo(m.data())).toList();
+          list.sort((a, b) {
+            final na = _nomeMembroDoc(a);
+            final nb = _nomeMembroDoc(b);
+            return na.toLowerCase().compareTo(nb.toLowerCase());
+          });
           if (list.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('Nenhum membro com função administrativa (pastor, diácono, secretário, etc.).', style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+              child: Text(
+                'Nenhum membro com cargo de pastor, secretário ou tesoureiro.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              ),
             );
           }
-          return Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: list.map((m) {
-              final data = m.data();
-              final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
-              final foto = imageUrlFromMap(data);
-              final hasFoto = isValidImageUrl(foto);
-              final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
-              final funcoes = _memberFuncoes(data);
-              final cpfMembro = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-              final rawDepts = data['DEPARTAMENTOS'] ?? data['departamentos'];
-              final deptIds = rawDepts is List ? rawDepts.map((e) => e.toString()).toList() : <String>[];
-              final deptNames = deptIds.map((id) => deptNamesById[id] ?? id).where((s) => s.isNotEmpty).toList();
-              return SizedBox(
-                width: 140,
-                child: InkWell(
-                  onTap: () => _openLiderDetalhe(context, memberData: data, departmentNames: deptNames, funcoes: funcoes, tenantId: tenantId, memberDocId: m.id),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FotoMembroWidget(
-                            imageUrl: hasFoto ? foto : null,
-                            memberData: data,
-                            tenantId: tenantId,
-                            memberId: m.id,
-                            cpfDigits: cpfMembro.length == 11 ? cpfMembro : null,
-                            authUid: _dashboardMemberAuthUid(data),
-                            size: 64,
-                            memCacheWidth: 150,
-                            memCacheHeight: 150,
-                            backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(nome, style: const TextStyle(fontWeight: FontWeight.w700), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, maxLines: 1),
-                          Text(funcoes.map(_funcaoDisplayLabel).join(', '), style: TextStyle(fontSize: 12, color: Colors.grey.shade600), textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, maxLines: 2),
-                        ],
-                      ),
-                    ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
+              final tiles = list.map((m) {
+                final data = m.data();
+                final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
+                final foto = imageUrlFromMap(data);
+                final hasFoto = isValidImageUrl(foto);
+                final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
+                final funcoes = _memberFuncoes(data);
+                final cpfMembro = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+                final rawDepts = data['DEPARTAMENTOS'] ?? data['departamentos'];
+                final deptIds = rawDepts is List ? rawDepts.map((e) => e.toString()).toList() : <String>[];
+                final deptNames = deptIds.map((id) => deptNamesById[id] ?? id).where((s) => s.isNotEmpty).toList();
+                final avatarSize = narrow ? 52.0 : 72.0;
+                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 360);
+                final subtitle = funcoes.map(_funcaoDisplayLabel).join(', ');
+                final avatarWidget = FotoMembroWidget(
+                  imageUrl: hasFoto ? foto : null,
+                  memberData: data,
+                  tenantId: tenantId,
+                  memberId: m.id,
+                  cpfDigits: cpfMembro.length == 11 ? cpfMembro : null,
+                  authUid: _dashboardMemberAuthUid(data),
+                  size: avatarSize,
+                  memCacheWidth: memPx,
+                  memCacheHeight: memPx,
+                  backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
+                );
+                return _PremiumLeaderGalleryTile(
+                  narrow: narrow,
+                  nome: nome,
+                  subtitle: subtitle,
+                  avatar: avatarWidget,
+                  onTap: () => _openLiderDetalhe(
+                    context,
+                    memberData: data,
+                    departmentNames: deptNames,
+                    funcoes: funcoes,
+                    tenantId: tenantId,
+                    memberDocId: m.id,
                   ),
-                ),
-              );
-            }).toList(),
+                );
+              }).toList();
+              return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
+            },
           );
         },
       ),
@@ -2813,11 +3708,285 @@ class _GraficoMembros extends StatelessWidget {
   }
 }
 
-/// Gráfico fluxo financeiro — tem seu próprio stream (coleção diferente)
+class _DashboardFinancePeriodStrip extends StatelessWidget {
+  const _DashboardFinancePeriodStrip({
+    required this.resolvedRange,
+    required this.preset,
+    required this.isNarrow,
+    required this.onSelect,
+  });
+
+  final DateTimeRange resolvedRange;
+  final ChurchDashboardFinancePreset preset;
+  final bool isNarrow;
+  final ValueChanged<ChurchDashboardFinancePreset> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <({ChurchDashboardFinancePreset p, String label})>[
+      (p: ChurchDashboardFinancePreset.previousMonth, label: 'Mês anterior'),
+      (p: ChurchDashboardFinancePreset.currentMonth, label: 'Mês atual'),
+      (p: ChurchDashboardFinancePreset.weekly, label: 'Semanal'),
+      (p: ChurchDashboardFinancePreset.yearly, label: 'Anual'),
+      (p: ChurchDashboardFinancePreset.custom, label: 'Período'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.primary.withValues(alpha: 0.09),
+            const Color(0xFFECFDF5),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.date_range_rounded,
+                color: ThemeCleanPremium.primary,
+                size: isNarrow ? 20 : 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Filtro financeiro do painel',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: isNarrow ? 14 : 15,
+                    color: const Color(0xFF0F172A),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${resolvedRange.start.day.toString().padLeft(2, '0')}/${resolvedRange.start.month.toString().padLeft(2, '0')}/${resolvedRange.start.year} — '
+            '${resolvedRange.end.day.toString().padLeft(2, '0')}/${resolvedRange.end.month.toString().padLeft(2, '0')}/${resolvedRange.end.year}',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: items.map((e) {
+              final selected = preset == e.p;
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onSelect(e.p),
+                  borderRadius: BorderRadius.circular(12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: selected
+                          ? LinearGradient(
+                              colors: [
+                                ThemeCleanPremium.primary,
+                                ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.88),
+                              ],
+                            )
+                          : null,
+                      color: selected ? null : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selected
+                            ? ThemeCleanPremium.primary
+                            : const Color(0xFFE2E8F0),
+                      ),
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.32),
+                                blurRadius: 14,
+                                offset: const Offset(0, 5),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Text(
+                      e.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        color:
+                            selected ? Colors.white : const Color(0xFF334155),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+DateTime? _dashboardFinanceDocDate(Map<String, dynamic> data) {
+  final raw = data['createdAt'] ?? data['date'] ?? data['data'];
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  if (raw is Map) {
+    final sec = raw['seconds'] ?? raw['_seconds'];
+    if (sec != null) {
+      return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+    }
+  }
+  return null;
+}
+
+bool _dashboardDateInRange(DateTime? dt, DateTimeRange range) {
+  if (dt == null) return false;
+  return !dt.isBefore(range.start) && !dt.isAfter(range.end);
+}
+
+class _DashFinanceBuckets {
+  _DashFinanceBuckets({
+    required this.labels,
+    required this.bucketStarts,
+    required this.monthlyMode,
+  });
+
+  final List<String> labels;
+  final List<DateTime> bucketStarts;
+  final bool monthlyMode;
+}
+
+_DashFinanceBuckets _dashboardFinanceBuckets(
+  DateTimeRange range,
+  ChurchDashboardFinancePreset preset,
+) {
+  const meses = [
+    'Jan',
+    'Fev',
+    'Mar',
+    'Abr',
+    'Mai',
+    'Jun',
+    'Jul',
+    'Ago',
+    'Set',
+    'Out',
+    'Nov',
+    'Dez',
+  ];
+  final d0 = DateTime(range.start.year, range.start.month, range.start.day);
+  final d1 = DateTime(range.end.year, range.end.month, range.end.day);
+  final nDays = d1.difference(d0).inDays + 1;
+
+  if (preset == ChurchDashboardFinancePreset.yearly) {
+    final y = range.start.year;
+    final labels = <String>[];
+    final starts = <DateTime>[];
+    for (var m = 1; m <= 12; m++) {
+      labels.add(meses[m - 1]);
+      starts.add(DateTime(y, m, 1));
+    }
+    return _DashFinanceBuckets(
+      labels: labels,
+      bucketStarts: starts,
+      monthlyMode: true,
+    );
+  }
+
+  if (preset == ChurchDashboardFinancePreset.weekly ||
+      preset == ChurchDashboardFinancePreset.currentMonth ||
+      preset == ChurchDashboardFinancePreset.previousMonth ||
+      (preset == ChurchDashboardFinancePreset.custom && nDays <= 40)) {
+    final labels = <String>[];
+    final starts = <DateTime>[];
+    for (var i = 0; i < nDays; i++) {
+      final day = d0.add(Duration(days: i));
+      labels.add(
+        '${day.day.toString().padLeft(2, '0')}/${day.month.toString().padLeft(2, '0')}',
+      );
+      starts.add(day);
+    }
+    return _DashFinanceBuckets(
+      labels: labels,
+      bucketStarts: starts,
+      monthlyMode: false,
+    );
+  }
+
+  final labels = <String>[];
+  final starts = <DateTime>[];
+  var y = range.start.year;
+  var m = range.start.month;
+  final endY = range.end.year;
+  final endM = range.end.month;
+  while (y < endY || (y == endY && m <= endM)) {
+    final first = DateTime(y, m, 1);
+    labels.add('${meses[m - 1]}/$y');
+    starts.add(first);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return _DashFinanceBuckets(
+    labels: labels,
+    bucketStarts: starts,
+    monthlyMode: true,
+  );
+}
+
+int? _dashboardBucketIndexForDate(
+  DateTime dt,
+  _DashFinanceBuckets b,
+) {
+  if (b.monthlyMode) {
+    for (var i = 0; i < b.bucketStarts.length; i++) {
+      final s = b.bucketStarts[i];
+      final e = DateTime(s.year, s.month + 1, 0, 23, 59, 59, 999);
+      if (!dt.isBefore(s) && !dt.isAfter(e)) return i;
+    }
+    return null;
+  }
+  final day = DateTime(dt.year, dt.month, dt.day);
+  for (var i = 0; i < b.bucketStarts.length; i++) {
+    final s = b.bucketStarts[i];
+    if (day == DateTime(s.year, s.month, s.day)) return i;
+  }
+  return null;
+}
+
+/// Gráfico fluxo financeiro — acompanha o filtro do painel
 class _GraficoFinanceiro extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final DateTimeRange range;
+  final ChurchDashboardFinancePreset preset;
 
-  const _GraficoFinanceiro({required this.stream});
+  const _GraficoFinanceiro({
+    required this.stream,
+    required this.range,
+    required this.preset,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2828,10 +3997,21 @@ class _GraficoFinanceiro extends StatelessWidget {
         stream: stream,
         builder: (context, snap) {
           if (snap.hasError) {
-            return SizedBox(height: 180, child: Center(child: Text('Erro ao carregar dados.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13))));
+            return SizedBox(
+              height: 180,
+              child: Center(
+                child: Text(
+                  'Erro ao carregar dados.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
+              ),
+            );
           }
           if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
+            return const SizedBox(
+              height: 180,
+              child: Center(child: CircularProgressIndicator()),
+            );
           }
           return _buildChartFromSnapshot(snap);
         },
@@ -2839,85 +4019,215 @@ class _GraficoFinanceiro extends StatelessWidget {
     );
   }
 
-  Widget _buildChartFromSnapshot(AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap) {
-    if (!snap.hasData || snap.data!.docs.isEmpty) {
-      return SizedBox(
-        height: 180,
-        child: Center(child: Text('Sem dados financeiros.', style: TextStyle(color: Colors.grey.shade600))),
-      );
-    }
-    final docs = snap.data!.docs;
-    final now = DateTime.now();
-    final byMonth = <int, double>{};
-    for (var i = 5; i >= 0; i--) {
-      final d = DateTime(now.year, now.month - i, 1);
-      byMonth[d.month + d.year * 100] = 0;
-    }
+  Widget _buildChartFromSnapshot(
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap,
+  ) {
+    final buckets = _dashboardFinanceBuckets(range, preset);
+    final byBucket = List<double>.filled(buckets.labels.length, 0);
+    final docs = snap.hasData ? snap.data!.docs : const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (final doc in docs) {
       final data = doc.data();
-      final tipo = (data['tipo'] ?? data['type'] ?? 'receita').toString().toLowerCase();
+      final dt = _dashboardFinanceDocDate(data);
+      if (!_dashboardDateInRange(dt, range)) continue;
+      final tipo =
+          (data['tipo'] ?? data['type'] ?? 'receita').toString().toLowerCase();
       final valor = data['amount'] ?? data['valor'] ?? data['value'] ?? 0;
-      double v = valor is num ? valor.toDouble() : double.tryParse(valor.toString()) ?? 0;
+      var v = valor is num
+          ? valor.toDouble()
+          : double.tryParse(valor.toString()) ?? 0;
       if (tipo.contains('despesa') || tipo.contains('saida')) v = -v;
-      final raw = data['createdAt'] ?? data['date'] ?? data['data'];
-      if (raw == null) continue;
-      DateTime? dt;
-      if (raw is Timestamp) {
-        dt = raw.toDate();
-      } else if (raw is DateTime) {
-        dt = raw;
-      } else if (raw is Map) {
-        final sec = raw['seconds'] ?? raw['_seconds'];
-        if (sec != null) dt = DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
-      }
-      if (dt != null) {
-        final k = dt.month + dt.year * 100;
-        if (byMonth.containsKey(k)) byMonth[k] = (byMonth[k] ?? 0) + v;
-      }
+      final ix = _dashboardBucketIndexForDate(dt!, buckets);
+      if (ix != null) byBucket[ix] += v;
     }
-    final ord = byMonth.keys.toList()..sort();
-    final spots = ord.asMap().entries.map((e) => FlSpot(e.key.toDouble(), (byMonth[e.value] ?? 0).toDouble())).toList();
+    final spots = byBucket
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
     if (spots.isEmpty) spots.add(const FlSpot(0, 0));
 
-    return SizedBox(
-      height: 180,
-      child: LineChart(
-        LineChartData(
-          gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
-          titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
-                sideTitles: SideTitles(
+    final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    const lineColor = Color(0xFF16A34A);
+    final nLabels = buckets.labels.length;
+    final bottomInterval = nLabels > 28
+        ? 5.0
+        : nLabels > 18
+            ? 3.0
+            : (nLabels > 12 ? 2.0 : 1.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '${ChurchDashboardFinancePeriod.presetLabel(preset)} · '
+          '${range.start.day.toString().padLeft(2, '0')}/${range.start.month.toString().padLeft(2, '0')} '
+          '— ${range.end.day.toString().padLeft(2, '0')}/${range.end.month.toString().padLeft(2, '0')}/${range.end.year}',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 200,
+          child: LineChart(
+            LineChartData(
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                getDrawingHorizontalLine: (_) =>
+                    FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+              ),
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
                     showTitles: true,
-                    reservedSize: 40,
-                    getTitlesWidget: (v, _) => Text('R\$${v.toInt()}', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)))),
-            bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
+                    reservedSize: 44,
+                    getTitlesWidget: (v, _) => Text(
+                      'R\$${v.toInt()}',
+                      style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                    ),
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
                     showTitles: true,
+                    reservedSize: nLabels > 22 ? 30 : 24,
+                    interval: bottomInterval,
                     getTitlesWidget: (v, _) {
                       final i = v.toInt();
-                      if (i >= 0 && i < ord.length) {
-                        final m = ord[i] % 100;
-                        return Text(['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][m - 1],
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600));
+                      if (i >= 0 && i < buckets.labels.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            buckets.labels[i],
+                            style: TextStyle(
+                              fontSize: nLabels > 22 ? 8 : 9,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        );
                       }
                       return const SizedBox();
-                    })),
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          ),
-          borderData: FlBorderData(show: false),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              color: Colors.green.shade600,
-              barWidth: 3,
-              dotData: FlDotData(show: true),
-              belowBarData: BarAreaData(show: true, color: Colors.green.withOpacity(0.15)),
+                    },
+                  ),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              lineTouchData: LineTouchData(
+                enabled: true,
+                handleBuiltInTouches: true,
+                touchSpotThreshold: 22,
+                mouseCursorResolver: (_, __) => SystemMouseCursors.click,
+                getTouchedSpotIndicator: (barData, spotIndexes) {
+                  return spotIndexes.map((index) {
+                    return TouchedSpotIndicatorData(
+                      FlLine(
+                        color: const Color(0xFF64748B).withValues(alpha: 0.65),
+                        strokeWidth: 1.5,
+                      ),
+                      FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, bar, ix) =>
+                            FlDotCirclePainter(
+                          radius: 7,
+                          color: lineColor,
+                          strokeWidth: 2.5,
+                          strokeColor: Colors.white,
+                        ),
+                      ),
+                    );
+                  }).toList();
+                },
+                touchTooltipData: LineTouchTooltipData(
+                  tooltipBgColor: const Color(0xFF0F172A),
+                  tooltipRoundedRadius: 12,
+                  tooltipPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  tooltipMargin: 10,
+                  maxContentWidth: 240,
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
+                  tooltipBorder: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                  getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                    return touchedSpots.map<LineTooltipItem?>((t) {
+                      final i = t.x.toInt();
+                      if (i < 0 || i >= buckets.labels.length) {
+                        return null;
+                      }
+                      final label = buckets.labels[i];
+                      final money = nf.format(t.y);
+                      return LineTooltipItem(
+                        '',
+                        const TextStyle(fontSize: 0),
+                        textAlign: TextAlign.center,
+                        children: [
+                          TextSpan(
+                            text: '$label\n',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.82),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              height: 1.2,
+                            ),
+                          ),
+                          TextSpan(
+                            text: money,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              height: 1.25,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList();
+                  },
+                ),
+              ),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: true,
+                  curveSmoothness: 0.28,
+                  color: lineColor,
+                  barWidth: 3,
+                  dotData: FlDotData(
+                    show: true,
+                    getDotPainter: (spot, percent, bar, ix) =>
+                        FlDotCirclePainter(
+                      radius: 3.5,
+                      color: lineColor,
+                      strokeWidth: 1.5,
+                      strokeColor: Colors.white,
+                    ),
+                  ),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        lineColor.withValues(alpha: 0.22),
+                        lineColor.withValues(alpha: 0.03),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOutCubic,
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -2925,6 +4235,8 @@ class _GraficoFinanceiro extends StatelessWidget {
 /// Gráfico de barras (despesas) + últimas saídas com abertura direta no editor do lançamento.
 class _PainelDespesasDashboard extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final DateTimeRange range;
+  final ChurchDashboardFinancePreset preset;
   final String tenantId;
   final String role;
   final String cpf;
@@ -2934,6 +4246,8 @@ class _PainelDespesasDashboard extends StatelessWidget {
 
   const _PainelDespesasDashboard({
     required this.stream,
+    required this.range,
+    required this.preset,
     required this.tenantId,
     required this.role,
     required this.cpf,
@@ -2981,29 +4295,26 @@ class _PainelDespesasDashboard extends StatelessWidget {
           return const SizedBox.shrink();
         }
         final docs = snap.data?.docs ?? [];
-        final despesasDocs =
-            docs.where((d) => _ehDespesa(d.data())).toList();
+        var despesasDocs = docs.where((d) => _ehDespesa(d.data())).toList();
+        despesasDocs = despesasDocs.where((d) {
+          final dt = _dataDoc(d.data());
+          return _dashboardDateInRange(dt, range);
+        }).toList();
         if (despesasDocs.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final now = DateTime.now();
-        final byMonth = <int, double>{};
-        for (var i = 5; i >= 0; i--) {
-          final d = DateTime(now.year, now.month - i, 1);
-          byMonth[d.month + d.year * 100] = 0;
-        }
+        final buckets = _dashboardFinanceBuckets(range, preset);
+        final byBucket = List<double>.filled(buckets.labels.length, 0);
         for (final doc in despesasDocs) {
           final data = doc.data();
           final dt = _dataDoc(data);
           if (dt == null) continue;
-          final k = dt.month + dt.year * 100;
-          if (!byMonth.containsKey(k)) continue;
-          byMonth[k] = (byMonth[k] ?? 0) + _valorAbs(data);
+          final ix = _dashboardBucketIndexForDate(dt, buckets);
+          if (ix != null) byBucket[ix] += _valorAbs(data);
         }
-        final ord = byMonth.keys.toList()..sort();
-        final maxY = byMonth.values.fold<double>(
-            0, (a, b) => a > b ? a : b);
+        final ord = List<int>.generate(buckets.labels.length, (i) => i);
+        final maxY = byBucket.fold<double>(0, (a, b) => a > b ? a : b);
         final capY = maxY <= 0 ? 1.0 : maxY * 1.15;
 
         despesasDocs.sort((a, b) {
@@ -3038,6 +4349,11 @@ class _PainelDespesasDashboard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Text(
+                '${ChurchDashboardFinancePeriod.presetLabel(preset)} · mesmo período do fluxo',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 height: isNarrow ? 200 : 220,
                 child: BarChart(
@@ -3071,28 +4387,13 @@ class _PainelDespesasDashboard extends StatelessWidget {
                           showTitles: true,
                           getTitlesWidget: (v, _) {
                             final i = v.toInt();
-                            if (i >= 0 && i < ord.length) {
-                              final m = ord[i] % 100;
-                              const ab = [
-                                'Jan',
-                                'Fev',
-                                'Mar',
-                                'Abr',
-                                'Mai',
-                                'Jun',
-                                'Jul',
-                                'Ago',
-                                'Set',
-                                'Out',
-                                'Nov',
-                                'Dez'
-                              ];
+                            if (i >= 0 && i < buckets.labels.length) {
                               return Padding(
                                 padding: const EdgeInsets.only(top: 4),
                                 child: Text(
-                                  ab[m - 1],
+                                  buckets.labels[i],
                                   style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 9,
                                     color: Colors.grey.shade600,
                                   ),
                                 ),
@@ -3108,10 +4409,10 @@ class _PainelDespesasDashboard extends StatelessWidget {
                           sideTitles: SideTitles(showTitles: false)),
                     ),
                     borderData: FlBorderData(show: false),
-                    barGroups: ord.asMap().entries.map((e) {
-                      final val = byMonth[e.value] ?? 0;
+                    barGroups: ord.map((e) {
+                      final val = byBucket[e];
                       return BarChartGroupData(
-                        x: e.key,
+                        x: e,
                         barRods: [
                           BarChartRodData(
                             toY: val,
@@ -3323,16 +4624,27 @@ class _CleanCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final Widget child;
+  /// Seções tipo feed (Eventos/Avisos): padding menor e mais compacto.
+  final bool compact;
 
-  const _CleanCard({required this.title, required this.icon, required this.child});
+  const _CleanCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final pad = compact ? 12.0 : ThemeCleanPremium.spaceXl;
+    final gapAfterTitle = compact ? 10.0 : ThemeCleanPremium.spaceLg;
     return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceXl),
+      padding: EdgeInsets.all(pad),
       decoration: BoxDecoration(
         color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+        borderRadius: BorderRadius.circular(
+          compact ? ThemeCleanPremium.radiusLg : ThemeCleanPremium.radiusXl,
+        ),
         boxShadow: [
           ...ThemeCleanPremium.softUiCardShadow,
           BoxShadow(color: ThemeCleanPremium.primary.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 6)),
@@ -3345,26 +4657,26 @@ class _CleanCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: EdgeInsets.all(compact ? 7 : 8),
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.primary.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                 ),
-                child: Icon(icon, color: ThemeCleanPremium.primary, size: 20),
+                child: Icon(icon, color: ThemeCleanPremium.primary, size: compact ? 18 : 20),
               ),
               const SizedBox(width: ThemeCleanPremium.spaceSm),
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 17,
+                style: TextStyle(
+                  fontSize: compact ? 16 : 17,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1E293B),
+                  color: const Color(0xFF1E293B),
                   letterSpacing: -0.3,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
+          SizedBox(height: gapAfterTitle),
           child,
         ],
       ),
@@ -3396,7 +4708,7 @@ class _PainelDestaqueExpandableText extends StatefulWidget {
   final int maxLines;
   const _PainelDestaqueExpandableText({
     required this.text,
-    this.maxLines = 4,
+    this.maxLines = 3,
   });
 
   @override
@@ -3427,7 +4739,7 @@ class _PainelDestaqueExpandableTextState
           maxLines: widget.maxLines,
           textDirection: Directionality.of(context),
         )..layout(maxWidth: maxW);
-        final overflow = tp.didExceedMaxLines;
+        final overflow = tp.didExceedMaxLines || t.length > 180;
         final showButton = _expanded || overflow;
         final linkStyle = style.copyWith(
           color: ThemeCleanPremium.primary,
@@ -3507,6 +4819,8 @@ class _DestaqueEventos extends StatelessWidget {
     return _CleanCard(
       title: isEvento ? 'Eventos' : 'Avisos',
       icon: isEvento ? Icons.event_rounded : Icons.campaign_rounded,
+      // Avisos e Eventos: mesmo padding do card que os demais módulos.
+      compact: false,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: stream,
         builder: (context, snap) {
@@ -3521,10 +4835,10 @@ class _DestaqueEventos extends StatelessWidget {
           }
           if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
             return SizedBox(
-              height: 200,
+              height: 104,
               child: Row(children: List.generate(3, (_) => Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: _SkeletonBox(width: 200, height: 200, borderRadius: 16),
+                padding: const EdgeInsets.only(right: 8),
+                child: _SkeletonBox(width: 128, height: 104, borderRadius: 12),
               ))),
             );
           }
@@ -3557,7 +4871,7 @@ class _DestaqueEventos extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 16),
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, i) => _DestaqueCard(
               doc: docs[i],
               tenantId: tenantId,
@@ -3574,21 +4888,46 @@ class _DestaqueEventos extends StatelessWidget {
 
 enum _DestaqueTipo { aviso, evento }
 
-/// Altura da faixa de mídia no painel (~4:5 tipo Instagram; usa [media_info] se existir).
+/// Altura da mídia no painel — faixa baixa (banner “wide”); toque na foto abre tela cheia.
+/// Web: em ecrã largo use também [_kPainelDestaqueWebSplitMinWidth] + linha lado a lado.
+const double _kPainelDestaqueThumbSide = 140;
+
+/// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
+const double _kPainelDestaqueWebSplitMinWidth = 720;
+
+/// Altura mínima da mídia no split web (lado esquerdo).
+const double _kPainelDestaqueWebMediaHeight = 260;
+
+/// Altura da faixa de mídia (mobile / estreito): respeita proporção quando existir em [media_info].
+/// Antes o teto era 152px — cartazes e fotos verticais ficavam visualmente “achatados”.
 double _painelDestaqueMediaHeight(double width,
     [Map<String, dynamic>? postData]) {
   final w = width > 0 ? width : 360.0;
-  var ar = 4 / 5;
+  // Razão largura÷altura do retângulo (w/h). Ex.: 0.65 ≈ cartaz vertical.
+  double ar;
   if (postData != null) {
     final mi = postData['media_info'];
     if (mi is Map) {
-      final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
-      if (oar is num) {
-        ar = oar.toDouble().clamp(0.56, 1.85);
+      final ow = mi['width'];
+      final oh = mi['height'];
+      if (ow is num && oh is num && ow > 0 && oh > 0) {
+        ar = (ow.toDouble() / oh.toDouble()).clamp(0.35, 3.2);
+      } else {
+        final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
+        ar = (oar is num)
+            ? oar.toDouble().clamp(0.35, 3.2)
+            : 1.0;
       }
+    } else {
+      ar = 1.0;
     }
+  } else {
+    ar = 1.0;
   }
-  return (w / ar).clamp(220.0, 540.0);
+  final raw = w / ar;
+  const minH = 140.0;
+  final maxH = (w * 1.18).clamp(260.0, 520.0);
+  return raw.clamp(minH, maxH);
 }
 
 /// Retorna datas expandidas de um template (evento fixo) dentro do intervalo.
@@ -3648,7 +4987,6 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final snap = await noticiasRef.limit(150).get();
     realDocs = snap.docs
         .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
-        .map((d) => d as QueryDocumentSnapshot<Map<String, dynamic>>)
         .where((d) {
           try {
             final dt = (d.data()['startAt'] as Timestamp).toDate();
@@ -3678,7 +5016,20 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final data = d.data();
     final urls = eventNoticiaPhotoUrls(data);
     final url = urls.isNotEmpty ? urls.first : '';
-    return <String, dynamic>{'title': data['title'], 'startAt': data['startAt'], '_doc': d, 'imageUrl': url};
+    final vids = eventNoticiaVideosFromDoc(data);
+    final videoUrl =
+        vids.isNotEmpty ? (vids.first['videoUrl'] ?? '').toString().trim() : '';
+    final storagePath = eventNoticiaPhotoStoragePathAt(data, 0)?.trim() ?? '';
+    return <String, dynamic>{
+      'title': data['title'],
+      'startAt': data['startAt'],
+      '_doc': d,
+      'imageUrl': url,
+      'text': (data['text'] ?? data['body'] ?? '').toString(),
+      'location': (data['location'] ?? data['local'] ?? '').toString().trim(),
+      'videoUrl': videoUrl,
+      'photoStoragePath': storagePath,
+    };
   }).toList();
 
   final realSet = <String>{};
@@ -3704,14 +5055,27 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   for (final t in templates) {
     final id = t.id;
     final data = t.data();
+    if (!eventTemplateIncludeInAgenda(data)) continue;
     final title = (data['title'] ?? '').toString();
     if (title.isEmpty) continue;
     final photoUrls = eventNoticiaPhotoUrls(data);
     final imageUrl = photoUrls.isNotEmpty ? photoUrls.first : '';
+    final vidsTpl = eventNoticiaVideosFromDoc(data);
+    final videoUrlTpl =
+        vidsTpl.isNotEmpty ? (vidsTpl.first['videoUrl'] ?? '').toString().trim() : '';
+    final storagePathTpl = eventNoticiaPhotoStoragePathAt(data, 0)?.trim() ?? '';
     for (final dt in _expandTemplateDates(data, rangeStart, rangeEnd)) {
       final key = '$id|${dt.millisecondsSinceEpoch}';
       if (realSet.contains(key)) continue;
-      virtual.add({'title': title, 'startAt': Timestamp.fromDate(dt), 'imageUrl': imageUrl});
+      virtual.add({
+        'title': title,
+        'startAt': Timestamp.fromDate(dt),
+        'imageUrl': imageUrl,
+        'text': (data['text'] ?? '').toString(),
+        'location': (data['location'] ?? '').toString().trim(),
+        'videoUrl': videoUrlTpl,
+        'photoStoragePath': storagePathTpl,
+      });
     }
   }
 
@@ -3734,6 +5098,10 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
         'title': (m['title'] ?? '').toString(),
         'startAt': ts,
         'imageUrl': '',
+        'text': '',
+        'location': '',
+        'videoUrl': '',
+        'photoStoragePath': '',
       });
     }
   } catch (_) {}
@@ -3756,9 +5124,182 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final ms = startAt.millisecondsSinceEpoch;
     if (seenSlot.contains(ms)) continue;
     seenSlot.add(ms);
-    deduped.add({'title': m['title'] ?? '', 'startAt': m['startAt'], 'imageUrl': (m['imageUrl'] ?? '').toString().trim()});
+    deduped.add({
+      'title': m['title'] ?? '',
+      'startAt': m['startAt'],
+      'imageUrl': (m['imageUrl'] ?? '').toString().trim(),
+      'text': (m['text'] ?? '').toString(),
+      'location': (m['location'] ?? '').toString().trim(),
+      'videoUrl': (m['videoUrl'] ?? '').toString().trim(),
+      'photoStoragePath': (m['photoStoragePath'] ?? '').toString().trim(),
+    });
   }
   return deduped;
+}
+
+void _showPainelProgramacaoEventoPreview(
+  BuildContext context,
+  Map<String, dynamic> data, {
+  Color? accentColor,
+}) {
+  final accent = accentColor ?? ThemeCleanPremium.primary;
+  final title = (data['title'] ?? '').toString().trim();
+  DateTime? dt;
+  try {
+    dt = (data['startAt'] as Timestamp).toDate();
+  } catch (_) {}
+  const wdFull = [
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado',
+    'Domingo',
+  ];
+  String two(int n) => n.toString().padLeft(2, '0');
+  final dayName = (dt != null && dt.weekday >= 1 && dt.weekday <= 7)
+      ? wdFull[dt.weekday - 1]
+      : '';
+  final time = dt != null ? '${two(dt.hour)}:${two(dt.minute)}' : '';
+  final dateStr =
+      dt != null ? '${two(dt.day)}/${two(dt.month)}/${dt.year}' : '';
+  final loc = (data['location'] ?? '').toString().trim();
+  final hasSchedule = dayName.isNotEmpty ||
+      dateStr.isNotEmpty ||
+      time.isNotEmpty ||
+      loc.isNotEmpty;
+
+  var imageUrl = '';
+  final evUrls = eventNoticiaPhotoUrls(data);
+  if (evUrls.isNotEmpty) imageUrl = evUrls.first;
+  if (imageUrl.isEmpty) {
+    imageUrl = sanitizeImageUrl((data['imageUrl'] ?? '').toString().trim());
+  }
+
+  var path0 = (data['photoStoragePath'] ?? '').toString().trim();
+  if (path0.isEmpty) {
+    path0 = eventNoticiaPhotoStoragePathAt(data, 0)?.trim() ?? '';
+  }
+
+  final body = (data['text'] ?? data['body'] ?? '').toString();
+  final videoUrl = (data['videoUrl'] ?? '').toString().trim();
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => ChurchPublicEventDetailSheet(
+      title: title.isEmpty ? 'Evento' : title,
+      subtitle: hasSchedule ? '' : '—',
+      weekdayLabel: dayName.isEmpty ? null : dayName,
+      dateLabel: dateStr.isEmpty ? null : dateStr,
+      timeLabel: time.isEmpty ? null : time,
+      locationLine: loc.isEmpty ? null : loc,
+      body: body,
+      imageUrl: imageUrl,
+      videoUrl: videoUrl,
+      photoStoragePath: path0.isNotEmpty ? path0 : null,
+      accentColor: accent,
+    ),
+  );
+}
+
+/// Linha premium para programação no painel (próximos dias / eventos da semana).
+class _PainelAgendaEventoRow extends StatelessWidget {
+  final String title;
+  final String dateStr;
+  final Widget leading;
+  final VoidCallback onTap;
+
+  const _PainelAgendaEventoRow({
+    required this.title,
+    required this.dateStr,
+    required this.leading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white,
+                  ThemeCleanPremium.primary.withValues(alpha: 0.04),
+                ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Row(
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(13),
+                    child: SizedBox(width: 48, height: 48, child: leading),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                          letterSpacing: -0.2,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        dateStr,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Eventos da semana (próximos 7 dias) — cultos, atividades e eventos fixos expandidos.
@@ -3766,8 +5307,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 class _EventosSemanalCard extends StatefulWidget {
   final String tenantId;
   final String role;
-  final VoidCallback? onNavigateToEventos;
-  const _EventosSemanalCard({required this.tenantId, required this.role, this.onNavigateToEventos});
+  const _EventosSemanalCard({required this.tenantId, required this.role});
 
   static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'][w.clamp(0, 7)];
 
@@ -3823,22 +5363,14 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
                 DateTime? dt;
                 try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
                 final dateStr = dt != null ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}' : '';
-                return ListTile(
-                  leading: CircleAvatar(backgroundColor: ThemeCleanPremium.primary.withOpacity(0.12), child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 20)),
-                  title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(dateStr, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  onTap: () {
-                    if (widget.onNavigateToEventos != null) {
-                      widget.onNavigateToEventos!.call();
-                      return;
-                    }
-                    Navigator.push(
-                      context,
-                      ThemeCleanPremium.fadeSlideRoute(
-                        EventsManagerPage(tenantId: widget.tenantId, role: widget.role),
-                      ),
-                    );
-                  },
+                return _PainelAgendaEventoRow(
+                  title: title.isEmpty ? 'Evento' : title,
+                  dateStr: dateStr,
+                  leading: ColoredBox(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                  ),
+                  onTap: () => _showPainelProgramacaoEventoPreview(context, data),
                 );
               }),
               if (temMais) ...[
@@ -4168,8 +5700,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
 class _ProgramacaoDiasCard extends StatefulWidget {
   final String tenantId;
   final String role;
-  final VoidCallback? onNavigateToEventos;
-  const _ProgramacaoDiasCard({required this.tenantId, required this.role, this.onNavigateToEventos});
+  const _ProgramacaoDiasCard({required this.tenantId, required this.role});
 
   static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'][w.clamp(0, 7)];
 
@@ -4218,10 +5749,10 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                   runSpacing: 8,
                   children: [7, 15, 30].map((days) {
                     final selected = _selectedDays == days;
-                    return ChoiceChip(
-                      label: Text('$days dias'),
+                    return ChurchPanelPeriodDaysChip(
+                      days: days,
                       selected: selected,
-                      onSelected: (_) => setState(() => _selectedDays = days),
+                      onTap: () => setState(() => _selectedDays = days),
                     );
                   }).toList(),
                 ),
@@ -4245,10 +5776,10 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                   runSpacing: 8,
                   children: [7, 15, 30].map((days) {
                     final selected = _selectedDays == days;
-                    return ChoiceChip(
-                      label: Text('$days dias'),
+                    return ChurchPanelPeriodDaysChip(
+                      days: days,
                       selected: selected,
-                      onSelected: (_) => setState(() => _selectedDays = days),
+                      onTap: () => setState(() => _selectedDays = days),
                     );
                   }).toList(),
                 ),
@@ -4269,40 +5800,32 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                 try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
                 final dateStr = dt != null ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}' : '';
                 final leadingWidget = hasPhoto
-                    ? ClipOval(
-                        child: SizedBox(
-                          width: 44,
-                          height: 44,
-                          child: StableStorageImage(
-                            storagePath: path0,
-                            imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
-                            width: 44,
-                            height: 44,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 88,
-                            memCacheHeight: 88,
-                            placeholder: Container(color: ThemeCleanPremium.primary.withOpacity(0.12), child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 20)),
-                            errorWidget: Container(color: ThemeCleanPremium.primary.withOpacity(0.12), child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 20)),
-                          ),
+                    ? StableStorageImage(
+                        storagePath: path0,
+                        imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 96,
+                        memCacheHeight: 96,
+                        placeholder: ColoredBox(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                        ),
+                        errorWidget: ColoredBox(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
                         ),
                       )
-                    : CircleAvatar(backgroundColor: ThemeCleanPremium.primary.withOpacity(0.12), child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 20));
-                return ListTile(
+                    : ColoredBox(
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                        child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                      );
+                return _PainelAgendaEventoRow(
+                  title: title.isEmpty ? 'Evento' : title,
+                  dateStr: dateStr,
                   leading: leadingWidget,
-                  title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(dateStr, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  onTap: () {
-                    if (widget.onNavigateToEventos != null) {
-                      widget.onNavigateToEventos!.call();
-                      return;
-                    }
-                    Navigator.push(
-                      context,
-                      ThemeCleanPremium.fadeSlideRoute(
-                        EventsManagerPage(tenantId: widget.tenantId, role: widget.role),
-                      ),
-                    );
-                  },
+                  onTap: () => _showPainelProgramacaoEventoPreview(context, data),
                 );
               }),
               if (temMais) ...[
@@ -4316,8 +5839,16 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                     style: FilledButton.styleFrom(
                       backgroundColor: ThemeCleanPremium.primary,
                       foregroundColor: Colors.white,
+                      elevation: 0,
+                      shadowColor: ThemeCleanPremium.primary.withValues(alpha: 0.35),
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
                 ),
@@ -4378,27 +5909,33 @@ Widget _painelDestaqueVideoThumbWidget({
   final storageLike =
       isFirebaseStorageHttpUrl(t) || firebaseStorageMediaUrlLooksLike(t);
   if (storageLike) {
-    return FreshFirebaseStorageImage(
+    return ColoredBox(
+      color: const Color(0xFFF1F5F9),
+      child: FreshFirebaseStorageImage(
+        imageUrl: t,
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        memCacheWidth: 520,
+        memCacheHeight: 400,
+        placeholder: ph,
+        errorWidget: ph,
+      ),
+    );
+  }
+  return ColoredBox(
+    color: const Color(0xFFF1F5F9),
+    child: SafeNetworkImage(
       imageUrl: t,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: 520,
       memCacheHeight: 400,
+      skipFreshDisplayUrl: false,
       placeholder: ph,
       errorWidget: ph,
-    );
-  }
-  return SafeNetworkImage(
-    imageUrl: t,
-    fit: BoxFit.cover,
-    width: double.infinity,
-    height: double.infinity,
-    memCacheWidth: 520,
-    memCacheHeight: 400,
-    skipFreshDisplayUrl: false,
-    placeholder: ph,
-    errorWidget: ph,
+    ),
   );
 }
 
@@ -4438,7 +5975,8 @@ class _PainelDestaqueMediaCarouselState
     return null;
   }
 
-  Future<void> _openVideo(String openUrl, String? thumb) async {
+  Future<void> _openVideo(String openUrl, String? thumb,
+      {String title = ''}) async {
     if (openUrl.isEmpty) return;
     if (_isYoutubeVimeo(openUrl)) {
       final withScheme = openUrl.startsWith('http://') ||
@@ -4462,6 +6000,7 @@ class _PainelDestaqueMediaCarouselState
         videoUrl: openUrl,
         thumbnailUrl: th,
         autoPlay: true,
+        title: title,
       );
       return;
     }
@@ -4522,27 +6061,29 @@ class _PainelDestaqueMediaCarouselState
                           ps.storagePath!.trim().isNotEmpty)
                       ? ps.storagePath
                       : pathFs;
-                  final img = StableStorageImage(
-                    key: ValueKey('painel_ph_${idx}_${refs[idx]}'),
-                    storagePath: spMerged,
-                    imageUrl: ps.imageUrl,
-                    gsUrl: ps.gsUrl,
-                    width: w,
-                    height: h,
-                    fit: BoxFit.cover,
-                    memCacheWidth: memW,
-                    memCacheHeight: memH,
-                    skipFreshDisplayUrl: false,
-                    placeholder: ColoredBox(
-                      color: const Color(0xFFF1F5F9),
-                      child: Icon(
-                        Icons.photo_outlined,
-                        size: 36,
-                        color: Colors.grey.shade400,
+                  final img = ColoredBox(
+                    color: const Color(0xFFF1F5F9),
+                    child: StableStorageImage(
+                      key: ValueKey('painel_ph_${idx}_${refs[idx]}'),
+                      storagePath: spMerged,
+                      imageUrl: ps.imageUrl,
+                      gsUrl: ps.gsUrl,
+                      width: w,
+                      height: h,
+                      fit: BoxFit.contain,
+                      memCacheWidth: memW,
+                      memCacheHeight: memH,
+                      skipFreshDisplayUrl: false,
+                      placeholder: Center(
+                        child: Icon(
+                          Icons.photo_outlined,
+                          size: 36,
+                          color: Colors.grey.shade400,
+                        ),
                       ),
+                      errorWidget: _DestaqueCard._gradientBanner(
+                          widget.title, widget.isEvento),
                     ),
-                    errorWidget: _DestaqueCard._gradientBanner(
-                        widget.title, widget.isEvento),
                   );
                   final tap = widget.onGalleryPhotoTap;
                   final like = widget.onLikeDoubleTap;
@@ -4595,7 +6136,8 @@ class _PainelDestaqueMediaCarouselState
             return GestureDetector(
               onTap: () {
                 if (vTap == null) return;
-                _openVideo(vTap, isValidImageUrl(thumb) ? thumb : null);
+                _openVideo(vTap, isValidImageUrl(thumb) ? thumb : null,
+                    title: widget.title);
               },
               child: Stack(
                 fit: StackFit.expand,
@@ -4793,8 +6335,8 @@ class _DestaqueCard extends StatelessWidget {
       );
     }
     final gradientFallback = _gradientBanner(title, isEvento);
-    final ph = Container(
-      color: const Color(0xFFF8FAFC),
+    final ph = ColoredBox(
+      color: const Color(0xFFF1F5F9),
       child: Center(
         child: SizedBox(
           width: 32,
@@ -4824,31 +6366,34 @@ class _DestaqueCard extends StatelessWidget {
                 final memW = (w * dpr).round().clamp(64, 1024);
                 final memH = (h * dpr).round().clamp(64, 640);
                 final sp = storagePath?.trim();
-                return StableStorageImage(
-                  key: ValueKey('dest_${sp}_${g}_$displayImageUrl'),
-                  storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
-                  imageUrl: displayImageUrl.isNotEmpty ? displayImageUrl : null,
-                  gsUrl: (g != null && g.isNotEmpty) ? g : null,
-                  width: w,
-                  height: h,
-                  fit: BoxFit.cover,
-                  memCacheWidth: memW,
-                  memCacheHeight: memH,
-                  skipFreshDisplayUrl: false,
-                  placeholder: ph,
-                  errorWidget: videoThumbUrl != null && videoThumbUrl.isNotEmpty
-                      ? FreshFirebaseStorageImage(
-                          key: ValueKey('fallback_$videoThumbUrl'),
-                          imageUrl: videoThumbUrl,
-                          fit: BoxFit.cover,
-                          width: w,
-                          height: h,
-                          memCacheWidth: memW,
-                          memCacheHeight: memH,
-                          placeholder: gradientFallback,
-                          errorWidget: gradientFallback,
-                        )
-                      : gradientFallback,
+                return ColoredBox(
+                  color: const Color(0xFFF1F5F9),
+                  child: StableStorageImage(
+                    key: ValueKey('dest_${sp}_${g}_$displayImageUrl'),
+                    storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
+                    imageUrl: displayImageUrl.isNotEmpty ? displayImageUrl : null,
+                    gsUrl: (g != null && g.isNotEmpty) ? g : null,
+                    width: w,
+                    height: h,
+                    fit: BoxFit.contain,
+                    memCacheWidth: memW,
+                    memCacheHeight: memH,
+                    skipFreshDisplayUrl: false,
+                    placeholder: ph,
+                    errorWidget: videoThumbUrl != null && videoThumbUrl.isNotEmpty
+                        ? FreshFirebaseStorageImage(
+                            key: ValueKey('fallback_$videoThumbUrl'),
+                            imageUrl: videoThumbUrl,
+                            fit: BoxFit.contain,
+                            width: w,
+                            height: h,
+                            memCacheWidth: memW,
+                            memCacheHeight: memH,
+                            placeholder: gradientFallback,
+                            errorWidget: gradientFallback,
+                          )
+                        : gradientFallback,
+                  ),
                 );
               },
             ),
@@ -4879,16 +6424,19 @@ class _DestaqueCard extends StatelessWidget {
                       final w = c.maxWidth.isFinite && c.maxWidth > 0 ? c.maxWidth : 320.0;
                       final h = c.maxHeight.isFinite && c.maxHeight > 0 ? c.maxHeight : 160.0;
                       final dpr = MediaQuery.devicePixelRatioOf(context);
-                      return FreshFirebaseStorageImage(
-                        key: ValueKey(videoThumbUrl),
-                        imageUrl: videoThumbUrl,
-                        fit: BoxFit.cover,
-                        width: w,
-                        height: h,
-                        memCacheWidth: (w * dpr).round().clamp(64, 1024),
-                        memCacheHeight: (h * dpr).round().clamp(64, 640),
-                        placeholder: ph,
-                        errorWidget: gradientFallback,
+                      return ColoredBox(
+                        color: const Color(0xFFF1F5F9),
+                        child: FreshFirebaseStorageImage(
+                          key: ValueKey(videoThumbUrl),
+                          imageUrl: videoThumbUrl,
+                          fit: BoxFit.contain,
+                          width: w,
+                          height: h,
+                          memCacheWidth: (w * dpr).round().clamp(64, 1024),
+                          memCacheHeight: (h * dpr).round().clamp(64, 640),
+                          placeholder: ph,
+                          errorWidget: gradientFallback,
+                        ),
                       );
                     },
                   )
@@ -5100,26 +6648,74 @@ class _DestaqueCard extends StatelessWidget {
           }
         : null;
 
+    final nPhotosForAr = showCarousel
+        ? galleryRefs.length
+        : ((primaryPhotoUrl.isNotEmpty ||
+                (storagePathPrimary?.trim().isNotEmpty ?? false))
+            ? 1
+            : 0);
+    final panelMediaAspect = postFeedCarouselAspectRatioForIndex(
+      data,
+      0,
+      nPhotosForAr > 0 ? nPhotosForAr : 1,
+    );
+
+    final panelW = MediaQuery.sizeOf(context).width;
+    final useWebSplit =
+        kIsWeb && panelW >= _kPainelDestaqueWebSplitMinWidth;
+    final layoutWide = panelW >= 620;
+    final carouselOrImage = showCarousel
+        ? _PainelDestaqueMediaCarousel(
+            data: data,
+            isEvento: isEvento,
+            title: title,
+            onGalleryPhotoTap: galleryRefs.isEmpty
+                ? null
+                : (i) => _openPainelDestaqueFotoAmpliar(
+                      context,
+                      galleryRefs: galleryRefs,
+                      data: data,
+                      title: title,
+                      isEvento: isEvento,
+                      photoIndex: i,
+                    ),
+            onLikeDoubleTap: () =>
+                _painelDestaqueToggleLike(context, doc, tenantId),
+          )
+        : _DestaqueCardImage(
+            displayImageUrl: urlForStable,
+            storagePath: pathForStable,
+            gsUrl: gsForStable,
+            videoThumbUrl: videoThumb,
+            hasVideo: hasVideo,
+            firstImgEmpty: !isValidImageUrl(firstImg),
+            title: title,
+            isEvento: isEvento,
+            onMediaTap: tapMediaAmpliar,
+            onDoubleTapMedia: () => unawaited(
+                _painelDestaqueToggleLike(context, doc, tenantId)),
+          );
+
     return ClipRRect(
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.10),
-              blurRadius: 36,
-              offset: const Offset(0, 18),
-              spreadRadius: -6,
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+              spreadRadius: -2,
             ),
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.07),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
           border: Border(
@@ -5137,146 +6733,357 @@ class _DestaqueCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isEvento ? const Color(0xFFFFF7ED) : const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          isEvento ? 'Evento' : 'Aviso',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: isEvento ? const Color(0xFFD97706) : const Color(0xFF2563EB),
+            if (useWebSplit)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 48,
+                      child: LayoutBuilder(
+                        builder: (context, lc) {
+                          final gw = lc.maxWidth;
+                          if (gw <= 0) {
+                            return const SizedBox.shrink();
+                          }
+                          var mh = gw / panelMediaAspect;
+                          mh = mh.clamp(160.0, _kPainelDestaqueWebMediaHeight);
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: SizedBox(
+                              height: mh,
+                              width: double.infinity,
+                              child: carouselOrImage,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 52,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: openModulo,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: isEvento
+                                            ? const Color(0xFFFFF7ED)
+                                            : const Color(0xFFEFF6FF),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        isEvento ? 'Evento' : 'Aviso',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: isEvento
+                                              ? const Color(0xFFD97706)
+                                              : const Color(0xFF2563EB),
+                                        ),
+                                      ),
+                                    ),
+                                    if (dateStr.isNotEmpty)
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.calendar_today_rounded,
+                                              size: 14,
+                                              color: Colors.grey.shade500),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            dateStr,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade700,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    if (timeStr.isNotEmpty)
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.schedule_rounded,
+                                              size: 14,
+                                              color: Colors.grey.shade500),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            timeStr,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade700,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                                if (title.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    title,
+                                    maxLines: 4,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                      height: 1.25,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                ],
+                                if (text.trim().isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: _PainelDestaqueExpandableText(
+                                        text: text),
+                                  )
+                                else if (title.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: _PainelDestaqueExpandableText(
+                                      text: 'Sem título',
+                                      maxLines: 2,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                      if (dateStr.isNotEmpty)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+                    ),
+                  ],
+                ),
+              )
+            else if (layoutWide)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: _kPainelDestaqueThumbSide.toDouble(),
+                      child: AspectRatio(
+                        aspectRatio: 3 / 4,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: carouselOrImage,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey.shade500),
-                            const SizedBox(width: 4),
-                            Text(
-                              dateStr,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isEvento ? const Color(0xFFFFF7ED) : const Color(0xFFEFF6FF),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    isEvento ? 'Evento' : 'Aviso',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: isEvento ? const Color(0xFFD97706) : const Color(0xFF2563EB),
+                                    ),
+                                  ),
+                                ),
+                                if (dateStr.isNotEmpty)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.calendar_today_rounded, size: 13, color: Colors.grey.shade500),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        dateStr,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                if (timeStr.isNotEmpty)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.schedule_rounded, size: 13, color: Colors.grey.shade500),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        timeStr,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
                             ),
+                            if (title.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  height: 1.25,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
-                      if (timeStr.isNotEmpty)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.schedule_rounded, size: 14, color: Colors.grey.shade500),
-                            const SizedBox(width: 4),
-                            Text(
-                              timeStr,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  if (title.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        height: 1.25,
-                        color: Color(0xFF0F172A),
                       ),
                     ),
                   ],
-                ],
-              ),
-            ),
-            LayoutBuilder(
-              builder: (context, c) {
-                final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
-                final mediaH = _painelDestaqueMediaHeight(mw, data);
-                return SizedBox(
-                  width: double.infinity,
-                  height: mediaH,
-                  child: showCarousel
-                      ? _PainelDestaqueMediaCarousel(
-                          data: data,
-                          isEvento: isEvento,
-                          title: title,
-                          onGalleryPhotoTap: galleryRefs.isEmpty
-                              ? null
-                              : (i) => _openPainelDestaqueFotoAmpliar(
-                                    context,
-                                    galleryRefs: galleryRefs,
-                                    data: data,
-                                    title: title,
-                                    isEvento: isEvento,
-                                    photoIndex: i,
-                                  ),
-                          onLikeDoubleTap: () =>
-                              _painelDestaqueToggleLike(context, doc, tenantId),
-                        )
-                      : _DestaqueCardImage(
-                          displayImageUrl: urlForStable,
-                          storagePath: pathForStable,
-                          gsUrl: gsForStable,
-                          videoThumbUrl: videoThumb,
-                          hasVideo: hasVideo,
-                          firstImgEmpty: !isValidImageUrl(firstImg),
-                          title: title,
-                          isEvento: isEvento,
-                          onMediaTap: tapMediaAmpliar,
-                          onDoubleTapMedia: () => unawaited(
-                              _painelDestaqueToggleLike(context, doc, tenantId)),
+                ),
+              )
+            else ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isEvento ? const Color(0xFFFFF7ED) : const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            isEvento ? 'Evento' : 'Aviso',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: isEvento ? const Color(0xFFD97706) : const Color(0xFF2563EB),
+                            ),
+                          ),
                         ),
-                );
-              },
-            ),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: openModulo,
-                borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(ThemeCleanPremium.radiusLg)),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (text.trim().isNotEmpty)
-                        _PainelDestaqueExpandableText(text: text)
-                      else if (title.isEmpty)
-                        _PainelDestaqueExpandableText(
-                          text: 'Sem título',
-                          maxLines: 2,
+                        if (dateStr.isNotEmpty)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Text(
+                                dateStr,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        if (timeStr.isNotEmpty)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.schedule_rounded, size: 14, color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Text(
+                                timeStr,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    if (title.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          height: 1.25,
+                          color: Color(0xFF0F172A),
                         ),
+                      ),
                     ],
+                  ],
+                ),
+              ),
+              LayoutBuilder(
+                builder: (context, c) {
+                  final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
+                  final mediaH = _painelDestaqueMediaHeight(mw, data);
+                  return SizedBox(
+                    width: double.infinity,
+                    height: mediaH,
+                    child: carouselOrImage,
+                  );
+                },
+              ),
+            ],
+            if (!useWebSplit)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: openModulo,
+                  borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(ThemeCleanPremium.radiusMd)),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (text.trim().isNotEmpty)
+                          _PainelDestaqueExpandableText(text: text)
+                        else if (title.isEmpty)
+                          _PainelDestaqueExpandableText(
+                            text: 'Sem título',
+                            maxLines: 2,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
             _PainelDestaqueSocialBar(
               doc: doc,
               tenantId: tenantId,
@@ -5443,15 +7250,15 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
       publicSiteUrl: publicSite,
       inviteCardUrl: inviteUrl,
     );
-    final media = await resolveNoticiaShareSheetMedia(data);
     if (!context.mounted) return;
     await showChurchNoticiaShareSheet(
       context,
       shareLink: inviteUrl,
       shareMessage: msg,
-      shareSubject: 'Convite — $churchName',
-      previewImageUrl: media.previewImageUrl,
-      videoPlayUrl: media.videoPlayUrl,
+      shareSubject: churchName,
+      previewImageUrl: null,
+      videoPlayUrl: null,
+      noticiaDataForLazyMedia: data,
       sharePositionOrigin: shareRectFromContext(context),
     );
   }
@@ -5487,44 +7294,72 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  IconButton(
-                    onPressed: () => _toggleLike(data),
-                    icon: Icon(
-                      liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: liked
-                          ? const Color(0xFFE11D48)
-                          : Colors.grey.shade800,
-                      size: 24,
-                    ),
-                    style: IconButton.styleFrom(
-                      minimumSize: Size(minTouch, minTouch),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 2,
+                      runSpacing: 0,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        IconButton(
+                          onPressed: () => _toggleLike(data),
+                          icon: Icon(
+                            liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                            color: liked
+                                ? const Color(0xFFE11D48)
+                                : Colors.grey.shade800,
+                            size: 24,
+                          ),
+                          style: IconButton.styleFrom(
+                            minimumSize: Size(minTouch, minTouch),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _openComments,
+                          icon: Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            color: Colors.grey.shade800,
+                            size: 22,
+                          ),
+                          style: IconButton.styleFrom(
+                            minimumSize: Size(minTouch, minTouch),
+                          ),
+                        ),
+                        if (kIsWeb && !ThemeCleanPremium.isMobile(context))
+                          TextButton.icon(
+                            onPressed: () => _openShareSheet(context, data),
+                            icon: Icon(
+                              Icons.share_rounded,
+                              color: ThemeCleanPremium.primary,
+                              size: 22,
+                            ),
+                            label: const Text(
+                              'Compartilhar',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            style: TextButton.styleFrom(
+                              foregroundColor: ThemeCleanPremium.primary,
+                              minimumSize: Size(minTouch, minTouch),
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                            ),
+                          )
+                        else
+                          IconButton(
+                            onPressed: () => _openShareSheet(context, data),
+                            tooltip: 'Compartilhar',
+                            icon: Icon(
+                              Icons.share_rounded,
+                              color: ThemeCleanPremium.primary,
+                              size: 22,
+                            ),
+                            style: IconButton.styleFrom(
+                              minimumSize: Size(minTouch, minTouch),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: _openComments,
-                    icon: Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      color: Colors.grey.shade800,
-                      size: 22,
-                    ),
-                    style: IconButton.styleFrom(
-                      minimumSize: Size(minTouch, minTouch),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => _openShareSheet(context, data),
-                    tooltip: 'Compartilhar',
-                    icon: Icon(
-                      Icons.near_me_rounded,
-                      color: Colors.grey.shade800,
-                      size: 22,
-                    ),
-                    style: IconButton.styleFrom(
-                      minimumSize: Size(minTouch, minTouch),
-                    ),
-                  ),
-                  const Spacer(),
                   if (isFuture)
                     Material(
                       color: Colors.transparent,

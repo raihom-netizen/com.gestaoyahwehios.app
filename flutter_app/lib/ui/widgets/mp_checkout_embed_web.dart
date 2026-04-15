@@ -10,12 +10,15 @@ class MpCheckoutEmbed extends StatefulWidget {
   final String checkoutUrl;
   final String returnUrlHint;
   final ValueChanged<String>? onLikelyFinished;
+  /// Texto abaixo do iframe (ex.: doação vs licença). Se nulo, usa mensagem padrão.
+  final String? footerHint;
 
   const MpCheckoutEmbed({
     super.key,
     required this.checkoutUrl,
     this.returnUrlHint = '',
     this.onLikelyFinished,
+    this.footerHint,
   });
 
   @override
@@ -69,10 +72,11 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
                     Icon(Icons.info_outline_rounded,
                         size: 18, color: Colors.blue.shade800),
                     const SizedBox(width: 8),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'PIX ou cartão acima. Ao finalizar, a licença libera em segundos (webhook).',
-                        style: TextStyle(
+                        widget.footerHint ??
+                            'PIX ou cartão acima. Ao finalizar, a licença libera em segundos (webhook).',
+                        style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             height: 1.35),

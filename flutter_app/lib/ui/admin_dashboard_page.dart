@@ -174,8 +174,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       }
     } catch (_) {}
     try {
-      final alertasSnap = await db.collection('alertas').get();
-      alertasCount = alertasSnap.size;
+      final alertasAgg = await db.collection('alertas').count().get();
+      alertasCount = alertasAgg.count ?? 0;
     } catch (_) {}
     try {
       final subSnap = await db.collection('subscriptions').where('status', isEqualTo: 'active').get();
@@ -338,6 +338,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               licencasAtivas: _subscriptionsAtivas > 0 ? _subscriptionsAtivas : _licencasIgrejas,
               recebimentos: _receita,
               acessos: _acessosRecentes,
+              alertas: _alertas,
               onNavigateTo: widget.onNavigateTo,
               isNarrow: isNarrow,
             ),
@@ -726,6 +727,7 @@ class _KpiGrid extends StatelessWidget {
   final int licencasAtivas;
   final double recebimentos;
   final int acessos;
+  final int alertas;
   final void Function(AdminMenuItem item)? onNavigateTo;
   final bool isNarrow;
 
@@ -735,6 +737,7 @@ class _KpiGrid extends StatelessWidget {
     required this.licencasAtivas,
     required this.recebimentos,
     required this.acessos,
+    required this.alertas,
     this.onNavigateTo,
     required this.isNarrow,
   });
@@ -746,11 +749,12 @@ class _KpiGrid extends StatelessWidget {
       (icon: Icons.church_rounded, label: 'Igrejas', value: igrejas.toDouble(), prefix: '', color: Colors.blue.shade700, item: AdminMenuItem.igrejasLista),
       (icon: Icons.badge_rounded, label: 'Licenças ativas', value: licencasAtivas.toDouble(), prefix: '', color: Colors.green.shade700, item: AdminMenuItem.igrejasRecebimentos),
       (icon: Icons.receipt_long_rounded, label: 'Recebimentos', value: recebimentos, prefix: 'R\$ ', color: Colors.orange.shade700, item: AdminMenuItem.igrejasRecebimentos),
+      (icon: Icons.notifications_active_rounded, label: 'Alertas', value: alertas.toDouble(), prefix: '', color: Colors.red.shade700, item: AdminMenuItem.sistemaAlertas),
       (icon: Icons.public_rounded, label: 'Acessos', value: acessos.toDouble(), prefix: '', color: Colors.purple.shade700, item: AdminMenuItem.sistemaAcessos),
     ];
     return LayoutBuilder(
       builder: (_, c) {
-        final count = isNarrow ? 2 : (c.maxWidth > 900 ? 5 : 4);
+        final count = isNarrow ? 2 : (c.maxWidth > 1100 ? 6 : (c.maxWidth > 700 ? 3 : 2));
         return GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),

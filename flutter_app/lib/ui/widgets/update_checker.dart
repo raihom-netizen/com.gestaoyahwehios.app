@@ -1,11 +1,213 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Widget que envolve o app e faz a checagem automática de versão ao abrir
-/// (web e mobile). Não depende do usuário: busca no Firestore e exibe
-/// diálogo ou bloqueia se houver atualização obrigatória.
+/// Diálogo premium (não bloqueante): nova versão + Play Store / atualizar.
+Future<void> showPremiumVersionUpdateDialog(
+  BuildContext context,
+  VersionResult vr,
+) async {
+  final hasUrl = vr.updateUrl.isNotEmpty;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) {
+      final isAndroidStore = !kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android &&
+          hasUrl;
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding:
+            const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: ClipRRect(
+            borderRadius:
+                BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            child: Material(
+              color: Colors.white,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary.withValues(alpha: 0.16),
+                          const Color(0xFF0EA5E9).withValues(alpha: 0.1),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: ThemeCleanPremium.primary
+                              .withValues(alpha: 0.12),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            border: Border.all(
+                              color: const Color(0xFFE8EEF5),
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.rocket_launch_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Nova versão disponível',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.4,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Sua versão: v$appVersion · Loja: v${vr.current}',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.3,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+                    child: Text(
+                      vr.message.isNotEmpty
+                          ? vr.message
+                          : kDefaultVersionUpdateMessage(vr.current),
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        height: 1.45,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (hasUrl) ...[
+                    if (isAndroidStore)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+                        child: SelectableText(
+                          kDefaultPlayStoreUrl,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF16A34A),
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                elevation: 0,
+                              ),
+                              onPressed: () async {
+                                Navigator.of(ctx).pop();
+                                await VersionService.instance
+                                    .openUpdateUrl(vr.updateUrl);
+                                if (kIsWeb &&
+                                    vr.updateUrl
+                                        .startsWith(Uri.base.origin)) {
+                                  VersionService.reloadWeb();
+                                }
+                              },
+                              icon: Icon(
+                                isAndroidStore
+                                    ? Icons.shopping_bag_rounded
+                                    : Icons.open_in_new_rounded,
+                                size: 22,
+                              ),
+                              label: Text(
+                                isAndroidStore
+                                    ? 'Atualizar na Play Store'
+                                    : 'Atualizar agora',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: Text(
+                              'Depois',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('OK'),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// Checagem automática ao abrir o app: aviso **dismissível** com link para a loja (sem bloquear uso).
 class UpdateChecker extends StatefulWidget {
   final Widget child;
 
@@ -17,14 +219,12 @@ class UpdateChecker extends StatefulWidget {
 
 class _UpdateCheckerState extends State<UpdateChecker> {
   bool _checked = false;
-  VersionResult? _result;
   int _checkAttempts = 0;
   static const int _maxVersionCheckAttempts = 4;
 
   @override
   void initState() {
     super.initState();
-    // Web: atrasar checagem para o primeiro frame estabilizar (evita reload que pisca a tela).
     if (kIsWeb) {
       Future<void>.delayed(const Duration(milliseconds: 2500), () {
         if (mounted) _check();
@@ -52,115 +252,10 @@ class _UpdateCheckerState extends State<UpdateChecker> {
     }
     _checked = true;
     if (!vr.outdated) return;
-    // Web: nunca recarrega sozinho (evita tela piscando). Só exibe diálogo para o usuário clicar em Atualizar.
-    setState(() => _result = vr);
     if (!mounted) return;
-    // Forçar atualização: tela full-screen no build(); não abrir diálogo
-    if (vr.force) return;
-    await _showDialog(vr);
-  }
-
-  Future<void> _showDialog(VersionResult vr) async {
-    final isForce = vr.force;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: !isForce,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Atualização disponível'),
-        content: SingleChildScrollView(
-          child: Text(
-            vr.message.isNotEmpty
-                ? vr.message
-                : 'Uma nova versão (${vr.current}) está disponível. '
-                    'Você está na v$appVersion. Atualize para continuar.',
-          ),
-        ),
-        actions: [
-          if (vr.updateUrl.isNotEmpty)
-            FilledButton.icon(
-              onPressed: () async {
-                Navigator.of(ctx).pop();
-                await VersionService.instance.openUpdateUrl(vr.updateUrl);
-                if (kIsWeb && vr.updateUrl.startsWith(Uri.base.origin)) {
-                  VersionService.reloadWeb();
-                }
-              },
-              icon: const Icon(Icons.download_rounded),
-              label: const Text('Atualizar'),
-            ),
-          if (!isForce)
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Depois'),
-            ),
-        ],
-      ),
-    );
+    await showPremiumVersionUpdateDialog(context, vr);
   }
 
   @override
-  Widget build(BuildContext context) {
-    // Forçar atualização (estilo Controle Total): bloqueia o app até o usuário atualizar
-    if (_result != null && _result!.force) {
-      return _ForceUpdateScreen(result: _result!);
-    }
-    return widget.child;
-  }
-}
-
-/// Tela full-screen que bloqueia o uso do app até atualizar (igual Controle Total no painel ADM).
-class _ForceUpdateScreen extends StatelessWidget {
-  final VersionResult result;
-
-  const _ForceUpdateScreen({required this.result});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.system_update_rounded, size: 64, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(height: 24),
-                Text(
-                  'Atualização obrigatória',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  result.message.isNotEmpty
-                      ? result.message
-                      : 'Uma nova versão (${result.current}) está disponível. Atualize para continuar usando o app.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 32),
-                if (result.updateUrl.isNotEmpty)
-                  FilledButton.icon(
-                    onPressed: () async {
-                      await VersionService.instance.openUpdateUrl(result.updateUrl);
-                      if (kIsWeb && result.updateUrl.startsWith(Uri.base.origin)) {
-                        VersionService.reloadWeb();
-                      }
-                    },
-                    icon: const Icon(Icons.download_rounded),
-                    label: const Text('Atualizar agora'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => widget.child;
 }

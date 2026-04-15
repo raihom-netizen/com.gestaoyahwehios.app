@@ -2,8 +2,25 @@ import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 
 import 'version_service_stub.dart' if (dart.library.html) 'version_service_web.dart' as _reload;
+
+/// URL padrão da app na Google Play — [AppConstants.gestaoYahwehPlayStoreUrl].
+const String kDefaultPlayStoreUrl = AppConstants.gestaoYahwehPlayStoreUrl;
+
+/// Dados para o banner “nova versão” no painel da igreja (Android).
+class PanelUpdateHint {
+  final String targetVersion;
+  final String message;
+  final String storeUrl;
+
+  const PanelUpdateHint({
+    required this.targetVersion,
+    required this.message,
+    required this.storeUrl,
+  });
+}
 
 /// Resultado da checagem de versão (web e mobile).
 class VersionResult {
@@ -22,6 +39,12 @@ class VersionResult {
     this.updateUrl = '',
     this.skippedDueToError = false,
   });
+}
+
+/// Mensagem padrão quando `config/appVersion` não define [message] (tom “ultra premium”).
+String kDefaultVersionUpdateMessage(String minVersion) {
+  return 'Nova versão disponível (v$minVersion). Toque em Atualizar na Play Store '
+      'para obter o app mais recente — melhorias, correções e experiência premium.';
 }
 
 /// Compara duas versões no formato "major.minor" ou "major.minor.patch".
@@ -52,8 +75,35 @@ class VersionService {
 
   static const _configPath = 'config/appVersion';
 
+  /// Interpreta [data] de `config/appVersion` para o banner do painel.
+  /// Usa `latestVersion` se existir; senão `minVersion`. Só retorna hint se o app estiver mais antigo.
+  /// [storeUrlAndroid] vazio → [kDefaultPlayStoreUrl].
+  PanelUpdateHint? panelUpdateHintFromConfigData(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    var target = (data['latestVersion'] ?? '').toString().trim();
+    if (target.isEmpty) {
+      target = (data['minVersion'] ?? '').toString().trim();
+    }
+    if (target.isEmpty) return null;
+    if (_compareVersions(appVersion, target) >= 0) return null;
+
+    final url = (data['storeUrlAndroid'] ?? '').toString().trim();
+    final storeUrl = url.isNotEmpty ? url : kDefaultPlayStoreUrl;
+    var msg = (data['panelUpdateMessage'] ?? data['message'] ?? '').toString().trim();
+    if (msg.isEmpty) {
+      msg =
+          'Está disponível uma nova versão ($target). Atualize na Play Store para melhorias e correções.';
+    }
+    return PanelUpdateHint(
+      targetVersion: target,
+      message: msg,
+      storeUrl: storeUrl,
+    );
+  }
+
   /// Busca no Firestore (config/appVersion) a versão mínima e URLs de loja.
-  /// Campos do doc: minVersion, forceUpdate (bool), message, storeUrlAndroid, storeUrlIos, webRefresh (bool).
+  /// Campos do doc: minVersion, message, storeUrlAndroid, storeUrlIos, webRefresh (bool).
+  /// [forceUpdate] no Firestore é ignorado no cliente: o app **não bloqueia** — só exibe aviso com link da loja.
   /// Leitura pública para funcionar antes do login.
   Future<VersionResult> check() async {
     try {
@@ -64,7 +114,6 @@ class VersionService {
       final minVersion = (data['minVersion'] ?? '').toString().trim();
       if (minVersion.isEmpty) return const VersionResult();
 
-      final forceUpdate = data['forceUpdate'] == true;
       final message = (data['message'] ?? '').toString();
       final storeUrlAndroid = (data['storeUrlAndroid'] ?? '').toString().trim();
       final storeUrlIos = (data['storeUrlIos'] ?? '').toString().trim();
@@ -82,18 +131,22 @@ class VersionService {
           }
         }
       } else {
-        if (defaultTargetPlatform == TargetPlatform.android && storeUrlAndroid.isNotEmpty) {
-          updateUrl = storeUrlAndroid;
-        } else if (defaultTargetPlatform == TargetPlatform.iOS && storeUrlIos.isNotEmpty) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          updateUrl =
+              storeUrlAndroid.isNotEmpty ? storeUrlAndroid : kDefaultPlayStoreUrl;
+        } else if (defaultTargetPlatform == TargetPlatform.iOS &&
+            storeUrlIos.isNotEmpty) {
           updateUrl = storeUrlIos;
         }
       }
 
       return VersionResult(
         outdated: true,
-        force: forceUpdate,
+        force: false,
         current: minVersion,
-        message: message.isNotEmpty ? message : 'Uma nova versão ($minVersion) está disponível. Atualize para continuar.',
+        message: message.trim().isNotEmpty
+            ? message.trim()
+            : kDefaultVersionUpdateMessage(minVersion),
         updateUrl: updateUrl,
       );
     } catch (_) {

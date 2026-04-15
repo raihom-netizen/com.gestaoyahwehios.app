@@ -239,8 +239,81 @@ function tryPushUrl(raw: unknown, out: string[]): void {
   out.push(t);
 }
 
+/** Objeto ou string de mídia (mesmo modelo que [event_noticia_media] no app). */
+function pushMediaObject(x: unknown, out: string[]): void {
+  if (x == null) return;
+  if (typeof x === "string") {
+    tryPushUrl(x, out);
+    return;
+  }
+  if (typeof x === "object" && !Array.isArray(x)) {
+    const o = x as Record<string, unknown>;
+    for (const k of [
+      "url",
+      "imageUrl",
+      "image_url",
+      "downloadUrl",
+      "downloadURL",
+      "storagePath",
+      "storage_path",
+      "path",
+      "ref",
+      "thumbUrl",
+      "thumb_url",
+      "thumbnailUrl",
+    ]) {
+      tryPushUrl(o[k], out);
+    }
+  }
+}
+
+function pushMediaField(d: DocumentData, key: string, out: string[]): void {
+  const v = d[key];
+  if (v == null) return;
+  if (Array.isArray(v)) {
+    for (const x of v) pushMediaObject(x, out);
+  } else if (typeof v === "object") {
+    pushMediaObject(v, out);
+  } else {
+    tryPushUrl(v, out);
+  }
+}
+
+/** imageVariants / photoVariants — prioridade de chaves como no app. */
+function pushImageVariants(raw: unknown, out: string[]): void {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return;
+  const m = raw as Record<string, unknown>;
+  const priority = [
+    "full",
+    "original",
+    "source",
+    "hd",
+    "large",
+    "medium",
+    "card",
+    "thumb",
+    "thumbnail",
+    "scaled",
+  ];
+  for (const pk of priority) {
+    for (const [k, val] of Object.entries(m)) {
+      if (k.toLowerCase() !== pk) continue;
+      pushMediaObject(val, out);
+    }
+  }
+  for (const val of Object.values(m)) pushMediaObject(val, out);
+}
+
 function pickOgImage(d: DocumentData, church: DocumentData | undefined): string {
   const candidates: string[] = [];
+
+  // Ordem alinhada a eventNoticiaPhotoUrls (Flutter)
+  tryPushUrl(d.imagem_url, candidates);
+  tryPushUrl(d.imagemUrl, candidates);
+  pushMediaField(d, "media", candidates);
+  pushMediaField(d, "attachments", candidates);
+  pushMediaField(d, "attachmentsUrls", candidates);
+  pushMediaField(d, "attachmentUrls", candidates);
 
   const imageUrls = d.imageUrls;
   if (Array.isArray(imageUrls)) {
@@ -253,8 +326,13 @@ function pickOgImage(d: DocumentData, church: DocumentData | undefined): string 
       }
     }
   }
+  pushMediaField(d, "photos", candidates);
+  pushMediaField(d, "images", candidates);
   tryPushUrl(d.imageUrl, candidates);
   tryPushUrl(d.defaultImageUrl, candidates);
+
+  tryPushUrl(d.imageStoragePath, candidates);
+  tryPushUrl(d.image_storage_path, candidates);
 
   /** Avisos: paths no Storage e chaves em português (alinhado ao app / Firestore). */
   for (const k of ["imageStoragePaths", "fotoStoragePaths", "fotos", "imagens"]) {
@@ -263,7 +341,16 @@ function pickOgImage(d: DocumentData, church: DocumentData | undefined): string 
       for (const x of arr) tryPushUrl(x, candidates);
     }
   }
-  for (const k of ["foto", "photo", "imagem"]) {
+  for (const k of [
+    "foto",
+    "photo",
+    "imagem",
+    "fotoUrls",
+    "foto_url",
+    "fotoUrl",
+    "imagemUrls",
+    "photoUrls",
+  ]) {
     tryPushUrl(d[k], candidates);
   }
   for (const k of [
@@ -271,21 +358,37 @@ function pickOgImage(d: DocumentData, church: DocumentData | undefined): string 
     "videoPosterUrl",
     "coverUrl",
     "capaUrl",
+    "coverImageUrl",
     "previewImageUrl",
     "thumbStoragePath",
     "thumb_storage_path",
     "videoThumbUrl",
     "thumbnailUrl",
+    "bannerUrl",
+    "banner",
+    "heroUrl",
+    "heroImageUrl",
+    "pictureUrl",
+    "picture",
+    "fileUrl",
+    "file_url",
   ]) {
     tryPushUrl(d[k], candidates);
   }
+
+  pushImageVariants(d.imageVariants, candidates);
+  pushImageVariants(d.photoVariants, candidates);
 
   const videos = d.videos;
   if (Array.isArray(videos)) {
     for (const v of videos) {
       if (v && typeof v === "object") {
-        tryPushUrl((v as Record<string, unknown>).thumbUrl, candidates);
-        tryPushUrl((v as Record<string, unknown>).thumb_url, candidates);
+        const o = v as Record<string, unknown>;
+        tryPushUrl(o.thumbUrl, candidates);
+        tryPushUrl(o.thumb_url, candidates);
+        tryPushUrl(o.thumbStoragePath, candidates);
+        tryPushUrl(o.thumb_storage_path, candidates);
+        tryPushUrl(o.thumbPath, candidates);
       }
     }
   }
@@ -311,6 +414,26 @@ function pickOgImage(d: DocumentData, church: DocumentData | undefined): string 
   return DEFAULT_OG_IMAGE;
 }
 
+function mapsUrlFromDoc(d: DocumentData): string {
+  const latRaw = d.locationLat;
+  const lngRaw = d.locationLng;
+  if (typeof latRaw === "number" && typeof lngRaw === "number") {
+    return `https://maps.google.com/?q=${latRaw},${lngRaw}`;
+  }
+  if (latRaw != null && lngRaw != null) {
+    const la = parseFloat(String(latRaw));
+    const ln = parseFloat(String(lngRaw));
+    if (!isNaN(la) && !isNaN(ln)) {
+      return `https://maps.google.com/?q=${la},${ln}`;
+    }
+  }
+  const loc = String(d.location || "").trim();
+  if (loc) {
+    return `https://maps.google.com/?q=${encodeURIComponent(loc)}`;
+  }
+  return "";
+}
+
 function buildDescription(d: DocumentData): string {
   const isEvento = String(d.type || "aviso") === "evento";
   const parts: string[] = [];
@@ -328,12 +451,17 @@ function buildDescription(d: DocumentData): string {
     }
   }
   const loc = String(d.location || "").trim();
-  if (loc) parts.push(`📍 ${loc}`);
+  const mapUrl = mapsUrlFromDoc(d);
+  if (mapUrl) {
+    parts.push(`📍 Localização: ${mapUrl}`);
+  } else if (loc) {
+    parts.push(`📍 ${loc}`);
+  }
   const text = String(d.text || d.body || "").trim().replace(/\s+/g, " ");
   if (text) parts.push(text.length > 240 ? `${text.slice(0, 237)}…` : text);
   const prefix = isEvento ? "🗓️" : "📢";
   if (parts.length === 0) {
-    return `${prefix} Toque para ver a capa e os detalhes — compartilhado pelo Gestão YAHWEH.`;
+    return `${prefix} Toque para ver a capa e os detalhes.`;
   }
   return `${prefix} ${parts.join(" · ")}`;
 }

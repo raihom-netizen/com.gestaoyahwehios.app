@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -53,20 +54,24 @@ class AdminMarketingClientesTab extends StatefulWidget {
 
 class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   final _sectionTitleCtrl = TextEditingController();
+  final _sectionSubtitleCtrl = TextEditingController();
   bool _titleDirty = false;
 
   @override
   void dispose() {
     _sectionTitleCtrl.dispose();
+    _sectionSubtitleCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _saveSectionTitle() async {
     final t = _sectionTitleCtrl.text.trim();
+    final st = _sectionSubtitleCtrl.text.trim();
     try {
       await _marketingClientesDocRef.set(
         {
           'sectionTitle': t,
+          'sectionSubtitle': st,
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -74,7 +79,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       if (mounted) {
         setState(() => _titleDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Título da seção atualizado.'),
+          ThemeCleanPremium.successSnackBar('Título e texto da seção atualizados.'),
         );
       }
     } catch (e) {
@@ -123,6 +128,9 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
     final locCtrl = TextEditingController(
       text: (ref?['localizacao'] ?? '').toString(),
     );
+    final corpoCtrl = TextEditingController(
+      text: (ref?['corpo'] ?? '').toString(),
+    );
     final igrejaTenantIdCtrl = TextEditingController(
       text: (ref?['igrejaTenantId'] ?? ref?['tenantId'] ?? '').toString(),
     );
@@ -150,10 +158,17 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                           idCtrl.text.trim(),
                         ),
                 )}';
+          final mq = MediaQuery.of(context);
+          final maxW = math.min(480.0, mq.size.width - 16);
+          final maxContentH = math.max(200.0, mq.size.height * 0.72);
           return AlertDialog(
             title: Text(isEdit ? 'Editar igreja em destaque' : 'Nova igreja em destaque'),
-            content: SizedBox(
-              width: 420,
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: mq.size.width < 400 ? 8 : 24,
+              vertical: 12,
+            ),
+            content: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxContentH),
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -244,6 +259,17 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                         border: OutlineInputBorder(),
                       ),
                       maxLines: 2,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: corpoCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Texto de destaque (opcional)',
+                        hintText: 'Markdown leve: **negrito** *itálico*',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
+                      maxLines: 4,
                     ),
                     const SizedBox(height: 10),
                     TextField(
@@ -418,6 +444,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                             'whatsapp': whatsCtrl.text.trim(),
                             'sitePublico': siteCtrl.text.trim(),
                             'localizacao': locCtrl.text.trim(),
+                            'corpo': corpoCtrl.text.trim(),
                             'ordem': ordem,
                             'ativo': ativo,
                             if (pendingFotoPath != null && pendingFotoPath!.isNotEmpty)
@@ -590,196 +617,220 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
         if (!_titleDirty && snap.hasData) {
           final st = (data?['sectionTitle'] as String?) ?? '';
-          if (_sectionTitleCtrl.text != st) {
+          final ss = (data?['sectionSubtitle'] as String?) ?? '';
+          if (_sectionTitleCtrl.text != st ||
+              _sectionSubtitleCtrl.text != ss) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && !_titleDirty) {
                 _sectionTitleCtrl.text = st;
+                _sectionSubtitleCtrl.text = ss;
               }
             });
           }
         }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
+        return CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: [
+            SliverPadding(
               padding: pad.copyWith(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Igrejas em destaque',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Capas: igrejas/{ID Firestore}/marketing_destaque/capa.jpg (padrão). Entradas antigas em ${MarketingStorageLayout.clientesRootPrefix}/[id]/ continuam a ser lidas até reenviar a foto com o ID da igreja.',
-                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _sectionTitleCtrl,
-                    onChanged: (_) => setState(() => _titleDirty = true),
-                    decoration: const InputDecoration(
-                      labelText: 'Título da seção no site',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilledButton.tonal(
-                      onPressed: _titleDirty ? _saveSectionTitle : null,
-                      child: const Text('Salvar título'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
-              child: FilledButton.icon(
-                onPressed: snap.connectionState == ConnectionState.waiting &&
-                        !snap.hasData
-                    ? null
-                    : () => _openEditor(currentItems: items),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Adicionar igreja'),
-              ),
-            ),
-            Expanded(
-              child: snap.connectionState == ConnectionState.waiting &&
-                      !snap.hasData
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.separated(
-                      padding: EdgeInsets.fromLTRB(
-                        pad.left,
-                        0,
-                        pad.right,
-                        pad.bottom + 24,
-                      ),
-                      itemCount: items.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: ThemeCleanPremium.spaceSm),
-                      itemBuilder: (context, i) {
-                        final it = items[i];
-                        final id = (it['id'] ?? '').toString();
-                        final nome = (it['nomeIgreja'] ?? '').toString();
-                        final active = it['ativo'] != false;
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: ThemeCleanPremium.cardBackground,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: ThemeCleanPremium.softUiCardShadow,
-                            border: Border.all(
-                              color: Colors.black.withOpacity(0.05),
-                            ),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Igrejas em destaque',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                MarketingClienteCapaThumb(
-                                  key: ValueKey<String>(
-                                    'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['igrejaTenantId']}',
-                                  ),
-                                  item: Map<String, dynamic>.from(it),
-                                  width: 72,
-                                  height: 72,
-                                  fit: BoxFit.cover,
-                                  borderRadius: BorderRadius.circular(12),
-                                  placeholder: Container(
-                                    width: 72,
-                                    height: 72,
-                                    color: ThemeCleanPremium.surfaceVariant,
-                                    child: const Icon(Icons.church_outlined),
-                                  ),
-                                  errorWidget: Container(
-                                    width: 72,
-                                    height: 72,
-                                    color: ThemeCleanPremium.surfaceVariant,
-                                    child: const Icon(Icons.church_outlined),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Capas: igrejas/{ID Firestore}/marketing_destaque/capa.jpg (padrão). Entradas antigas em ${MarketingStorageLayout.clientesRootPrefix}/[id]/ continuam a ser lidas até reenviar a foto com o ID da igreja.',
+                      style:
+                          TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _sectionTitleCtrl,
+                      onChanged: (_) => setState(() => _titleDirty = true),
+                      decoration: const InputDecoration(
+                        labelText: 'Título da seção no site',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _sectionSubtitleCtrl,
+                      onChanged: (_) => setState(() => _titleDirty = true),
+                      decoration: const InputDecoration(
+                        labelText: 'Texto introdutório (abaixo do título)',
+                        hintText: 'Opcional — **negrito** *itálico*',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        alignLabelWithHint: true,
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FilledButton.tonal(
+                        onPressed: _titleDirty ? _saveSectionTitle : null,
+                        child: const Text('Salvar título e texto'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
+              sliver: SliverToBoxAdapter(
+                child: FilledButton.icon(
+                  onPressed: snap.connectionState == ConnectionState.waiting &&
+                          !snap.hasData
+                      ? null
+                      : () => _openEditor(currentItems: items),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Adicionar igreja'),
+                ),
+              ),
+            ),
+            if (snap.connectionState == ConnectionState.waiting && !snap.hasData)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  pad.left,
+                  0,
+                  pad.right,
+                  pad.bottom + 24,
+                ),
+                sliver: SliverList.separated(
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: ThemeCleanPremium.spaceSm),
+                  itemBuilder: (context, i) {
+                    final it = items[i];
+                    final id = (it['id'] ?? '').toString();
+                    final nome = (it['nomeIgreja'] ?? '').toString();
+                    final active = it['ativo'] != false;
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: ThemeCleanPremium.cardBackground,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        border: Border.all(
+                          color: Colors.black.withOpacity(0.05),
+                        ),
+                      ),
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            MarketingClienteCapaThumb(
+                              key: ValueKey<String>(
+                                'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['igrejaTenantId']}',
+                              ),
+                              item: Map<String, dynamic>.from(it),
+                              width: 72,
+                              height: 72,
+                              fit: BoxFit.cover,
+                              borderRadius: BorderRadius.circular(12),
+                              placeholder: Container(
+                                width: 72,
+                                height: 72,
+                                color: ThemeCleanPremium.surfaceVariant,
+                                child: const Icon(Icons.church_outlined),
+                              ),
+                              errorWidget: Container(
+                                width: 72,
+                                height: 72,
+                                color: ThemeCleanPremium.surfaceVariant,
+                                child: const Icon(Icons.church_outlined),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
                                     children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              nome.isEmpty ? id : nome,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 16,
-                                              ),
-                                            ),
+                                      Expanded(
+                                        child: Text(
+                                          nome.isEmpty ? id : nome,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 16,
                                           ),
-                                          if (!active)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 4,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.orange.shade50,
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                'Inativo',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color:
-                                                      Colors.orange.shade800,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'ID: $id',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600,
                                         ),
                                       ),
+                                      if (!active)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange.shade50,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            'Inativo',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.orange.shade800,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
                                     ],
                                   ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Editar',
-                                  onPressed: () => _openEditor(
-                                    currentItems: items,
-                                    existing: Map<String, dynamic>.from(it),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'ID: $id',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
-                                  icon: const Icon(Icons.edit_outlined),
-                                ),
-                                IconButton(
-                                  tooltip: 'Excluir',
-                                  onPressed: () => _confirmDelete(it),
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: ThemeCleanPremium.error,
-                                  ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+                            IconButton(
+                              tooltip: 'Editar',
+                              onPressed: () => _openEditor(
+                                currentItems: items,
+                                existing: Map<String, dynamic>.from(it),
+                              ),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Excluir',
+                              onPressed: () => _confirmDelete(it),
+                              icon: Icon(
+                                Icons.delete_outline_rounded,
+                                color: ThemeCleanPremium.error,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
           ],
         );
       },

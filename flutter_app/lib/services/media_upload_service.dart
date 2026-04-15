@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
-
-import 'package:firebase_storage/firebase_storage.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'image_helper.dart';
+import 'storage_upload_queue_service.dart';
+import 'upload_bytes_core.dart';
 
 /// Uploads com [getDownloadURL] no fim do fluxo — URLs prontas para Firestore (https).
 /// Política global: [church_media_publish_policy.dart] + [StorageMediaService.publishableHttpsUrlForFirestore].
@@ -46,6 +46,7 @@ class MediaUploadService {
         contentType: contentType,
       );
 
+  /// [useOfflineQueue]: se false, só tentativas imediatas (usado internamente pela fila).
   static Future<String> uploadBytesWithRetry({
     required String storagePath,
     required Uint8List bytes,
@@ -60,6 +61,7 @@ class MediaUploadService {
     /// Quando true, envia [bytes] sem segunda compressão JPEG em [_prepareBytesForUpload]
     /// (ex.: já passaram por [ImageHelper.compressMemberProfileForUpload]).
     bool skipClientPrepare = false,
+    bool useOfflineQueue = true,
   }) async {
     final preparedBytes = skipClientPrepare
         ? bytes
@@ -72,34 +74,37 @@ class MediaUploadService {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
       }
     }
-    Object? lastError;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        final ref = FirebaseStorage.instance.ref(storagePath);
-        final task = ref.putData(
-          preparedBytes,
-          SettableMetadata(
-              contentType: contentType, cacheControl: cacheControl),
-        );
-        if (onProgress != null) {
-          task.snapshotEvents.listen((snapshot) {
-            final total = snapshot.totalBytes;
-            if (total <= 0) return;
-            final p = (snapshot.bytesTransferred / total).clamp(0.0, 1.0);
-            onProgress(p);
-          });
-        }
-        final snap = await task;
-        onProgress?.call(1.0);
-        return await snap.ref.getDownloadURL();
-      } catch (e) {
-        lastError = e;
-        if (attempt >= maxAttempts) break;
-        await Future.delayed(
-            Duration(milliseconds: 400 * math.pow(2, attempt - 1).toInt()));
-      }
+    if (!useOfflineQueue) {
+      return uploadStoragePutDataWithRetry(
+        storagePath: storagePath,
+        bytes: preparedBytes,
+        contentType: contentType,
+        cacheControl: cacheControl,
+        maxAttempts: maxAttempts,
+        onProgress: onProgress,
+      );
     }
-    throw lastError ?? StateError('Falha de upload');
+    try {
+      return await uploadStoragePutDataWithRetry(
+        storagePath: storagePath,
+        bytes: preparedBytes,
+        contentType: contentType,
+        cacheControl: cacheControl,
+        maxAttempts: maxAttempts,
+        onProgress: onProgress,
+      );
+    } catch (e) {
+      if (isLikelyNetworkUploadError(e)) {
+        return StorageUploadQueueService.instance.enqueuePutData(
+          storagePath: storagePath,
+          bytes: preparedBytes,
+          contentType: contentType,
+          cacheControl: cacheControl,
+          onProgress: onProgress,
+        );
+      }
+      rethrow;
+    }
   }
 
   static Future<MediaUploadResult> uploadBytesDetailed({
@@ -111,6 +116,7 @@ class MediaUploadService {
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
     bool skipClientPrepare = false,
+    bool useOfflineQueue = true,
   }) async {
     final url = await uploadBytesWithRetry(
       storagePath: storagePath,
@@ -121,6 +127,7 @@ class MediaUploadService {
       deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
       onProgress: onProgress,
       skipClientPrepare: skipClientPrepare,
+      useOfflineQueue: useOfflineQueue,
     );
     return _result(
       downloadUrl: url,
@@ -136,6 +143,8 @@ class MediaUploadService {
     String cacheControl = 'public, max-age=31536000',
     int maxAttempts = 3,
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
+    void Function(double progress)? onProgress,
+    bool useOfflineQueue = true,
   }) async {
     if (_shouldCompressJpeg(contentType)) {
       final fileBytes = await file.readAsBytes();
@@ -150,6 +159,8 @@ class MediaUploadService {
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
         deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
+        onProgress: onProgress,
+        useOfflineQueue: useOfflineQueue,
       );
     }
     if (deleteFirebaseDownloadUrlsBefore != null) {
@@ -157,25 +168,38 @@ class MediaUploadService {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
       }
     }
-    Object? lastError;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        final ref = FirebaseStorage.instance.ref(storagePath);
-        final task = ref.putFile(
-          file,
-          SettableMetadata(
-              contentType: contentType, cacheControl: cacheControl),
-        );
-        final snap = await task;
-        return await snap.ref.getDownloadURL();
-      } catch (e) {
-        lastError = e;
-        if (attempt >= maxAttempts) break;
-        await Future.delayed(
-            Duration(milliseconds: 400 * math.pow(2, attempt - 1).toInt()));
-      }
+    if (!useOfflineQueue) {
+      return uploadStoragePutFileWithRetry(
+        storagePath: storagePath,
+        file: file,
+        contentType: contentType,
+        cacheControl: cacheControl,
+        maxAttempts: maxAttempts,
+        onProgress: onProgress,
+      );
     }
-    throw lastError ?? StateError('Falha de upload');
+    try {
+      return await uploadStoragePutFileWithRetry(
+        storagePath: storagePath,
+        file: file,
+        contentType: contentType,
+        cacheControl: cacheControl,
+        maxAttempts: maxAttempts,
+        onProgress: onProgress,
+      );
+    } catch (e) {
+      if (isLikelyNetworkUploadError(e)) {
+        final b = await file.readAsBytes();
+        return StorageUploadQueueService.instance.enqueuePutData(
+          storagePath: storagePath,
+          bytes: b,
+          contentType: contentType,
+          cacheControl: cacheControl,
+          onProgress: onProgress,
+        );
+      }
+      rethrow;
+    }
   }
 
   static Future<MediaUploadResult> uploadFileDetailed({
@@ -185,6 +209,8 @@ class MediaUploadService {
     String cacheControl = 'public, max-age=31536000',
     int maxAttempts = 3,
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
+    void Function(double progress)? onProgress,
+    bool useOfflineQueue = true,
   }) async {
     final url = await uploadFileWithRetry(
       storagePath: storagePath,
@@ -193,6 +219,8 @@ class MediaUploadService {
       cacheControl: cacheControl,
       maxAttempts: maxAttempts,
       deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
+      onProgress: onProgress,
+      useOfflineQueue: useOfflineQueue,
     );
     return _result(
       downloadUrl: url,

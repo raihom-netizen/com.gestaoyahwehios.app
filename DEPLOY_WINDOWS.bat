@@ -7,7 +7,7 @@ firebase use gestaoyahweh-21e23
 REM ====== Build Flutter Web (atualiza a pasta flutter_app\build\web) ======
 cd flutter_app
 flutter pub get
-flutter build web --release
+flutter build web --release --no-tree-shake-icons
 cd ..
 
 cd functions

@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart' show NetworkImageLoadException;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -22,6 +24,9 @@ import 'ui/pages/cadastro_usuario_page.dart';
 import 'ui/pages/usuarios_permissoes_page.dart';
 import 'ui/pages/aprovar_membros_pendentes_page.dart';
 import 'ui/auth_gate.dart';
+import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
+    show kChurchShellIndexMySchedules;
 import 'ui/church_public_page.dart';
 import 'ui/pages/public_member_signup_page.dart';
 import 'ui/pages/public_carteirinha_consulta_page.dart';
@@ -46,8 +51,26 @@ import 'package:gestao_yahweh/window_close_handler_stub.dart'
 import 'package:gestao_yahweh/core/app_scroll_behavior.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
+import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:gestao_yahweh/core/firestore_app_config.dart';
+import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
+    if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
+
+/// Erros de carregamento de imagem/rede viram [FlutterError] com mensagem tipo "HTTP request failed..."
+/// e não indicam falha do Firestore. Registrar como **não fatal** evita ruído no Crashlytics.
+bool _crashlyticsFlutterErrorLikelyBenignNetwork(FlutterErrorDetails details) {
+  final ex = details.exception;
+  if (ex is NetworkImageLoadException) return true;
+  final msg = details.exceptionAsString().toLowerCase();
+  if (msg.contains('http request failed')) return true;
+  if (msg.contains('http request') && msg.contains('statuscode')) return true;
+  return false;
+}
 
 /// Salva a rota atual para, ao reabrir o app pelo ícone, abrir onde parou (evita tela preta).
 class _LastRouteObserver extends NavigatorObserver {
@@ -326,8 +349,9 @@ String? _extractChurchSlugFromHost(String host) {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Cache de imagem: um pouco acima do padrão — listas com fotos (membros, mural).
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 120 << 20;
-  PaintingBinding.instance.imageCache.maximumSize = 220;
+  // Mais fotos em RAM (logos, mural, membros) = menos decode repetido ao navegar.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 140 << 20;
+  PaintingBinding.instance.imageCache.maximumSize = 280;
   initUrlStrategy();
 
   // Mesmo padrão do Controle Total: iPhone (todas as versões) e Android
@@ -356,6 +380,7 @@ void main() async {
   } catch (e) {
     // Firebase já inicializado
   }
+  ensureBrasiliaTimeZoneInitialized();
   await PublicSiteAnalytics.ensureInitialized();
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
@@ -365,11 +390,50 @@ void main() async {
     await FirebaseCrashlytics.instance
         .setCrashlyticsCollectionEnabled(kReleaseMode);
     FlutterError.onError = (FlutterErrorDetails details) {
-      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-      FlutterError.presentError(details);
+      // [recordFlutterError] pode falhar em cenários raros (ex.: informação do framework);
+      // garantimos que o erro original ainda chega ao Crashlytics.
+      Future<void> fallbackChain(Object e, StackTrace st) async {
+        try {
+          await FirebaseCrashlytics.instance.recordError(
+            Exception(
+              '${details.exceptionAsString()} | crashlytics_report: $e',
+            ),
+            details.stack ?? st,
+            fatal: !_crashlyticsFlutterErrorLikelyBenignNetwork(details),
+          );
+        } catch (_) {}
+      }
+
+      try {
+        if (_crashlyticsFlutterErrorLikelyBenignNetwork(details)) {
+          FirebaseCrashlytics.instance
+              .recordFlutterError(details, fatal: false)
+              .catchError((Object e, StackTrace st) {
+            unawaited(fallbackChain(e, st));
+          });
+        } else {
+          FirebaseCrashlytics.instance
+              .recordFlutterFatalError(details)
+              .catchError((Object e, StackTrace st) {
+            unawaited(fallbackChain(e, st));
+          });
+        }
+      } catch (e, st) {
+        unawaited(fallbackChain(e, st));
+      }
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      try {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      } catch (e) {
+        try {
+          FirebaseCrashlytics.instance.recordError(
+            Exception('zone_error: $error | crashlytics_wrap: $e'),
+            stack,
+            fatal: true,
+          );
+        } catch (_) {}
+      }
       return true;
     };
   }
@@ -383,15 +447,10 @@ void main() async {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     } catch (_) {}
   }
-  try {
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      // Cache maior = mais dados disponíveis offline e menos leituras repetidas (painel / relatórios).
-      cacheSizeBytes: 150 * 1024 * 1024,
-    );
-  } catch (_) {}
+  configureFirestoreForOfflineAndSpeed();
   try {
     await AppConnectivityService.instance.start();
+    StorageUploadQueueService.instance.start();
   } catch (_) {}
   String initialRoute =
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';
@@ -461,9 +520,15 @@ void main() async {
       initialRoute = '/login';
     }
   }
+  await initializeDateFormatting('pt_BR', null);
   runApp(UpdateChecker(
     child: _AppWithTheme(initialRoute: initialRoute),
   ));
+  if (kIsWeb) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(DomainDailyHitService.recordIfEligible());
+    });
+  }
 }
 
 class _AppWithTheme extends StatefulWidget {
@@ -475,14 +540,35 @@ class _AppWithTheme extends StatefulWidget {
   State<_AppWithTheme> createState() => _AppWithThemeState();
 }
 
-class _AppWithThemeState extends State<_AppWithTheme> {
+class _AppWithThemeState extends State<_AppWithTheme>
+    with WidgetsBindingObserver {
   late final ThemeModeProvider _themeProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
+  Timer? _webResumeRepaintDebounce;
   void _onThemeChanged() => setState(() {});
+
+  /// Web/PWA (CanvasKit): ao voltar de outro app, o canvas pode ficar preto até recompositor.
+  void _repaintAfterWebResume() {
+    _webResumeRepaintDebounce?.cancel();
+    _webResumeRepaintDebounce = Timer(const Duration(milliseconds: 16), () {
+      if (!mounted) return;
+      setState(() {});
+      SchedulerBinding.instance.scheduleFrame();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          SchedulerBinding.instance.scheduleFrame();
+        }
+      });
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (kIsWeb) {
+      registerWebResumeRepaint(_repaintAfterWebResume);
+    }
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -492,8 +578,21 @@ class _AppWithThemeState extends State<_AppWithTheme> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _webResumeRepaintDebounce?.cancel();
+    if (kIsWeb) {
+      unregisterWebResumeRepaint();
+    }
     _themeProvider.removeListener(_onThemeChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (kIsWeb && state == AppLifecycleState.resumed) {
+      _repaintAfterWebResume();
+    }
   }
 
   @override
@@ -744,9 +843,23 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                 case '/painel': {
                   final openMember =
                       uri.queryParameters['openMemberId']?.trim() ?? '';
+                  final openMod =
+                      uri.queryParameters['openModule']?.trim().toLowerCase() ??
+                          '';
+                  int? shellFromQuery;
+                  if (openMod == 'minha_escala' ||
+                      openMod == 'my_schedules' ||
+                      openMod == 'minhaescala') {
+                    shellFromQuery = kChurchShellIndexMySchedules;
+                  } else if (openMod == 'escala_geral' ||
+                      openMod == 'schedules' ||
+                      openMod == 'escalas') {
+                    shellFromQuery = kChurchShellIndexEscalaGeral;
+                  }
                   pagina = AuthGate(
                     initialOpenMemberDocId:
                         openMember.isEmpty ? null : openMember,
+                    initialShellIndex: shellFromQuery,
                   );
                   break;
                 }
@@ -782,9 +895,12 @@ class _AppWithThemeState extends State<_AppWithTheme> {
                   );
                   break;
                 case '/termos-de-uso':
+                case '/termos':
+                case '/termodeuso':
                   pagina = const TermosDeUsoPage();
                   break;
                 case '/politica-de-privacidade':
+                case '/privacidade':
                   pagina = const PoliticaPrivacidadePage();
                   break;
                 default:

@@ -1,7 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/global_announcement_overlay.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Aviso global / manutenção / promoção temporária para todas as igrejas.
@@ -24,6 +28,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
   final _primaryLabelCtrl = TextEditingController();
   final _secondaryUrlCtrl = TextEditingController();
   final _secondaryLabelCtrl = TextEditingController();
+  final _androidUrlCtrl = TextEditingController();
+  final _iosUrlCtrl = TextEditingController();
 
   bool _loading = true;
   String? _error;
@@ -41,6 +47,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     _primaryLabelCtrl.dispose();
     _secondaryUrlCtrl.dispose();
     _secondaryLabelCtrl.dispose();
+    _androidUrlCtrl.dispose();
+    _iosUrlCtrl.dispose();
     super.dispose();
   }
 
@@ -63,6 +71,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         _primaryLabelCtrl.text = (d['primaryButtonLabel'] ?? '').toString();
         _secondaryUrlCtrl.text = (d['secondaryButtonUrl'] ?? '').toString();
         _secondaryLabelCtrl.text = (d['secondaryButtonLabel'] ?? '').toString();
+        _androidUrlCtrl.text = (d['androidButtonUrl'] ?? '').toString();
+        _iosUrlCtrl.text = (d['iosButtonUrl'] ?? '').toString();
         final k = (d['kind'] ?? 'info').toString().trim().toLowerCase();
         setState(() {
           _validUntil = v?.toDate();
@@ -117,6 +127,12 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'secondaryButtonLabel': _secondaryLabelCtrl.text.trim().isEmpty
             ? FieldValue.delete()
             : _secondaryLabelCtrl.text.trim(),
+        'androidButtonUrl': _androidUrlCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _androidUrlCtrl.text.trim(),
+        'iosButtonUrl': _iosUrlCtrl.text.trim().isEmpty
+            ? FieldValue.delete()
+            : _iosUrlCtrl.text.trim(),
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -138,6 +154,10 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
             _secondaryUrlCtrl.text.trim().isEmpty ? null : _secondaryUrlCtrl.text.trim(),
         'secondaryButtonLabel':
             _secondaryLabelCtrl.text.trim().isEmpty ? null : _secondaryLabelCtrl.text.trim(),
+        'androidButtonUrl':
+            _androidUrlCtrl.text.trim().isEmpty ? null : _androidUrlCtrl.text.trim(),
+        'iosButtonUrl':
+            _iosUrlCtrl.text.trim().isEmpty ? null : _iosUrlCtrl.text.trim(),
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
         'revision': rev,
@@ -194,6 +214,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'primaryButtonLabel': FieldValue.delete(),
         'secondaryButtonUrl': FieldValue.delete(),
         'secondaryButtonLabel': FieldValue.delete(),
+        'androidButtonUrl': FieldValue.delete(),
+        'iosButtonUrl': FieldValue.delete(),
         'validUntil': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
@@ -236,6 +258,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     _primaryLabelCtrl.text = (d['primaryButtonLabel'] ?? '').toString();
     _secondaryUrlCtrl.text = (d['secondaryButtonUrl'] ?? '').toString();
     _secondaryLabelCtrl.text = (d['secondaryButtonLabel'] ?? '').toString();
+    _androidUrlCtrl.text = (d['androidButtonUrl'] ?? '').toString();
+    _iosUrlCtrl.text = (d['iosButtonUrl'] ?? '').toString();
     final k = (d['kind'] ?? 'info').toString().trim().toLowerCase();
     final vu = d['validUntil'];
     setState(() {
@@ -353,44 +377,69 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         child: ListView(
           padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: ThemeCleanPremium.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  ),
-                  child: Icon(Icons.campaign_rounded, size: 28, color: ThemeCleanPremium.primary),
+            Container(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    Color.lerp(ThemeCleanPremium.primary, ThemeCleanPremium.primaryLight, 0.45)!,
+                    ThemeCleanPremium.primaryLight,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                const SizedBox(width: ThemeCleanPremium.spaceSm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Avisos, manutenção e promoções',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              fontSize: isMobile ? 20 : 22,
-                              color: ThemeCleanPremium.onSurface,
-                            ) ??
-                            const TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: ThemeCleanPremium.onSurface),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Uma mensagem por vez para todos ao entrarem no painel. Use tipo e cores automáticas, links https no texto (clicáveis) e botões extras para site ou oferta. Cada nova revisão reexibe para quem já tinha fechado.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                          height: 1.4,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                    ),
+                    child: const Icon(Icons.campaign_rounded, size: 28, color: Colors.white),
+                  ),
+                  const SizedBox(width: ThemeCleanPremium.spaceMd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Avisos, manutenção e promoções',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 20 : 22,
+                            color: Colors.white,
+                            height: 1.2,
+                            letterSpacing: -0.35,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        Text(
+                          'Uma mensagem por vez ao entrar no painel. O tipo define cores no cartão; links http(s) ou com domínio no texto abrem no navegador; use os botões para checkout ou site. Nova revisão reexibe para quem já tinha fechado.',
+                          style: GoogleFonts.inter(
+                            fontSize: 13.5,
+                            color: Colors.white.withValues(alpha: 0.94),
+                            height: 1.45,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceXl),
             if (_loading)
@@ -456,7 +505,15 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                         if (s.isEmpty) return;
                         setState(() => _kind = s.first);
                       },
-                      style: ButtonStyle(
+                      style: SegmentedButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.onSurface,
+                        selectedForegroundColor: Colors.white,
+                        selectedBackgroundColor: ThemeCleanPremium.primary,
+                        side: BorderSide(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                          width: 1.2,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                         visualDensity: VisualDensity.compact,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
@@ -491,7 +548,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Cole endereços https://… no texto; no painel ficam clicáveis. Ex.: veja detalhes em https://exemplo.com/oferta',
+                      'Inclua links completos (https://…) ou domínios com ponto (ex.: mercadopago.com.br/…); no painel ficam clicáveis no celular e na web.',
                       style: TextStyle(
                         fontSize: 12,
                         color: ThemeCleanPremium.onSurfaceVariant,
@@ -508,6 +565,62 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                         filled: true,
                         fillColor: ThemeCleanPremium.surfaceVariant,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _messageCtrl,
+                      builder: (context, value, _) {
+                        final t = value.text.trim();
+                        if (t.isEmpty) return const SizedBox.shrink();
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                          decoration: BoxDecoration(
+                            color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                            border: Border.all(
+                              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Pré-visualização (como no painel)',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Linkify(
+                                text: t,
+                                linkifiers: kGlobalAnnouncementLinkifiers,
+                                onOpen: (link) =>
+                                    openHttpsUrlInBrowser(context, link.url),
+                                options: kGlobalAnnouncementLinkifyOptions,
+                                useMouseRegion: true,
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  color: ThemeCleanPremium.onSurface,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                linkStyle: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  color: ThemeCleanPremium.primary,
+                                  fontWeight: FontWeight.w800,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Text(
@@ -568,6 +681,48 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                       decoration: InputDecoration(
                         labelText: '2º botão — URL',
                         hintText: 'https://…',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    Text(
+                      'Links por plataforma (Android/iPhone)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Quando preenchidos, aparecem como botões dedicados no aviso (clicáveis no Android, iPhone e Web).',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _androidUrlCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: 'Link Android (Play Store/APK)',
+                        hintText: 'https://play.google.com/store/apps/details?id=...',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.surfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _iosUrlCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: 'Link iPhone (App Store)',
+                        hintText: 'https://apps.apple.com/app/id...',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                         filled: true,
                         fillColor: ThemeCleanPremium.surfaceVariant,

@@ -7,8 +7,10 @@ IconData? churchDepartmentFaIcon(String iconKey) {
     case 'pastoral':
       return FontAwesomeIcons.cross;
     case 'louvor':
+    case 'worship':
       return FontAwesomeIcons.music;
     case 'jovens':
+    case 'youth':
       return FontAwesomeIcons.bolt;
     case 'criancas':
     case 'kids':
@@ -32,6 +34,25 @@ IconData? churchDepartmentFaIcon(String iconKey) {
     case 'varoes':
     case 'men':
       return FontAwesomeIcons.mars;
+    case 'diaconal':
+      return FontAwesomeIcons.handHoldingHeart;
+    case 'mulheres':
+    case 'women':
+      return FontAwesomeIcons.venus;
+    case 'missionarios':
+      return FontAwesomeIcons.earthAmericas;
+    case 'obreiros':
+      return FontAwesomeIcons.helmetSafety;
+    case 'comunicacao':
+      return FontAwesomeIcons.towerBroadcast;
+    case 'presbiteros':
+      return FontAwesomeIcons.scaleBalanced;
+    case 'secretarios':
+      return FontAwesomeIcons.fileLines;
+    case 'social':
+      return FontAwesomeIcons.handHoldingHeart;
+    case 'auxiliares':
+      return FontAwesomeIcons.handshakeAngle;
     default:
       return null;
   }

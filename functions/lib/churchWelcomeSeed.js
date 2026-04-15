@@ -41,6 +41,7 @@ exports.ensureChurchWelcomeSeed = ensureChurchWelcomeSeed;
  * Idempotente: só grava se subcoleções estiverem vazias.
  */
 const admin = __importStar(require("firebase-admin"));
+const churchMercadoPago_1 = require("./churchMercadoPago");
 const WELCOME_DEPARTMENTS = [
     { docId: "pastoral", name: "Pastoral", iconKey: "pastoral", bgColor1: 0xff0d47a1, bgColor2: 0xff1976d2, description: "Direção espiritual e pastoreio", sortOrder: 0 },
     { docId: "louvor", name: "Louvor", iconKey: "louvor", bgColor1: 0xffff6f00, bgColor2: 0xffffa726, description: "Adoração e ministério de música", sortOrder: 1 },
@@ -129,6 +130,15 @@ async function ensureChurchWelcomeSeed(firestore, tenantId) {
         }
         await batch.commit();
         console.log(`ensureChurchWelcomeSeed: ${cargosCreated} cargo(s) em igrejas/${tid}/cargos`);
+    }
+    try {
+        const ok = await (0, churchMercadoPago_1.ensureMercadoPagoContaForNewChurch)(tid);
+        if (ok) {
+            console.log(`ensureChurchWelcomeSeed: conta Mercado Pago criada em igrejas/${tid}/contas/mercado_pago`);
+        }
+    }
+    catch (e) {
+        console.warn("ensureChurchWelcomeSeed ensureMercadoPagoContaForNewChurch:", e);
     }
     return { departmentsCreated, cargosCreated };
 }

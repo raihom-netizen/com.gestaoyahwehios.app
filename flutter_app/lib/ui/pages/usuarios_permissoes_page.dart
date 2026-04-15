@@ -84,10 +84,12 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
   }
 
   static const List<(String key, String label)> _moduleOptions = [
+    ('eventos', 'Eventos / mural de publicações'),
     ('membros', 'Membros'),
     ('departamentos', 'Departamentos'),
     ('financeiro', 'Financeiro'),
     ('patrimonio', 'Patrimônio'),
+    ('fornecedores', 'Fornecedores'),
     ('certificados', 'Certificados'),
     ('escalas', 'Escalas'),
     ('relatorios', 'Relatórios'),

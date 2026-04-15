@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
 /// Lista todos os planos oficiais (mesma lista do painel divulgação e painel igreja).
 /// Permite ao master editar preço mensal e anual; grava em config/plans/items/{planId}.
@@ -68,8 +69,10 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
             : plan.annualPrice;
         _priceMonthly[plan.id] = m;
         _priceAnnual[plan.id] = a;
-        _controllersMonthly[plan.id] = TextEditingController(text: m?.toStringAsFixed(2) ?? '');
-        _controllersAnnual[plan.id] = TextEditingController(text: a?.toStringAsFixed(2) ?? '');
+        _controllersMonthly[plan.id] = TextEditingController(
+            text: m != null && m > 0 ? formatBrCurrencyInitial(m) : '');
+        _controllersAnnual[plan.id] = TextEditingController(
+            text: a != null && a > 0 ? formatBrCurrencyInitial(a) : '');
       }
     } catch (e) {
       _err = e.toString();
@@ -82,8 +85,9 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
     final ctrlM = _controllersMonthly[id];
     final ctrlA = _controllersAnnual[id];
     if (ctrlM == null || ctrlA == null) return;
-    final valorM = double.tryParse(ctrlM.text.replaceAll(',', '.')) ?? 0;
-    final valorA = double.tryParse(ctrlA.text.replaceAll(',', '.'));
+    final valorM = parseBrCurrencyInput(ctrlM.text);
+    final ar = ctrlA.text.trim();
+    final valorA = ar.isEmpty ? null : parseBrCurrencyInput(ctrlA.text);
     await FirebaseFirestore.instance
         .collection('config')
         .doc('plans')
@@ -167,7 +171,8 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                                   Expanded(
                                     child: TextField(
                                       controller: ctrlM,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [BrCurrencyInputFormatter()],
                                       decoration: const InputDecoration(
                                         labelText: 'Mensal (R\$)',
                                         isDense: true,
@@ -179,7 +184,8 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                                   Expanded(
                                     child: TextField(
                                       controller: ctrlA,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [BrCurrencyInputFormatter()],
                                       decoration: const InputDecoration(
                                         labelText: 'Anual (R\$)',
                                         isDense: true,

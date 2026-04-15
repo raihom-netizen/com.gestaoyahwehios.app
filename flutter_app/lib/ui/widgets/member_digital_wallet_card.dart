@@ -1,10 +1,9 @@
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
-import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -23,13 +22,24 @@ abstract final class DigitalWalletCardLayout {
   static double cardHeight(double width) => width / aspect;
 }
 
+String _normFiliacaoNome(String s) =>
+    s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
 /// Filiação para o verso da carteirinha (mesma lógica usada no cadastro de membros).
+/// Evita repetir o nome da mãe quando o campo do pai está vazio/errado ou duplicado.
 String walletFiliacaoFromMember(Map<String, dynamic> member) {
   final pai =
       (member['FILIACAO_PAI'] ?? member['filiacaoPai'] ?? '').toString().trim();
   final mae =
       (member['FILIACAO_MAE'] ?? member['filiacaoMae'] ?? '').toString().trim();
   final leg = (member['FILIACAO'] ?? member['filiacao'] ?? '').toString().trim();
+
+  final np = _normFiliacaoNome(pai);
+  final nm = _normFiliacaoNome(mae);
+
+  if (np.isNotEmpty && nm.isNotEmpty && np == nm) {
+    return 'Mãe: $mae';
+  }
   if (pai.isNotEmpty && mae.isNotEmpty) {
     return 'Pai: $pai / Mãe: $mae';
   }
@@ -84,6 +94,34 @@ class _SubtleCredentialWatermark extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Faixa superior em gradiente (identidade visual mais atual).
+class _WalletTopAccent extends StatelessWidget {
+  final Color accentGold;
+
+  const _WalletTopAccent({required this.accentGold});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 3,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              accentGold.withValues(alpha: 0.95),
+              accentGold.withValues(alpha: 0.42),
+              Colors.white.withValues(alpha: 0.5),
             ],
           ),
         ),
@@ -154,6 +192,12 @@ class MemberDigitalWalletFront extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final h = DigitalWalletCardLayout.cardHeight(width);
+    // Quadrado branco mais compacto; a logo preenche o interior (FittedBox abaixo).
+    final logoBox = math
+        .min(width * 0.27, math.min(h * 0.31, 100.0))
+        .clamp(56.0, 100.0);
+    final logoPad = 3.0;
+    final logoInner = (logoBox - logoPad * 2).clamp(40.0, 200.0);
     return Container(
       width: width,
       height: h,
@@ -166,8 +210,7 @@ class MemberDigitalWalletFront extends StatelessWidget {
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
         border: Border.all(
-          color: CarteirinhaVisualTokens.accentGoldFlutter
-              .withValues(alpha: 0.88),
+          color: accentGold.withValues(alpha: 0.88),
           width: 1,
         ),
       ),
@@ -176,6 +219,7 @@ class MemberDigitalWalletFront extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
+            _WalletTopAccent(accentGold: accentGold),
             Positioned(
               right: -8,
               top: -8,
@@ -195,8 +239,8 @@ class MemberDigitalWalletFront extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: logoBox,
+                        height: logoBox,
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.94),
                           borderRadius: BorderRadius.circular(10),
@@ -208,8 +252,16 @@ class MemberDigitalWalletFront extends StatelessWidget {
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.all(4),
-                        child: Center(child: logoSlot),
+                        padding: EdgeInsets.all(logoPad),
+                        child: SizedBox(
+                          width: logoInner,
+                          height: logoInner,
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            alignment: Alignment.center,
+                            child: logoSlot,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -428,7 +480,7 @@ class _WalletSigImage extends StatelessWidget {
   }
 }
 
-/// Verso: dados secundários, validade em destaque, QR, assinatura.
+/// Verso: dados secundários, validade em destaque, telefone, e-mail, assinatura.
 class MemberDigitalWalletBack extends StatelessWidget {
   final double width;
   final Color colorA;
@@ -440,11 +492,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final String nascimento;
   final String filiacaoPaiMae;
   final String validade;
-  final String validationUrl;
+  final String telefone;
+  final String email;
   final String? signatureImageUrl;
   final String signatoryName;
   final String signatoryCargo;
-  final String congregacao;
   final String fraseRodape;
 
   const MemberDigitalWalletBack({
@@ -459,11 +511,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.nascimento,
     required this.filiacaoPaiMae,
     required this.validade,
-    required this.validationUrl,
+    required this.telefone,
+    required this.email,
     required this.signatureImageUrl,
     required this.signatoryName,
     required this.signatoryCargo,
-    this.congregacao = '',
     this.fraseRodape = '',
   });
 
@@ -482,8 +534,7 @@ class MemberDigitalWalletBack extends StatelessWidget {
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
         border: Border.all(
-          color: CarteirinhaVisualTokens.accentGoldFlutter
-              .withValues(alpha: 0.88),
+          color: accentGold.withValues(alpha: 0.88),
           width: 1,
         ),
       ),
@@ -492,6 +543,7 @@ class MemberDigitalWalletBack extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
+            _WalletTopAccent(accentGold: accentGold),
             const _SubtleCredentialWatermark(),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -545,75 +597,22 @@ class MemberDigitalWalletBack extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Expanded(
-                    child: Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          flex: 3,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _miniField('CPF', cpfOrDoc, textColor),
-                              _miniField('Nascimento', nascimento, textColor),
-                              _miniField(
-                                  'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),
-                              _miniField('Congregação', congregacao, textColor),
-                              const Spacer(),
-                              WalletSignatureStrip(
-                                imageUrl: signatureImageUrl,
-                                signatoryName: signatoryName,
-                                signatoryCargo: signatoryCargo,
-                                lineColor: textColor,
-                                textColor: textColor,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          flex: 2,
-                          child: Column(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.08),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: QrImageView(
-                                  data: validationUrl,
-                                  errorCorrectionLevel: QrErrorCorrectLevel.H,
-                                  size: width * 0.22,
-                                  backgroundColor: Colors.white,
-                                  eyeStyle: const QrEyeStyle(
-                                    eyeShape: QrEyeShape.square,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                  dataModuleStyle: const QrDataModuleStyle(
-                                    dataModuleShape: QrDataModuleShape.square,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Validar credencial',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 7,
-                                  fontWeight: FontWeight.w600,
-                                  color: textColor.withValues(alpha: 0.85),
-                                ),
-                              ),
-                            ],
-                          ),
+                        _miniField('CPF', cpfOrDoc, textColor),
+                        _miniField('Nascimento', nascimento, textColor),
+                        _miniField(
+                            'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),
+                        _miniField('Telefone', telefone, textColor),
+                        _miniField('E-mail', email, textColor),
+                        const Spacer(),
+                        WalletSignatureStrip(
+                          imageUrl: signatureImageUrl,
+                          signatoryName: signatoryName,
+                          signatoryCargo: signatoryCargo,
+                          lineColor: textColor,
+                          textColor: textColor,
                         ),
                       ],
                     ),

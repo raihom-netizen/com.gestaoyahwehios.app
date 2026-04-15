@@ -103,6 +103,40 @@ class AppPermissions {
     return false;
   }
 
+  /// Fornecedores/prestadores — granular `fornecedores`, flag no membro, ou mesmo critério do financeiro (tesoureiro, etc.).
+  static bool canViewFornecedores(
+    String role, {
+    bool? memberCanViewFinance,
+    bool? memberCanViewFornecedores,
+    List<String>? permissions,
+  }) {
+    if (hasModulePermission(permissions, 'fornecedores')) return true;
+    final r = role.toLowerCase();
+    if (r == AppRoles.membro && memberCanViewFornecedores == true) return true;
+    return canViewFinance(
+      role,
+      memberCanViewFinance: memberCanViewFinance,
+      permissions: permissions,
+    );
+  }
+
+  /// Módulo Certificados (emissão / histórico) — não para papel [membro] básico.
+  /// Acesso: ADM, gestor, secretário, pastor, etc. (editAnyMember), tesoureiro(a), ou permissão `certificados`.
+  static bool canAccessCertificados(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'certificados')) return true;
+    final s = ChurchRolePermissions.snapshotFor(role);
+    final r = role.toLowerCase();
+    if (s.restrictedNav) return false;
+    if (r == AppRoles.tesouraria || r == AppRoles.tesoureiro) return true;
+    return s.editAnyMember || s.approvePendingMembers;
+  }
+
+  /// Cartas de apresentação / transferência (PDF) — mesmo perfil que certificados ou chave `cartas_transferencias`.
+  static bool canAccessChurchLetters(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'cartas_transferencias')) return true;
+    return canAccessCertificados(role, permissions: permissions);
+  }
+
   /// Converter visitante em membro: equipe com cadastro — não o papel [membro].
   static bool canConvertVisitorToMember(String role) {
     final s = ChurchRolePermissions.snapshotFor(role);
@@ -129,9 +163,65 @@ class AppPermissions {
   static bool isRestrictedMember(String role) =>
       ChurchRolePermissions.snapshotFor(role).restrictedNav;
 
+  /// Configurações de integração bancária / Mercado Pago na igreja — só gestores, tesouraria ou permissão granular `configuracoes_banco`.
+  /// Membro restrito não vê salvo o gestor conceder a chave em [permissions] no cadastro.
+  static bool canViewChurchMercadoPagoSettings(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'configuracoes_banco')) return true;
+    if (isRestrictedMember(role)) return false;
+    final r = role.toLowerCase();
+    return AppRoles.isFullAccess(role) || r == AppRoles.tesoureiro || r == AppRoles.tesouraria;
+  }
+
+  /// Relatórios PDF completos (membros, aniversariantes, etc.). Perfil restrito: só [Relatório de Eventos], salvo
+  /// permissão granular `relatorios` ou `podeEmitirRelatoriosCompletos` no cadastro do membro (gestor).
+  static bool canEmitFullChurchReports(
+    String role, {
+    bool? memberCanEmitFullReports,
+    List<String>? permissions,
+  }) {
+    final s = ChurchRolePermissions.snapshotFor(role);
+    if (!s.restrictedNav) return true;
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (memberCanEmitFullReports == true) return true;
+    return false;
+  }
+
   // Módulo departamentos (hub, kit, vínculos) — papel + módulo granular `departamentos`.
   static bool canEditDepartments(String role, {List<String>? permissions}) {
     if (hasModulePermission(permissions, 'departamentos')) return true;
     return ChurchRolePermissions.snapshotFor(role).editDepartments;
+  }
+
+  /// Despesa acima do limite exige segunda aprovação (tesoureiro/líder não “auto-aprovam”).
+  static bool despesaFinanceiraExigeSegundaAprovacao(String? role) {
+    if (role == null) return true;
+    final r = role.toLowerCase();
+    if (r == 'gestor' ||
+        r == 'adm' ||
+        r == 'admin' ||
+        r == 'master' ||
+        r == 'pastor_presidente' ||
+        r == 'pastor' ||
+        r == 'pastora') {
+      return false;
+    }
+    return true;
+  }
+
+  /// Quem pode aprovar uma despesa pendente (`aprovacaoPendente`).
+  static bool canApproveFinanceDespesaPendente(String role) {
+    if (!canViewFinance(role)) return false;
+    final s = ChurchRolePermissions.snapshotFor(role);
+    final r = role.toLowerCase();
+    if (s.editAnyMember || s.approvePendingMembers) return true;
+    if (r == 'tesoureiro' || r == 'tesouraria') return true;
+    return false;
+  }
+
+  /// Limite de aprovação e orçamentos por categoria (`config/finance_settings`).
+  static bool canManageFinanceTenantSettings(String role) {
+    if (!canViewFinance(role)) return false;
+    if (canApproveFinanceDespesaPendente(role)) return true;
+    return !despesaFinanceiraExigeSegundaAprovacao(role);
   }
 }

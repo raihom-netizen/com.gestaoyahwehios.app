@@ -18,6 +18,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_role_extensions.dart';
@@ -25,6 +26,8 @@ import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
+    show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         ResilientNetworkImage,
@@ -48,6 +51,7 @@ import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
@@ -64,10 +68,12 @@ import '../../services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_page.dart';
+import 'change_password_page.dart';
 import 'public_member_signup_page.dart';
 import 'internal_new_member_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
+import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
 
 class MembersPage extends StatefulWidget {
   final String tenantId;
@@ -138,14 +144,17 @@ class _MembersPageState extends State<MembersPage> {
   String _q = '';
   Timer? _searchDebounce;
   late final TextEditingController _searchCtrl;
+  final ScrollController _membersScrollController = ScrollController();
   bool _didBootstrapOpenMemberSheet = false;
   bool _linkCardExpanded = false;
 
-  /// Expandido por defeito: filtros (género, idade, dept., etc.) ficam visíveis sem toque extra.
-  bool _filtrosExpanded = true;
+  /// Legado (acordeões removidos — mantido para não quebrar saves de estado).
+  bool _filtrosExpanded = false;
+  bool _buscaRapidosExpanded = false;
+  bool _funcoesPermExpanded = false;
 
-  /// Busca + abas Todos/Ativos/Inativos/Pendentes — recolher libera espaço para a lista (web e celular).
-  bool _buscaRapidosExpanded = true;
+  /// 0 = lista + filtros; 1 = painel estatístico (gráficos e números).
+  int _membersMainTabIndex = 0;
 
   /// Tenant ID efetivo (documento em tenants): resolvido por slug/alias quando o usuário tem igreja "Brasil para Cristo" etc.
   String? _resolvedTenantId;
@@ -282,6 +291,9 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Foto recém-enviada por membro — cobre atraso do servidor e merge que mantinha URL antiga (ex.: Google).
   final Map<String, String> _uploadedPhotoUrls = {};
+
+  /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
+  final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
   static const int _membersPageSize = 20;
   int _membersVisibleCount = _membersPageSize;
 
@@ -303,9 +315,11 @@ class _MembersPageState extends State<MembersPage> {
     return age;
   }
 
-  List<_MemberDoc> _aplicarFiltros(List<_MemberDoc> docs) {
+  /// [applySearch] false = painel estatístico ignora a caixa de busca (lista continua a usar).
+  List<_MemberDoc> _aplicarFiltros(List<_MemberDoc> docs,
+      {bool applySearch = true}) {
     var out = docs;
-    if (_q.isNotEmpty) {
+    if (applySearch && _q.isNotEmpty) {
       final qDigits = _q.replaceAll(RegExp(r'\D'), '');
       out = out.where((d) {
         final m = d.data;
@@ -523,6 +537,7 @@ class _MembersPageState extends State<MembersPage> {
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
+    _membersScrollController.dispose();
     super.dispose();
   }
 
@@ -725,6 +740,46 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
 
+    final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
+        !AppPermissions.canEditAnyChurchMember(widget.role);
+    QuerySnapshot<Map<String, dynamic>> pendenteOut = pendenteSnap;
+    if (selfOnlyMemberList) {
+      bool keepSelf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid == null) return false;
+        if (d.id == uid) return true;
+        final data = d.data();
+        final authUid = (data['authUid'] ?? '').toString().trim();
+        if (authUid.isNotEmpty && authUid == uid) return true;
+        final cpfDigits =
+            (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+        if (cpfDigits.length == 11) {
+          final idDigits = d.id.replaceAll(RegExp(r'\D'), '');
+          if (idDigits == cpfDigits) return true;
+          final cpfDoc = (data['CPF'] ?? data['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'\D'), '');
+          if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
+        }
+        return false;
+      }
+
+      mergedMembers.retainWhere(keepSelf);
+      mergedMembros.retainWhere(keepSelf);
+      mergedIgrejasMembers.retainWhere(keepSelf);
+      mergedIgrejasMembros.retainWhere(keepSelf);
+      final cu = FirebaseAuth.instance.currentUser?.uid;
+      if (cu != null) {
+        mergedUsersT.retainWhere((d) => d.id == cu);
+        mergedUsersI.retainWhere((d) => d.id == cu);
+      } else {
+        mergedUsersT.clear();
+        mergedUsersI.clear();
+      }
+      pendenteOut =
+          _MergedQuerySnapshot(pendenteSnap.docs.where(keepSelf).toList());
+    }
+
     return [
       _MergedQuerySnapshot(mergedMembers),
       _MergedQuerySnapshot(mergedMembros),
@@ -732,21 +787,312 @@ class _MembersPageState extends State<MembersPage> {
       _MergedQuerySnapshot(mergedIgrejasMembros),
       _MergedQuerySnapshot(mergedUsersT),
       _MergedQuerySnapshot(mergedUsersI),
-      pendenteSnap,
+      pendenteOut,
     ];
   }
 
-  /// Remove foto principal (URL no Firestore), variantes e ficheiros em `membros/` / `members/` antes de novo upload.
-  Future<void> _deleteFirebaseBeforeMemberPhotoReplace(
-    Map<String, dynamic> data, {
-    required String tenantId,
-    required String memberId,
-  }) async {
-    await FirebaseStorageCleanupService
-        .deleteMemberProfilePhotoArtifactsBeforeReplace(
-      tenantId: tenantId,
-      memberId: memberId,
-      data: data,
+  /// Abre a lista em rota fullscreen (root) com botão Voltar aos filtros — melhor no telemóvel.
+  void _recolherFiltrosMembros(
+      MembersLimitResult? limitResult, bool addBlocked) {
+    _openMembersFullscreenList(limitResult, addBlocked);
+  }
+
+  Future<void> _showAdvancedFiltersSheet(EdgeInsets padding) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: ThemeCleanPremium.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.4,
+          maxChildSize: 0.94,
+          builder: (context, scrollCtrl) {
+            return SingleChildScrollView(
+              controller: scrollCtrl,
+              padding: EdgeInsets.fromLTRB(
+                padding.left,
+                12,
+                padding.right,
+                12 + MediaQuery.paddingOf(context).bottom,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.tune_rounded,
+                          color: ThemeCleanPremium.primary, size: 26),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Filtros avançados',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Gênero, faixa etária, cadastro, departamento e aniversário.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildFiltrosSection(padding),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showLinkCadastroSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: ThemeCleanPremium.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          ThemeCleanPremium.pagePadding(ctx).left,
+          8,
+          ThemeCleanPremium.pagePadding(ctx).right,
+          16 + MediaQuery.paddingOf(ctx).bottom,
+        ),
+        child: _LinkCadastroPublicoCard(
+          tenantId: _effectiveTenantId,
+          role: widget.role,
+        ),
+      ),
+    );
+  }
+
+  /// Faixa única: busca + ações + status — ultra premium, uma linha (com scroll horizontal no estreito).
+  Widget _buildMembersUltraFilterStrip(
+    EdgeInsets padding, {
+    required MembersLimitResult? limitResult,
+    required bool addBlocked,
+  }) {
+    final adv = _advancedFiltersActiveCount;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white,
+                  ThemeCleanPremium.primary.withValues(alpha: 0.04),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final narrow = c.maxWidth < 720;
+                final row = Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: _buildPremiumSearchField(EdgeInsets.zero),
+                    ),
+                    const SizedBox(width: 6),
+                    Badge(
+                      isLabelVisible: adv > 0,
+                      label: Text('$adv',
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w800)),
+                      child: IconButton.filledTonal(
+                        onPressed: () =>
+                            unawaited(_showAdvancedFiltersSheet(padding)),
+                        icon: const Icon(Icons.tune_rounded, size: 22),
+                        tooltip: 'Filtros avançados',
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(44, 44),
+                        ),
+                      ),
+                    ),
+                    IconButton.filled(
+                      onPressed: () =>
+                          _recolherFiltrosMembros(limitResult, addBlocked),
+                      icon: const Icon(Icons.open_in_full_rounded, size: 22),
+                      tooltip: 'Lista em ecrã inteiro',
+                      style: IconButton.styleFrom(
+                        backgroundColor: ThemeCleanPremium.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Mais opções',
+                      icon: Icon(Icons.more_vert_rounded,
+                          color: ThemeCleanPremium.onSurfaceVariant),
+                      onSelected: (v) {
+                        if (v == 'link') unawaited(_showLinkCadastroSheet());
+                        if (v == 'funcoes') {
+                          unawaited(Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => FuncoesPermissoesPage(
+                                tenantId: _effectiveTenantId,
+                                role: widget.role,
+                              ),
+                            ),
+                          ));
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        if (_canManage)
+                          const PopupMenuItem(
+                            value: 'link',
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.link_rounded),
+                              title: Text('Link cadastro público'),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        if (_canManage)
+                          const PopupMenuItem(
+                            value: 'funcoes',
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.badge_rounded),
+                              title: Text('Funções e permissões'),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+                if (narrow) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minWidth: c.maxWidth),
+                      child: row,
+                    ),
+                  );
+                }
+                return row;
+              },
+            ),
+          ),
+          _buildPremiumStatusBar(padding),
+        ],
+      ),
+    );
+  }
+
+  bool _onMembersScrollNotification(ScrollNotification n, int totalDocs) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    final nearBottom =
+        (n.metrics.maxScrollExtent - n.metrics.pixels) < 420;
+    if (nearBottom && _membersVisibleCount < totalDocs) {
+      setState(() {
+        _membersVisibleCount =
+            (_membersVisibleCount + _membersPageSize).clamp(0, totalDocs);
+      });
+    }
+    return false;
+  }
+
+  void _openMembersFullscreenList(
+      MembersLimitResult? limitResult, bool addBlocked) {
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) {
+          final pad = ThemeCleanPremium.pagePadding(ctx);
+          return Scaffold(
+            backgroundColor: ThemeCleanPremium.surfaceVariant,
+            appBar: AppBar(
+              backgroundColor: ThemeCleanPremium.primary,
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                tooltip: 'Voltar aos filtros',
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              title: const Text('Membros'),
+              actions: [
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    tooltip: 'Exportar membros (PDF)',
+                    onPressed: () => _exportPdf(ctx),
+                  ),
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.download_rounded),
+                    tooltip: 'Exportar membros (CSV)',
+                    onPressed: () => _exportCsv(ctx),
+                  ),
+                if (_canManage)
+                  IconButton(
+                    icon: Icon(Icons.person_add_rounded,
+                        color: addBlocked ? Colors.white54 : null),
+                    tooltip: addBlocked ? 'Limite atingido' : 'Novo membro',
+                    onPressed: addBlocked ? null : () => _onAddMember(ctx),
+                  ),
+              ],
+            ),
+            body: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (limitResult != null && limitResult.planLimit > 0)
+                    _MembersLimitBanner(result: limitResult),
+                  Expanded(
+                    child: _buildMembersListFutureColumn(
+                      pad,
+                      addBlocked: addBlocked,
+                      limitResult: limitResult,
+                      includeInlineFilters: false,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -928,6 +1274,42 @@ class _MembersPageState extends State<MembersPage> {
   /// Editar ficha: equipe pode qualquer um; membro só a si mesmo.
   bool _canEditMemberRecord(_MemberDoc member) =>
       _canManage || _isSelfMember(member);
+
+  /// Carteirinha digital: gestão vê todos; membro/visitante só a própria ficha.
+  bool _canOpenCarteirinhaFor(_MemberDoc member) =>
+      _canManage || _isSelfMember(member);
+
+  bool _memberHasLogin(_MemberDoc member) =>
+      (member.data['authUid'] ?? '').toString().trim().isNotEmpty;
+
+  Future<void> _abrirAtualizarSenhaProprio(
+      BuildContext context, _MemberDoc member) async {
+    if (!_isSelfMember(member) || !_memberHasLogin(member)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+              'Conta de login não encontrada para este cadastro.'),
+        );
+      }
+      return;
+    }
+    final raw =
+        (member.data['CPF'] ?? member.data['cpf'] ?? widget.linkedCpf ?? '')
+            .toString()
+            .replaceAll(RegExp(r'\D'), '');
+    final cpfLabel =
+        raw.length == 11 ? _formatCpf(raw) : (raw.isNotEmpty ? raw : '—');
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ChangePasswordPage(
+          tenantId: _effectiveTenantId,
+          cpf: cpfLabel,
+          force: false,
+        ),
+      ),
+    );
+  }
 
   /// Pastor, secretário, presbítero, gestor, etc. — aprovar cadastros pendentes.
   bool get _canApprovePending => AppPermissions.canEditDepartments(widget.role);
@@ -1175,7 +1557,10 @@ class _MembersPageState extends State<MembersPage> {
     final criadoEm = _parseDate(d['CRIADO_EM'] ?? d['createdAt']);
     final isInativo = status.toLowerCase().contains('inativ');
     final isPending = _memberDocIsPending(d);
-    final avatarColor = _avatarColor(d, photo.isNotEmpty) ??
+    final avatarColor = _avatarColor(
+            d,
+            photo.isNotEmpty ||
+                _optimisticProfilePhotoBytes.containsKey(member.id)) ??
         ThemeCleanPremium.primary.withOpacity(0.1);
     final photoTenantId = _storageTenantIdForMemberPhotos(d);
     final profissao = _str(d, 'PROFISSAO', 'profissao');
@@ -1202,6 +1587,11 @@ class _MembersPageState extends State<MembersPage> {
     final canSensitive = widget.role.canViewMemberSensitiveFields;
     const coverH = 128.0;
     const avRadius = 48.0;
+    final authUidSys = _str(d, 'authUid', 'auth_uid').trim();
+    final docIdIsUidShape =
+        member.id.length >= 20 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(member.id);
+    final sistemaFirebaseUid =
+        authUidSys.isNotEmpty ? authUidSys : (docIdIsUidShape ? member.id : '');
 
     showModalBottomSheet(
       context: context,
@@ -1294,6 +1684,8 @@ class _MembersPageState extends State<MembersPage> {
                           tag: 'member_profile_photo_${member.id}',
                           child: _MemberAvatar(
                             photoUrl: photo.isNotEmpty ? photo : null,
+                            memoryPreviewBytes:
+                                _optimisticProfilePhotoBytes[member.id],
                             memberData: d,
                             name: name,
                             radius: avRadius,
@@ -1435,15 +1827,7 @@ class _MembersPageState extends State<MembersPage> {
                           Navigator.pop(ctx);
                           _editMember(context, member);
                         }),
-                  if (_canManage) ...[
-                    _ActionChip(
-                        icon: Icons.delete_outline_rounded,
-                        label: 'Excluir',
-                        color: const Color(0xFFDC2626),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _deleteMember(context, member);
-                        }),
+                  if (_canOpenCarteirinhaFor(member))
                     _ActionChip(
                         icon: Icons.badge_rounded,
                         label: 'Carteirinha',
@@ -1457,6 +1841,25 @@ class _MembersPageState extends State<MembersPage> {
                                       tenantId: _effectiveTenantId,
                                       role: widget.role,
                                       memberId: member.id)));
+                        }),
+                  if (_isSelfMember(member) && _memberHasLogin(member))
+                    _ActionChip(
+                        icon: Icons.vpn_key_rounded,
+                        label: 'Atualizar senha',
+                        color: const Color(0xFFEA580C),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          unawaited(
+                              _abrirAtualizarSenhaProprio(context, member));
+                        }),
+                  if (_canManage) ...[
+                    _ActionChip(
+                        icon: Icons.delete_outline_rounded,
+                        label: 'Excluir',
+                        color: const Color(0xFFDC2626),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _deleteMember(context, member);
                         }),
                     if (member.data['authUid'] == null &&
                         ((member.data['EMAIL'] ?? '')
@@ -1476,7 +1879,7 @@ class _MembersPageState extends State<MembersPage> {
                             Navigator.pop(ctx);
                             _criarLoginMembro(context, member);
                           }),
-                    if (member.data['authUid'] != null)
+                    if (_memberHasLogin(member) && !_isSelfMember(member))
                       _ActionChip(
                           icon: Icons.lock_reset_rounded,
                           label: 'Redefinir senha',
@@ -1601,8 +2004,15 @@ class _MembersPageState extends State<MembersPage> {
               _DetailSection(title: 'Sistema', items: [
                 _DetailRow(
                     icon: Icons.fingerprint_rounded,
-                    label: 'ID',
-                    value: member.id),
+                    label: 'UID (Firebase)',
+                    value: sistemaFirebaseUid.isNotEmpty
+                        ? sistemaFirebaseUid
+                        : '— vincule login ou aprove o cadastro'),
+                if (member.id.isNotEmpty && member.id != sistemaFirebaseUid)
+                  _DetailRow(
+                      icon: Icons.description_outlined,
+                      label: 'ID do documento (legado)',
+                      value: member.id),
                 if (criadoEm != null)
                   _DetailRow(
                       icon: Icons.calendar_today_rounded,
@@ -1716,6 +2126,9 @@ class _MembersPageState extends State<MembersPage> {
     final keyAssinaturaPreview = GlobalKey();
     bool podeVerFinanceiro = d['podeVerFinanceiro'] == true;
     bool podeVerPatrimonio = d['podeVerPatrimonio'] == true;
+    bool podeVerFornecedores = d['podeVerFornecedores'] == true;
+    bool podeEmitirRelatoriosCompletos =
+        d['podeEmitirRelatoriosCompletos'] == true;
     bool _loadingCep = false;
     bool _pickingProfilePhoto = false;
 
@@ -1794,8 +2207,8 @@ class _MembersPageState extends State<MembersPage> {
                               try {
                                 final picked = await _pickImage(ctx);
                                 if (picked != null) {
-                                  if (kIsWeb)
-                                    newPhotoBytes = await picked.readAsBytes();
+                                  // Sempre em memória: XFile pós-WebP pode ser fromData sem path válido no disco.
+                                  newPhotoBytes = await picked.readAsBytes();
                                   newPhoto = picked;
                                 }
                               } finally {
@@ -1810,14 +2223,18 @@ class _MembersPageState extends State<MembersPage> {
                                   CircleAvatar(
                                     radius: 45,
                                     backgroundColor: avatarBg,
-                                    backgroundImage: kIsWeb &&
-                                            newPhotoBytes != null
-                                        ? MemoryImage(newPhotoBytes!)
-                                        : (kIsWeb
-                                                ? NetworkImage(newPhoto!.path)
-                                                : FileImage(
-                                                    File(newPhoto!.path)))
-                                            as ImageProvider,
+                                    backgroundImage: () {
+                                      if (newPhotoBytes != null &&
+                                          newPhotoBytes!.isNotEmpty) {
+                                        return MemoryImage(newPhotoBytes!);
+                                      }
+                                      final p = newPhoto!.path;
+                                      if (p.isEmpty) return null;
+                                      if (kIsWeb) {
+                                        return NetworkImage(p);
+                                      }
+                                      return FileImage(File(p));
+                                    }() as ImageProvider<Object>?,
                                   )
                                 else
                                   _MemberAvatar(
@@ -2887,7 +3304,7 @@ class _MembersPageState extends State<MembersPage> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Por padrão o membro não vê lista de membros, financeiro nem patrimônio. Libere abaixo se fizer sentido para este cadastro.',
+                                    'Por padrão o membro não vê lista de membros, financeiro, patrimônio nem fornecedores. Libere abaixo se fizer sentido para este cadastro.',
                                     style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.grey.shade600,
@@ -2922,6 +3339,41 @@ class _MembersPageState extends State<MembersPage> {
                                             fontWeight: FontWeight.w600)),
                                     subtitle: const Text(
                                         'Inventário e bens da igreja.',
+                                        style: TextStyle(fontSize: 12)),
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    contentPadding: EdgeInsets.zero,
+                                    activeColor: ThemeCleanPremium.primary,
+                                  ),
+                                  CheckboxListTile(
+                                    value: podeVerFornecedores,
+                                    onChanged: (v) => setDlg(() {
+                                      podeVerFornecedores = v ?? false;
+                                    }),
+                                    title: Text('Liberar Fornecedores',
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600)),
+                                    subtitle: const Text(
+                                        'Cadastro de fornecedores/prestadores e hub vinculado ao financeiro.',
+                                        style: TextStyle(fontSize: 12)),
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    contentPadding: EdgeInsets.zero,
+                                    activeColor: ThemeCleanPremium.primary,
+                                  ),
+                                  CheckboxListTile(
+                                    value: podeEmitirRelatoriosCompletos,
+                                    onChanged: (v) => setDlg(() {
+                                      podeEmitirRelatoriosCompletos =
+                                          v ?? false;
+                                    }),
+                                    title: Text('Relatórios completos (PDF)',
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600)),
+                                    subtitle: const Text(
+                                        'Membros, aniversariantes e outros PDFs no módulo Relatórios. Sem isto, só Relatório de Eventos.',
                                         style: TextStyle(fontSize: 12)),
                                     controlAffinity:
                                         ListTileControlAffinity.leading,
@@ -2987,6 +3439,9 @@ class _MembersPageState extends State<MembersPage> {
                                 'newTenantId': selectedTenantIdForEdit,
                                 'podeVerFinanceiro': podeVerFinanceiro,
                                 'podeVerPatrimonio': podeVerPatrimonio,
+                                'podeVerFornecedores': podeVerFornecedores,
+                                'podeEmitirRelatoriosCompletos':
+                                    podeEmitirRelatoriosCompletos,
                               });
                             },
                             icon: const Icon(Icons.save_rounded),
@@ -3029,11 +3484,9 @@ class _MembersPageState extends State<MembersPage> {
             final compressedBytes =
                 await ImageHelper.compressMemberProfileForUpload(rawBytes);
             if (mounted) {
-              await _deleteFirebaseBeforeMemberPhotoReplace(
-                member.data,
-                tenantId: targetTenantId,
-                memberId: member.id,
-              );
+              setState(() {
+                _optimisticProfilePhotoBytes[member.id] = compressedBytes;
+              });
               var nomeFoto = (result['name'] ?? '').toString().trim();
               if (nomeFoto.isEmpty) {
                 nomeFoto =
@@ -3047,7 +3500,7 @@ class _MembersPageState extends State<MembersPage> {
                 nomeCompleto: nomeFoto,
                 authUid: authUidFoto.isEmpty ? null : authUidFoto,
               );
-              GlobalUploadProgress.instance.start('A enviar foto…');
+              GlobalUploadProgress.instance.start('A enviar…');
               try {
                 final upload = await MediaUploadService.uploadBytesDetailed(
                   storagePath: photoPath,
@@ -3062,6 +3515,7 @@ class _MembersPageState extends State<MembersPage> {
                     if (prev == null || prev.isEmpty) return null;
                     return <String>[prev];
                   }(),
+                  useOfflineQueue: false,
                 );
                 photoUrl = upload.downloadUrl;
                 photoStoragePath = upload.storagePath;
@@ -3084,6 +3538,9 @@ class _MembersPageState extends State<MembersPage> {
           } catch (e) {
             GlobalUploadProgress.instance.end();
             if (mounted) {
+              setState(() {
+                _optimisticProfilePhotoBytes.remove(member.id);
+              });
               ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.feedbackSnackBar(
                       'Erro ao enviar foto: $e'));
@@ -3239,7 +3696,10 @@ class _MembersPageState extends State<MembersPage> {
           if (photoUrl != null) {
             final u = photoUrl;
             final mid = member.id;
-            setState(() => _uploadedPhotoUrls[mid] = u);
+            setState(() {
+              _uploadedPhotoUrls[mid] = u;
+              _optimisticProfilePhotoBytes.remove(mid);
+            });
             Future.delayed(const Duration(seconds: 20), () {
               if (!mounted) return;
               setState(() => _uploadedPhotoUrls.remove(mid));
@@ -3311,11 +3771,9 @@ class _MembersPageState extends State<MembersPage> {
         final compressedBytes =
             await ImageHelper.compressMemberProfileForUpload(rawBytes);
         if (mounted) {
-          await _deleteFirebaseBeforeMemberPhotoReplace(
-            member.data,
-            tenantId: targetTenantId,
-            memberId: member.id,
-          );
+          setState(() {
+            _optimisticProfilePhotoBytes[member.id] = compressedBytes;
+          });
           var nomeFotoGestor = (result['name'] ?? '').toString().trim();
           if (nomeFotoGestor.isEmpty) {
             nomeFotoGestor =
@@ -3329,7 +3787,7 @@ class _MembersPageState extends State<MembersPage> {
             nomeCompleto: nomeFotoGestor,
             authUid: authUidGestor.isEmpty ? null : authUidGestor,
           );
-          GlobalUploadProgress.instance.start('A enviar foto…');
+          GlobalUploadProgress.instance.start('A enviar…');
           try {
             final upload = await MediaUploadService.uploadBytesDetailed(
               storagePath: photoPath,
@@ -3344,6 +3802,7 @@ class _MembersPageState extends State<MembersPage> {
                 if (prev == null || prev.isEmpty) return null;
                 return <String>[prev];
               }(),
+              useOfflineQueue: false,
             );
             photoUrl = upload.downloadUrl;
             photoStoragePath = upload.storagePath;
@@ -3366,6 +3825,9 @@ class _MembersPageState extends State<MembersPage> {
       } catch (e) {
         GlobalUploadProgress.instance.end();
         if (mounted) {
+          setState(() {
+            _optimisticProfilePhotoBytes.remove(member.id);
+          });
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'));
         }
@@ -3419,9 +3881,18 @@ class _MembersPageState extends State<MembersPage> {
       if (result['podeVerPatrimonio'] != null) {
         updates['podeVerPatrimonio'] = result['podeVerPatrimonio'] == true;
       }
+      if (result['podeVerFornecedores'] != null) {
+        updates['podeVerFornecedores'] = result['podeVerFornecedores'] == true;
+      }
+      if (result['podeEmitirRelatoriosCompletos'] != null) {
+        updates['podeEmitirRelatoriosCompletos'] =
+            result['podeEmitirRelatoriosCompletos'] == true;
+      }
     } else {
       updates['podeVerFinanceiro'] = false;
       updates['podeVerPatrimonio'] = false;
+      updates['podeVerFornecedores'] = false;
+      updates['podeEmitirRelatoriosCompletos'] = false;
     }
     if (nascimento != null)
       updates['DATA_NASCIMENTO'] = Timestamp.fromDate(nascimento!);
@@ -3431,8 +3902,7 @@ class _MembersPageState extends State<MembersPage> {
       updates['fotoUrl'] = photoUrl;
       updates['photoURL'] = photoUrl;
       updates['photoVariants'] = FieldValue.delete();
-      updates['fotoUrlCacheRevision'] =
-          DateTime.now().millisecondsSinceEpoch;
+      updates['fotoUrlCacheRevision'] = DateTime.now().millisecondsSinceEpoch;
     }
     if (photoStoragePath != null)
       updates['photoStoragePath'] = photoStoragePath;
@@ -3563,10 +4033,25 @@ class _MembersPageState extends State<MembersPage> {
             if (photoUrl != null) 'FOTO_URL_OU_ID': photoUrl,
           }, SetOptions(merge: true));
         } catch (_) {}
+        try {
+          await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('syncMemberRoleClaims')
+              .call({
+            'tenantId': targetTenantId,
+            'memberId': member.id,
+          });
+        } catch (_) {}
+        final curUid = FirebaseAuth.instance.currentUser?.uid;
+        if (curUid != null && curUid == authUid) {
+          try {
+            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          } catch (_) {}
+        }
       }
       if (isMoveToOtherChurch) {
         final newResolved = await _resolvedFirestoreTenantIds(targetTenantId);
-        final oldFromMember = await _resolvedFirestoreTenantIds(previousTenantId);
+        final oldFromMember =
+            await _resolvedFirestoreTenantIds(previousTenantId);
         final oldFromPanel =
             await _resolvedFirestoreTenantIds(_effectiveTenantId);
         final idsToRemove =
@@ -3602,19 +4087,17 @@ class _MembersPageState extends State<MembersPage> {
         try {
           final functions =
               FirebaseFunctions.instanceFor(region: 'us-central1');
-          final res =
-              await functions.httpsCallable('setMemberPassword').call({
+          final res = await functions.httpsCallable('setMemberPassword').call({
             'tenantId': targetTenantId,
-            'memberId': (authUid != null && authUid.isNotEmpty)
-                ? authUid
-                : member.id,
+            'memberId':
+                (authUid != null && authUid.isNotEmpty) ? authUid : member.id,
             'newPassword': newPassword,
           });
           final map = res.data as Map?;
           final recreated = map?['recreated'] == true;
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar(
+            ScaffoldMessenger.of(context)
+                .showSnackBar(ThemeCleanPremium.successSnackBar(
               recreated
                   ? 'Membro salvo. Conta de login recriada e senha definida.'
                   : 'Membro e senha atualizados!',
@@ -3644,7 +4127,10 @@ class _MembersPageState extends State<MembersPage> {
       if (photoUrl != null && mounted) {
         final u = photoUrl;
         final mid = member.id;
-        setState(() => _uploadedPhotoUrls[mid] = u);
+        setState(() {
+          _uploadedPhotoUrls[mid] = u;
+          _optimisticProfilePhotoBytes.remove(mid);
+        });
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
         _invalidateMemberPhotoCaches(targetTenantId, mid, mergedGestor);
@@ -3689,7 +4175,10 @@ class _MembersPageState extends State<MembersPage> {
             if (photoUrl != null) {
               final u = photoUrl;
               final mid = member.id;
-              setState(() => _uploadedPhotoUrls[mid] = u);
+              setState(() {
+                _uploadedPhotoUrls[mid] = u;
+                _optimisticProfilePhotoBytes.remove(mid);
+              });
               final mergedRetry = Map<String, dynamic>.from(member.data)
                 ..addAll(updates);
               _invalidateMemberPhotoCaches(targetTenantId, mid, mergedRetry);
@@ -3699,6 +4188,22 @@ class _MembersPageState extends State<MembersPage> {
               });
             }
             _refreshMembers(clearOptimisticMemberOverlayId: member.id);
+            final uidRetry = member.data['authUid']?.toString().trim() ?? '';
+            if (uidRetry.isNotEmpty) {
+              try {
+                await FirebaseFunctions.instanceFor(region: 'us-central1')
+                    .httpsCallable('syncMemberRoleClaims')
+                    .call({
+                  'tenantId': targetTenantId,
+                  'memberId': member.id,
+                });
+              } catch (_) {}
+              if (FirebaseAuth.instance.currentUser?.uid == uidRetry) {
+                try {
+                  await FirebaseAuth.instance.currentUser?.getIdToken(true);
+                } catch (_) {}
+              }
+            }
           }
         } catch (e2) {
           if (mounted) {
@@ -3717,7 +4222,8 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Após gravar novo e-mail em [membros]: recria utilizador Auth (Cloud Function).
   /// [newAuthUid] quando a conta foi recriada (gestor deve usar ao atualizar `users/`).
-  Future<({bool signedOut, String? newAuthUid})> _syncAuthAfterEmailChangeIfNeeded({
+  Future<({bool signedOut, String? newAuthUid})>
+      _syncAuthAfterEmailChangeIfNeeded({
     required String tenantId,
     required String memberDocId,
     required String previousEmail,
@@ -3952,9 +4458,8 @@ class _MembersPageState extends State<MembersPage> {
       return;
     }
     if ((member.data['authUid'] ?? '').toString().trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-              'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.'));
+      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
+          'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.'));
       return;
     }
     final newPasswordCtrl = TextEditingController();
@@ -4005,8 +4510,7 @@ class _MembersPageState extends State<MembersPage> {
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      final res =
-          await functions.httpsCallable('setMemberPassword').call({
+      final res = await functions.httpsCallable('setMemberPassword').call({
         'tenantId': _effectiveTenantId,
         'memberId': member.id,
         'newPassword': newPassword,
@@ -4014,8 +4518,8 @@ class _MembersPageState extends State<MembersPage> {
       final map = res.data as Map?;
       final recreated = map?['recreated'] == true;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
+        ScaffoldMessenger.of(context)
+            .showSnackBar(ThemeCleanPremium.successSnackBar(
           recreated
               ? 'Conta de login recriada e senha definida. Avise o membro.'
               : 'Senha alterada. Avise o membro.',
@@ -4027,8 +4531,8 @@ class _MembersPageState extends State<MembersPage> {
         final msg = (detail != null && detail.isNotEmpty)
             ? detail
             : 'Não foi possível redefinir a senha (código: ${e.code}).';
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(msg));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       }
     } catch (e) {
       if (mounted)
@@ -4093,8 +4597,8 @@ class _MembersPageState extends State<MembersPage> {
     return ('', 'membro');
   }
 
-  // ─── Lista de Membros ─────────────────────────────────────────────────────
-  Widget _buildMembersList(List<_MemberDoc> docs) {
+  // ─── Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) ─
+  Widget _buildMembersListSliver(List<_MemberDoc> docs) {
     final visibleCount = _membersVisibleCount.clamp(0, docs.length);
     final preloadUrls = docs
         .take((visibleCount + 12).clamp(0, docs.length))
@@ -4105,26 +4609,12 @@ class _MembersPageState extends State<MembersPage> {
       if (!mounted) return;
       preloadNetworkImages(context, preloadUrls, maxItems: 12);
     });
-    return NotificationListener<ScrollNotification>(
-      onNotification: (n) {
-        if (n.metrics.axis != Axis.vertical) return false;
-        final nearBottom = (n.metrics.maxScrollExtent - n.metrics.pixels) < 420;
-        if (nearBottom && _membersVisibleCount < docs.length) {
-          setState(() {
-            _membersVisibleCount =
-                (_membersVisibleCount + _membersPageSize).clamp(0, docs.length);
-          });
-        }
-        return false;
-      },
-      child: ListView.separated(
-        primary: false,
-        padding: const EdgeInsets.fromLTRB(ThemeCleanPremium.spaceMd, 0,
-            ThemeCleanPremium.spaceMd, ThemeCleanPremium.spaceMd),
-        cacheExtent: 1000,
-        itemCount: visibleCount + (visibleCount < docs.length ? 1 : 0),
-        separatorBuilder: (_, __) => const SizedBox(height: 2),
-        itemBuilder: (context, i) {
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(ThemeCleanPremium.spaceMd, 0,
+          ThemeCleanPremium.spaceMd, ThemeCleanPremium.spaceMd),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, i) {
           if (i >= visibleCount) {
             return Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -4150,9 +4640,11 @@ class _MembersPageState extends State<MembersPage> {
               ? 'ativo'
               : _str(data, 'STATUS', 'status');
           final photo = _photoUrlForMember(docs[i].id, data);
+          final optimisticBytes = _optimisticProfilePhotoBytes[docs[i].id];
           final isInativo = status.toLowerCase().contains('inativ');
           final isPendingRow = _memberDocIsPending(data);
-          final avatarColor = _avatarColor(data, photo.isNotEmpty);
+          final avatarColor =
+              _avatarColor(data, photo.isNotEmpty || optimisticBytes != null);
           final photoTenantId = _storageTenantIdForMemberPhotos(data);
           final cpfDigits = _str(data, 'CPF', 'cpf');
           const double avatarOuter = 56; // radius 28 * 2
@@ -4212,6 +4704,7 @@ class _MembersPageState extends State<MembersPage> {
                                   tag: 'member_profile_photo_${docs[i].id}',
                                   child: _MemberAvatar(
                                     photoUrl: photo.isNotEmpty ? photo : null,
+                                    memoryPreviewBytes: optimisticBytes,
                                     memberData: data,
                                     name: name,
                                     radius: 28,
@@ -4333,6 +4826,10 @@ class _MembersPageState extends State<MembersPage> {
                                                     role: widget.role,
                                                     memberId: docs[i].id)));
                                       }
+                                      if (v == 'password_self') {
+                                        unawaited(_abrirAtualizarSenhaProprio(
+                                            context, docs[i]));
+                                      }
                                       if (v == 'dept') {
                                         final deptIds =
                                             (data['DEPARTAMENTOS'] as List?)
@@ -4375,6 +4872,29 @@ class _MembersPageState extends State<MembersPage> {
                                               SizedBox(width: 8),
                                               Text('Editar')
                                             ])),
+                                      if (_canOpenCarteirinhaFor(docs[i]))
+                                        const PopupMenuItem(
+                                            value: 'card',
+                                            child: Row(children: [
+                                              Icon(Icons.badge_rounded,
+                                                  size: 18),
+                                              SizedBox(width: 8),
+                                              Text('Carteirinha')
+                                            ])),
+                                      if (_isSelfMember(docs[i]) &&
+                                          _memberHasLogin(docs[i]))
+                                        const PopupMenuItem(
+                                            value: 'password_self',
+                                            child: Row(children: [
+                                              Icon(Icons.vpn_key_rounded,
+                                                  size: 18,
+                                                  color: Color(0xFFEA580C)),
+                                              SizedBox(width: 8),
+                                              Text('Atualizar senha',
+                                                  style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w600))
+                                            ])),
                                       if (_canManage) ...[
                                         const PopupMenuItem(
                                             value: 'delete',
@@ -4388,14 +4908,6 @@ class _MembersPageState extends State<MembersPage> {
                                                       color: Color(0xFFDC2626)))
                                             ])),
                                         const PopupMenuItem(
-                                            value: 'card',
-                                            child: Row(children: [
-                                              Icon(Icons.badge_rounded,
-                                                  size: 18),
-                                              SizedBox(width: 8),
-                                              Text('Carteirinha')
-                                            ])),
-                                        const PopupMenuItem(
                                             value: 'dept',
                                             child: Row(children: [
                                               Icon(Icons.groups_rounded,
@@ -4403,7 +4915,8 @@ class _MembersPageState extends State<MembersPage> {
                                               SizedBox(width: 8),
                                               Text('Departamentos')
                                             ])),
-                                        if (data['authUid'] != null)
+                                        if (data['authUid'] != null &&
+                                            !_isSelfMember(docs[i]))
                                           const PopupMenuItem(
                                               value: 'password',
                                               child: Row(children: [
@@ -4455,7 +4968,306 @@ class _MembersPageState extends State<MembersPage> {
               ],
             ),
           );
-        },
+          },
+          childCount: visibleCount + (visibleCount < docs.length ? 1 : 0),
+        ),
+      ),
+    );
+  }
+
+  /// Linha da lista in-place no painel «Painel & números» (drill por sexo/faixa etária).
+  Widget _buildMemberDrillListTile(BuildContext context, _MemberDoc member) {
+    final data = member.data;
+    final name = _str(data, 'NOME_COMPLETO', 'nome', 'name').isEmpty
+        ? 'Membro'
+        : _str(data, 'NOME_COMPLETO', 'nome', 'name');
+    final email = _str(data, 'EMAIL', 'email');
+    final phone = _str(data, 'TELEFONES', 'telefone');
+    final status = _str(data, 'STATUS', 'status').isEmpty
+        ? 'ativo'
+        : _str(data, 'STATUS', 'status');
+    final photo = _photoUrlForMember(member.id, data);
+    final optimisticBytes = _optimisticProfilePhotoBytes[member.id];
+    final isInativo = status.toLowerCase().contains('inativ');
+    final isPendingRow = _memberDocIsPending(data);
+    final avatarColor =
+        _avatarColor(data, photo.isNotEmpty || optimisticBytes != null);
+    final photoTenantId = _storageTenantIdForMemberPhotos(data);
+    final cpfDigits = _str(data, 'CPF', 'cpf');
+    const double avatarOuter = 56;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _showMemberDetails(context, member),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: ThemeCleanPremium.spaceMd,
+                      vertical: ThemeCleanPremium.spaceSm),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Hero(
+                            tag: 'member_profile_photo_${member.id}',
+                            child: _MemberAvatar(
+                              photoUrl: photo.isNotEmpty ? photo : null,
+                              memoryPreviewBytes: optimisticBytes,
+                              memberData: data,
+                              name: name,
+                              radius: 28,
+                              backgroundColor: avatarColor ??
+                                  ThemeCleanPremium.primary.withOpacity(0.1),
+                              tenantId: photoTenantId,
+                              memberId: member.id,
+                              cpfDigits: cpfDigits,
+                              authUid: _memberAuthUidFromData(data),
+                              memCacheMaxPx: 224,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 16,
+                                      color: ThemeCleanPremium.onSurface,
+                                      height: 1.2),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Builder(builder: (context) {
+                                  final parts = _memberCargoBadgeParts(data);
+                                  if (parts.$1.isEmpty) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final col = Color(
+                                      ChurchRolePermissions.badgeColorForKey(
+                                          parts.$2));
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: col.withValues(alpha: 0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                          border: Border.all(
+                                              color:
+                                                  col.withValues(alpha: 0.28)),
+                                        ),
+                                        child: Text(
+                                          parts.$1,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: col,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }),
+                                if (email.isNotEmpty || phone.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    [
+                                      if (email.isNotEmpty) email,
+                                      if (phone.isNotEmpty) phone
+                                    ].join(' • '),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        color:
+                                            ThemeCleanPremium.onSurfaceVariant,
+                                        height: 1.2),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (_canEditMemberRecord(member) ||
+                              (_canApprovePending && isPendingRow))
+                            PopupMenuButton<String>(
+                              icon:
+                                  const Icon(Icons.more_vert_rounded, size: 22),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                  minWidth: ThemeCleanPremium.minTouchTarget,
+                                  minHeight: ThemeCleanPremium.minTouchTarget),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              onSelected: (v) {
+                                if (v == 'edit') _editMember(context, member);
+                                if (v == 'delete')
+                                  _deleteMember(context, member);
+                                if (v == 'approve') {
+                                  _aprovarMembrosPorIds({member.id});
+                                }
+                                if (v == 'card') {
+                                  Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) => MemberCardPage(
+                                              tenantId: _effectiveTenantId,
+                                              role: widget.role,
+                                              memberId: member.id)));
+                                }
+                                if (v == 'password_self') {
+                                  unawaited(_abrirAtualizarSenhaProprio(
+                                      context, member));
+                                }
+                                if (v == 'dept') {
+                                  final deptIds =
+                                      (data['DEPARTAMENTOS'] as List?)
+                                              ?.map((e) => e.toString())
+                                              .toList() ??
+                                          <String>[];
+                                  _editDepartments(
+                                      context: context,
+                                      memberId: member.id,
+                                      current: deptIds,
+                                      memberData:
+                                          Map<String, dynamic>.from(data));
+                                }
+                                if (v == 'password') {
+                                  _redefinirSenhaMembro(context, member);
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                if (_canApprovePending && isPendingRow)
+                                  const PopupMenuItem(
+                                    value: 'approve',
+                                    child: Row(children: [
+                                      Icon(Icons.how_to_reg_rounded,
+                                          size: 18, color: Color(0xFF059669)),
+                                      SizedBox(width: 8),
+                                      Text('Aprovar cadastro',
+                                          style: TextStyle(
+                                              color: Color(0xFF059669),
+                                              fontWeight: FontWeight.w600))
+                                    ]),
+                                  ),
+                                if (_canEditMemberRecord(member))
+                                  const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Row(children: [
+                                        Icon(Icons.edit_rounded, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Editar')
+                                      ])),
+                                if (_canOpenCarteirinhaFor(member))
+                                  const PopupMenuItem(
+                                      value: 'card',
+                                      child: Row(children: [
+                                        Icon(Icons.badge_rounded, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Carteirinha')
+                                      ])),
+                                if (_isSelfMember(member) &&
+                                    _memberHasLogin(member))
+                                  const PopupMenuItem(
+                                      value: 'password_self',
+                                      child: Row(children: [
+                                        Icon(Icons.vpn_key_rounded,
+                                            size: 18, color: Color(0xFFEA580C)),
+                                        SizedBox(width: 8),
+                                        Text('Atualizar senha',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w600))
+                                      ])),
+                                if (_canManage) ...[
+                                  const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(children: [
+                                        Icon(Icons.delete_outline_rounded,
+                                            size: 18, color: Color(0xFFDC2626)),
+                                        SizedBox(width: 8),
+                                        Text('Excluir',
+                                            style: TextStyle(
+                                                color: Color(0xFFDC2626)))
+                                      ])),
+                                  const PopupMenuItem(
+                                      value: 'dept',
+                                      child: Row(children: [
+                                        Icon(Icons.groups_rounded, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Departamentos')
+                                      ])),
+                                  if (data['authUid'] != null &&
+                                      !_isSelfMember(member))
+                                    const PopupMenuItem(
+                                        value: 'password',
+                                        child: Row(children: [
+                                          Icon(Icons.lock_reset_rounded,
+                                              size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Redefinir senha')
+                                        ])),
+                                ],
+                              ],
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(left: avatarOuter + 12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isPendingRow
+                                ? const Color(0xFFFFFBEB)
+                                : (isInativo
+                                    ? const Color(0xFFFFEBEE)
+                                    : const Color(0xFFECFDF5)),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            status,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                              color: isPendingRow
+                                  ? const Color(0xFFB45309)
+                                  : (isInativo
+                                      ? const Color(0xFFB91C1C)
+                                      : const Color(0xFF047857)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4626,16 +5438,26 @@ class _MembersPageState extends State<MembersPage> {
       final branding = await loadReportPdfBranding(_effectiveTenantId);
       final data = docs.asMap().entries.map((e) {
         final m = e.value.data;
+        final st = (m['STATUS'] ?? m['status'] ?? '').toString().trim();
+        final statusPdf = st.isEmpty
+            ? ''
+            : st
+                .split(RegExp(r'\s+'))
+                .where((w) => w.isNotEmpty)
+                .map((w) =>
+                    '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}')
+                .join(' ');
         return [
           '${e.key + 1}',
           (m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString(),
-          (m['EMAIL'] ?? m['email'] ?? '').toString(),
+          pdfEmailBreakOpportunities(
+              (m['EMAIL'] ?? m['email'] ?? '').toString()),
           (m['TELEFONES'] ?? m['telefone'] ?? '').toString(),
           (m['CPF'] ?? m['cpf'] ?? '').toString(),
-          (m['STATUS'] ?? m['status'] ?? '').toString(),
+          statusPdf,
         ];
       }).toList();
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4.landscape,
@@ -4664,6 +5486,9 @@ class _MembersPageState extends State<MembersPage> {
               ],
               data: data,
               accent: branding.accent,
+              columnWidths: PdfSuperPremiumTheme.columnWidthsMemberReport(
+                const ['nome', 'email', 'telefone', 'cpf', 'status'],
+              ),
             ),
           ],
         ),
@@ -4850,20 +5675,14 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  /// Web: [RefreshIndicator] sem altura explícita pode “travar” a lista; na web usa só o botão atualizar.
+  /// Altura do [Expanded] pai + scroll unificado (filtros + lista / vazio).
   Widget _wrapMembersListScroll({
     required Future<void> Function() onRefresh,
-    required bool docsEmpty,
-    required Widget listContent,
+    required Widget scrollableChild,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        Widget scroll = docsEmpty
-            ? SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: listContent,
-              )
-            : listContent;
+        var scroll = scrollableChild;
         final h = constraints.maxHeight;
         if (h.isFinite && h > 0) {
           scroll = SizedBox(height: h, child: scroll);
@@ -5229,11 +6048,42 @@ class _MembersPageState extends State<MembersPage> {
                   ],
                 ),
           body: SafeArea(
+            top: !widget.embeddedInShell,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (limitResult != null && limitResult.planLimit > 0)
                   _MembersLimitBanner(result: limitResult),
+                if (widget.embeddedInShell &&
+                    !_canManage &&
+                    AppPermissions.isRestrictedMember(widget.role))
+                  Padding(
+                    padding:
+                        EdgeInsets.fromLTRB(padding.left, 8, padding.right, 4),
+                    child: Material(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(12),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.person_rounded,
+                            color: ThemeCleanPremium.primary, size: 22),
+                        title: Text(
+                          'Seu cadastro',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade900,
+                              fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          'Altere seus dados e foto. Funções (gestor, ADM, etc.) só a equipe pode definir.',
+                          style: TextStyle(
+                              fontSize: 12,
+                              height: 1.3,
+                              color: Colors.grey.shade700),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (widget.embeddedInShell && _canManage)
                   Padding(
                     padding:
@@ -5291,509 +6141,38 @@ class _MembersPageState extends State<MembersPage> {
                       ),
                     ),
                   ),
-                // Cabeçalho (busca + filtros) com altura mínima: o resto vai para a lista. Evita lista “travada” quando filtros expandem/recolhem.
-                Flexible(
-                  fit: FlexFit.loose,
-                  flex: 2,
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    widthFactor: 1,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Padding(
-                            padding: EdgeInsets.only(
-                                left: padding.left, right: padding.right),
-                            child: _CollapsibleSection(
-                              title: 'Busca e filtros rápidos',
-                              subtitle: _buscaRapidosSectionSubtitle(),
-                              icon: Icons.manage_search_rounded,
-                              expanded: _buscaRapidosExpanded,
-                              badgeCount: (_q.isNotEmpty || _filtroStatus != 'todos')
-                                  ? 1
-                                  : 0,
-                              onToggle: () => setState(() =>
-                                  _buscaRapidosExpanded =
-                                      !_buscaRapidosExpanded),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _buildPremiumSearchField(EdgeInsets.zero),
-                                  _buildPremiumStatusBar(EdgeInsets.zero),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (_canManage)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                  left: padding.left,
-                                  right: padding.right,
-                                  top: 10),
-                              child: _CollapsibleSection(
-                                title: 'Link para cadastro público',
-                                icon: Icons.link_rounded,
-                                expanded: _linkCardExpanded,
-                                onToggle: () => setState(() =>
-                                    _linkCardExpanded = !_linkCardExpanded),
-                                child: _LinkCadastroPublicoCard(
-                                    tenantId: _effectiveTenantId,
-                                    role: widget.role),
-                              ),
-                            ),
-                          if (_canManage)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                  left: padding.left,
-                                  right: padding.right,
-                                  top: 8),
-                              child: OutlinedButton.icon(
-                                onPressed: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) => FuncoesPermissoesPage(
-                                            tenantId: _effectiveTenantId,
-                                            role: widget.role))),
-                                icon: const Icon(Icons.badge_rounded, size: 20),
-                                label: const Text(
-                                    'Funções e permissões — o que cada cargo pode acessar'),
-                                style: OutlinedButton.styleFrom(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  alignment: Alignment.centerLeft,
-                                ),
-                              ),
-                            ),
-                          Padding(
-                            padding: EdgeInsets.only(
-                                left: padding.left,
-                                right: padding.right,
-                                top: 8),
-                            child: _CollapsibleSection(
-                              title: 'Filtros avançados',
-                              subtitle:
-                                  'Gênero, faixa etária, cadastro, departamento e aniversário',
-                              icon: Icons.tune_rounded,
-                              expanded: _filtrosExpanded,
-                              badgeCount: _advancedFiltersActiveCount,
-                              onToggle: () => setState(
-                                  () => _filtrosExpanded = !_filtrosExpanded),
-                              child: _buildFiltrosSection(padding),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                // Abas: lista (filtros + membros) | painel com gráficos e totais.
                 Expanded(
-                  flex: 3,
-                  child:
-                      FutureBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
-                    future: _membersDataFuture,
-                    builder: (context, snap) {
-                      if (snap.connectionState != ConnectionState.done)
-                        return const SkeletonLoader(itemCount: 8);
-                      if (snap.hasError) {
-                        return Padding(
-                          padding:
-                              const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                          child: ChurchPanelErrorBody(
-                            title: 'Não foi possível carregar os membros',
-                            error: snap.error,
-                            onRetry: _refreshMembers,
-                          ),
-                        );
-                      }
-                      final list = snap.data!;
-                      if (list.length < 7) {
-                        return Center(
-                          child: Padding(
-                            padding:
-                                const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.warning_amber_rounded,
-                                    size: 48, color: Colors.amber.shade700),
-                                const SizedBox(
-                                    height: ThemeCleanPremium.spaceMd),
-                                Text(
-                                  'Resposta incompleta ao carregar membros (${list.length}/7).',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                      color:
-                                          ThemeCleanPremium.onSurfaceVariant),
-                                ),
-                                const SizedBox(height: 12),
-                                FilledButton.icon(
-                                    onPressed: _refreshMembers,
-                                    icon: const Icon(Icons.refresh_rounded),
-                                    label: const Text('Recarregar')),
-                              ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                            padding.left, 0, padding.right, 6),
+                        child: _MembersPremiumTabSwitcher(
+                          index: _membersMainTabIndex,
+                          onChanged: (i) => setState(() {
+                            _membersMainTabIndex = i;
+                          }),
+                        ),
+                      ),
+                      Expanded(
+                        child: IndexedStack(
+                          index: _membersMainTabIndex,
+                          sizing: StackFit.expand,
+                          children: [
+                            _buildMembersListFutureColumn(
+                              padding,
+                              addBlocked: addBlocked,
+                              limitResult: limitResult,
+                              includeInlineFilters: true,
                             ),
-                          ),
-                        );
-                      }
-                      final pendCount = list[6].docs.length;
-                      final combined = <String, _MemberDoc>{};
-                      void putOrMerge(
-                          QueryDocumentSnapshot<Map<String, dynamic>> d,
-                          _MemberDoc Function(
-                                  QueryDocumentSnapshot<Map<String, dynamic>>)
-                              map) {
-                        final doc = map(d);
-                        final cur = combined[doc.id];
-                        if (cur == null) {
-                          combined[doc.id] = doc;
-                        } else {
-                          combined[doc.id] = _MemberDoc(doc.id,
-                              _mergeMemberPhotoFields(cur.data, doc.data));
-                        }
-                      }
-
-                      // list[0]..[3] são mesmas fontes mescladas (membros igreja); um loop evita merge quadruplicado.
-                      for (final d in list[0].docs)
-                        putOrMerge(d, _MemberDoc.fromQueryDoc);
-                      for (final d in list[4].docs)
-                        putOrMerge(d, _MemberDoc.fromUserDoc);
-                      for (final d in list[5].docs)
-                        putOrMerge(d, _MemberDoc.fromUserDoc);
-                      final allDocs = combined.values
-                          .map(_memberWithOptimisticOverlay)
-                          .where((m) =>
-                              !_optimisticRemovedMemberIds.contains(m.id))
-                          .toList();
-                      final docs = _aplicarFiltros(allDocs);
-                      final bootDocId =
-                          widget.initialOpenMemberDocId?.trim() ?? '';
-                      if (bootDocId.isNotEmpty &&
-                          !_didBootstrapOpenMemberSheet) {
-                        _didBootstrapOpenMemberSheet = true;
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          _MemberDoc? hit;
-                          for (final d in allDocs) {
-                            if (d.id == bootDocId) {
-                              hit = d;
-                              break;
-                            }
-                          }
-                          if (hit != null) {
-                            _showMemberDetails(context, hit);
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Membro não encontrado na lista (id: $bootDocId). Atualize ou verifique o cadastro.',
-                                ),
-                              ),
-                            );
-                          }
-                        });
-                      }
-                      final pendentesNaLista = docs
-                          .where((d) => _memberDocIsPending(d.data))
-                          .toList();
-                      Widget listContent;
-                      if (docs.isEmpty) {
-                        final filteredOut = allDocs.isNotEmpty;
-                        if (_q.isNotEmpty) {
-                          listContent = Center(
-                              child: Text(
-                                  'Nenhum membro encontrado para "$_q".',
-                                  style: TextStyle(
-                                      color:
-                                          ThemeCleanPremium.onSurfaceVariant)));
-                        } else if (filteredOut) {
-                          listContent = Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(
-                                  ThemeCleanPremium.spaceLg),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.filter_alt_off_rounded,
-                                      size: 64, color: Colors.grey.shade400),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceMd),
-                                  Text(
-                                    'Nenhum membro corresponde aos filtros ativos.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        color: ThemeCleanPremium.onSurface),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Há ${allDocs.length} na lista bruta. Ajuste a aba Todos/Ativos/Inativos ou os filtros avançados.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        height: 1.35,
-                                        color: ThemeCleanPremium
-                                            .onSurfaceVariant),
-                                  ),
-                                  const SizedBox(height: 20),
-                                  FilledButton.icon(
-                                    onPressed: () => setState(() {
-                                      _filtroStatus = 'todos';
-                                      _filtroGenero = 'todos';
-                                      _filtroFaixaEtaria = 'todas';
-                                      _filtroDiaCadastro = 'todos';
-                                      _filtroDepartamento = 'todos';
-                                      _filtroAniversarioMes = null;
-                                    }),
-                                    icon: const Icon(Icons.restart_alt_rounded,
-                                        size: 20),
-                                    label: const Text('Limpar filtros'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        } else {
-                          listContent = Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(
-                                  ThemeCleanPremium.spaceLg),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.people_outline_rounded,
-                                      size: 64, color: Colors.grey.shade400),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceMd),
-                                  Text('Nenhum membro cadastrado.',
-                                      style: TextStyle(
-                                          fontSize: 16,
-                                          color: ThemeCleanPremium
-                                              .onSurfaceVariant)),
-                                  if (_canManage) ...[
-                                    const SizedBox(height: 16),
-                                    FilledButton.icon(
-                                      onPressed: addBlocked
-                                          ? null
-                                          : () => _onAddMember(context),
-                                      icon: const Icon(Icons.person_add_rounded,
-                                          size: 20),
-                                      label: Text(addBlocked
-                                          ? 'Limite do plano'
-                                          : 'Cadastrar novo membro'),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-                      } else {
-                        listContent = _buildMembersList(docs);
-                      }
-                      final allPendIds =
-                          pendentesNaLista.map((e) => e.id).toSet();
-                      final allPendingSelected = allPendIds.isNotEmpty &&
-                          allPendIds.every(_selectedPendingIds.contains);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (_filtroStatus == 'pendentes' &&
-                              _canApprovePending &&
-                              pendentesNaLista.isNotEmpty)
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(padding.horizontal,
-                                  0, padding.horizontal, 10),
-                              child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                                  border: Border.all(
-                                      color: const Color(0xFFF1F5F9)),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFFFBEB),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Icon(
-                                              Icons.pending_actions_rounded,
-                                              color: Colors.amber.shade800,
-                                              size: 22),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '${pendentesNaLista.length} pendente(s) na lista',
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 15,
-                                                    letterSpacing: -0.2),
-                                              ),
-                                              Text(
-                                                'Aprove um por um no menu ⋮, selecione vários ou todos de uma vez.',
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: Colors.grey.shade600,
-                                                    height: 1.3),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 14),
-                                    Wrap(
-                                      spacing: 10,
-                                      runSpacing: 10,
-                                      children: [
-                                        OutlinedButton.icon(
-                                          onPressed: () => setState(() {
-                                            if (allPendingSelected) {
-                                              _selectedPendingIds.removeWhere(
-                                                  allPendIds.contains);
-                                            } else {
-                                              _selectedPendingIds = {
-                                                ..._selectedPendingIds,
-                                                ...allPendIds
-                                              };
-                                            }
-                                          }),
-                                          icon: Icon(
-                                              allPendingSelected
-                                                  ? Icons.deselect_rounded
-                                                  : Icons.select_all_rounded,
-                                              size: 18),
-                                          label: Text(allPendingSelected
-                                              ? 'Limpar seleção'
-                                              : 'Selecionar todos'),
-                                          style: OutlinedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 14, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12)),
-                                          ),
-                                        ),
-                                        FilledButton.icon(
-                                          onPressed: _selectedPendingIds.isEmpty
-                                              ? null
-                                              : () => _aprovarMembrosPorIds(
-                                                  Set<String>.from(
-                                                      _selectedPendingIds
-                                                          .intersection(
-                                                              allPendIds))),
-                                          icon: const Icon(
-                                              Icons.check_circle_rounded,
-                                              size: 18),
-                                          label: Text(
-                                              'Aprovar selecionados (${_selectedPendingIds.intersection(allPendIds).length})'),
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor:
-                                                const Color(0xFF059669),
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 16, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12)),
-                                          ),
-                                        ),
-                                        FilledButton.tonalIcon(
-                                          onPressed: () =>
-                                              _confirmAprovarTodosFiltrados(
-                                                  pendentesNaLista),
-                                          icon: const Icon(
-                                              Icons.done_all_rounded,
-                                              size: 18),
-                                          label: const Text(
-                                              'Aprovar todos filtrados'),
-                                          style: FilledButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 16, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12)),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          if (_canApprovePending && pendCount > 0)
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                  padding.horizontal, 0, padding.horizontal, 8),
-                              child: Material(
-                                color: Colors.amber.shade50,
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm),
-                                child: InkWell(
-                                  onTap: () async {
-                                    await Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (_) =>
-                                                AprovarMembrosPendentesPage(
-                                                    tenantId:
-                                                        _effectiveTenantId,
-                                                    gestorRole: widget.role)));
-                                    if (mounted) _refreshMembers();
-                                  },
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 12),
-                                    child: Row(children: [
-                                      Icon(Icons.person_add_rounded,
-                                          color: Colors.amber.shade800,
-                                          size: 22),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                          child: Text(
-                                              '$pendCount cadastro(s) pendente(s) de aprovação',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 13,
-                                                  color:
-                                                      Colors.amber.shade900))),
-                                      Icon(Icons.arrow_forward_rounded,
-                                          color: Colors.amber.shade800,
-                                          size: 20),
-                                    ]),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          Expanded(
-                              child: _wrapMembersListScroll(
-                            onRefresh: () async =>
-                                _refreshMembers(forceServer: true),
-                            docsEmpty: docs.isEmpty,
-                            listContent: listContent,
-                          )),
-                        ],
-                      );
-                    },
+                            _buildMembersStatsDashboard(
+                                context, padding, limitResult),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -5803,11 +6182,1782 @@ class _MembersPageState extends State<MembersPage> {
       },
     );
   }
+
+  /// Lista de membros (mesmo FutureBuilder na aba principal e na rota fullscreen).
+  Widget _buildMembersListFutureColumn(
+    EdgeInsets padding, {
+    required bool addBlocked,
+    MembersLimitResult? limitResult,
+    bool includeInlineFilters = true,
+  }) {
+    return FutureBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
+      future: _membersDataFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          if (includeInlineFilters) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildMembersUltraFilterStrip(
+                  padding,
+                  limitResult: limitResult,
+                  addBlocked: addBlocked,
+                ),
+                const Expanded(child: SkeletonLoader(itemCount: 8)),
+              ],
+            );
+          }
+          return const SkeletonLoader(itemCount: 8);
+        }
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+            child: ChurchPanelErrorBody(
+              title: 'Não foi possível carregar os membros',
+              error: snap.error,
+              onRetry: _refreshMembers,
+            ),
+          );
+        }
+        final list = snap.data!;
+        if (list.length < 7) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 48, color: Colors.amber.shade700),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  Text(
+                    'Resposta incompleta ao carregar membros (${list.length}/7).',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                      onPressed: _refreshMembers,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Recarregar')),
+                ],
+              ),
+            ),
+          );
+        }
+        final pendCount = list[6].docs.length;
+        final combined = <String, _MemberDoc>{};
+        void putOrMerge(
+            QueryDocumentSnapshot<Map<String, dynamic>> d,
+            _MemberDoc Function(QueryDocumentSnapshot<Map<String, dynamic>>)
+                map) {
+          final doc = map(d);
+          final cur = combined[doc.id];
+          if (cur == null) {
+            combined[doc.id] = doc;
+          } else {
+            combined[doc.id] =
+                _MemberDoc(doc.id, _mergeMemberPhotoFields(cur.data, doc.data));
+          }
+        }
+
+        // list[0]..[3] são mesmas fontes mescladas (membros igreja); um loop evita merge quadruplicado.
+        for (final d in list[0].docs) putOrMerge(d, _MemberDoc.fromQueryDoc);
+        for (final d in list[4].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
+        for (final d in list[5].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
+        final allDocs = combined.values
+            .map(_memberWithOptimisticOverlay)
+            .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
+            .toList();
+        final docs = _aplicarFiltros(allDocs);
+        final bootDocId = widget.initialOpenMemberDocId?.trim() ?? '';
+        if (bootDocId.isNotEmpty && !_didBootstrapOpenMemberSheet) {
+          _didBootstrapOpenMemberSheet = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _MemberDoc? hit;
+            for (final d in allDocs) {
+              if (d.id == bootDocId) {
+                hit = d;
+                break;
+              }
+            }
+            if (hit != null) {
+              _showMemberDetails(context, hit);
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Membro não encontrado na lista (id: $bootDocId). Atualize ou verifique o cadastro.',
+                  ),
+                ),
+              );
+            }
+          });
+        }
+        final pendentesNaLista =
+            docs.where((d) => _memberDocIsPending(d.data)).toList();
+        Widget? emptyListBody;
+        if (docs.isEmpty) {
+          final filteredOut = allDocs.isNotEmpty;
+          if (_q.isNotEmpty) {
+            emptyListBody = Center(
+                child: Text('Nenhum membro encontrado para "$_q".',
+                    style:
+                        TextStyle(color: ThemeCleanPremium.onSurfaceVariant)));
+          } else if (filteredOut) {
+            emptyListBody = Center(
+              child: Padding(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.filter_alt_off_rounded,
+                        size: 64, color: Colors.grey.shade400),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text(
+                      'Nenhum membro corresponde aos filtros ativos.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: ThemeCleanPremium.onSurface),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Há ${allDocs.length} na lista bruta. Ajuste a aba Todos/Ativos/Inativos ou os filtros avançados.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: ThemeCleanPremium.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: () => setState(() {
+                        _filtroStatus = 'todos';
+                        _filtroGenero = 'todos';
+                        _filtroFaixaEtaria = 'todas';
+                        _filtroDiaCadastro = 'todos';
+                        _filtroDepartamento = 'todos';
+                        _filtroAniversarioMes = null;
+                      }),
+                      icon: const Icon(Icons.restart_alt_rounded, size: 20),
+                      label: const Text('Limpar filtros'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          } else if (!_canManage &&
+              AppPermissions.isRestrictedMember(widget.role) &&
+              allDocs.isEmpty) {
+            emptyListBody = Center(
+              child: Padding(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.badge_outlined,
+                        size: 64, color: Colors.grey.shade400),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text(
+                      'Cadastro não encontrado para este login.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: ThemeCleanPremium.onSurface),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'O CPF do login deve coincidir com o cadastro ou a ficha precisa estar vinculada ao seu usuário. Em caso de dúvida, fale com o secretariado.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: ThemeCleanPremium.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          } else {
+            emptyListBody = Center(
+              child: Padding(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.people_outline_rounded,
+                        size: 64, color: Colors.grey.shade400),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Text('Nenhum membro cadastrado.',
+                        style: TextStyle(
+                            fontSize: 16,
+                            color: ThemeCleanPremium.onSurfaceVariant)),
+                    if (_canManage) ...[
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed:
+                            addBlocked ? null : () => _onAddMember(context),
+                        icon: const Icon(Icons.person_add_rounded, size: 20),
+                        label: Text(addBlocked
+                            ? 'Limite do plano'
+                            : 'Cadastrar novo membro'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }
+        }
+        final allPendIds = pendentesNaLista.map((e) => e.id).toSet();
+        final allPendingSelected = allPendIds.isNotEmpty &&
+            allPendIds.every(_selectedPendingIds.contains);
+        final slivers = <Widget>[
+          if (includeInlineFilters)
+            SliverToBoxAdapter(
+              child: _buildMembersUltraFilterStrip(
+                padding,
+                limitResult: limitResult,
+                addBlocked: addBlocked,
+              ),
+            ),
+          if (_filtroStatus == 'pendentes' &&
+              _canApprovePending &&
+              pendentesNaLista.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                    padding.horizontal, 0, padding.horizontal, 10),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    border: Border.all(color: const Color(0xFFF1F5F9)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(Icons.pending_actions_rounded,
+                                color: Colors.amber.shade800, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${pendentesNaLista.length} pendente(s) na lista',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      letterSpacing: -0.2),
+                                ),
+                                Text(
+                                  'Aprove um por um no menu ⋮, selecione vários ou todos de uma vez.',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                      height: 1.3),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => setState(() {
+                              if (allPendingSelected) {
+                                _selectedPendingIds
+                                    .removeWhere(allPendIds.contains);
+                              } else {
+                                _selectedPendingIds = {
+                                  ..._selectedPendingIds,
+                                  ...allPendIds
+                                };
+                              }
+                            }),
+                            icon: Icon(
+                                allPendingSelected
+                                    ? Icons.deselect_rounded
+                                    : Icons.select_all_rounded,
+                                size: 18),
+                            label: Text(allPendingSelected
+                                ? 'Limpar seleção'
+                                : 'Selecionar todos'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _selectedPendingIds.isEmpty
+                                ? null
+                                : () => _aprovarMembrosPorIds(Set<String>.from(
+                                    _selectedPendingIds
+                                        .intersection(allPendIds))),
+                            icon: const Icon(Icons.check_circle_rounded,
+                                size: 18),
+                            label: Text(
+                                'Aprovar selecionados (${_selectedPendingIds.intersection(allPendIds).length})'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: () =>
+                                _confirmAprovarTodosFiltrados(pendentesNaLista),
+                            icon: const Icon(Icons.done_all_rounded, size: 18),
+                            label: const Text('Aprovar todos filtrados'),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (_canApprovePending && pendCount > 0)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                    padding.horizontal, 0, padding.horizontal, 8),
+                child: Material(
+                  color: Colors.amber.shade50,
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  child: InkWell(
+                    onTap: () async {
+                      await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => AprovarMembrosPendentesPage(
+                                  tenantId: _effectiveTenantId,
+                                  gestorRole: widget.role)));
+                      if (mounted) _refreshMembers();
+                    },
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      child: Row(children: [
+                        Icon(Icons.person_add_rounded,
+                            color: Colors.amber.shade800, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: Text(
+                                '$pendCount cadastro(s) pendente(s) de aprovação',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    color: Colors.amber.shade900))),
+                        Icon(Icons.arrow_forward_rounded,
+                            color: Colors.amber.shade800, size: 20),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (docs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: emptyListBody!,
+            )
+          else
+            _buildMembersListSliver(docs),
+        ];
+        return NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (docs.isEmpty) return false;
+            return _onMembersScrollNotification(n, docs.length);
+          },
+          child: _wrapMembersListScroll(
+            onRefresh: () async => _refreshMembers(forceServer: true),
+            scrollableChild: CustomScrollView(
+              controller: _membersScrollController,
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              slivers: slivers,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Painel com totais, sexo, faixas etárias e atalhos de relatório (mesma base de dados da lista).
+  Widget _buildMembersStatsDashboard(
+    BuildContext context,
+    EdgeInsets padding,
+    MembersLimitResult? limitResult,
+  ) {
+    return FutureBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
+      future: _membersDataFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+            child: ChurchPanelErrorBody(
+              title: 'Não foi possível carregar os números',
+              error: snap.error,
+              onRetry: _refreshMembers,
+            ),
+          );
+        }
+        final list = snap.data!;
+        if (list.length < 7) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 48, color: Colors.amber.shade700),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Resposta incompleta (${list.length}/7).',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _refreshMembers,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Recarregar'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        final merged = _mergedMemberDocsFromSnapshots(list);
+        final docsForStats = _aplicarFiltros(merged, applySearch: false);
+        return _MembersPremiumStatsPanel(
+          padding: padding,
+          allDocs: docsForStats,
+          searchQuery: _q,
+          limitResult: limitResult,
+          canManage: _canManage,
+          canApprovePending: _canApprovePending,
+          pendQueryCount: list[6].docs.length,
+          buildMemberTile: (ctx, m) => _buildMemberDrillListTile(ctx, m),
+          onExportPdf: () => _exportPdf(context),
+          onExportCsv: () => _exportCsv(context),
+          onRelatorioAvancado: _canManage
+              ? () => openRelatorioMembrosAvancado(
+                    context,
+                    tenantId: _effectiveTenantId,
+                    role: widget.role,
+                  )
+              : null,
+          onOpenAprovar: _canApprovePending && list[6].docs.isNotEmpty
+              ? () async {
+                  await Navigator.push<void>(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => AprovarMembrosPendentesPage(
+                          tenantId: _effectiveTenantId,
+                          gestorRole: widget.role),
+                    ),
+                  );
+                  if (mounted) _refreshMembers();
+                }
+              : null,
+        );
+      },
+    );
+  }
+
+  List<_MemberDoc> _mergedMemberDocsFromSnapshots(
+      List<QuerySnapshot<Map<String, dynamic>>> list) {
+    if (list.length < 7) return [];
+    final combined = <String, _MemberDoc>{};
+    void putOrMerge(
+      QueryDocumentSnapshot<Map<String, dynamic>> d,
+      _MemberDoc Function(QueryDocumentSnapshot<Map<String, dynamic>>) map,
+    ) {
+      final doc = map(d);
+      final cur = combined[doc.id];
+      if (cur == null) {
+        combined[doc.id] = doc;
+      } else {
+        combined[doc.id] =
+            _MemberDoc(doc.id, _mergeMemberPhotoFields(cur.data, doc.data));
+      }
+    }
+
+    for (final d in list[0].docs) {
+      putOrMerge(d, _MemberDoc.fromQueryDoc);
+    }
+    for (final d in list[4].docs) {
+      putOrMerge(d, _MemberDoc.fromUserDoc);
+    }
+    for (final d in list[5].docs) {
+      putOrMerge(d, _MemberDoc.fromUserDoc);
+    }
+    return combined.values
+        .map(_memberWithOptimisticOverlay)
+        .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
+        .toList();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Widgets auxiliares
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/// Abas superior (lista vs painel) — alto contraste em mobile.
+class _MembersPremiumTabSwitcher extends StatelessWidget {
+  final int index;
+  final ValueChanged<int> onChanged;
+
+  const _MembersPremiumTabSwitcher({
+    required this.index,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _tabChip(
+              label: 'Lista',
+              icon: Icons.people_rounded,
+              selected: index == 0,
+              primary: primary,
+              onTap: () => onChanged(0),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _tabChip(
+              label: 'Painel & números',
+              icon: Icons.insights_rounded,
+              selected: index == 1,
+              primary: primary,
+              onTap: () => onChanged(1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required Color primary,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: selected
+                ? LinearGradient(
+                    colors: [
+                      primary,
+                      Color.lerp(primary, Colors.black, 0.12)!,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: selected ? null : Colors.white,
+            border: Border.all(
+              color: selected ? Colors.transparent : const Color(0xFFCBD5E1),
+              width: 1.2,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: primary.withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected ? Colors.white : const Color(0xFF475569),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    letterSpacing: -0.2,
+                    color: selected ? Colors.white : const Color(0xFF334155),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Filtro in-place no painel «Painel & números» (cartões e gráficos).
+enum _StatsDrillKind {
+  overview,
+  genderMale,
+  genderFemale,
+  genderUnknown,
+  ageChild,
+  ageTeen,
+  ageAdult,
+  ageSenior,
+  ageUnknown,
+}
+
+bool _memberMatchesStatsDrill(_MemberDoc m, _StatsDrillKind k) {
+  if (k == _StatsDrillKind.overview) return true;
+  final d = m.data;
+  switch (k) {
+    case _StatsDrillKind.genderMale:
+      return genderCategoryFromMemberData(d) == 'M';
+    case _StatsDrillKind.genderFemale:
+      return genderCategoryFromMemberData(d) == 'F';
+    case _StatsDrillKind.genderUnknown:
+      final g = genderCategoryFromMemberData(d);
+      return g != 'M' && g != 'F';
+    case _StatsDrillKind.ageUnknown:
+      return ageFromMemberData(d) == null;
+    case _StatsDrillKind.ageChild:
+      final idade = ageFromMemberData(d);
+      return idade != null && idade < 13;
+    case _StatsDrillKind.ageTeen:
+      final idade = ageFromMemberData(d);
+      return idade != null && idade >= 13 && idade < 18;
+    case _StatsDrillKind.ageAdult:
+      final idade = ageFromMemberData(d);
+      return idade != null && idade >= 18 && idade < 60;
+    case _StatsDrillKind.ageSenior:
+      final idade = ageFromMemberData(d);
+      return idade != null && idade >= 60;
+    case _StatsDrillKind.overview:
+      return true;
+  }
+}
+
+String _statsDrillTitle(_StatsDrillKind k) {
+  switch (k) {
+    case _StatsDrillKind.overview:
+      return 'Painel';
+    case _StatsDrillKind.genderMale:
+      return 'Homens';
+    case _StatsDrillKind.genderFemale:
+      return 'Mulheres';
+    case _StatsDrillKind.genderUnknown:
+      return 'Sexo não informado';
+    case _StatsDrillKind.ageChild:
+      return 'Crianças (<13 anos)';
+    case _StatsDrillKind.ageTeen:
+      return 'Adolescentes (13–17)';
+    case _StatsDrillKind.ageAdult:
+      return 'Adultos (18–59)';
+    case _StatsDrillKind.ageSenior:
+      return 'Idosos (60+)';
+    case _StatsDrillKind.ageUnknown:
+      return 'Sem idade registrada';
+  }
+}
+
+_StatsDrillKind _statsAgeDrillFromBarIndex(int i) {
+  const kinds = <_StatsDrillKind>[
+    _StatsDrillKind.ageChild,
+    _StatsDrillKind.ageTeen,
+    _StatsDrillKind.ageAdult,
+    _StatsDrillKind.ageSenior,
+    _StatsDrillKind.ageUnknown,
+  ];
+  if (i < 0 || i >= kinds.length) return _StatsDrillKind.overview;
+  return kinds[i];
+}
+
+/// Gráficos e cartões de totais (membros carregados no painel).
+class _MembersPremiumStatsPanel extends StatefulWidget {
+  final EdgeInsets padding;
+  final List<_MemberDoc> allDocs;
+
+  /// Texto da busca rápida (só afeta a lista; gráficos ignoram).
+  final String searchQuery;
+  final MembersLimitResult? limitResult;
+  final bool canManage;
+  final bool canApprovePending;
+  final int pendQueryCount;
+
+  /// Linha de membro (lista drill) — mesmas ações da aba Lista.
+  final Widget Function(BuildContext context, _MemberDoc member)
+      buildMemberTile;
+  final VoidCallback onExportPdf;
+  final VoidCallback onExportCsv;
+  final VoidCallback? onRelatorioAvancado;
+  final VoidCallback? onOpenAprovar;
+
+  const _MembersPremiumStatsPanel({
+    required this.padding,
+    required this.allDocs,
+    required this.searchQuery,
+    required this.limitResult,
+    required this.canManage,
+    required this.canApprovePending,
+    required this.pendQueryCount,
+    required this.buildMemberTile,
+    required this.onExportPdf,
+    required this.onExportCsv,
+    this.onRelatorioAvancado,
+    this.onOpenAprovar,
+  });
+
+  @override
+  State<_MembersPremiumStatsPanel> createState() =>
+      _MembersPremiumStatsPanelState();
+}
+
+class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
+  _StatsDrillKind _drill = _StatsDrillKind.overview;
+
+  void _openDrill(_StatsDrillKind k) {
+    if (k == _StatsDrillKind.overview) return;
+    setState(() => _drill = k);
+  }
+
+  void _backToOverview() => setState(() => _drill = _StatsDrillKind.overview);
+
+  @override
+  Widget build(BuildContext context) {
+    final n = widget.allDocs.length;
+    var homens = 0, mulheres = 0, sexoNi = 0;
+    var criancas = 0, adolescentes = 0, adultos = 0, idosos = 0, semIdade = 0;
+    var ativos = 0, inativos = 0, pendentes = 0;
+    for (final m in widget.allDocs) {
+      final d = m.data;
+      final g = genderCategoryFromMemberData(d);
+      if (g == 'M') {
+        homens++;
+      } else if (g == 'F') {
+        mulheres++;
+      } else {
+        sexoNi++;
+      }
+      final idade = ageFromMemberData(d);
+      if (idade == null) {
+        semIdade++;
+      } else if (idade < 13) {
+        criancas++;
+      } else if (idade < 18) {
+        adolescentes++;
+      } else if (idade < 60) {
+        adultos++;
+      } else {
+        idosos++;
+      }
+      final s = (d['STATUS'] ?? d['status'] ?? '').toString().toLowerCase();
+      final pend = s.contains('pendente');
+      final inat = s.contains('inativ');
+      if (pend) {
+        pendentes++;
+      } else if (inat) {
+        inativos++;
+      } else {
+        ativos++;
+      }
+    }
+
+    final primary = ThemeCleanPremium.primary;
+
+    if (_drill != _StatsDrillKind.overview) {
+      final filtered = widget.allDocs
+          .where((m) => _memberMatchesStatsDrill(m, _drill))
+          .toList();
+      return Container(
+        color: ThemeCleanPremium.surfaceVariant,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  widget.padding.left, 4, widget.padding.right, 0),
+              child: _buildDrillHeader(primary, filtered.length),
+            ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.people_outline_rounded,
+                                size: 52, color: Colors.grey.shade400),
+                            const SizedBox(height: 14),
+                            Text(
+                              'Nenhum membro neste grupo\ncom os filtros atuais da lista.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            OutlinedButton.icon(
+                              onPressed: _backToOverview,
+                              icon:
+                                  const Icon(Icons.bar_chart_rounded, size: 20),
+                              label: const Text('Voltar ao painel'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.fromLTRB(
+                        widget.padding.left,
+                        10,
+                        widget.padding.right,
+                        24 + widget.padding.bottom,
+                      ),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 4),
+                      itemBuilder: (context, i) =>
+                          widget.buildMemberTile(context, filtered[i]),
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      color: ThemeCleanPremium.surfaceVariant,
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(widget.padding.left, 4,
+            widget.padding.right, 24 + widget.padding.bottom),
+        children: [
+          Text(
+            'Visão geral (filtros da lista, exceto busca por texto)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Sexo, idade e situação seguem status, gênero, departamento, etc. A caixa “Buscar” só restringe a tabela na aba Lista — não os totais abaixo.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          if (widget.searchQuery.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 20, color: ThemeCleanPremium.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Há texto na busca da lista. Os números deste painel ignoram essa busca para não “sumirem” os irmãos. Limpe a busca se quiser a lista igual aos gráficos.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          _statHeroCard(
+            total: n,
+            limit: widget.limitResult,
+            ativos: ativos,
+            pendentes: pendentes,
+            inativos: inativos,
+            primary: primary,
+          ),
+          if (widget.canApprovePending &&
+              widget.pendQueryCount > 0 &&
+              widget.onOpenAprovar != null) ...[
+            const SizedBox(height: 12),
+            Material(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                onTap: widget.onOpenAprovar,
+                borderRadius: BorderRadius.circular(14),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.pending_actions_rounded,
+                          color: Colors.amber.shade900),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${widget.pendQueryCount} cadastro(s) pendente(s) — abrir aprovações',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.amber.shade900,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          color: Colors.amber.shade900),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _miniStat(
+                  'Homens',
+                  homens,
+                  const Color(0xFF2563EB),
+                  Icons.male_rounded,
+                  tooltip: 'Ver lista de homens',
+                  onTap: () => _openDrill(_StatsDrillKind.genderMale),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _miniStat(
+                  'Mulheres',
+                  mulheres,
+                  const Color(0xFFDB2777),
+                  Icons.female_rounded,
+                  tooltip: 'Ver lista de mulheres',
+                  onTap: () => _openDrill(_StatsDrillKind.genderFemale),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _miniStat(
+            'Sexo não informado',
+            sexoNi,
+            const Color(0xFF64748B),
+            Icons.help_outline_rounded,
+            tooltip: 'Ver lista (sexo em branco ou não reconhecido)',
+            onTap: () => _openDrill(_StatsDrillKind.genderUnknown),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Faixa etária',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+              color: Colors.grey.shade900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Toque numa barra para ver a lista daquela faixa.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.3,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: SizedBox(
+              height: 228,
+              child: _ageBarChart(
+                criancas: criancas,
+                adolescentes: adolescentes,
+                adultos: adultos,
+                idosos: idosos,
+                semIdade: semIdade,
+                onBarSelected: (i) => _openDrill(_statsAgeDrillFromBarIndex(i)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Sexo (distribuição)',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+              color: Colors.grey.shade900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Toque numa fatia do gráfico ou num item da legenda.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.3,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: _genderPieChart(
+              context: context,
+              homens: homens,
+              mulheres: mulheres,
+              outros: sexoNi,
+              onSliceSelected: (kind) => _openDrill(kind),
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (widget.canManage) ...[
+            Text(
+              'Relatórios rápidos',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                color: Colors.grey.shade900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: widget.onExportPdf,
+                  icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                  label: const Text('PDF — lista completa'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: primary,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: widget.onExportCsv,
+                  icon: const Icon(Icons.table_chart_rounded, size: 20),
+                  label: const Text('CSV — exportar'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    side: BorderSide(color: primary.withValues(alpha: 0.5)),
+                  ),
+                ),
+                if (widget.onRelatorioAvancado != null)
+                  FilledButton.tonalIcon(
+                    onPressed: widget.onRelatorioAvancado,
+                    icon: const Icon(Icons.tune_rounded, size: 20),
+                    label: const Text('Relatório avançado (filtros e campos)'),
+                    style: FilledButton.styleFrom(
+                      foregroundColor: primary,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrillHeader(Color primary, int count) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary,
+            Color.lerp(primary, const Color(0xFF0F172A), 0.22)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.32),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: Colors.white.withValues(alpha: 0.14),
+            shape: const CircleBorder(),
+            child: IconButton(
+              onPressed: _backToOverview,
+              tooltip: 'Voltar ao painel',
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _statsDrillTitle(_drill),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.4,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$count ${count == 1 ? 'membro' : 'membros'} · toque na linha para abrir a ficha ou use ⋮ para editar',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.88),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statHeroCard({
+    required int total,
+    required MembersLimitResult? limit,
+    required int ativos,
+    required int pendentes,
+    required int inativos,
+    required Color primary,
+  }) {
+    final lim = limit?.planLimit ?? 0;
+    final used = limit?.currentCount ?? total;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary,
+            Color.lerp(primary, const Color(0xFF0F172A), 0.25)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$total',
+                style: const TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    lim > 0
+                        ? 'membros no painel (plano: $used / $lim)'
+                        : 'membros no painel',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _chip('Ativos', ativos, const Color(0xFF34D399)),
+              _chip('Pendentes', pendentes, const Color(0xFFFBBF24)),
+              _chip('Inativos', inativos, const Color(0xFF94A3B8)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, int v, Color c) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: c,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            '$v',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(
+    String label,
+    int v,
+    Color color,
+    IconData icon, {
+    String? tooltip,
+    VoidCallback? onTap,
+  }) {
+    final child = Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 26),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                Text(
+                  '$v',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.touch_app_rounded, size: 18, color: Colors.grey.shade400),
+        ],
+      ),
+    );
+    if (onTap == null) return child;
+    return Tooltip(
+      message: tooltip ?? 'Ver lista filtrada',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _ageBarChart({
+    required int criancas,
+    required int adolescentes,
+    required int adultos,
+    required int idosos,
+    required int semIdade,
+    required void Function(int barGroupIndex) onBarSelected,
+  }) {
+    final vals = [criancas, adolescentes, adultos, idosos, semIdade];
+    final maxV = vals.fold<int>(0, (a, b) => a > b ? a : b);
+    final maxY = (maxV < 1 ? 1 : maxV) * 1.15;
+    const labels = [
+      'Crianças\n(<13)',
+      'Adolesc.',
+      'Adultos',
+      'Idosos',
+      'Sem idade'
+    ];
+    const colors = [
+      Color(0xFF38BDF8),
+      Color(0xFFA78BFA),
+      Color(0xFF34D399),
+      Color(0xFFFBBF24),
+      Color(0xFF94A3B8),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, top: 8),
+      child: BarChart(
+        BarChartData(
+          alignment: BarChartAlignment.spaceAround,
+          maxY: maxY,
+          barTouchData: BarTouchData(
+            enabled: true,
+            handleBuiltInTouches: true,
+            touchCallback: (FlTouchEvent event, barTouchResponse) {
+              if (!event.isInterestedForInteractions) return;
+              if (event is! FlTapUpEvent) return;
+              final spot = barTouchResponse?.spot;
+              if (spot == null) return;
+              final idx = spot.touchedBarGroupIndex;
+              if (idx >= 0 && idx < 5) onBarSelected(idx);
+            },
+          ),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: maxY > 5 ? maxY / 5 : 1,
+            getDrawingHorizontalLine: (_) => FlLine(
+              color: const Color(0xFFE2E8F0),
+              strokeWidth: 1,
+            ),
+          ),
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 36,
+                getTitlesWidget: (v, meta) {
+                  final i = v.toInt();
+                  if (i < 0 || i >= labels.length) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      labels[i],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade700,
+                        height: 1.1,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 28,
+                getTitlesWidget: (v, meta) => Text(
+                  v.toInt().toString(),
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+              ),
+            ),
+            topTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: [
+            for (var i = 0; i < 5; i++)
+              BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: vals[i].toDouble(),
+                    color: colors[i],
+                    width: 18,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(8),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Estilo alinhado ao painel principal ([IgrejaDashboardModerno]): legenda + rosca com total no centro.
+  Widget _genderPieChart({
+    required BuildContext context,
+    required int homens,
+    required int mulheres,
+    required int outros,
+    required void Function(_StatsDrillKind kind) onSliceSelected,
+  }) {
+    final total = homens + mulheres + outros;
+    if (total == 0) {
+      return SizedBox(
+        height: 120,
+        child: Center(
+          child: Text(
+            'Sem dados para o gráfico.',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+        ),
+      );
+    }
+    final narrow = MediaQuery.sizeOf(context).width < 560;
+    final sections = <PieChartSectionData>[];
+    final sliceDrills = <_StatsDrillKind>[];
+    void addSlice(double v, Color color, _StatsDrillKind drill) {
+      if (v <= 0) return;
+      sliceDrills.add(drill);
+      final share = v / total;
+      final showPct = share >= 0.06;
+      sections.add(
+        PieChartSectionData(
+          value: v,
+          title: showPct ? '${(share * 100).round()}%' : '',
+          color: color,
+          radius: 62,
+          titleStyle: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            shadows: const [
+              Shadow(
+                  offset: Offset(0, 1), blurRadius: 4, color: Colors.black54),
+            ],
+          ),
+          borderSide: const BorderSide(color: Color(0xFFF8FAFC), width: 2),
+        ),
+      );
+    }
+
+    addSlice(
+        homens.toDouble(), const Color(0xFF2563EB), _StatsDrillKind.genderMale);
+    addSlice(mulheres.toDouble(), const Color(0xFFDB2777),
+        _StatsDrillKind.genderFemale);
+    addSlice(outros.toDouble(), const Color(0xFF64748B),
+        _StatsDrillKind.genderUnknown);
+
+    final chart = AspectRatio(
+      aspectRatio: 1,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final side = c.maxWidth.clamp(168.0, 228.0);
+          return Center(
+            child: SizedBox(
+              width: side,
+              height: side,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  PieChart(
+                    PieChartData(
+                      sections: sections,
+                      sectionsSpace: 2.5,
+                      centerSpaceRadius: side * 0.22,
+                      pieTouchData: PieTouchData(
+                        enabled: true,
+                        touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                          if (!event.isInterestedForInteractions) return;
+                          if (event is! FlTapUpEvent) return;
+                          final idx = pieTouchResponse
+                              ?.touchedSection?.touchedSectionIndex;
+                          if (idx == null ||
+                              idx < 0 ||
+                              idx >= sliceDrills.length) {
+                            return;
+                          }
+                          onSliceSelected(sliceDrills[idx]);
+                        },
+                      ),
+                    ),
+                    swapAnimationDuration: const Duration(milliseconds: 450),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$total',
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.8,
+                          height: 1.0,
+                        ),
+                      ),
+                      Text(
+                        'membros',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    Widget legendTile(
+        String label, int count, Color color, _StatsDrillKind drill) {
+      final pct = total > 0 ? count / total * 100 : 0.0;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: () => onSliceSelected(drill),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    margin: const EdgeInsets.only(top: 3),
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.35),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: Colors.grey.shade700,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: '$label\n',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          TextSpan(
+                            text: '${pct.toStringAsFixed(1)}%',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          TextSpan(
+                            text:
+                                '  ·  $count ${count == 1 ? 'membro' : 'membros'}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded,
+                      size: 18, color: Colors.grey.shade400),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final legend = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (homens > 0)
+          legendTile('Homens', homens, const Color(0xFF2563EB),
+              _StatsDrillKind.genderMale),
+        if (mulheres > 0)
+          legendTile('Mulheres', mulheres, const Color(0xFFDB2777),
+              _StatsDrillKind.genderFemale),
+        if (outros > 0)
+          legendTile('Sexo não informado', outros, const Color(0xFF64748B),
+              _StatsDrillKind.genderUnknown),
+      ],
+    );
+
+    if (narrow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          chart,
+          const SizedBox(height: 14),
+          legend,
+        ],
+      );
+    }
+    return SizedBox(
+      height: 268,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            flex: 11,
+            child: SingleChildScrollView(child: legend),
+          ),
+          Expanded(flex: 10, child: chart),
+        ],
+      ),
+    );
+  }
+}
 
 /// Seção recolhível (link cadastro, filtros) — melhora visualização dos membros
 class _CollapsibleSection extends StatelessWidget {
@@ -5832,13 +7982,13 @@ class _CollapsibleSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 6),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           boxShadow: ThemeCleanPremium.softUiCardShadow,
-          border: Border.all(color: const Color(0xFFF1F5F9)),
+          border: Border.all(color: const Color(0xFFE8EEF4)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5848,20 +7998,23 @@ class _CollapsibleSection extends StatelessWidget {
               onTap: onToggle,
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: expanded ? 12 : 9,
+                ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: EdgeInsets.all(expanded ? 10 : 8),
                       decoration: BoxDecoration(
                         color:
                             ThemeCleanPremium.primary.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(icon,
-                          color: ThemeCleanPremium.primary, size: 22),
+                          color: ThemeCleanPremium.primary,
+                          size: expanded ? 22 : 20),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -5873,8 +8026,8 @@ class _CollapsibleSection extends StatelessWidget {
                               Flexible(
                                 child: Text(
                                   title,
-                                  style: const TextStyle(
-                                    fontSize: 15,
+                                  style: TextStyle(
+                                    fontSize: expanded ? 15 : 14,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: -0.2,
                                   ),
@@ -5903,7 +8056,8 @@ class _CollapsibleSection extends StatelessWidget {
                             ],
                           ),
                           if (subtitle != null &&
-                              subtitle!.trim().isNotEmpty) ...[
+                              subtitle!.trim().isNotEmpty &&
+                              expanded) ...[
                             const SizedBox(height: 4),
                             Text(
                               subtitle!,
@@ -6603,6 +8757,7 @@ String _formatCpf(String cpf) {
 /// Avatar do membro: [FotoMembroWidget] com [memberData] para resolver path/`gs://` do cadastro gestor.
 class _MemberAvatar extends StatelessWidget {
   final String? photoUrl;
+  final Uint8List? memoryPreviewBytes;
   final Map<String, dynamic>? memberData;
   final String name;
   final double radius;
@@ -6620,6 +8775,7 @@ class _MemberAvatar extends StatelessWidget {
     required this.name,
     required this.radius,
     required this.backgroundColor,
+    this.memoryPreviewBytes,
     this.memberData,
     this.tenantId,
     this.memberId,
@@ -6657,10 +8813,20 @@ class _MemberAvatar extends StatelessWidget {
     final cpf = cpfDigits?.replaceAll(RegExp(r'\D'), '');
     final letter = _letterAvatar();
     final au = (authUid ?? '').trim();
+    final md = memberData;
+    final fromParent = (photoUrl ?? '').trim();
+    final urlKey = sanitizeImageUrl(
+      fromParent.isNotEmpty
+          ? fromParent
+          : (md != null ? imageUrlFromMap(md) : ''),
+    );
+    final rev = md != null ? (memberPhotoDisplayCacheRevision(md) ?? 0) : 0;
 
     return FotoMembroWidget(
-      key: ValueKey<String>('mav_${tid}_${mid}_${sanitizeImageUrl(photoUrl)}'),
+      key: ValueKey<String>(
+          'mav_${tid}_${mid}_${urlKey}_${rev}_${memoryPreviewBytes?.length ?? 0}'),
       imageUrl: photoUrl,
+      memoryPreviewBytes: memoryPreviewBytes,
       size: size,
       tenantId: tid.isNotEmpty ? tid : null,
       memberId: mid.isNotEmpty ? mid : null,

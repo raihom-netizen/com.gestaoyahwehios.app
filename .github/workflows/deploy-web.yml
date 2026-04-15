@@ -22,7 +22,7 @@ jobs:
         run: cd flutter_app && flutter pub get
 
       - name: Build web
-        run: cd flutter_app && flutter build web --release
+        run: cd flutter_app && flutter build web --release --no-tree-shake-icons
 
       - name: Upload build
         uses: actions/upload-artifact@v4

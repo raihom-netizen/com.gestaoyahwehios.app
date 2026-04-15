@@ -2,6 +2,7 @@
 IOS/*.p8
 **/AuthKey_*.p8
 **/ApiKey_*.p8
+IOS/*.cer
 IOS/*.mobileprovision
 **/*.p12
 *.p12

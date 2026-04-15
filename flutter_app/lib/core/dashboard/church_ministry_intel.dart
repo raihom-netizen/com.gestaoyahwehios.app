@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show DateTimeRange;
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 
 /// Modelos e cálculos do painel "Saúde ministerial & BI" (painel da igreja).
@@ -7,12 +9,15 @@ class MemberPastoralAlert {
   final String name;
   final String cpfDigits;
   final String summary;
+  /// Dígitos para `wa.me` (mesma prioridade que carteirinha / departamentos).
+  final String phoneDigits;
 
   const MemberPastoralAlert({
     required this.memberId,
     required this.name,
     required this.cpfDigits,
     required this.summary,
+    this.phoneDigits = '',
   });
 }
 
@@ -79,6 +84,40 @@ class ChurchMinistryIntelService {
 
   static String _normCpf(String? raw) =>
       (raw ?? '').replaceAll(RegExp(r'\D'), '');
+
+  /// Dígitos para WhatsApp a partir da ficha em [membros] (alinhado a [departments_page]).
+  static String memberPhoneDigitsForWhatsApp(Map<String, dynamic> m) {
+    String strip(dynamic v) {
+      if (v == null) return '';
+      if (v is List) {
+        for (final e in v) {
+          final s = strip(e);
+          if (s.length >= 10) return s;
+        }
+        return v.map((e) => e.toString()).join('').replaceAll(RegExp(r'[^0-9]'), '');
+      }
+      return v.toString().replaceAll(RegExp(r'[^0-9]'), '');
+    }
+
+    const keys = [
+      'TELEFONES',
+      'telefones',
+      'whatsapp',
+      'WHATSAPP',
+      'whatsappIgreja',
+      'celular',
+      'CELULAR',
+      'telefone',
+      'TELEFONE',
+      'phone',
+      'PHONE',
+    ];
+    for (final k in keys) {
+      final digits = strip(m[k]);
+      if (digits.length >= 10) return digits;
+    }
+    return '';
+  }
 
   /// Evita `List.cast<String>()` / `as List?` com tipos errados vindos do Firestore.
   static List<String> _memberCpfDigitsFromField(dynamic v) {
@@ -157,6 +196,9 @@ class ChurchMinistryIntelService {
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> financeDocs,
     Map<String, dynamic>? churchData,
     bool includeFinance = true,
+    /// Quando preenchido, a inteligência financeira usa só lançamentos nesta janela
+    /// (médias equivalentes “por mês” via [ChurchDashboardFinancePeriod.equivalentMonths]).
+    DateTimeRange? financeWindow,
   }) {
     final now = DateTime.now();
     final cutoff = now.subtract(const Duration(days: staleDays));
@@ -223,6 +265,7 @@ class ChurchMinistryIntelService {
         name: _memberName(m),
         cpfDigits: cpf,
         summary: parts.join(' · '),
+        phoneDigits: memberPhoneDigitsForWhatsApp(m),
       ));
     }
     alerts.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -296,50 +339,13 @@ class ChurchMinistryIntelService {
         .toList();
 
     ChurchFinanceInsight? fin;
-    if (includeFinance && financeDocs.isNotEmpty) {
-      final sixMonthsKeys = <String>{};
-      for (var i = 0; i < 6; i++) {
-        final d = DateTime(now.year, now.month - i, 1);
-        sixMonthsKeys.add('${d.year}-${d.month.toString().padLeft(2, '0')}');
-      }
-      final entByMonth = <String, double>{};
-      final saiByMonth = <String, double>{};
-      for (final d in financeDocs) {
-        final m = d.data();
-        if (!financeLancamentoEfetivadoParaSaldo(m)) continue;
-        final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
-        final raw = m['createdAt'] ?? m['date'];
-        final dt = _ts(raw);
-        if (dt == null) continue;
-        final k = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
-        final amt = m['amount'] ?? m['valor'] ?? 0;
-        final v = amt is num ? amt.toDouble() : double.tryParse(amt.toString()) ?? 0;
-        if (tipo.contains('saida') || tipo.contains('despesa')) {
-          saiByMonth[k] = (saiByMonth[k] ?? 0) + v.abs();
-        } else if (!tipo.contains('transfer')) {
-          entByMonth[k] = (entByMonth[k] ?? 0) + v.abs();
-        }
-      }
-      double sumE = 0, sumS = 0;
-      var c = 0;
-      for (final k in sixMonthsKeys) {
-        final e = entByMonth[k] ?? 0;
-        final s = saiByMonth[k] ?? 0;
-        if (e > 0 || s > 0) c++;
-        sumE += e;
-        sumS += s;
-      }
-      final div = c > 0 ? c : 1;
-      final metaVal = _parseDouble(churchData?['metaMinisterialValor']);
-      final metaAcu = _parseDouble(churchData?['metaMinisterialAcumulado']);
-      final metaTit = (churchData?['metaMinisterialTitulo'] ?? '').toString().trim();
-      fin = ChurchFinanceInsight(
-        mediaEntradasMensal: sumE / div,
-        mediaSaidasMensal: sumS / div,
-        projecaoSaidasProxMes: sumS / div,
-        metaValor: metaVal,
-        metaAcumulado: metaAcu,
-        metaTitulo: metaTit.isEmpty ? null : metaTit,
+    if (includeFinance &&
+        (financeDocs.isNotEmpty || financeWindow != null)) {
+      fin = _buildFinanceInsight(
+        financeDocs: financeDocs,
+        churchData: churchData,
+        financeWindow: financeWindow,
+        now: now,
       );
     }
 
@@ -359,5 +365,90 @@ class ChurchMinistryIntelService {
     if (v == null) return null;
     if (v is num) return v.toDouble();
     return double.tryParse(v.toString().replaceAll(',', '.'));
+  }
+
+  static ChurchFinanceInsight? _buildFinanceInsight({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> financeDocs,
+    Map<String, dynamic>? churchData,
+    required DateTime now,
+    DateTimeRange? financeWindow,
+  }) {
+    final metaVal = _parseDouble(churchData?['metaMinisterialValor']);
+    final metaAcu = _parseDouble(churchData?['metaMinisterialAcumulado']);
+    final metaTit = (churchData?['metaMinisterialTitulo'] ?? '').toString().trim();
+
+    if (financeWindow != null) {
+      double sumE = 0, sumS = 0;
+      final w = financeWindow;
+      for (final d in financeDocs) {
+        final m = d.data();
+        if (!financeLancamentoEfetivadoParaSaldo(m)) continue;
+        final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
+        final raw = m['createdAt'] ?? m['date'];
+        final dt = _ts(raw);
+        if (dt == null) continue;
+        if (dt.isBefore(w.start) || dt.isAfter(w.end)) continue;
+        final amt = m['amount'] ?? m['valor'] ?? 0;
+        final v = amt is num ? amt.toDouble() : double.tryParse(amt.toString()) ?? 0;
+        if (tipo.contains('saida') || tipo.contains('despesa')) {
+          sumS += v.abs();
+        } else if (!tipo.contains('transfer')) {
+          sumE += v.abs();
+        }
+      }
+      final eqM = ChurchDashboardFinancePeriod.equivalentMonths(w);
+      final mediaE = sumE / eqM;
+      final mediaS = sumS / eqM;
+      return ChurchFinanceInsight(
+        mediaEntradasMensal: mediaE,
+        mediaSaidasMensal: mediaS,
+        projecaoSaidasProxMes: mediaS,
+        metaValor: metaVal,
+        metaAcumulado: metaAcu,
+        metaTitulo: metaTit.isEmpty ? null : metaTit,
+      );
+    }
+
+    final sixMonthsKeys = <String>{};
+    for (var i = 0; i < 6; i++) {
+      final d = DateTime(now.year, now.month - i, 1);
+      sixMonthsKeys.add('${d.year}-${d.month.toString().padLeft(2, '0')}');
+    }
+    final entByMonth = <String, double>{};
+    final saiByMonth = <String, double>{};
+    for (final d in financeDocs) {
+      final m = d.data();
+      if (!financeLancamentoEfetivadoParaSaldo(m)) continue;
+      final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
+      final raw = m['createdAt'] ?? m['date'];
+      final dt = _ts(raw);
+      if (dt == null) continue;
+      final k = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+      final amt = m['amount'] ?? m['valor'] ?? 0;
+      final v = amt is num ? amt.toDouble() : double.tryParse(amt.toString()) ?? 0;
+      if (tipo.contains('saida') || tipo.contains('despesa')) {
+        saiByMonth[k] = (saiByMonth[k] ?? 0) + v.abs();
+      } else if (!tipo.contains('transfer')) {
+        entByMonth[k] = (entByMonth[k] ?? 0) + v.abs();
+      }
+    }
+    double sumE = 0, sumS = 0;
+    var c = 0;
+    for (final k in sixMonthsKeys) {
+      final e = entByMonth[k] ?? 0;
+      final s = saiByMonth[k] ?? 0;
+      if (e > 0 || s > 0) c++;
+      sumE += e;
+      sumS += s;
+    }
+    final div = c > 0 ? c : 1;
+    return ChurchFinanceInsight(
+      mediaEntradasMensal: sumE / div,
+      mediaSaidasMensal: sumS / div,
+      projecaoSaidasProxMes: sumS / div,
+      metaValor: metaVal,
+      metaAcumulado: metaAcu,
+      metaTitulo: metaTit.isEmpty ? null : metaTit,
+    );
   }
 }

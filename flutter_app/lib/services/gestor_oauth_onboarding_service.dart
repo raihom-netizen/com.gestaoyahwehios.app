@@ -6,10 +6,11 @@ import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart';
+import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
-/// Login social no cadastro de gestor + roteamento (painel vs completar igreja).
+/// Login social no onboarding: painel se já tem igreja; senão `/signup/completar-dados` (perfil + igreja).
 class GestorOAuthOnboardingService {
   GestorOAuthOnboardingService._();
 
@@ -25,6 +26,12 @@ class GestorOAuthOnboardingService {
 
     if (!context.mounted) return;
     if (igrejaId.isNotEmpty) {
+      final role = (data?['role'] ?? 'gestor').toString();
+      await GestorMembroStubService.ensurePreCadastroGestor(
+        tenantId: igrejaId,
+        role: role,
+      );
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Conta já vinculada. Redirecionando ao painel.'),
@@ -45,7 +52,10 @@ class GestorOAuthOnboardingService {
     if (kIsWeb) {
       throw StateError('Use signInWithPopup na web.');
     }
-    final googleUser = await GoogleSignIn().signIn();
+    try {
+      await appGoogleSignIn().signOut();
+    } catch (_) {}
+    final googleUser = await appGoogleSignIn().signIn();
     if (googleUser == null) {
       throw FirebaseAuthException(
         code: 'cancelled',
@@ -53,9 +63,17 @@ class GestorOAuthOnboardingService {
       );
     }
     final ga = await googleUser.authentication;
+    final idTok = ga.idToken;
+    if (idTok == null || idTok.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'invalid-credential',
+        message:
+            'Google não retornou token de identificação. Tente de novo ou use outro método de login.',
+      );
+    }
     final credential = GoogleAuthProvider.credential(
       accessToken: ga.accessToken,
-      idToken: ga.idToken,
+      idToken: idTok,
     );
     return FirebaseAuth.instance.signInWithCredential(credential);
   }

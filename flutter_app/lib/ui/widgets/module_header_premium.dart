@@ -30,7 +30,7 @@ class ModuleHeaderPremium extends StatelessWidget {
     final titleSize = isVeryNarrow ? 12.0 : (isPhone ? 13.0 : 14.0);
     final subSize = isVeryNarrow ? 10.5 : 11.5;
     final marginH = isPhone ? 0.0 : ThemeCleanPremium.spaceMd;
-    final marginTop = isPhone ? 2.0 : 4.0;
+    final marginTop = isPhone ? 0.0 : 4.0;
     return Semantics(
       header: true,
       label: subtitle != null && subtitle!.isNotEmpty

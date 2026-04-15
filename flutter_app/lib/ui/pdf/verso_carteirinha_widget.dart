@@ -1,27 +1,27 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Verso da carteirinha (PDF CR80): alinhado à carteira digital — dados, validade, QR e regras compactas.
+/// Verso da carteirinha (PDF CR80): dados, validade, telefone, e-mail e regras — sem QR de validação.
 class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   VersoCarteirinhaPdfWidget({
-    required this.validationUrl,
     required this.nomeIgreja,
     List<String>? regrasUso,
     this.validadeDestaque,
-    this.barcodeData,
     PdfColor? gradientStart,
     PdfColor? gradientEnd,
     this.foregroundColor = PdfColors.white,
     this.rodapeColor = PdfColors.grey300,
-    this.congregacao,
     this.fraseInstitucional,
     this.pdfInkEconomy = false,
     this.cpfDoc = '',
     this.nascimentoDoc = '',
     this.filiacaoPaiMaeDoc = '',
+    this.telefoneDoc = '',
+    this.emailDoc = '',
     this.assinaturaImage,
     this.signatoryNome = '',
     this.signatoryCargo = '',
+    this.showRegrasUso = false,
   })  : regrasUso = (regrasUso == null || regrasUso.isEmpty)
             ? kRegrasPadrao
             : List<String>.from(regrasUso),
@@ -38,25 +38,27 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     'Esta credencial é de propriedade da instituição emissora.',
   ];
 
-  final String validationUrl;
   final String nomeIgreja;
   final List<String> regrasUso;
   final String? validadeDestaque;
-  final String? barcodeData;
   final PdfColor gradientStart;
   final PdfColor gradientEnd;
   final PdfColor foregroundColor;
   final PdfColor rodapeColor;
-  final String? congregacao;
   final String? fraseInstitucional;
   final bool pdfInkEconomy;
 
   final String cpfDoc;
   final String nascimentoDoc;
   final String filiacaoPaiMaeDoc;
+  final String telefoneDoc;
+  final String emailDoc;
   final pw.ImageProvider? assinaturaImage;
   final String signatoryNome;
   final String signatoryCargo;
+
+  /// `false` = igual à carteira digital na app (sem lista de regras no meio do verso).
+  final bool showRegrasUso;
 
   static const double cardWidthPt = 242.64;
   static const double cardHeightPt = 153.07;
@@ -141,151 +143,94 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
             ),
             pw.SizedBox(height: 4),
             pw.Expanded(
-              child: pw.Row(
+              child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Expanded(
-                    flex: 14,
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 4),
+                    decoration: pw.BoxDecoration(
+                      color: glassFill,
+                      borderRadius: pw.BorderRadius.circular(6),
+                      border: pw.Border.all(color: glassBorder, width: 0.6),
+                    ),
                     child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Container(
-                          padding: const pw.EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 4),
-                          decoration: pw.BoxDecoration(
-                            color: glassFill,
-                            borderRadius: pw.BorderRadius.circular(6),
-                            border: pw.Border.all(color: glassBorder, width: 0.6),
-                          ),
-                          child: pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Text(
-                                'VALIDADE',
-                                style: pw.TextStyle(
-                                  color: ink
-                                      ? PdfColors.grey700
-                                      : PdfColor(fg.red, fg.green, fg.blue, 0.75),
-                                  fontSize: 4.8,
-                                  fontWeight: pw.FontWeight.bold,
-                                  letterSpacing: 0.6,
-                                ),
-                              ),
-                              pw.Text(
-                                validadeTxt.isEmpty ? '—' : validadeTxt,
-                                style: pw.TextStyle(
-                                  color: fg,
-                                  fontSize: 10,
-                                  fontWeight: pw.FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        pw.SizedBox(height: 3),
-                        _miniField('CPF', cpfDoc, fg, ink),
-                        _miniField('Nascimento', nascimentoDoc, fg, ink),
-                        _miniField('Filiação (Pai e Mãe)', filiacaoPaiMaeDoc, fg, ink),
-                        if ((congregacao ?? '').trim().isNotEmpty)
-                          _miniField('Congregação', congregacao!.trim(), fg, ink),
-                        pw.Spacer(),
-                        if ((signatoryNome).trim().isNotEmpty) ...[
-                          pw.Container(
-                              width: 72,
-                              height: 0.6,
-                              color: PdfColor(fg.red, fg.green, fg.blue, 0.45)),
-                          if (assinaturaImage != null)
-                            pw.Container(
-                              width: 64,
-                              height: 18,
-                              margin: const pw.EdgeInsets.only(top: 2),
-                              child: pw.Image(assinaturaImage!,
-                                  fit: pw.BoxFit.contain),
-                            ),
-                          pw.Text(
-                            signatoryNome.trim(),
-                            style: pw.TextStyle(
-                              color: fg,
-                              fontSize: 6,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                          if (signatoryCargo.trim().isNotEmpty)
-                            pw.Text(
-                              signatoryCargo.trim(),
-                              style: pw.TextStyle(
-                                color: ink ? PdfColors.grey700 : PdfColor(fg.red, fg.green, fg.blue, 0.8),
-                                fontSize: 5,
-                              ),
-                            ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  pw.SizedBox(width: 5),
-                  pw.Expanded(
-                    flex: 11,
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.center,
-                      children: [
-                        pw.Container(
-                          padding: const pw.EdgeInsets.all(4),
-                          decoration: pw.BoxDecoration(
-                            color: PdfColors.white,
-                            borderRadius: pw.BorderRadius.circular(6),
-                          ),
-                          child: pw.BarcodeWidget(
-                            data: validationUrl,
-                            barcode: pw.Barcode.qrCode(),
-                            width: 48,
-                            height: 48,
-                            color: PdfColors.black,
-                          ),
-                        ),
-                        pw.SizedBox(height: 2),
                         pw.Text(
-                          'Validar credencial',
-                          textAlign: pw.TextAlign.center,
+                          'VALIDADE',
                           style: pw.TextStyle(
-                            color: ink ? PdfColors.grey800 : PdfColor(fg.red, fg.green, fg.blue, 0.88),
+                            color: ink
+                                ? PdfColors.grey700
+                                : PdfColor(fg.red, fg.green, fg.blue, 0.75),
                             fontSize: 4.8,
+                            fontWeight: pw.FontWeight.bold,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                        pw.Text(
+                          validadeTxt.isEmpty ? '—' : validadeTxt,
+                          style: pw.TextStyle(
+                            color: fg,
+                            fontSize: 10,
                             fontWeight: pw.FontWeight.bold,
                           ),
                         ),
-                        pw.Spacer(),
-                        ...regrasCurta.map(
-                          (regra) => pw.Padding(
-                            padding: const pw.EdgeInsets.only(bottom: 2),
-                            child: pw.Text(
-                              '• $regra',
-                              style: regraMicro,
-                              maxLines: 3,
-                              textAlign: pw.TextAlign.left,
-                            ),
-                          ),
-                        ),
-                        if ((barcodeData ?? '').trim().isNotEmpty) ...[
-                          pw.SizedBox(height: 2),
-                          pw.Container(
-                            padding: const pw.EdgeInsets.symmetric(
-                                horizontal: 2, vertical: 2),
-                            decoration: pw.BoxDecoration(
-                              color: PdfColors.white,
-                              borderRadius: pw.BorderRadius.circular(2),
-                            ),
-                            child: pw.BarcodeWidget(
-                              barcode: pw.Barcode.code128(),
-                              data: barcodeData!.trim(),
-                              width: 68,
-                              height: 14,
-                              color: PdfColors.black,
-                              drawText: false,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
+                  pw.SizedBox(height: 3),
+                  _miniField('CPF', cpfDoc, fg, ink),
+                  _miniField('Nascimento', nascimentoDoc, fg, ink),
+                  _miniField('Filiação (Pai e Mãe)', filiacaoPaiMaeDoc, fg, ink),
+                  _miniField('Telefone', telefoneDoc, fg, ink),
+                  _miniField('E-mail', emailDoc, fg, ink),
+                  pw.Spacer(),
+                  if ((signatoryNome).trim().isNotEmpty) ...[
+                    pw.Container(
+                        width: 72,
+                        height: 0.6,
+                        color: PdfColor(fg.red, fg.green, fg.blue, 0.45)),
+                    if (assinaturaImage != null)
+                      pw.Container(
+                        width: 76,
+                        height: 22,
+                        margin: const pw.EdgeInsets.only(top: 2),
+                        child: pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
+                      ),
+                    pw.Text(
+                      signatoryNome.trim(),
+                      style: pw.TextStyle(
+                        color: fg,
+                        fontSize: 6,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    if (signatoryCargo.trim().isNotEmpty)
+                      pw.Text(
+                        signatoryCargo.trim(),
+                        style: pw.TextStyle(
+                          color: ink
+                              ? PdfColors.grey700
+                              : PdfColor(fg.red, fg.green, fg.blue, 0.8),
+                          fontSize: 5,
+                        ),
+                      ),
+                  ],
+                  if (showRegrasUso) ...[
+                    pw.SizedBox(height: 4),
+                    ...regrasCurta.map(
+                      (regra) => pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 2),
+                        child: pw.Text(
+                          '• $regra',
+                          style: regraMicro,
+                          maxLines: 3,
+                          textAlign: pw.TextAlign.left,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -28,7 +28,7 @@ class AdminNiveisAcessoPage extends StatelessWidget {
                 SizedBox(height: 6),
                 Text('• Pode remover, editar e criar qualquer dado (tenants, membros, usuários, assinaturas, vendas, licenças).'),
                 SizedBox(height: 6),
-                Text('• Acesso a todos os logs de auditoria (banco de dados, Google Drive, ações de usuários).'),
+                Text('• Acesso a todos os logs de auditoria (banco de dados, ações de usuários).'),
                 SizedBox(height: 6),
                 Text('• Único perfil que pode atribuir outro MASTER e operar em qualquer igreja.'),
               ],

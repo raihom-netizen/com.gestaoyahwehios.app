@@ -1,48 +1,22 @@
 import "dart:async";
 
-import "package:flutter/foundation.dart" show debugPrint, kIsWeb;
+import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:gestao_yahweh/core/public_site_media_auth.dart";
-import "package:cloud_functions/cloud_functions.dart";
 import "package:cloud_firestore/cloud_firestore.dart";
 import "package:url_launcher/url_launcher.dart";
 import "package:gestao_yahweh/ui/widgets/version_footer.dart";
 import "package:gestao_yahweh/ui/theme_clean_premium.dart";
-import "package:gestao_yahweh/ui/login_page.dart";
 import "package:gestao_yahweh/data/planos_oficiais.dart";
 import "package:gestao_yahweh/services/plan_price_service.dart";
 import "package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart";
 import "package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart";
 import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart";
+import "package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart";
 import "package:gestao_yahweh/services/public_site_analytics.dart";
-import "package:gestao_yahweh/services/auth_cpf_service.dart";
-import "package:gestao_yahweh/ui/widgets/safe_network_image.dart";
+import "package:gestao_yahweh/core/app_constants.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
-
-QuerySnapshot<Map<String, dynamic>>? _cachedPublicEmptySnap;
-
-/// Evita que uma query Firestore falhada derrube o lote paralelo (índice, permissão anónima em collectionGroup, etc.).
-Future<QuerySnapshot<Map<String, dynamic>>> _safeFsQuery(
-  Future<QuerySnapshot<Map<String, dynamic>>> future,
-) async {
-  try {
-    return await future;
-  } catch (_) {
-    try {
-      _cachedPublicEmptySnap ??=
-          await FirebaseFirestore.instance.collection('igrejas').limit(0).get();
-      return _cachedPublicEmptySnap!;
-    } catch (_) {
-      try {
-        return await FirebaseFirestore.instance.collection('config').limit(0).get();
-      } catch (_) {
-        if (_cachedPublicEmptySnap != null) return _cachedPublicEmptySnap!;
-        rethrow;
-      }
-    }
-  }
-}
 
 /// Cores de destaque por índice (mesma ordem de planosOficiais).
 const _planAccents = [
@@ -71,14 +45,16 @@ class SitePublicPage extends StatefulWidget {
 }
 
 class _SitePublicPageState extends State<SitePublicPage> {
-  final _churchEmailCtrl = TextEditingController();
-  bool _loading = false;
   Map<String, ({double? monthly, double? annual})>? _effectivePrices;
 
-  /// Callable deployada em `us-central1` — `FirebaseFunctions.instance` usa outra região e falha no site.
-  HttpsCallable get _resolveEmailToChurchCallable =>
-      FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('resolveEmailToChurchPublic');
+  final ScrollController _scrollController = ScrollController();
+
+  final GlobalKey _keyVideo = GlobalKey();
+  final GlobalKey _keyClientes = GlobalKey();
+  final GlobalKey _keyGaleria = GlobalKey();
+  final GlobalKey _keyPlanos = GlobalKey();
+  final GlobalKey _keyIncluido = GlobalKey();
+  final GlobalKey _keyDownload = GlobalKey();
 
   @override
   void initState() {
@@ -94,390 +70,27 @@ class _SitePublicPageState extends State<SitePublicPage> {
     });
   }
 
-  String? _statusMsg; // msg amigável (não mostra internal/not_found)
-  Map<String, dynamic>? _church; // {tenantId, name, logoUrl, slug...}
-
-  Timer? _autoTimer;
-
   @override
   void dispose() {
-    _autoTimer?.cancel();
-    _churchEmailCtrl.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  Future<Map<String, dynamic>?> _callableResolveEmailToChurch(String raw) async {
-    try {
-      final fn = _resolveEmailToChurchCallable;
-      final res = await fn
-          .call({'email': raw.trim()})
-          .timeout(const Duration(seconds: 18));
-      final payload = res.data;
-      if (payload is! Map) return null;
-      final data = Map<String, dynamic>.from(payload);
-      final tid = (data['tenantId'] ?? '').toString().trim();
-      return tid.isEmpty ? null : data;
-    } catch (e, st) {
-      assert(() {
-        debugPrint('[SitePublic] resolveEmailToChurchPublic: $e\n$st');
-        return true;
-      }());
-      return null;
-    }
-  }
-
-  Future<void> _loadChurch() async {
-    final raw = _churchEmailCtrl.text.trim();
-    if (!AuthCpfService.looksLikeEmail(raw)) {
-      setState(() {
-        _statusMsg = 'Informe um e-mail válido (ex.: nome@email.com).';
-        _church = null;
-      });
-      return;
-    }
-    final emailLower = raw.toLowerCase();
-    setState(() {
-      _loading = true;
-      _statusMsg = null;
-      _church = null;
-    });
-
-    void applyChurchNoNavigate(String tid, Map<String, dynamic> data) {
-      if (!mounted) return;
-      setState(() {
-        _church = {
-          'tenantId': tid,
-          'name': (data['nome'] ?? data['name'] ?? data['nomeFantasia'] ?? tid).toString(),
-          'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-          'logoUrl': (data['logoUrl'] ?? data['logoProcessedUrl'] ?? data['logoProcessed'] ?? '').toString(),
-        };
-        _loading = false;
-        _statusMsg = null;
-      });
-    }
-
-    void applyFromCallable(Map<String, dynamic> data) {
-      if (!mounted) return;
-      final tid = (data['tenantId'] ?? '').toString().trim();
-      if (tid.isEmpty) return;
-      setState(() {
-        _church = {
-          'tenantId': tid,
-          'name': (data['name'] ?? tid).toString(),
-          'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-          'logoUrl': (data['logoUrl'] ??
-                  data['logoProcessedUrl'] ??
-                  data['logoProcessed'] ??
-                  '')
-              .toString(),
-        };
-        _loading = false;
-        _statusMsg = null;
-      });
-    }
-
-    try {
-      final refIgrejas = FirebaseFirestore.instance.collection('igrejas');
-      // 1) Cloud Function (lê usersIndex + membros sem depender de regras públicas).
-      Map<String, dynamic>? cfData;
-      try {
-        cfData = await _callableResolveEmailToChurch(raw);
-      } catch (e, st) {
-        assert(() {
-          debugPrint('[SitePublic] _loadChurch callable outer: $e\n$st');
-          return true;
-        }());
-        cfData = null;
-      }
-      if (!mounted) return;
-      if (cfData != null) {
-        applyFromCallable(cfData);
-        return;
-      }
-
-      // 2) Queries diretas em `igrejas/` + usersIndex (paralelo isolado — falha não derruba o fluxo).
-      List<QuerySnapshot<Map<String, dynamic>>> igSnaps;
-      try {
-        igSnaps = await Future.wait([
-          _safeFsQuery(
-              refIgrejas.where('email', isEqualTo: emailLower).limit(1).get()),
-          _safeFsQuery(refIgrejas.where('email', isEqualTo: raw).limit(1).get()),
-          _safeFsQuery(refIgrejas
-              .where('gestorEmail', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(
-              refIgrejas.where('gestorEmail', isEqualTo: raw).limit(1).get()),
-          // Legado / exportações: snake_case no Firestore
-          _safeFsQuery(refIgrejas
-              .where('gestor_email', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(
-              refIgrejas.where('gestor_email', isEqualTo: raw).limit(1).get()),
-          _safeFsQuery(refIgrejas
-              .where('emailGestor', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(
-              refIgrejas.where('emailGestor', isEqualTo: raw).limit(1).get()),
-          _safeFsQuery(refIgrejas
-              .where('emailContato', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(refIgrejas
-              .where('responsavelEmail', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(FirebaseFirestore.instance
-              .collectionGroup('usersIndex')
-              .where('email', isEqualTo: emailLower)
-              .limit(1)
-              .get()),
-          _safeFsQuery(FirebaseFirestore.instance
-              .collectionGroup('usersIndex')
-              .where('email', isEqualTo: raw)
-              .limit(1)
-              .get()),
-        ]);
-      } catch (e, st) {
-        assert(() {
-          debugPrint('[SitePublic] _loadChurch igrejas batch: $e\n$st');
-          return true;
-        }());
-        igSnaps = <QuerySnapshot<Map<String, dynamic>>>[];
-      }
-
-      /// Índices 0–3: e-mail da igreja + gestorEmail (só cartão). 4–5: gestor_email. 6–9: demais campos. 10–11: usersIndex.
-      const navAfter = <bool>[
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-      ];
-      bool snapOk(int i) =>
-          i < igSnaps.length && igSnaps[i].docs.isNotEmpty;
-      for (var i = 0; i < 10; i++) {
-        if (snapOk(i)) {
-          final doc = igSnaps[i].docs.first;
-          applyChurchNoNavigate(doc.id, doc.data());
-          if (navAfter[i]) _navigateToChurchLogin();
-          return;
-        }
-      }
-      for (var i = 10; i < 12; i++) {
-        if (snapOk(i)) {
-          final userDoc = igSnaps[i].docs.first;
-          final pathSegments = userDoc.reference.path.split('/');
-          var tenantId = pathSegments.length >= 2 ? pathSegments[1] : '';
-          if (tenantId.isEmpty) {
-            final ud = userDoc.data();
-            tenantId = (ud['tenantId'] ?? ud['igrejaId'] ?? '').toString().trim();
-          }
-          if (tenantId.isNotEmpty) {
-            final tenantSnap =
-                await refIgrejas.doc(tenantId).get();
-            if (!mounted) return;
-            if (tenantSnap.exists) {
-              final td = tenantSnap.data();
-              if (td != null) {
-                applyChurchNoNavigate(tenantId, td);
-                _navigateToChurchLogin();
-                return;
-              }
-            }
-          }
-        }
-      }
-
-      final memberFutures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
-      for (final coll in ['membros', 'members']) {
-        for (final field in ['email', 'EMAIL', 'mail', 'e_mail']) {
-          for (final val in [emailLower, raw]) {
-            memberFutures.add(_safeFsQuery(FirebaseFirestore.instance
-                .collectionGroup(coll)
-                .where(field, isEqualTo: val)
-                .limit(1)
-                .get()));
-          }
-        }
-      }
-      List<QuerySnapshot<Map<String, dynamic>>> memberSnaps;
-      try {
-        memberSnaps = await Future.wait(memberFutures);
-      } catch (e, st) {
-        assert(() {
-          debugPrint('[SitePublic] _loadChurch membros batch: $e\n$st');
-          return true;
-        }());
-        memberSnaps = <QuerySnapshot<Map<String, dynamic>>>[];
-      }
-      if (!mounted) return;
-      for (final snapMembers in memberSnaps) {
-        if (snapMembers.docs.isEmpty) continue;
-        final memberDoc = snapMembers.docs.first;
-        final pathSegments = memberDoc.reference.path.split('/');
-        var tenantId = '';
-        if (pathSegments.length >= 4 &&
-            pathSegments[0] == 'igrejas' &&
-            (pathSegments[2] == 'membros' || pathSegments[2] == 'members')) {
-          tenantId = pathSegments[1];
-        }
-        if (tenantId.isEmpty) {
-          final d = memberDoc.data();
-          tenantId = (d['tenantId'] ??
-                  d['tenant_id'] ??
-                  d['igrejaId'] ??
-                  d['igreja_id'] ??
-                  '')
-              .toString()
-              .trim();
-        }
-        if (tenantId.isEmpty) continue;
-        final tenantSnap = await refIgrejas.doc(tenantId).get();
-        if (!mounted) return;
-        if (tenantSnap.exists) {
-          final td = tenantSnap.data();
-          if (td != null) {
-            applyChurchNoNavigate(tenantId, td);
-            _navigateToChurchLogin();
-            return;
-          }
-        }
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _statusMsg =
-            'Nenhuma igreja encontrada para este e-mail. Se você é gestor, confira no Painel Master se o e-mail está em gestorEmail, emailGestor ou gestor_email no cadastro da igreja.';
-      });
-    } catch (e, st) {
-      assert(() {
-        debugPrint('[SitePublic] _loadChurch: $e\n$st');
-        return true;
-      }());
-      if (!mounted) return;
-      final msg = e.toString().toLowerCase();
-      final isPermission = msg.contains('permission_denied') ||
-          msg.contains('permission-denied');
-      final isConnection = msg.contains('unavailable') ||
-          msg.contains('failed to fetch') ||
-          msg.contains('network') ||
-          msg.contains('socket') ||
-          msg.contains('could not reach');
-      final isFailedPrecondition = msg.contains('failed-precondition') ||
-          msg.contains('failed_precondition') ||
-          msg.contains('requires an index');
-
-      if (isPermission) {
-        try {
-          final fn = _resolveEmailToChurchCallable;
-          final res = await fn.call({'email': raw}).timeout(const Duration(seconds: 18));
-          final payload = res.data;
-          if (payload is Map) {
-            final data = Map<String, dynamic>.from(payload);
-            final tid = (data['tenantId'] ?? '').toString().trim();
-            if (tid.isNotEmpty && mounted) {
-              setState(() {
-                _church = {
-                  'tenantId': tid,
-                  'name': (data['name'] ?? tid).toString(),
-                  'slug': (data['slug'] ?? data['alias'] ?? tid).toString(),
-                  'logoUrl': (data['logoUrl'] ??
-                          data['logoProcessedUrl'] ??
-                          data['logoProcessed'] ??
-                          '')
-                      .toString(),
-                };
-                _loading = false;
-                _statusMsg = null;
-              });
-              _navigateToChurchLogin();
-              return;
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _statusMsg = isConnection
-            ? 'Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.'
-            : isPermission
-                ? 'Sem permissão para consultar. Verifique as regras do Firestore e se o domínio está autorizado no Firebase (Authentication > Authorized domains).'
-                : isFailedPrecondition
-                    ? 'Consulta temporariamente indisponível. Tente de novo em instantes ou use Entrar no menu com e-mail e senha.'
-                    : 'Erro ao buscar. Verifique o e-mail e tente novamente.';
-        _church = null;
-      });
-    }
+  void _scrollToSection(GlobalKey key) {
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeOutCubic,
+      alignment: 0.12,
+    );
   }
 
   /// Abre o Painel Master (login admin).
   void _goAdmin() {
     unawaited(PublicSiteAnalytics.logMarketingAction('marketing_master_login'));
     Navigator.of(context).pushNamedAndRemoveUntil('/login_admin', (route) => false);
-  }
-  void _onChurchEmailChanged(String value) {
-    setState(() {});
-    _autoTimer?.cancel();
-    final t = value.trim();
-    if (!AuthCpfService.looksLikeEmail(t)) return;
-    _autoTimer = Timer(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      if (_churchEmailCtrl.text.trim() != t) return;
-      if (_loading) return;
-      _loadChurch();
-    });
-  }
-
-  /// Após carregar a igreja, navega direto para a página de login da igreja.
-  void _navigateToChurchLogin() {
-    final church = _church;
-    if (church == null || !mounted) return;
-    unawaited(PublicSiteAnalytics.logMarketingAction(
-        'marketing_prefill_church_login'));
-    final name = church['name']?.toString();
-    final emailForLogin = _churchEmailCtrl.text.trim();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => LoginPage(
-            title: 'Entrar — Painel da Igreja',
-            afterLoginRoute: '/painel',
-            showFleetBranding: false,
-            churchLabel: name,
-            churchLogoUrl: (church['logoUrl'] ?? '').toString().trim().isEmpty
-                ? null
-                : (church['logoUrl'] ?? '').toString().trim(),
-            prefillEmail:
-                emailForLogin.isNotEmpty ? emailForLogin.toLowerCase() : null,
-            backRoute: '/',
-          ),
-        ),
-      );
-    });
-  }
-
-  void _goChurch() {
-    if (_church == null || _loading) return;
-    final slug = _church!['slug'] as String?;
-    if (slug != null && slug.isNotEmpty) {
-      unawaited(
-          PublicSiteAnalytics.logMarketingAction('marketing_open_church_slug'));
-      Navigator.of(context).pushNamed('/igreja_$slug');
-    }
   }
 
   /// AppBar curta (Android/iPhone): logo + título; ações em menu para não truncar.
@@ -499,61 +112,142 @@ class _SitePublicPageState extends State<SitePublicPage> {
                     'marketing_menu_planos'));
                 Navigator.pushNamed(context, '/planos');
                 break;
-              case 'cadastro':
-                unawaited(PublicSiteAnalytics.logMarketingAction(
-                    'marketing_menu_cadastro'));
-                Navigator.pushNamed(context, '/cadastro');
-                break;
-              case 'entrar':
+              case 'login':
                 unawaited(PublicSiteAnalytics.logMarketingAction(
                     'marketing_menu_entrar'));
                 Navigator.pushNamed(context, '/igreja/login');
                 break;
+              case 'master':
+                _goAdmin();
+                break;
             }
           },
           itemBuilder: (ctx) => const [
-            PopupMenuItem(value: 'planos', child: Text('Planos')),
-            PopupMenuItem(value: 'cadastro', child: Text('Cadastro')),
-            PopupMenuItem(value: 'entrar', child: Text('Entrar')),
+            PopupMenuItem(
+              value: 'planos',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.workspace_premium_rounded, size: 22),
+                title: Text('Ver planos'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'login',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.login_rounded, size: 22),
+                title: Text('Login'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'master',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.admin_panel_settings_rounded, size: 22),
+                title: Text('Acesso Painel Master'),
+              ),
+            ),
           ],
         ),
       ];
     }
+    Widget navChip({
+      required String label,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool emphasize = false,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 6),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(999),
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: emphasize
+                    ? LinearGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.22),
+                          Colors.white.withValues(alpha: 0.1),
+                        ],
+                      )
+                    : null,
+                color: emphasize
+                    ? null
+                    : Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.28),
+                  width: 1,
+                ),
+                boxShadow: emphasize
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 15, color: Colors.white),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11.5,
+                        letterSpacing: 0.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return [
-      TextButton(
-        onPressed: () {
+      navChip(
+        label: 'VER PLANOS',
+        icon: Icons.auto_awesome_rounded,
+        emphasize: true,
+        onTap: () {
           unawaited(
               PublicSiteAnalytics.logMarketingAction('marketing_bar_planos'));
           Navigator.pushNamed(context, '/planos');
         },
-        child: const Text(
-          'Planos',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
       ),
-      TextButton(
-        onPressed: () {
+      navChip(
+        label: 'LOGIN',
+        icon: Icons.login_rounded,
+        onTap: () {
           unawaited(PublicSiteAnalytics.logMarketingAction(
-              'marketing_bar_cadastro'));
-          Navigator.pushNamed(context, '/cadastro');
+              'marketing_bar_entrar'));
+          Navigator.pushNamed(context, '/igreja/login');
         },
-        child: const Text(
-          'Cadastro',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
       ),
       Padding(
-        padding: const EdgeInsets.only(right: 4),
-        child: TextButton(
-          onPressed: () {
+        padding: const EdgeInsets.only(right: 6, left: 2),
+        child: navChip(
+          label: 'ACESSO PAINEL MASTER',
+          icon: Icons.shield_rounded,
+          onTap: () {
             unawaited(PublicSiteAnalytics.logMarketingAction(
-                'marketing_bar_entrar'));
-            Navigator.pushNamed(context, '/igreja/login');
+                'marketing_master_login'));
+            _goAdmin();
           },
-          child: const Text(
-            'Entrar',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-          ),
         ),
       ),
     ];
@@ -563,16 +257,16 @@ class _SitePublicPageState extends State<SitePublicPage> {
     final narrow = MediaQuery.sizeOf(context).width < _kAppBarCompactWidth;
     return Row(
       children: [
-        _PublicSiteGestaoYahwehLogo(size: narrow ? 28 : 32),
-        SizedBox(width: narrow ? 8 : 10),
+        _PublicSiteGestaoYahwehLogo(size: narrow ? 22 : 26),
+        SizedBox(width: narrow ? 6 : 8),
         Expanded(
           child: Text(
             'Gestão YAHWEH',
             style: TextStyle(
               fontWeight: FontWeight.w800,
               color: Colors.white,
-              fontSize: narrow ? 16 : 18,
-              letterSpacing: 0.2,
+              fontSize: narrow ? 14.5 : 16,
+              letterSpacing: 0.15,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -604,19 +298,40 @@ class _SitePublicPageState extends State<SitePublicPage> {
           child: Column(
             children: [
               AppBar(
+                toolbarHeight: 48,
                 leading: widget.isConviteRoute
                     ? IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 26),
+                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
                         onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false),
                         tooltip: 'Voltar ao início',
                       )
                     : null,
                 title: _sitePublicAppBarTitle(context),
-                backgroundColor: topBar,
+                backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 scrolledUnderElevation: 0,
+                shadowColor: Colors.transparent,
                 iconTheme: const IconThemeData(color: Colors.white),
+                flexibleSpace: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        topBar,
+                        Color.lerp(topBar, ThemeCleanPremium.primary, 0.12)!,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.14),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                ),
                 actions: _sitePublicAppBarActions(context),
               ),
               Expanded(
@@ -646,27 +361,17 @@ class _SitePublicPageState extends State<SitePublicPage> {
     return LayoutBuilder(
       builder: (context, c) {
         final isMobile = c.maxWidth < 900;
-        final left = _LeftHero(onGoAdmin: _goAdmin);
-        final right = _ChurchLookupCard(
-          emailCtrl: _churchEmailCtrl,
-          loading: _loading,
-          statusMsg: _statusMsg,
-          church: _church,
-          onLoad: _loadChurch,
-          onEmailChanged: _onChurchEmailChanged,
-          onEnter: (_church != null && !_loading) ? _goChurch : null,
+        final hero = Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 920),
+            child: _LeftHero(onGoAdmin: _goAdmin),
+          ),
         );
-        final topRow = isMobile
-            ? Column(
-                children: [left, const SizedBox(height: 16), right],
-              )
-            : Row(
-                children: [Expanded(child: left), const SizedBox(width: 16), SizedBox(width: 420, child: right)],
-              );
         final bottomInset = MediaQuery.paddingOf(context).bottom;
         final hPad =
             isMobile ? ThemeCleanPremium.spaceMd : ThemeCleanPremium.spaceLg;
         return SingleChildScrollView(
+          controller: _scrollController,
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               hPad,
@@ -683,64 +388,96 @@ class _SitePublicPageState extends State<SitePublicPage> {
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 920),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _SectionTitle(
-                              title: 'Conheça em vídeo',
-                              subtitle:
-                                  'Pitch rápido do ecossistema: app, painel da igreja e site público.',
-                            ),
-                            const SizedBox(height: 10),
-                            PremiumMarketingHeroVideo(
-                              height: isMobile ? 200 : 280,
-                              defaultStoragePath: 'public/videos/institucional.mp4',
-                            ),
-                          ],
+                        child: KeyedSubtree(
+                          key: _keyVideo,
+                          child: PremiumMarketingHeroVideo(
+                            height: isMobile ? 200 : 280,
+                            defaultStoragePath: 'public/videos/institucional.mp4',
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 22),
-                    topRow,
+                    hero,
+                    const SizedBox(height: 18),
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: isMobile ? double.infinity : 560),
+                        child: YahwehOfficialSocialChannelsBar(
+                          compact: isMobile,
+                          onChannelTap: (ch) => unawaited(
+                            PublicSiteAnalytics.logMarketingAction(
+                                'marketing_social_$ch'),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _MarketingQuickAccessBar(
+                      onScrollTo: _scrollToSection,
+                      keyClientes: _keyClientes,
+                      keyGaleria: _keyGaleria,
+                      keyPlanos: _keyPlanos,
+                      keyIncluido: _keyIncluido,
+                      keyDownload: _keyDownload,
+                    ),
                     const SizedBox(height: 24),
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 960),
-                        child: const MarketingClientesShowcaseSection(),
+                        child: KeyedSubtree(
+                          key: _keyClientes,
+                          child: const MarketingClientesShowcaseSection(
+                            showSectionHeading: false,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 960),
-                        child: const MarketingGestaoYahwehGallerySection(
-                          excludePdfFromPublicGallery: true,
+                        child: KeyedSubtree(
+                          key: _keyGaleria,
+                          child: const MarketingGestaoYahwehGallerySection(
+                            excludePdfFromPublicGallery: true,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 28),
-                    const _SectionTitle(
-                      title: "Planos oficiais",
-                      subtitle: "Todos os modulos inclusos. O que muda e a escala de uso.",
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 14,
-                      runSpacing: 14,
-                      children: planosOficiais.asMap().entries.map((e) {
-                        final i = e.key;
-                        final p = e.value;
-                        final ep = _effectivePrices?[p.id];
-                        return SizedBox(
-                          width: isMobile ? double.infinity : 280,
-                          child: _PlanCard(
-                            plan: p,
-                            accent: _accentForPlan(i),
-                            priceMonthly: ep?.monthly ?? p.monthlyPrice,
-                            priceAnnual: ep?.annual ?? p.annualPrice,
+                    KeyedSubtree(
+                      key: _keyPlanos,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _SectionTitle(
+                            title: "Planos oficiais",
+                            subtitle:
+                                "Todos os modulos inclusos. O que muda e a escala de uso.",
                           ),
-                        );
-                      }).toList(),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 14,
+                            runSpacing: 14,
+                            children: planosOficiais.asMap().entries.map((e) {
+                              final i = e.key;
+                              final p = e.value;
+                              final ep = _effectivePrices?[p.id];
+                              return SizedBox(
+                                width: isMobile ? double.infinity : 280,
+                                child: _PlanCard(
+                                  plan: p,
+                                  accent: _accentForPlan(i),
+                                  priceMonthly: ep?.monthly ?? p.monthlyPrice,
+                                  priceAnnual: ep?.annual ?? p.annualPrice,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Center(
@@ -760,13 +497,21 @@ class _SitePublicPageState extends State<SitePublicPage> {
                       ),
                     ),
                     const SizedBox(height: 26),
-                    const _SectionTitle(
-                      title: "Tudo o que está incluído",
-                      subtitle:
-                          "Nenhum plano é capado: o sistema completo já vem ativo, com estes módulos.",
+                    KeyedSubtree(
+                      key: _keyIncluido,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _SectionTitle(
+                            title: "Tudo o que está incluído",
+                            subtitle:
+                                "Nenhum plano é capado: o sistema completo já vem ativo, com estes módulos.",
+                          ),
+                          const SizedBox(height: 16),
+                          const _PremiumIncludedFeaturesGrid(),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    const _PremiumIncludedFeaturesGrid(),
                     const SizedBox(height: 28),
                     Center(
                       child: ConstrainedBox(
@@ -775,7 +520,10 @@ class _SitePublicPageState extends State<SitePublicPage> {
                       ),
                     ),
                     const SizedBox(height: 26),
-                    _DownloadsSection(),
+                    KeyedSubtree(
+                      key: _keyDownload,
+                      child: _DownloadsSection(),
+                    ),
                     const SizedBox(height: 22),
                     Center(
                       child: ConstrainedBox(
@@ -784,7 +532,11 @@ class _SitePublicPageState extends State<SitePublicPage> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const VersionFooter(showVersion: true),
+                    const VersionFooter(
+                      showVersion: true,
+                      useLegalPreviewModal: true,
+                      openLegalLinksInNewTab: false,
+                    ),
                   ],
                 ),
               ),
@@ -1020,12 +772,75 @@ class _LeftHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
+    Widget heroBtn({
+      required String label,
+      required IconData icon,
+      required VoidCallback onPressed,
+      required bool filled,
+    }) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: filled
+                  ? LinearGradient(
+                      colors: [
+                        ThemeCleanPremium.primary,
+                        ThemeCleanPremium.primaryLight,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+              color: filled ? null : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: filled
+                    ? Colors.transparent
+                    : ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: ThemeCleanPremium.primary.withValues(alpha: filled ? 0.35 : 0.12),
+                  blurRadius: filled ? 20 : 10,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 17, color: filled ? Colors.white : ThemeCleanPremium.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11.5,
+                      letterSpacing: 0.25,
+                      color: filled ? Colors.white : ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       decoration: ThemeCleanPremium.premiumSurfaceCard,
       child: Padding(
         padding: EdgeInsets.symmetric(
-            horizontal: isMobile ? ThemeCleanPremium.spaceLg : 32,
-            vertical: isMobile ? ThemeCleanPremium.spaceLg : ThemeCleanPremium.spaceXl),
+            horizontal: isMobile ? ThemeCleanPremium.spaceMd : 24,
+            vertical: isMobile ? 12 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -1033,74 +848,202 @@ class _LeftHero extends StatelessWidget {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final logoSize = isMobile
-                      ? (constraints.maxWidth < 400 ? 200.0 : 280.0)
-                      : 480.0;
+                      ? (constraints.maxWidth < 400 ? 104.0 : 132.0)
+                      : 228.0;
                   return _PublicSiteGestaoYahwehLogo(size: logoSize);
                 },
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               "Gestão YAHWEH",
               style: TextStyle(
-                fontSize: isMobile ? 22 : 28,
+                fontSize: isMobile ? 16 : 19,
                 fontWeight: FontWeight.w900,
                 color: ThemeCleanPremium.primary,
-                letterSpacing: 1.2,
+                letterSpacing: 0.8,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               "Um sistema de excelência feito para sua igreja",
               style: TextStyle(
-                fontSize: isMobile ? 15 : 20,
+                fontSize: isMobile ? 13 : 15,
                 color: Colors.black54,
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             Wrap(
               alignment: WrapAlignment.center,
-              spacing: 10,
-              runSpacing: 10,
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                OutlinedButton.icon(
-                  onPressed: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_login'));
-                    Navigator.pushNamed(context, '/igreja/login');
-                  },
-                  icon: const Icon(Icons.login),
-                  label: const Text('Login'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: ThemeCleanPremium.primary,
-                    side: const BorderSide(color: ThemeCleanPremium.primary),
-                    minimumSize: const Size(48, 48),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd)),
-                  ),
-                ),
-                TextButton.icon(
+                heroBtn(
+                  filled: true,
+                  label: 'VER PLANOS',
+                  icon: Icons.workspace_premium_rounded,
                   onPressed: () {
                     unawaited(PublicSiteAnalytics.logMarketingAction(
                         'marketing_hero_planos'));
                     Navigator.pushNamed(context, '/planos');
                   },
-                  icon: const Icon(Icons.star),
-                  label: const Text('Ver planos'),
                 ),
-                TextButton.icon(
-                  onPressed: onGoAdmin,
-                  icon: const Icon(Icons.admin_panel_settings),
-                  label: const Text('Painel Master'),
+                heroBtn(
+                  filled: false,
+                  label: 'LOGIN',
+                  icon: Icons.login_rounded,
+                  onPressed: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_login'));
+                    Navigator.pushNamed(context, '/igreja/login');
+                  },
+                ),
+                heroBtn(
+                  filled: false,
+                  label: 'ACESSO PAINEL MASTER',
+                  icon: Icons.shield_rounded,
+                  onPressed: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_master'));
+                    onGoAdmin();
+                  },
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Atalhos para secções da landing (scroll suave).
+class _MarketingQuickAccessBar extends StatelessWidget {
+  final void Function(GlobalKey key) onScrollTo;
+  final GlobalKey keyClientes;
+  final GlobalKey keyGaleria;
+  final GlobalKey keyPlanos;
+  final GlobalKey keyIncluido;
+  final GlobalKey keyDownload;
+
+  const _MarketingQuickAccessBar({
+    required this.onScrollTo,
+    required this.keyClientes,
+    required this.keyGaleria,
+    required this.keyPlanos,
+    required this.keyIncluido,
+    required this.keyDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 720;
+    final items = <({String label, String analyticsId, IconData icon, GlobalKey key})>[
+      (label: 'CLIENTES GESTÃO YAHWEH', analyticsId: 'marketing_quick_clientes', icon: Icons.church_rounded, key: keyClientes),
+      (label: 'GALERIA', analyticsId: 'marketing_quick_galeria', icon: Icons.collections_rounded, key: keyGaleria),
+      (label: 'PLANOS OFICIAIS', analyticsId: 'marketing_quick_planos', icon: Icons.workspace_premium_rounded, key: keyPlanos),
+      (label: 'TUDO QUE ESTÁ INCLUÍDO NO SISTEMA', analyticsId: 'marketing_quick_incluido', icon: Icons.dashboard_customize_rounded, key: keyIncluido),
+      (label: 'BAIXAR APLICATIVO', analyticsId: 'marketing_quick_download', icon: Icons.download_rounded, key: keyDownload),
+    ];
+
+    Widget chip(({String label, String analyticsId, IconData icon, GlobalKey key}) it) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            unawaited(PublicSiteAnalytics.logMarketingAction(it.analyticsId));
+            onScrollTo(it.key);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(it.icon,
+                      size: narrow ? 16 : 18, color: ThemeCleanPremium.primary),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      it.label,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11.5,
+                        letterSpacing: 0.2,
+                        height: 1.15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.primary.withValues(alpha: 0.06),
+            Colors.white,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.12)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bolt_rounded, color: ThemeCleanPremium.primary, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Acesso rápido',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: narrow ? 16 : 17,
+                  color: ThemeCleanPremium.onSurface,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (narrow)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  chip(items[i]),
+                  if (i < items.length - 1) const SizedBox(height: 8),
+                ],
+              ],
+            )
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: items.map(chip).toList(),
+            ),
+        ],
       ),
     );
   }
@@ -1213,7 +1156,7 @@ class _PlanCard extends StatelessWidget {
             Text("Anual: ${money(annual)} (12 por 10)", style: const TextStyle(fontSize: 12, color: Colors.black45)),
           const SizedBox(height: 12),
           const Text(
-            "App + Painel Web + Site publico\nEventos, escalas e financeiro\nBackups automaticos e seguranca",
+            "App + Painel Web + Site publico\nEventos, escalas e financeiro (MP/PIX automatico)\nBackups automaticos e seguranca",
             style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
           ),
         ],
@@ -1235,9 +1178,15 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (icon: Icons.event_note_rounded, label: 'Escalas'),
     (icon: Icons.calendar_month_rounded, label: 'Agendas'),
     (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
+    (icon: Icons.forum_rounded, label: 'Pastoral & Comunicação'),
     (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
     (icon: Icons.inventory_2_rounded, label: 'Controle de patrimônio'),
-    (icon: Icons.account_balance_wallet_rounded, label: 'Controle financeiro'),
+    (
+      icon: Icons.account_balance_wallet_rounded,
+      label:
+          'Controle financeiro — Mercado Pago e PIX com lançamentos automáticos',
+    ),
+    (icon: Icons.business_center_rounded, label: 'Cadastro de Fornecedores e Prestadores de Serviços'),
     (icon: Icons.workspace_premium_rounded, label: 'Emissão de certificados'),
     (icon: Icons.badge_rounded, label: 'Cartão membro moderno'),
     (icon: Icons.devices_rounded, label: 'Acesso via web, Android e iOS (Apple)'),
@@ -1368,7 +1317,8 @@ class _DownloadsSection extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Android e iOS no mesmo pacote. Use o link abaixo para baixar.',
+              'Android: app Gestão YAHWEH na Play Store (link direto abaixo). '
+              'iOS e pasta: configuráveis pelo painel master em config/appDownloads.',
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 12),
@@ -1379,27 +1329,24 @@ class _DownloadsSection extends StatelessWidget {
               builder: (context, snap) {
                 final data = snap.data?.data() ?? {};
                 final folderUrl = (data['driveFolderUrl'] ?? '').toString();
-                final androidUrl = (data['androidUrl'] ?? '').toString();
-                final iosUrl = (data['iosUrl'] ?? '').toString();
-                final downloadUrl = androidUrl.isNotEmpty
-                    ? androidUrl
-                    : (iosUrl.isNotEmpty ? iosUrl : folderUrl);
+                final androidEffective =
+                    AppConstants.effectiveAppDownloadsAndroidUrl(data);
+                final iosEffective =
+                    AppConstants.effectiveAppDownloadsIosUrl(data);
 
                 return Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   children: [
                     FilledButton.icon(
-                      onPressed: downloadUrl.isEmpty
-                          ? null
-                          : () => _open(downloadUrl),
+                      onPressed: () => _open(androidEffective),
                       icon: const Icon(Icons.android),
                       label: const Text('Android'),
                     ),
                     FilledButton.tonalIcon(
-                      onPressed: downloadUrl.isEmpty
+                      onPressed: iosEffective.isEmpty
                           ? null
-                          : () => _open(downloadUrl),
+                          : () => _open(iosEffective),
                       icon: const Icon(Icons.apple),
                       label: const Text('iOS'),
                     ),
@@ -1420,175 +1367,3 @@ class _DownloadsSection extends StatelessWidget {
     );
   }
 }
-
-class _ChurchLookupCard extends StatelessWidget {
-  final TextEditingController emailCtrl;
-  final bool loading;
-  final String? statusMsg;
-  final Map<String, dynamic>? church;
-  final VoidCallback onLoad;
-  final VoidCallback? onEnter;
-  final ValueChanged<String>? onEmailChanged;
-
-  const _ChurchLookupCard({
-    required this.emailCtrl,
-    required this.loading,
-    required this.statusMsg,
-    required this.church,
-    required this.onLoad,
-    required this.onEnter,
-    this.onEmailChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      color: Colors.white,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE4E7EF)),
-        ),
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Acessar minha igreja", style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            TextField(
-              controller: emailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              autocorrect: false,
-              onChanged: onEmailChanged,
-              decoration: const InputDecoration(
-                labelText: 'E-mail',
-                hintText: 'seu@email.com',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: loading ? null : () => onLoad(),
-                    icon: loading
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.search),
-                    label: const Text("Carregar igreja"),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onEnter,
-                    child: const Text("Abrir igreja"),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (statusMsg != null)
-              Text(
-                statusMsg!,
-                style: const TextStyle(color: Colors.redAccent),
-              ),
-            if (church != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF7F8FB),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE4E7EF)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Builder(
-                      builder: (context) {
-                        final logoRaw =
-                            (church?['logoUrl'] ?? '').toString().trim();
-                        final logo = sanitizeImageUrl(logoRaw);
-                        final showLogo = logoRaw.isNotEmpty &&
-                            isValidImageUrl(logo);
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            if (showLogo) ...[
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: SafeNetworkImage(
-                                  imageUrl: logo,
-                                  width: 56,
-                                  height: 56,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: 112,
-                                  memCacheHeight: 112,
-                                  skipFreshDisplayUrl: false,
-                                  placeholder: Container(
-                                    width: 56,
-                                    height: 56,
-                                    alignment: Alignment.center,
-                                    color: const Color(0xFFE8EEF5),
-                                    child: const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                  ),
-                                  errorWidget: const SizedBox(
-                                    width: 56,
-                                    height: 56,
-                                    child: Icon(Icons.church_rounded,
-                                        color: Colors.black26, size: 32),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                            ],
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    (church?["name"] ??
-                                            church?["tenantName"] ??
-                                            "Igreja encontrada")
-                                        .toString(),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "Tenant: ${(church?["tenantId"] ?? "").toString()}",
-                                    style:
-                                        const TextStyle(color: Colors.black54),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            const Text(
-              'Digite o e-mail do gestor ou o da sua ficha de membro: a busca começa sozinha após você parar de digitar, ou use "Carregar igreja". Depois "Abrir igreja" ou Entrar no menu (login com e-mail e senha).',
-              style: TextStyle(color: Colors.black54),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-

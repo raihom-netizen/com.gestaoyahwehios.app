@@ -274,13 +274,14 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.maybePop(context),
-          tooltip: 'Voltar',
+          tooltip: 'Retornar aos Membros',
           style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
         ),
         title: Text(
           'Funções e permissões',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: -0.3, color: ThemeCleanPremium.onSurface),
         ),
+        centerTitle: false,
       ),
       body: FutureBuilder<String>(
         future: _resolvedIdFuture,
@@ -295,9 +296,31 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(padding.left, 8, padding.right, 0),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: Icon(Icons.arrow_back_rounded, size: 20, color: ThemeCleanPremium.primary),
+                          label: Text(
+                            'Retornar aos Membros',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                            minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
+                          ),
+                        ),
+                      ),
+                    ),
                     if (_canManage)
                       Padding(
-                        padding: EdgeInsets.fromLTRB(padding.left, 12, padding.right, 8),
+                        padding: EdgeInsets.fromLTRB(padding.left, 4, padding.right, 8),
                         child: Wrap(
                           spacing: 10,
                           runSpacing: 10,

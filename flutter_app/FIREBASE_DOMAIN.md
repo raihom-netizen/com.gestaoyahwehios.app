@@ -9,4 +9,4 @@ Se aparecer o erro **"This domain is not authorized for OAuth operations"** ao e
    - `gestaoyahweh-21e23.web.app` (se usar hosting do Firebase)
    - Qualquer outro domínio em que o app for acessado (ex.: localhost para testes).
 
-Sem isso, o login com Google na web não funciona e o "Carregar igreja" pode falhar.
+Sem isso, o login com Google na web não funciona e fluxos que dependem de OAuth no domínio podem falhar.

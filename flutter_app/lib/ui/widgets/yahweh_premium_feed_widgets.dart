@@ -109,12 +109,14 @@ class YahwehPremiumFeedShimmer {
   }
 
   /// Fileira horizontal estilo **Stories** (dashboard de aniversariantes).
+  /// [avatarRingRadius] — meia-largura do círculo interno (alinhar ao card Aniversariantes do painel).
   static Widget birthdayStoriesSkeleton({
     int avatarCount = 8,
     double listHeight = 168,
+    double? avatarRingRadius,
   }) {
-    final ring = listHeight >= 150 ? 34.0 : 28.0;
-    final colW = ring * 2 + 20;
+    final ring = avatarRingRadius ?? (listHeight >= 150 ? 34.0 : 28.0);
+    final colW = ring * 2 + 26;
     return Shimmer.fromColors(
       baseColor: _skBase,
       highlightColor: _skHi,
@@ -626,6 +628,7 @@ class YahwehPublicFloatingActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blue = brandBlue ?? ThemeCleanPremium.primary;
+    final narrow = MediaQuery.sizeOf(context).width < 640;
     return Material(
       type: MaterialType.transparency,
       child: Column(
@@ -656,14 +659,23 @@ class YahwehPublicFloatingActions extends StatelessWidget {
             ),
             const SizedBox(height: 10),
           ],
-          FloatingActionButton.extended(
-            heroTag: 'gyh_pub_login',
-            onPressed: onLogin,
-            icon: const Icon(Icons.login_rounded, size: 22),
-            label: const Text('Acessar sistema'),
-            backgroundColor: blue,
-            foregroundColor: Colors.white,
-          ),
+          narrow
+              ? FloatingActionButton(
+                  heroTag: 'gyh_pub_login',
+                  tooltip: 'Acessar sistema',
+                  onPressed: onLogin,
+                  backgroundColor: blue,
+                  foregroundColor: Colors.white,
+                  child: const Icon(Icons.login_rounded, size: 24),
+                )
+              : FloatingActionButton.extended(
+                  heroTag: 'gyh_pub_login',
+                  onPressed: onLogin,
+                  icon: const Icon(Icons.login_rounded, size: 22),
+                  label: const Text('Acessar sistema'),
+                  backgroundColor: blue,
+                  foregroundColor: Colors.white,
+                ),
         ],
       ),
     );

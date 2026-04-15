@@ -13,11 +13,20 @@ if (-not (Test-Path $IOS)) {
     exit 1
 }
 
+# Preferir *.p12; senao ficheiro sem extensao tipico do export (gestaoyahwehiosapp).
+# NUNCA usar "distribution" .cer como P12 — causa "Unknown format in import" no Codemagic.
 $p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $p12) {
+    $fallback = Join-Path $IOS "gestaoyahwehiosapp"
+    if (Test-Path -LiteralPath $fallback) {
+        $p12 = Get-Item -LiteralPath $fallback
+    }
+}
 $prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 
 if (-not $p12) {
-    Write-Host "ERRO: Nenhum ficheiro .p12 em $IOS" -ForegroundColor Red
+    Write-Host "ERRO: Nenhum .p12 em $IOS (exporte Apple Distribution + chave do Keychain como .p12)." -ForegroundColor Red
+    Write-Host "      Nao use o ficheiro 'distribution' se for apenas .cer - precisa de .p12 com chave privada." -ForegroundColor Yellow
     exit 1
 }
 if (-not $prov) {
@@ -39,6 +48,12 @@ function Write-Base64OneLine {
 
 $p12Out = Join-Path $OutDir "CM_CERTIFICATE_base64.txt"
 $provOut = Join-Path $OutDir "CM_PROVISIONING_PROFILE_base64.txt"
+
+# PKCS#12 DER costuma comecar por 0x30 (SEQUENCE); .cer sozinho falha no CI.
+$p12Bytes = [IO.File]::ReadAllBytes($p12.FullName)
+if ($p12Bytes.Length -lt 4 -or $p12Bytes[0] -ne 0x30) {
+    Write-Host "AVISO: $($p12.Name) nao parece PKCS#12 (DER). Confirme que e export .p12 do Keychain, nao .cer." -ForegroundColor Yellow
+}
 
 Write-Base64OneLine -Path $p12.FullName -DestTxt $p12Out
 Write-Base64OneLine -Path $prov.FullName -DestTxt $provOut

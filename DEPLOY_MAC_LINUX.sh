@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 firebase use gestaoyahweh-21e23
 
 echo "Building Flutter Web..."
-( cd flutter_app && flutter pub get && flutter build web --release )
+( cd flutter_app && flutter pub get && flutter build web --release --no-tree-shake-icons )
 
 ( cd functions && npm ci )
 

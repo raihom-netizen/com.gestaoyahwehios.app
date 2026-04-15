@@ -328,9 +328,10 @@ class ChurchPublicProximoCultoCard extends StatelessWidget {
                             var desc = descForCal;
                             if (slug.isNotEmpty &&
                                 ev.noticiaId.trim().isNotEmpty) {
-                              final link = AppConstants.shareNoticiaPublicUrl(
+                              final link = AppConstants.shareNoticiaSocialPreviewUrl(
                                 slug,
                                 ev.noticiaId,
+                                igrejaId,
                               );
                               desc = '$desc\n\nPublicação: $link';
                             }

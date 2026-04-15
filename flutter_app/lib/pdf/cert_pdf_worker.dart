@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
@@ -49,6 +51,8 @@ class CertPdfPipelineParams {
   final String subtitulo;
   final String texto;
   final String nomeMembro;
+  /// Segunda linha do nome no PDF (ex.: segundo cônjuge).
+  final String nomeMembroLinha2;
   /// CPF já formatado (ex.: 000.000.000-00) para negrito no PDF.
   final String cpfFormatado;
   final String nomeIgreja;
@@ -88,6 +92,7 @@ class CertPdfPipelineParams {
     this.subtitulo = '',
     required this.texto,
     required this.nomeMembro,
+    this.nomeMembroLinha2 = '',
     this.cpfFormatado = '',
     required this.nomeIgreja,
     required this.local,
@@ -116,12 +121,23 @@ class CertPdfGalaBatchMemberSlice {
   /// Texto do corpo com placeholders já resolvidos.
   final String texto;
   final String qrValidationUrl;
+  /// Quando preenchidos, permitem misturar tipos de certificado num único PDF.
+  final String? titulo;
+  final String? subtitulo;
+  final int? colorPrimaryArgb;
+  final int? colorTextArgb;
+  final String? fontStyleId;
 
   const CertPdfGalaBatchMemberSlice({
     required this.nomeMembro,
     required this.cpfFormatado,
     required this.texto,
     required this.qrValidationUrl,
+    this.titulo,
+    this.subtitulo,
+    this.colorPrimaryArgb,
+    this.colorTextArgb,
+    this.fontStyleId,
   });
 }
 
@@ -459,14 +475,22 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
     if (assinaturaUrlHint != null && assinaturaUrlHint.trim().isNotEmpty) {
       raw = assinaturaUrlHint.trim();
     } else {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
-          .collection('membros')
-          .doc(memberId)
-          .get();
-      raw = (snap.data()?['assinaturaUrl'] ??
-              snap.data()?['assinatura_url'] ??
+      DocumentSnapshot<Map<String, dynamic>>? membroSnap;
+      try {
+        membroSnap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(tenantId)
+            .collection('membros')
+            .doc(memberId)
+            .get()
+            .timeout(const Duration(seconds: 14));
+      } on TimeoutException {
+        membroSnap = null;
+      } catch (_) {
+        membroSnap = null;
+      }
+      raw = (membroSnap?.data()?['assinaturaUrl'] ??
+              membroSnap?.data()?['assinatura_url'] ??
               '')
           .toString()
           .trim();
@@ -725,6 +749,9 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
               tenantId: p.tenantId,
               memberId: s.memberId,
               assinaturaUrlHint: s.assinaturaUrlHint,
+            ).timeout(
+              const Duration(seconds: 45),
+              onTimeout: () => null,
             ),
           )
           .toList(),
@@ -743,7 +770,13 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     bgFuture,
     instSigFuture,
     sigPackFuture,
-  ]);
+  ]).timeout(
+    const Duration(minutes: 3),
+    onTimeout: () => throw TimeoutException(
+      'O carregamento de fontes, logo ou assinaturas excedeu o tempo limite. '
+      'Verifique a rede e tente novamente. Se persistir, desative VPN ou troque de Wi‑Fi.',
+    ),
+  );
   final logoRaw = packed[1] as Uint8List?;
   final bgRaw = packed[2] as Uint8List?;
   final instSigRaw = packed[3] as Uint8List?;
@@ -828,7 +861,12 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     Future.wait(sigOptFutures),
     bgOptFuture,
     instSigOptFuture,
-  ]);
+  ]).timeout(
+    const Duration(minutes: 2),
+    onTimeout: () => throw TimeoutException(
+      'A otimização de imagens do certificado excedeu o tempo limite. Tente novamente.',
+    ),
+  );
   Uint8List? logoOpt = optPacked[0] as Uint8List?;
   final sigOpt = optPacked[1] as List<Uint8List?>;
   final Uint8List? bgOpt = optPacked[2] as Uint8List?;
@@ -932,6 +970,7 @@ Future<Uint8List> runCertificatePdfPipeline(
     subtitulo: p.subtitulo,
     texto: textoCorpo,
     nomeMembro: p.nomeMembro,
+    nomeMembroLinha2: p.nomeMembroLinha2,
     cpfFormatado: p.cpfFormatado,
     nomeIgreja: p.nomeIgreja,
     local: p.local,
@@ -999,19 +1038,28 @@ Future<Uint8List> runCertificateGalaLuxoBatchPdfPipeline({
     final textoCorpo = shared.textoAdicional.trim().isEmpty
         ? slice.texto
         : '${slice.texto.trim()}\n\n${shared.textoAdicional.trim()}';
+    final titulo = slice.titulo ?? shared.titulo;
+    final subtitulo = slice.subtitulo ?? shared.subtitulo;
+    final sliceFs = slice.fontStyleId?.trim();
+    final fontStyleId = (sliceFs != null && sliceFs.isNotEmpty)
+        ? sliceFs
+        : shared.fontStyleId;
+    final colorPrimaryArgb = slice.colorPrimaryArgb ?? shared.colorPrimaryArgb;
+    final colorTextArgb = slice.colorTextArgb ?? shared.colorTextArgb;
     final input = CertificatePdfInput(
-      titulo: shared.titulo,
-      subtitulo: shared.subtitulo,
+      titulo: titulo,
+      subtitulo: subtitulo,
       texto: textoCorpo,
       nomeMembro: slice.nomeMembro,
+      nomeMembroLinha2: '',
       cpfFormatado: slice.cpfFormatado,
       nomeIgreja: shared.nomeIgreja,
       local: shared.local,
       issuedDate: shared.issuedDate,
       layoutId: 'gala_luxo',
-      fontStyleId: shared.fontStyleId,
-      colorPrimaryArgb: shared.colorPrimaryArgb,
-      colorTextArgb: shared.colorTextArgb,
+      fontStyleId: fontStyleId,
+      colorPrimaryArgb: colorPrimaryArgb,
+      colorTextArgb: colorTextArgb,
       pastorManual: shared.pastorManual,
       cargoManual: shared.cargoManual,
       logoBytes: resolved.logoOpt,

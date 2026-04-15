@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Cortar logo (quadrado) ou foto do gestor (círculo) antes do upload.
+///
+/// Usa [Dialog] com barra de ações **dentro** do corpo (não só [AlertDialog.actions]),
+/// para que **Cancelar / Aplicar** permaneçam visíveis na web (viewport e barra de endereço).
 Future<Uint8List?> showChurchPhotoCropDialog(
   BuildContext context, {
   required Uint8List imageBytes,
@@ -17,66 +20,118 @@ Future<Uint8List?> showChurchPhotoCropDialog(
     context: context,
     barrierDismissible: false,
     builder: (ctx) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-        content: SizedBox(
-          width: 320,
-          height: 380,
+      final mq = MediaQuery.sizeOf(ctx);
+      final maxH = (mq.height * 0.88).clamp(360.0, 720.0);
+      final maxW = (mq.width - 32).clamp(280.0, 440.0);
+
+      return Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        ),
+        clipBehavior: Clip.antiAlias,
+        // Altura explícita: [Expanded] no recorte + barra fixa (web não esconde botões).
+        child: SizedBox(
+          width: maxW,
+          height: maxH,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                circleUi
-                    ? 'Arraste e ajuste o zoom. Toque em Aplicar para centralizar o rosto.'
-                    : 'Ajuste a área da logo. Toque em Aplicar quando estiver satisfeito.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700, height: 1.35),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Crop(
-                    image: imageBytes,
-                    controller: cropController,
-                    withCircleUi: circleUi,
-                    aspectRatio: circleUi ? 1 : aspectRatio,
-                    interactive: true,
-                    baseColor: Colors.grey.shade900,
-                    maskColor: Colors.black.withValues(alpha: 0.45),
-                    radius: circleUi ? 999 : 8,
-                    onCropped: (result) {
-                      if (result is CropSuccess) {
-                        Navigator.of(ctx).pop(result.croppedImage);
-                      } else if (result is CropFailure) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          ThemeCleanPremium.feedbackSnackBar('Não foi possível cortar a imagem.'),
-                        );
-                      }
-                    },
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  circleUi
+                      ? 'Arraste e ajuste o zoom. Use Aplicar para confirmar o recorte.'
+                      : 'Ajuste a área. Use Aplicar para confirmar o recorte.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    height: 1.35,
                   ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Crop(
+                      image: imageBytes,
+                      controller: cropController,
+                      withCircleUi: circleUi,
+                      aspectRatio: circleUi ? 1 : aspectRatio,
+                      interactive: true,
+                      baseColor: Colors.grey.shade900,
+                      maskColor: Colors.black.withValues(alpha: 0.45),
+                      radius: circleUi ? 999 : 8,
+                      onCropped: (result) {
+                        if (result is CropSuccess) {
+                          Navigator.of(ctx).pop(result.croppedImage);
+                        } else if (result is CropFailure) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            ThemeCleanPremium.feedbackSnackBar(
+                              'Não foi possível cortar a imagem.',
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancelar'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () {
+                        if (circleUi) {
+                          cropController.cropCircle();
+                        } else {
+                          cropController.crop();
+                        }
+                      },
+                      icon: const Icon(Icons.check_rounded, size: 20),
+                      label: const Text('Aplicar'),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              if (circleUi) {
-                cropController.cropCircle();
-              } else {
-                cropController.crop();
-              }
-            },
-            icon: const Icon(Icons.check_rounded, size: 20),
-            label: const Text('Aplicar'),
-          ),
-        ],
       );
     },
   );

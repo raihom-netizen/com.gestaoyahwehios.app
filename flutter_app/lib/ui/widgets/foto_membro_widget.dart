@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
@@ -36,10 +38,13 @@ class FotoMembroWidget extends StatelessWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final int? imageCacheRevision;
+  /// Pré-visualização local (ex.: logo após escolher foto, antes do upload terminar).
+  final Uint8List? memoryPreviewBytes;
 
   const FotoMembroWidget({
     super.key,
     this.imageUrl,
+    this.memoryPreviewBytes,
     this.size = 100,
     this.tenantId,
     this.memberId,
@@ -70,6 +75,18 @@ class FotoMembroWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final preview = memoryPreviewBytes;
+    if (preview != null && preview.isNotEmpty) {
+      return ClipOval(
+        child: Image.memory(
+          preview,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+        ),
+      );
+    }
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final defaultMc = memCacheExtentForLogicalSize(
       size,

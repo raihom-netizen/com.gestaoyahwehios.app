@@ -64,7 +64,20 @@ class ChurchRolePermissions {
   ChurchRolePermissions._();
 
   static String normalize(String raw) {
-    var r = raw.trim().toLowerCase();
+    String fold(String s) {
+      return s
+          .replaceAll(RegExp(r'[áàâãä]'), 'a')
+          .replaceAll(RegExp(r'[éèêë]'), 'e')
+          .replaceAll(RegExp(r'[íìîï]'), 'i')
+          .replaceAll(RegExp(r'[óòôõö]'), 'o')
+          .replaceAll(RegExp(r'[úùûü]'), 'u')
+          .replaceAll(RegExp(r'[ç]'), 'c');
+    }
+
+    var r = fold(raw.trim().toLowerCase())
+        .replaceAll(RegExp(r'[\s\-/]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
     if (r.isEmpty) return ChurchRoleKeys.membro;
     switch (r) {
       case 'admin':
@@ -75,17 +88,32 @@ class ChurchRolePermissions {
         return ChurchRoleKeys.pastor;
       case 'presbitera':
         return ChurchRoleKeys.presbitero;
-      case 'secretária':
-      case 'secretário':
+      case 'secretaria':
+      case 'secretario':
         return ChurchRoleKeys.secretario;
       case 'ministerial':
       case 'pastor_auxiliar_ministerial':
+      case 'pastor_auxiliar':
         return ChurchRoleKeys.pastorAuxiliar;
       case 'lider_departamento':
       case 'lider_depto':
+      case 'lider_de_departamento':
+      case 'lider_ministerio':
         return ChurchRoleKeys.liderDepartamento;
     }
+    // Cargos compostos gravados no `users.role` / templates (ex.: gestor_da_igreja, administrador_de_obras).
+    if (r.startsWith('gestor')) return ChurchRoleKeys.gestor;
+    if (r.startsWith('master')) return ChurchRoleKeys.master;
+    if (r == 'adm' || r.startsWith('adm_') || r.startsWith('admin')) {
+      return ChurchRoleKeys.adm;
+    }
     return r;
+  }
+
+  /// Pastoral com papel [lider] / [lider_departamento] — vê o módulo Escalas; escrita limita-se aos departamentos em que é líder (ver [SchedulesPage]).
+  static bool isDepartmentLeaderRoleKey(String role) {
+    final n = normalize(role);
+    return n == ChurchRoleKeys.liderDepartamento || n == ChurchRoleKeys.lider;
   }
 
   static const ChurchRolePermissionSnapshot _full = ChurchRolePermissionSnapshot(
@@ -141,7 +169,7 @@ class ChurchRolePermissions {
     viewMemberDirectory: false,
     editChurchProfile: false,
     editDepartments: true,
-    editSchedulesAll: false,
+    editSchedulesAll: true,
     manageVisitors: false,
     manageCargosCatalog: false,
     approvePendingMembers: false,
@@ -156,7 +184,7 @@ class ChurchRolePermissions {
     viewMemberDirectory: true,
     editChurchProfile: false,
     editDepartments: true,
-    editSchedulesAll: true,
+    editSchedulesAll: false,
     manageVisitors: false,
     manageCargosCatalog: false,
     approvePendingMembers: false,
@@ -275,12 +303,13 @@ class ChurchRolePermissions {
     return permissions.map((e) => e.trim().toLowerCase()).contains(key);
   }
 
-  /// Itens do menu [IgrejaCleanShell] (índices 0–20).
+  /// Itens do menu [IgrejaCleanShell] (índices 0–23).
   static bool shellAllowsNavIndex(
     String role,
     int index, {
     bool? memberCanViewFinance,
     bool? memberCanViewPatrimonio,
+    bool? memberCanViewFornecedores,
     List<String>? permissions,
   }) {
     final s = snapshotFor(role);
@@ -296,17 +325,34 @@ class ChurchRolePermissions {
         _hasGranularModule(permissions, 'patrimonio') ||
         (r == ChurchRoleKeys.membro && memberCanViewPatrimonio == true);
 
+    bool fornec() =>
+        _hasGranularModule(permissions, 'fornecedores') ||
+        (r == ChurchRoleKeys.membro && memberCanViewFornecedores == true) ||
+        fin();
+
     switch (index) {
       case 0:
         return true;
       case 1:
         return s.editChurchProfile;
       case 2:
-        return s.viewMemberDirectory && !s.restrictedNav;
+        // Equipe: diretório completo. Perfil básico (membro/visitante): só o próprio cadastro na UI — [MembersPage] filtra.
+        return (s.viewMemberDirectory && !s.restrictedNav) ||
+            (s.restrictedNav &&
+                (r == ChurchRoleKeys.membro || r == ChurchRoleKeys.visitante));
       case 3:
         if (_hasGranularModule(permissions, 'departamentos')) return true;
-        return s.editDepartments && !s.restrictedNav;
+        if (s.editDepartments && !s.restrictedNav) return true;
+        // Diácono / músico / evangelista etc.: vê diretório mas não editava departamentos — o módulo sumia do menu.
+        if (s.viewMemberDirectory && !s.restrictedNav) return true;
+        return false;
       case 4:
+        // Visitantes: equipe (manageVisitors) ou perfil básico (portaria / coleta de dados).
+        if (_hasGranularModule(permissions, 'visitantes')) return true;
+        if (s.restrictedNav &&
+            (r == ChurchRoleKeys.membro || r == ChurchRoleKeys.visitante)) {
+          return true;
+        }
         return s.manageVisitors && !s.restrictedNav;
       case 5:
         return s.manageCargosCatalog && !s.restrictedNav;
@@ -321,26 +367,52 @@ class ChurchRolePermissions {
       case 10:
         return true;
       case 11:
-        return s.editSchedulesAll;
+        // Escala geral (igreja inteira) ou módulo Escalas para líderes (só departamentos que lideram).
+        if (s.editSchedulesAll) return true;
+        if (r == ChurchRoleKeys.liderDepartamento || r == ChurchRoleKeys.lider) {
+          return true;
+        }
+        return false;
       case 12:
         return true;
       case 13:
-        return true;
+        // Certificados: bloqueado para perfil básico (membro/visitante).
+        // Liberado: ADM/gestor/pastoral (editAnyMember / aprovações), tesoureiro(a), ou permissão granular `certificados`.
+        if (_hasGranularModule(permissions, 'certificados')) return true;
+        if (s.restrictedNav) return false;
+        if (r == ChurchRoleKeys.tesoureiro || r == ChurchRoleKeys.tesouraria) {
+          return true;
+        }
+        return s.editAnyMember || s.approvePendingMembers;
       case 14:
-        return true;
+        // Cartas apresentação/transferência — alinhado a certificados + granular `cartas_transferencias`.
+        if (_hasGranularModule(permissions, 'cartas_transferencias')) return true;
+        if (_hasGranularModule(permissions, 'certificados')) return true;
+        if (s.restrictedNav) return false;
+        if (r == ChurchRoleKeys.tesoureiro || r == ChurchRoleKeys.tesouraria) {
+          return true;
+        }
+        return s.editAnyMember || s.approvePendingMembers;
       case 15:
         return true;
       case 16:
         return true;
       case 17:
-        return s.approvePendingMembers;
+        return true;
       case 18:
+        return s.approvePendingMembers;
+      case 19:
         return !s.restrictedNav &&
             (s.editChurchProfile || s.editSchedulesAll || s.approvePendingMembers || s.editDepartments);
-      case 19:
-        return fin();
       case 20:
+        return fin();
+      case 21:
         return pat();
+      case 22:
+        return fornec();
+      case 23:
+        // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
+        return true;
       default:
         return true;
     }

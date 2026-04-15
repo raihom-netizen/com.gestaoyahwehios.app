@@ -10,7 +10,7 @@ const int kChurchShellIndexMembers = 2;
 const int kChurchShellIndexMural = 6;
 const int kChurchShellIndexEvents = 7;
 const int kChurchShellIndexMySchedules = 10;
-const int kChurchShellIndexPatrimonio = 20;
+const int kChurchShellIndexPatrimonio = 21;
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {
@@ -409,7 +409,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                 child: Text(
-                  'Dica: Ctrl+K ou Cmd+K · busca com pausa de ${_debounceMs}ms',
+                  'Atalhos: / · Ctrl+K ou Cmd+K · pausa ${_debounceMs}ms',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                   textAlign: TextAlign.center,
                 ),

@@ -19,7 +19,19 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
 
+/// Dias da semana (Dart: weekday 1 = segunda … 7 = domingo).
+const _kWeekdayPtShort = <String>[
+  'Seg',
+  'Ter',
+  'Qua',
+  'Qui',
+  'Sex',
+  'Sáb',
+  'Dom',
+];
+
 /// Texto único para convite (WhatsApp, partilha nativa, cópia de link).
+/// Padrão enxuto: sem endereço por extenso — só link de mapa como «Localização».
 String buildNoticiaInviteShareMessage({
   required String churchName,
   required String noticiaKind,
@@ -35,35 +47,61 @@ String buildNoticiaInviteShareMessage({
   final cn = churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja';
   final defaultTitle = noticiaKind == 'evento' ? 'Evento' : 'Aviso';
   final t = title.trim().isEmpty ? defaultTitle : title.trim();
-  String dateLine = '';
-  if (startAt != null) {
-    final d = startAt;
-    dateLine =
-        '📅 ${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} às ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}\n';
-  }
   final cleanText = bodyText.trim();
   final textSnippet = cleanText.isEmpty
       ? ''
       : (cleanText.length > 300
-          ? '\n\n${cleanText.substring(0, 297)}…'
-          : '\n\n$cleanText');
+          ? '${cleanText.substring(0, 297)}…'
+          : cleanText);
+
   final loc = location?.trim() ?? '';
-  final locLine = loc.isNotEmpty ? '📍 $loc\n' : '';
   final mapsUrl = AppConstants.mapsShortUrl(
     lat: locationLat,
     lng: locationLng,
     address: loc.isNotEmpty ? loc : null,
   );
-  final mapLine = mapsUrl.isNotEmpty ? '\n🗺️ $mapsUrl\n' : '';
-  return '✨ *Convite* — $cn\n\n'
-      '📌 *$t*\n'
-      '$dateLine'
-      '$locLine'
-      '$textSnippet\n\n'
-      '🔗 $publicSiteUrl\n'
-      '$mapLine'
-      '👉 $inviteCardUrl\n\n'
-      '— _Gestão YAHWEH_';
+
+  final buf = StringBuffer();
+  buf.writeln('*$cn*');
+  buf.writeln();
+
+  if (startAt != null) {
+    final d = startAt;
+    final wd = _kWeekdayPtShort[d.weekday - 1];
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final hm =
+        '${d.hour.toString().padLeft(2, '0')}h${d.minute.toString().padLeft(2, '0')}';
+    buf.writeln('📌 $wd $dd/$mm às $hm | *$t*');
+  } else {
+    buf.writeln('📌 *$t*');
+  }
+
+  if (textSnippet.isNotEmpty) {
+    buf.writeln();
+    buf.writeln(textSnippet);
+  }
+
+  final site = publicSiteUrl.trim();
+  if (site.isNotEmpty) {
+    buf.writeln();
+    buf.writeln('Antes visite o site da igreja:');
+    buf.writeln(site);
+  }
+
+  if (mapsUrl.isNotEmpty) {
+    buf.writeln();
+    buf.writeln('📍 Localização:');
+    buf.writeln(mapsUrl);
+  }
+
+  final invite = inviteCardUrl.trim();
+  if (invite.isNotEmpty) {
+    buf.writeln();
+    buf.writeln('👉 $invite');
+  }
+
+  return buf.toString().trimRight();
 }
 
 /// Resolve URL https da capa/miniatura para anexar na partilha (foto ou poster de vídeo).

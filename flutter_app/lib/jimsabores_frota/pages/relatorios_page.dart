@@ -70,7 +70,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   // FUNÇÃO PARA GERAR E EXPORTAR PDF — Padrão Super Premium (compartilhar, imprimir, salvar)
   Future<void> _exportarPDF(BuildContext context, List<QueryDocumentSnapshot> dados) async {
-    final pdf = pw.Document();
+    final pdf = await PdfSuperPremiumTheme.newPdfDocument();
     final data = dados.map((d) {
       var map = d.data() as Map<String, dynamic>;
       final placa = (map['placa'] ?? map['veiculo'] ?? '').toString();
@@ -93,6 +93,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
           PdfSuperPremiumTheme.fromTextArray(
             headers: const ['Data', 'Placa', 'Motorista', 'Combustível', 'Valor'],
             data: data,
+            columnWidths: PdfSuperPremiumTheme.columnWidthsFrotasAbastecimentos,
           ),
         ],
       ),

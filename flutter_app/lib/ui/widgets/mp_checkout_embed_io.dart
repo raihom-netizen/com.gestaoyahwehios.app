@@ -9,12 +9,15 @@ class MpCheckoutEmbed extends StatefulWidget {
   /// Prefixo da `back_url` do backend — ao navegar para fora do domínio MP, dispara [onLikelyFinished].
   final String returnUrlHint;
   final ValueChanged<String>? onLikelyFinished;
+  /// Reservado para paridade com a web (iframe); no app nativo o checkout é WebView em tela cheia.
+  final String? footerHint;
 
   const MpCheckoutEmbed({
     super.key,
     required this.checkoutUrl,
     this.returnUrlHint = '',
     this.onLikelyFinished,
+    this.footerHint,
   });
 
   @override

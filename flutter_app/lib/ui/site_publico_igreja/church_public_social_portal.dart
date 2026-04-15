@@ -50,10 +50,13 @@ String? churchPublicPostThumbUrl(Map<String, dynamic> p) {
 }
 
 /// Barra de navegação fixa (abaixo da AppBar): âncoras da página.
+/// Fundo **opaco** + gradiente alinhado ao site de divulgação Gestão YAHWEH (evita o conteúdo
+/// “passar por cima” da faixa quando o fundo era branco semitransparente).
 class ChurchPublicPortalNavSliver extends StatelessWidget {
   final Color accent;
   final VoidCallback onInicio;
-  final VoidCallback onMural;
+  final VoidCallback onAvisos;
+  final VoidCallback onDestaques;
   final VoidCallback onEventos;
   final VoidCallback onAcessarSistema;
 
@@ -61,7 +64,8 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
     super.key,
     required this.accent,
     required this.onInicio,
-    required this.onMural,
+    required this.onAvisos,
+    required this.onDestaques,
     required this.onEventos,
     required this.onAcessarSistema,
   });
@@ -69,83 +73,125 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.sizeOf(context).width >= 720;
-    return SliverPersistentHeader(
-      pinned: true,
-      delegate: _PortalNavDelegate(
-        child: Material(
-          color: Colors.white.withValues(alpha: 0.94),
-          elevation: 0,
-          shadowColor: const Color(0x12000000),
-          child: Container(
-            decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: isWide ? 20 : 10,
-              vertical: 8,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _NavChip(
-                              label: 'Início',
-                              onTap: onInicio,
-                              accent: accent,
-                            ),
-                            _NavChip(
-                              label: 'Mural',
-                              onTap: onMural,
-                              accent: accent,
-                            ),
-                            _NavChip(
-                              label: 'Eventos',
-                              onTap: onEventos,
-                              accent: accent,
-                            ),
-                          ],
-                        ),
+    final nav = ThemeCleanPremium.navSidebar;
+    final mid = Color.lerp(nav, ThemeCleanPremium.primary, 0.38)!;
+    final end = Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.22)!;
+
+    final bar = Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            nav,
+            mid,
+            end,
+          ],
+          stops: const [0.0, 0.52, 1.0],
+        ),
+        border: Border(
+          bottom: BorderSide(
+            color: Colors.white.withValues(alpha: 0.18),
+            width: 1,
+          ),
+        ),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: isWide ? 20 : 10,
+        vertical: 8,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _NavChip(
+                        label: 'Início',
+                        onTap: onInicio,
                       ),
+                      _NavChip(
+                        label: 'Avisos',
+                        onTap: onAvisos,
+                      ),
+                      _NavChip(
+                        label: 'Eventos',
+                        onTap: onDestaques,
+                      ),
+                      _NavChip(
+                        label: 'Cultos',
+                        onTap: onEventos,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (isWide) ...[
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: onAcessarSistema,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    minimumSize: const Size(
+                      ThemeCleanPremium.minTouchTarget,
+                      44,
                     ),
-                    FilledButton(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                    shadowColor: Colors.black.withValues(alpha: 0.35),
+                  ),
+                  child: Text(
+                    'Acessar Sistema',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: 'Acessar sistema',
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: FilledButton(
                       onPressed: onAcessarSistema,
                       style: FilledButton.styleFrom(
                         backgroundColor: accent,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 10),
-                        minimumSize: const Size(
-                          ThemeCleanPremium.minTouchTarget,
-                          44,
-                        ),
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(44, 44),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         elevation: 0,
                       ),
-                      child: Text(
-                        'Acessar Sistema',
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
+                      child: const Icon(Icons.login_rounded, size: 22),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              ],
+            ],
           ),
         ),
       ),
+    );
+
+    return SliverPersistentHeader(
+      pinned: true,
+      delegate: _PortalNavDelegate(child: bar),
     );
   }
 }
@@ -153,12 +199,10 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
 class _NavChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  final Color accent;
 
   const _NavChip({
     required this.label,
     required this.onTap,
-    required this.accent,
   });
 
   @override
@@ -166,19 +210,29 @@ class _NavChip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Material(
-        color: const Color(0xFFF8FAFC),
+        color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(999),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: accent,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.32),
+                width: 1,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: Colors.white,
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
           ),
@@ -202,7 +256,12 @@ class _PortalNavDelegate extends SliverPersistentHeaderDelegate {
   @override
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return child;
+    return Material(
+      color: Colors.transparent,
+      elevation: overlapsContent ? 14 : 6,
+      shadowColor: Colors.black.withValues(alpha: 0.45),
+      child: child,
+    );
   }
 
   @override
@@ -339,8 +398,8 @@ class _SocialGridTileState extends State<_SocialGridTile> {
   bool _hover = false;
 
   Future<void> _copyLink(BuildContext context) async {
-    final url = AppConstants.shareNoticiaPublicUrl(
-        widget.churchSlug, widget.postId);
+    final url = AppConstants.shareNoticiaSocialPreviewUrl(
+        widget.churchSlug, widget.postId, widget.igrejaId);
     await Clipboard.setData(ClipboardData(text: url));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -372,6 +431,9 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     final poster = sanitizeImageUrl(
         (eventNoticiaDisplayVideoThumbnailUrl(p) ?? '').trim());
     final badge = isEvento ? 'Evento' : 'Aviso';
+    final badgeBg = isEvento
+        ? const Color(0xFF0369A1).withValues(alpha: 0.92)
+        : const Color(0xFF6D28D9).withValues(alpha: 0.92);
 
     Widget mediaChild;
     if (playWeb) {
@@ -477,32 +539,43 @@ class _SocialGridTileState extends State<_SocialGridTile> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            AnimatedScale(
-              scale: _hover ? 1.04 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-              child: AnimatedOpacity(
-                opacity: _hover ? 1.0 : 0.97,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: AnimatedScale(
+                scale: _hover ? 1.012 : 1.0,
                 duration: const Duration(milliseconds: 200),
-                child: mediaChild,
+                curve: Curves.easeOut,
+                child: AnimatedOpacity(
+                  opacity: _hover ? 1.0 : 0.98,
+                  duration: const Duration(milliseconds: 200),
+                  child: mediaChild,
+                ),
               ),
             ),
             Positioned(
-              left: 8,
-              top: 8,
+              left: 10,
+              top: 10,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(8),
+                  color: badgeBg,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Text(
                   badge,
                   style: GoogleFonts.inter(
                     color: Colors.white,
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
                   ),
                 ),
               ),
@@ -876,8 +949,8 @@ class _LightboxTextPanel extends StatelessWidget {
   });
 
   Future<void> _copy(BuildContext context) async {
-    final url =
-        AppConstants.shareNoticiaPublicUrl(churchSlug, postId);
+    final url = AppConstants.shareNoticiaSocialPreviewUrl(
+        churchSlug, postId, igrejaId);
     await Clipboard.setData(ClipboardData(text: url));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

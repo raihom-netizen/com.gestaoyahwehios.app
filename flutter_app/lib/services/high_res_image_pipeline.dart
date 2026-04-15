@@ -87,6 +87,15 @@ Future<XFile?> cropEncodePickedToWebp(
 
   if (kIsWeb) {
     if (webCropContext != null) {
+      // [WebPresentStyle.dialog] empilha cabeçalho + crop 520×620 + barra + rodapé:
+      // em viewports baixos (mobile web / painel) os botões ficam fora da área visível.
+      // Tela cheia com ✓ na AppBar e ✕ para sair; tamanho do crop derivado da viewport.
+      final ctx = webCropContext;
+      final mq = MediaQuery.sizeOf(ctx);
+      final reserved = kToolbarHeight + 120;
+      final cropH = (mq.height - reserved).clamp(200.0, 620.0).round();
+      final cropW = (mq.width - 24).clamp(280.0, 560.0).round();
+
       cropped = await ImageCropper().cropImage(
         sourcePath: picked.path,
         maxWidth: kHighResCropMaxWidth,
@@ -96,9 +105,20 @@ Future<XFile?> cropEncodePickedToWebp(
         aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
         uiSettings: [
           WebUiSettings(
-            context: webCropContext,
-            presentStyle: WebPresentStyle.dialog,
-            size: const CropperSize(width: 520, height: 620),
+            context: ctx,
+            presentStyle: WebPresentStyle.page,
+            size: CropperSize(width: cropW, height: cropH),
+            translations: const WebTranslations(
+              title: 'Ajustar enquadramento',
+              rotateLeftTooltip: 'Girar 90° à esquerda',
+              rotateRightTooltip: 'Girar 90° à direita',
+              cancelButton: 'Cancelar',
+              cropButton: 'Confirmar',
+            ),
+            themeData: const WebThemeData(
+              backIcon: Icons.close_rounded,
+              doneIcon: Icons.check_rounded,
+            ),
           ),
         ],
       );
@@ -114,8 +134,21 @@ Future<XFile?> cropEncodePickedToWebp(
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: 'Ajustar enquadramento',
-          toolbarColor: const Color(0xFF2563EB),
+          toolbarColor: const Color(0xFF1E40AF),
           toolbarWidgetColor: Colors.white,
+          statusBarLight: false,
+          navBarLight: false,
+          backgroundColor: const Color(0xFF0F172A),
+          activeControlsWidgetColor: const Color(0xFFF59E0B),
+          dimmedLayerColor: const Color(0xB3000000),
+          cropFrameColor: Colors.white,
+          cropGridColor: Colors.white70,
+          cropFrameStrokeWidth: 2,
+          cropGridRowCount: 3,
+          cropGridColumnCount: 3,
+          cropGridStrokeWidth: 1,
+          showCropGrid: true,
+          hideBottomControls: false,
           initAspectRatio: square
               ? CropAspectRatioPreset.square
               : CropAspectRatioPreset.original,
@@ -132,6 +165,8 @@ Future<XFile?> cropEncodePickedToWebp(
         ),
         IOSUiSettings(
           title: 'Ajustar enquadramento',
+          doneButtonTitle: 'Confirmar',
+          cancelButtonTitle: 'Cancelar',
           aspectRatioLockEnabled: square,
           aspectRatioPresets: square
               ? [CropAspectRatioPreset.square]

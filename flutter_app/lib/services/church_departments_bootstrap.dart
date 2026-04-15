@@ -3,6 +3,7 @@ import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/department_template.dart';
 import 'package:gestao_yahweh/services/church_departments_presets_data.dart';
 
@@ -118,6 +119,11 @@ class ChurchDepartmentsBootstrap {
             'description': desc,
             'iconKey': visualKey,
             'themeKey': visualKey,
+            ChurchDepartmentFirestoreFields.iconName: visualKey,
+            ChurchDepartmentFirestoreFields.colorHex:
+                ChurchDepartmentVisualMapper.hexStringFromArgb(c1),
+            ChurchDepartmentFirestoreFields.colorHexSecondary:
+                ChurchDepartmentVisualMapper.hexStringFromArgb(c2),
             'bgColor1': c1,
             'bgColor2': c2,
             'bgImageUrl': '',

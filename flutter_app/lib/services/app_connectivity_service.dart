@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 /// Monitora rede (Wi‑Fi / dados / ethernet). Não prova “internet até o Google” —
@@ -39,8 +40,13 @@ class AppConnectivityService {
 
   void _setOnline(bool online) {
     if (online == _online) return;
+    final wasOffline = !_online;
     _online = online;
     if (!_onlineCtrl.isClosed) _onlineCtrl.add(online);
+    // Volta a sincronizar filas do Firestore após modo avião / sem sinal.
+    if (online && wasOffline) {
+      FirebaseFirestore.instance.enableNetwork().catchError((_) {});
+    }
   }
 
   Future<void> dispose() async {

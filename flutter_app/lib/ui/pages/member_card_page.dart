@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show unawaited, Timer;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -42,18 +42,20 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
-import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/carteira_pades_signer.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
+import 'package:gestao_yahweh/utils/carteirinha_pdf_image_resize.dart';
 import 'package:gestao_yahweh/ui/pdf/verso_carteirinha_widget.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pvc_marks.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_a4_cut_guides.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pdf_fonts.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
+    show memberPhotoDisplayCacheRevision;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:share_plus/share_plus.dart';
@@ -61,6 +63,9 @@ import 'package:gal/gal.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:intl/intl.dart';
 
 /// Alinhado a [members_page] / [_memberAuthUidFromData]: foto no Storage pode estar em `membros/{authUid}/`.
 String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
@@ -86,6 +91,12 @@ enum _PdfManyLayout {
   /// A4 com uma carteirinha centralizada por folha.
   a4OnePerPage,
 
+  /// A4: 5 membros por folha — em cada linha, frente e verso lado a lado (economia de papel).
+  a4FrenteVerso5PorFolha,
+
+  /// A4: 2 membros/folha — frente sobre verso (igual à carteirinha digital no ecrã).
+  a4FrenteSobreVerso2Digital,
+
   /// Grade 2×2 (4) no A4.
   a4Grid2x2,
 
@@ -105,7 +116,14 @@ enum _PdfManyLayout {
   cr80grafica,
 }
 
-({PdfPageFormat format, int cols, int rows, bool pvcCrop}) _pdfManyLayoutParams(
+({
+  PdfPageFormat format,
+  int cols,
+  int rows,
+  bool pvcCrop,
+  bool frontVersoPorLinha,
+  bool digitalVerticalStack,
+}) _pdfManyLayoutParams(
     _PdfManyLayout layout) {
   const cr80w = 85.6 * 72 / 25.4;
   const cr80h = 53.98 * 72 / 25.4;
@@ -115,42 +133,72 @@ enum _PdfManyLayout {
         cols: 1,
         rows: 1,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
+      ),
+    _PdfManyLayout.a4FrenteVerso5PorFolha => (
+        format: PdfPageFormat.a4,
+        cols: 2,
+        rows: 5,
+        pvcCrop: false,
+        frontVersoPorLinha: true,
+        digitalVerticalStack: false,
+      ),
+    _PdfManyLayout.a4FrenteSobreVerso2Digital => (
+        format: PdfPageFormat.a4,
+        cols: 2,
+        rows: 2,
+        pvcCrop: false,
+        frontVersoPorLinha: true,
+        digitalVerticalStack: true,
       ),
     _PdfManyLayout.a4Grid2x2 => (
         format: PdfPageFormat.a4,
         cols: 2,
         rows: 2,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
     _PdfManyLayout.a4Grid2x3 => (
         format: PdfPageFormat.a4,
         cols: 2,
         rows: 3,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
     _PdfManyLayout.a4Grid2x4 => (
         format: PdfPageFormat.a4,
         cols: 2,
         rows: 4,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
     _PdfManyLayout.a4Grid2x5 => (
         format: PdfPageFormat.a4,
         cols: 2,
         rows: 5,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
     _PdfManyLayout.cr80sheet => (
         format: PdfPageFormat(cr80w, cr80h),
         cols: 1,
         rows: 1,
         pvcCrop: false,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
     _PdfManyLayout.cr80grafica => (
         format: CarteirinhaPvcMarks.pageFormat(),
         cols: 1,
         rows: 1,
         pvcCrop: true,
+        frontVersoPorLinha: false,
+        digitalVerticalStack: false,
       ),
   };
 }
@@ -164,6 +212,9 @@ class MemberCardPage extends StatefulWidget {
   /// Chamado ao clicar em "Ir para Membros"; troca para a aba Membros no shell (evita pop que deslogava).
   final VoidCallback? onNavigateToMembers;
 
+  /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; ações em barra compacta no corpo.
+  final bool embeddedInShell;
+
   const MemberCardPage({
     super.key,
     required this.tenantId,
@@ -171,6 +222,7 @@ class MemberCardPage extends StatefulWidget {
     this.memberId,
     this.cpf,
     this.onNavigateToMembers,
+    this.embeddedInShell = false,
   });
 
   @override
@@ -193,6 +245,12 @@ class _MemberItem {
 }
 
 class _MemberCardPageState extends State<MemberCardPage> {
+  /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
+  static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
+    85.6 * 72 / 25.4,
+    53.98 * 72 / 25.4,
+  );
+
   Future<_CardData?>? _loadFuture;
 
   /// Doc `igrejas/{id}` após [resolveEffectiveTenantId] (cache por sessão desta página).
@@ -214,10 +272,52 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// id do documento em departamentos ou 'todos'
   String _filtroDepartamentoCarteira = 'todos';
 
+  /// Busca com debounce — evita setState a cada tecla (travava filtros/lista).
+  late final TextEditingController _memberSearchController;
+  Timer? _memberSearchDebounce;
+  String? _memberListPreloadFingerprint;
+
   /// Seleção na lista de membros (emissão / assinatura em bloco).
   final Set<String> _carteiraListaSelecionados = {};
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
+
+  /// Durante exportação PDF (captura da carteira): assinatura/nome no verso antes do [Screenshot].
+  String? _walletPdfExportSigUrl;
+  String? _walletPdfExportSignatoryNome;
+  String? _walletPdfExportSignatoryCargo;
+
+  /// Captura raster em lote (mesmo visual da carteira digital) — fora do ecrã.
+  final ScreenshotController _rasterBatchScreenshotController =
+      ScreenshotController();
+  _CardData? _rasterBatchCard;
+  String _rasterBatchSigUrl = '';
+  String _rasterBatchSignatoryNome = '';
+  String _rasterBatchSignatoryCargo = '';
+  /// `true` = captura em lote com [MemberDigitalWalletFront] e [MemberDigitalWalletBack] na mesma linha.
+  bool _rasterBatchLadoALado = false;
+
+  /// Mesmas cores da [MemberDigitalWalletFront] / config — PDF vetorial não usa hex com fallback errado.
+  ({PdfColor bg, PdfColor bgEnd, PdfColor fg}) _pdfCarteiraColors(
+      _CardConfig cfg, bool inkEco) {
+    if (inkEco) {
+      return (
+        bg: PdfColors.white,
+        bgEnd: PdfColors.white,
+        fg: PdfColors.grey900,
+      );
+    }
+    final bg = CarteirinhaVisualTokens.flutterColorToPdfColor(cfg.bgColorValue);
+    final bgEnd = cfg.bgColorSecondaryValue != null
+        ? CarteirinhaVisualTokens.flutterColorToPdfColor(
+            cfg.bgColorSecondaryValue!)
+        : CarteirinhaVisualTokens.flutterColorToPdfColor(
+            CarteirinhaVisualTokens.gradientEndFromPrimary(cfg.bgColorValue),
+          );
+    final fg =
+        CarteirinhaVisualTokens.flutterColorToPdfColor(cfg.textColorValue);
+    return (bg: bg, bgEnd: bgEnd, fg: fg);
+  }
 
   Future<String> _effectiveIgrejaDocId() async {
     final hit = _cachedIgrejaDocId;
@@ -235,6 +335,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _cachedIgrejaDocId = null;
+    }
+    if (oldWidget.memberId != widget.memberId || oldWidget.cpf != widget.cpf) {
+      setState(() {
+        if (_isRestrictedMember) {
+          _loadFuture = _load();
+        } else {
+          _loadFuture =
+              _hasExplicitMemberTarget ? _load() : Future.value(null);
+        }
+      });
     }
   }
 
@@ -301,6 +411,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (depts is List) {
       if (depts.any((x) => x.toString() == deptDocId)) return true;
     }
+    final deptIds = data['departamentosIds'];
+    if (deptIds is List) {
+      if (deptIds.any((x) => x.toString() == deptDocId)) return true;
+    }
     final d =
         (data['departamento'] ?? data['DEPARTAMENTO'] ?? '').toString().trim();
     if (d == deptDocId) return true;
@@ -345,6 +459,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) {
+      unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
+    }
+    _memberSearchController = TextEditingController();
     if (_isRestrictedMember) {
       _membersListFuture = Future.value([]);
       _loadFuture = _load();
@@ -353,16 +471,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
-      final hasMember =
-          (widget.memberId != null && widget.memberId!.trim().isNotEmpty) ||
-              (widget.cpf != null &&
-                  widget.cpf!.replaceAll(RegExp(r'[^0-9]'), '').length >= 11);
-      if (hasMember) {
-        _loadFuture = _load();
-      } else {
-        _loadFuture = Future.value(null);
-      }
+      _loadFuture =
+          _hasExplicitMemberTarget ? _load() : Future.value(null);
     }
+  }
+
+  @override
+  void dispose() {
+    _memberSearchDebounce?.cancel();
+    _memberSearchController.dispose();
+    super.dispose();
   }
 
   /// Se a URL da assinatura não foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
@@ -413,13 +531,31 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return out;
   }
 
+  /// Configurar carteirinha, seleção em lote e PDF em massa — alinhado a quem edita membros / perfil da igreja.
+  /// Inclui pastores/secretários ([editAnyMember]) e corrige papéis compostos via [ChurchRolePermissions.normalize].
   bool get _canManage {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+    if (AppPermissions.isRestrictedMember(widget.role)) return false;
+    final n = ChurchRolePermissions.normalize(widget.role);
+    if (n == ChurchRoleKeys.master ||
+        n == ChurchRoleKeys.adm ||
+        n == ChurchRoleKeys.gestor) {
+      return true;
+    }
+    final s = ChurchRolePermissions.snapshotFor(widget.role);
+    return s.editAnyMember || s.editChurchProfile;
   }
 
   /// Membro só vê e emite a própria carteirinha (acesso restrito).
-  bool get _isRestrictedMember => widget.role.toLowerCase() == 'membro';
+  /// Perfil básico no painel: só a própria carteirinha (membro ou visitante com menu restrito).
+  bool get _isRestrictedMember {
+    final r = widget.role.toLowerCase();
+    return r == 'membro' || r == 'visitante';
+  }
+
+  /// Gestor/admin só carrega ficha quando há [memberId] explícito.
+  /// O CPF do usuário logado na shell não deve pré-selecionar membro (senão só emite a própria).
+  bool get _hasExplicitMemberTarget =>
+      widget.memberId != null && widget.memberId!.trim().isNotEmpty;
 
   Future<_CardData?> _load() async {
     final db = FirebaseFirestore.instance;
@@ -434,7 +570,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     try {
       final tenantSnap =
           await db.collection('igrejas').doc(igrejaDocId).get();
-      tenant = tenantSnap.data() ?? {};
+      tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
+        ..['id'] = igrejaDocId;
     } catch (_) {}
 
     // Config por igreja (carteira editável: cor, logo)
@@ -462,10 +599,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
             cardCfg['title'] = global['title'];
           if (cardCfg['logoUrl'] == null && global['logoUrl'] != null)
             cardCfg['logoUrl'] = global['logoUrl'];
-          if (cardCfg['bgColor'] == null && global['bgColor'] != null)
+          if (cardCfg['bgColor'] == null && global['bgColor'] != null) {
             cardCfg['bgColor'] = global['bgColor'];
-          if (cardCfg['textColor'] == null && global['textColor'] != null)
+          }
+          if (cardCfg['textColor'] == null && global['textColor'] != null) {
             cardCfg['textColor'] = global['textColor'];
+          }
+          if (cardCfg['bgColorSecondary'] == null &&
+              global['bgColorSecondary'] != null) {
+            cardCfg['bgColorSecondary'] = global['bgColorSecondary'];
+          }
+          if (cardCfg['accentColor'] == null && global['accentColor'] != null) {
+            cardCfg['accentColor'] = global['accentColor'];
+          }
+          if (cardCfg['accentGold'] == null && global['accentGold'] != null) {
+            cardCfg['accentGold'] = global['accentGold'];
+          }
         }
       } catch (_) {}
     }
@@ -495,7 +644,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       } catch (_) {}
     }
 
-    if (memberDoc == null && cpf.length >= 11) {
+    if (memberDoc == null && cpf.length >= 11 && isMembro) {
       try {
         final byId = await membersCol.doc(cpf).get();
         if (byId.exists) {
@@ -614,21 +763,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '';
   }
 
-  String _congregacaoFromMember(Map<String, dynamic> m) {
-    const keys = [
-      'CONGREGACAO',
-      'congregacao',
-      'CONGREGAÇÃO',
-      'igrejaLocal',
-      'IGREJA_LOCAL',
-      'SEDE',
-      'sede',
-    ];
-    for (final k in keys) {
-      final s = (m[k] ?? '').toString().trim();
-      if (s.isNotEmpty) return s;
-    }
-    return '';
+  String _telefoneFromMember(Map<String, dynamic> m) {
+    final s = (m['TELEFONES'] ??
+            m['telefones'] ??
+            m['telefone'] ??
+            m['TELEFONE'] ??
+            m['phone'] ??
+            m['whatsapp'] ??
+            '')
+        .toString()
+        .trim();
+    return s;
+  }
+
+  String _emailFromMember(Map<String, dynamic> m) {
+    return (m['EMAIL'] ?? m['email'] ?? '').toString().trim();
   }
 
   String _validityLabel(Map<String, dynamic> member) {
@@ -683,8 +832,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
         (cardCfg['defaultSignatoryMemberId'] ?? '').toString().trim();
     var selectedSignatory = _selectSignatory(
         signatoryOptions, defaultSigId.isEmpty ? null : defaultSigId);
-    var pdfLayout = _PdfManyLayout.a4OnePerPage;
-    var pdfInkEconomy = true;
+    var pdfLayout = _PdfManyLayout.a4FrenteVerso5PorFolha;
+    /// Igual à carteira digital na app (degradê + borda ouro). Só desligar para modo pouca tinta.
+    var pdfInkEconomy = false;
     var modalSearch = '';
     var modalGenero = 'todos';
     var modalFaixa = 'todas';
@@ -693,6 +843,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
@@ -730,284 +881,532 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
 
           final visible = emitMembers.where(modalMatch).toList();
+          final mq = MediaQuery.sizeOf(ctx);
+          final sheetH = (mq.height * 0.92).clamp(280.0, mq.height);
+          final bottomInset = MediaQuery.viewInsetsOf(ctx).bottom;
 
-          return Container(
-            constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(ctx).size.height * 0.85),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(ThemeCleanPremium.radiusLg)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      const Text('Emitir várias carteirinhas',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w700)),
-                      const Spacer(),
-                      TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Fechar')),
-                    ],
-                  ),
-                ),
-                if (signatoryOptions.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: DropdownButtonFormField<
-                        ({
-                          String memberId,
-                          String nome,
-                          String cargo,
-                          String? assinaturaUrl
-                        })>(
-                      value: selectedSignatory,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: 'Assinatura (quem assina)',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
-                      items: signatoryOptions
-                          .map((o) => DropdownMenuItem(
-                              value: o,
-                              child: Text('${o.nome} — ${o.cargo}',
-                                  overflow: TextOverflow.ellipsis)))
-                          .toList(),
-                      onChanged: (v) => _refreshSignatoryFromFirestore(
-                          ctx, setModal, v, (nv) => selectedSignatory = nv),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: DropdownButtonFormField<_PdfManyLayout>(
-                    value: pdfLayout,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Papel / disposição na folha',
-                      helperText:
-                          'Grade no A4 para várias por página; CR80 = tamanho físico do cartão.',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.a4OnePerPage,
-                          child: Text('A4 — 1 por folha (centralizada)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.a4Grid2x2,
-                          child: Text('A4 — 4 por folha (grade 2×2)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.a4Grid2x3,
-                          child: Text('A4 — 6 por folha (grade 2×3)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.a4Grid2x4,
-                          child: Text('A4 — 8 por folha (grade 2×4, jato de tinta)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.a4Grid2x5,
-                          child: Text('A4 — 10 por folha (grade 2×5)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.cr80sheet,
-                          child: Text(
-                              'Só cartão CR80 — 1 por folha (papel especial)')),
-                      DropdownMenuItem(
-                          value: _PdfManyLayout.cr80grafica,
-                          child: Text(
-                              'CR80 + marcas de corte (gráfica / PVC)')),
-                    ],
-                    onChanged: (v) => setModal(
-                        () => pdfLayout = v ?? _PdfManyLayout.a4OnePerPage),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => setModal(() {
-                        pdfLayout = _PdfManyLayout.a4Grid2x4;
-                        pdfInkEconomy = true;
-                      }),
-                      icon: const Icon(Icons.grid_on_rounded, size: 20),
-                      label: const Text(
-                          'Predefinição: A4 com 8 cartões + menos tinta'),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: CheckboxListTile(
-                    value: pdfInkEconomy,
-                    onChanged: (v) =>
-                        setModal(() => pdfInkEconomy = v ?? true),
-                    title: const Text('Visual económico (menos tinta)'),
-                    subtitle: const Text(
-                        'PDF com fundo claro e bordas finas — ideal para impressora jato de tinta.'),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          return Padding(
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Material(
+                color: ThemeCleanPremium.surface,
+                elevation: 16,
+                shadowColor: Colors.black26,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(ThemeCleanPremium.radiusXl)),
+                clipBehavior: Clip.antiAlias,
+                child: SizedBox(
+                  height: sheetH,
+                  width: double.infinity,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('Filtrar lista',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade800)),
-                      const SizedBox(height: 8),
-                      TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Nome ou CPF...',
-                          prefixIcon:
-                              const Icon(Icons.search_rounded, size: 22),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          isDense: true,
-                          filled: true,
-                        ),
-                        onChanged: (v) => setModal(() => modalSearch = v),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: modalGenero,
-                              isExpanded: true,
-                              decoration: InputDecoration(
-                                labelText: 'Gênero',
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusSm)),
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                    value: 'todos', child: Text('Todos')),
-                                DropdownMenuItem(
-                                    value: 'masculino', child: Text('Homens')),
-                                DropdownMenuItem(
-                                    value: 'feminino', child: Text('Mulheres')),
-                              ],
-                              onChanged: (v) =>
-                                  setModal(() => modalGenero = v ?? 'todos'),
-                            ),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              ThemeCleanPremium.navSidebar.withOpacity(0.09),
+                              ThemeCleanPremium.surface,
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: modalFaixa,
-                              isExpanded: true,
-                              decoration: InputDecoration(
-                                labelText: 'Faixa etária',
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusSm)),
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                    value: 'todas', child: Text('Todas')),
-                                DropdownMenuItem(
-                                    value: 'criancas',
-                                    child: Text('Crianças (<13)')),
-                                DropdownMenuItem(
-                                    value: 'adolescentes',
-                                    child: Text('Adolescentes')),
-                                DropdownMenuItem(
-                                    value: 'adultos', child: Text('Adultos')),
-                                DropdownMenuItem(
-                                    value: 'idosos',
-                                    child: Text('Idosos (60+)')),
-                              ],
-                              onChanged: (v) =>
-                                  setModal(() => modalFaixa = v ?? 'todas'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: modalDept,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: 'Departamento',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
                         ),
-                        items: [
-                          const DropdownMenuItem(
-                              value: 'todos', child: Text('Todos')),
-                          ...deptsModal.map((d) => DropdownMenuItem(
-                              value: d.id,
-                              child: Text(d.name,
-                                  overflow: TextOverflow.ellipsis))),
-                        ],
-                        onChanged: (v) =>
-                            setModal(() => modalDept = v ?? 'todos'),
+                        child: Column(
+                          children: [
+                            Center(
+                              child: Container(
+                                width: 40,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade400,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: ThemeCleanPremium.primary
+                                          .withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusMd),
+                                    ),
+                                    child: Icon(
+                                      Icons.badge_outlined,
+                                      color: ThemeCleanPremium.primary,
+                                      size: 24,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Emitir várias carteirinhas',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.3,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Selecione os membros e gere um único PDF.',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade700,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Fechar'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Mostrando ${visible.length} de ${emitMembers.length} membros',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600),
+                      Expanded(
+                        child: CustomScrollView(
+                          physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics()),
+                          slivers: [
+                            if (signatoryOptions.isNotEmpty)
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                                  child: DropdownButtonFormField<
+                                      ({
+                                        String memberId,
+                                        String nome,
+                                        String cargo,
+                                        String? assinaturaUrl
+                                      })>(
+                                    value: selectedSignatory,
+                                    isExpanded: true,
+                                    decoration: InputDecoration(
+                                      labelText: 'Assinatura (quem assina)',
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                              ThemeCleanPremium.radiusSm)),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 10),
+                                    ),
+                                    items: signatoryOptions
+                                        .map((o) => DropdownMenuItem(
+                                            value: o,
+                                            child: Text(
+                                                '${o.nome} — ${o.cargo}',
+                                                overflow:
+                                                    TextOverflow.ellipsis)))
+                                        .toList(),
+                                    onChanged: (v) =>
+                                        _refreshSignatoryFromFirestore(
+                                            ctx,
+                                            setModal,
+                                            v,
+                                            (nv) =>
+                                                selectedSignatory = nv),
+                                  ),
+                                ),
+                              ),
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                                child: DropdownButtonFormField<_PdfManyLayout>(
+                                  value: pdfLayout,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Papel / disposição na folha',
+                                    helperText:
+                                        '“5 por folha” = modelo da carteira digital, frente e verso na mesma linha por membro. Grades 2×N = 1.ª folha só frentes, 2.ª só versos.',
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm)),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value:
+                                            _PdfManyLayout.a4FrenteVerso5PorFolha,
+                                        child: Text(
+                                            'A4 — 5 por folha (frente e verso na mesma linha — modelo digital — predefinição)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout
+                                            .a4FrenteSobreVerso2Digital,
+                                        child: Text(
+                                            'A4 — 2 por folha (frente sobre verso, como no ecrã vertical)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.a4OnePerPage,
+                                        child: Text(
+                                            'A4 — 1 por folha (centralizada)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.a4Grid2x2,
+                                        child: Text(
+                                            'A4 — 4 por folha (grade 2×2)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.a4Grid2x3,
+                                        child: Text(
+                                            'A4 — 6 por folha (grade 2×3)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.a4Grid2x4,
+                                        child: Text(
+                                            'A4 — 8 por folha (grade 2×4, jato de tinta)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.a4Grid2x5,
+                                        child: Text(
+                                            'A4 — 10 por folha (grade 2×5)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.cr80sheet,
+                                        child: Text(
+                                            'Só cartão CR80 — 1 por folha (papel especial)')),
+                                    DropdownMenuItem(
+                                        value: _PdfManyLayout.cr80grafica,
+                                        child: Text(
+                                            'CR80 + marcas de corte (gráfica / PVC)')),
+                                  ],
+                                  onChanged: (v) => setModal(() => pdfLayout =
+                                      v ??
+                                      _PdfManyLayout.a4FrenteVerso5PorFolha),
+                                ),
+                              ),
+                            ),
+                            SliverToBoxAdapter(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        16, 0, 16, 4),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: () => setModal(() {
+                                          pdfLayout =
+                                              _PdfManyLayout.a4Grid2x4;
+                                          pdfInkEconomy = true;
+                                        }),
+                                        icon: const Icon(
+                                            Icons.grid_on_rounded,
+                                            size: 20),
+                                        label: const Text(
+                                            'Predefinição: A4 com 8 cartões + menos tinta'),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        16, 0, 16, 8),
+                                    child: CheckboxListTile(
+                                      value: pdfInkEconomy,
+                                      onChanged: (v) => setModal(
+                                          () => pdfInkEconomy = v ?? false),
+                                      title: const Text(
+                                          'Visual econômico (menos tinta)'),
+                                      subtitle: const Text(
+                                          'Desligado = mesmo modelo da carteirinha digital (cores e degradê). Ligado = fundo claro, ideal para jato de tinta.'),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        16, 0, 16, 10),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(Icons.filter_list_rounded,
+                                                size: 20,
+                                                color: ThemeCleanPremium
+                                                    .primary),
+                                            const SizedBox(width: 8),
+                                            Text('Filtrar lista',
+                                                style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight:
+                                                        FontWeight.w800,
+                                                    color: Colors
+                                                        .grey.shade800)),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextField(
+                                          decoration: InputDecoration(
+                                            hintText: 'Nome ou CPF...',
+                                            prefixIcon: const Icon(
+                                                Icons.search_rounded,
+                                                size: 22),
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        ThemeCleanPremium
+                                                            .radiusSm)),
+                                            isDense: true,
+                                            filled: true,
+                                            fillColor: ThemeCleanPremium
+                                                .surfaceVariant
+                                                .withOpacity(0.65),
+                                          ),
+                                          onChanged: (v) => setModal(
+                                              () => modalSearch = v),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child:
+                                                  DropdownButtonFormField<
+                                                      String>(
+                                                value: modalGenero,
+                                                isExpanded: true,
+                                                decoration: InputDecoration(
+                                                  labelText: 'Gênero',
+                                                  border: OutlineInputBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              ThemeCleanPremium
+                                                                  .radiusSm)),
+                                                  isDense: true,
+                                                  contentPadding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 8),
+                                                ),
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                      value: 'todos',
+                                                      child: Text('Todos')),
+                                                  DropdownMenuItem(
+                                                      value: 'masculino',
+                                                      child: Text('Homens')),
+                                                  DropdownMenuItem(
+                                                      value: 'feminino',
+                                                      child:
+                                                          Text('Mulheres')),
+                                                ],
+                                                onChanged: (v) => setModal(
+                                                    () => modalGenero =
+                                                        v ?? 'todos'),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child:
+                                                  DropdownButtonFormField<
+                                                      String>(
+                                                value: modalFaixa,
+                                                isExpanded: true,
+                                                decoration: InputDecoration(
+                                                  labelText: 'Faixa etária',
+                                                  border: OutlineInputBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              ThemeCleanPremium
+                                                                  .radiusSm)),
+                                                  isDense: true,
+                                                  contentPadding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 8),
+                                                ),
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                      value: 'todas',
+                                                      child: Text('Todas')),
+                                                  DropdownMenuItem(
+                                                      value: 'criancas',
+                                                      child: Text(
+                                                          'Crianças (<13)')),
+                                                  DropdownMenuItem(
+                                                      value: 'adolescentes',
+                                                      child: Text(
+                                                          'Adolescentes')),
+                                                  DropdownMenuItem(
+                                                      value: 'adultos',
+                                                      child:
+                                                          Text('Adultos')),
+                                                  DropdownMenuItem(
+                                                      value: 'idosos',
+                                                      child: Text(
+                                                          'Idosos (60+)')),
+                                                ],
+                                                onChanged: (v) => setModal(
+                                                    () => modalFaixa =
+                                                        v ?? 'todas'),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        DropdownButtonFormField<String>(
+                                          value: modalDept,
+                                          isExpanded: true,
+                                          decoration: InputDecoration(
+                                            labelText: 'Departamento',
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        ThemeCleanPremium
+                                                            .radiusSm)),
+                                            isDense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 10),
+                                          ),
+                                          items: [
+                                            const DropdownMenuItem(
+                                                value: 'todos',
+                                                child: Text('Todos')),
+                                            ...deptsModal.map(
+                                                (d) => DropdownMenuItem(
+                                                    value: d.id,
+                                                    child: Text(d.name,
+                                                        overflow: TextOverflow
+                                                            .ellipsis))),
+                                          ],
+                                          onChanged: (v) => setModal(() =>
+                                              modalDept = v ?? 'todos'),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: ThemeCleanPremium.primary
+                                                .withOpacity(0.07),
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                                    ThemeCleanPremium
+                                                        .radiusSm),
+                                            border: Border.all(
+                                                color: ThemeCleanPremium
+                                                    .primary
+                                                    .withOpacity(0.18)),
+                                          ),
+                                          child: Text(
+                                            'Mostrando ${visible.length} de ${emitMembers.length} membros',
+                                            style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color:
+                                                    ThemeCleanPremium.primary),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SliverToBoxAdapter(
+                                child: Divider(height: 1)),
+                            if (visible.isEmpty)
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(24),
+                                    child: Text(
+                                      'Nenhum membro com esses filtros.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 15),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, i) {
+                                    final m = visible[i];
+                                    final sel =
+                                        selectedIds.contains(m.id);
+                                    return Material(
+                                      color: i.isEven
+                                          ? Colors.transparent
+                                          : ThemeCleanPremium.surfaceVariant
+                                              .withOpacity(0.35),
+                                      child: CheckboxListTile(
+                                        value: sel,
+                                        dense: true,
+                                        onChanged: (v) => setModal(() =>
+                                            v == true
+                                                ? selectedIds.add(m.id)
+                                                : selectedIds.remove(m.id)),
+                                        title: Text(m.name,
+                                            overflow:
+                                                TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                                fontWeight:
+                                                    FontWeight.w500)),
+                                        secondary: Icon(
+                                            Icons.person_outline_rounded,
+                                            color: ThemeCleanPremium.primary
+                                                .withOpacity(0.85)),
+                                      ),
+                                    );
+                                  },
+                                  childCount: visible.length,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.surface,
+                    border: Border(
+                      top: BorderSide(
+                          color: ThemeCleanPremium.primary.withOpacity(0.12)),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, -2),
                       ),
                     ],
                   ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: visible.isEmpty
-                      ? Center(
-                          child: Text('Nenhum membro com esses filtros.',
-                              style: TextStyle(color: Colors.grey.shade600)))
-                      : ListView.builder(
-                          itemCount: visible.length,
-                          itemBuilder: (_, i) {
-                            final m = visible[i];
-                            final sel = selectedIds.contains(m.id);
-                            return CheckboxListTile(
-                              value: sel,
-                              onChanged: (v) => setModal(() => v == true
-                                  ? selectedIds.add(m.id)
-                                  : selectedIds.remove(m.id)),
-                              title:
-                                  Text(m.name, overflow: TextOverflow.ellipsis),
-                              secondary:
-                                  const Icon(Icons.person_outline_rounded),
-                            );
-                          },
-                        ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
                       onPressed: selectedIds.isEmpty
                           ? null
                           : () async {
@@ -1058,24 +1457,126 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 return;
                               }
                               try {
+                                ({
+                                  String memberId,
+                                  String nome,
+                                  String cargo,
+                                  String? assinaturaUrl,
+                                })? sigEmit = selectedSignatory;
+                                if (sigEmit != null) {
+                                  sigEmit =
+                                      await _fetchSignatoryAssinaturaFresh(
+                                          sigEmit);
+                                }
                                 final lay = _pdfManyLayoutParams(pdfLayout);
                                 final isA4Grid = pdfLayout ==
-                                        _PdfManyLayout.a4Grid2x2 ||
+                                        _PdfManyLayout.a4FrenteVerso5PorFolha ||
+                                    pdfLayout ==
+                                        _PdfManyLayout
+                                            .a4FrenteSobreVerso2Digital ||
+                                    pdfLayout == _PdfManyLayout.a4Grid2x2 ||
                                     pdfLayout == _PdfManyLayout.a4Grid2x3 ||
                                     pdfLayout == _PdfManyLayout.a4Grid2x4 ||
                                     pdfLayout == _PdfManyLayout.a4Grid2x5;
-                                final bytes = await _buildPdfMulti(
-                                  list,
-                                  lay.format,
-                                  signatoryNome: selectedSignatory?.nome,
-                                  signatoryCargo: selectedSignatory?.cargo,
-                                  signatoryAssinaturaUrl:
-                                      selectedSignatory?.assinaturaUrl,
-                                  gridCols: lay.cols,
-                                  gridRows: lay.rows,
-                                  pvcCropMarks: lay.pvcCrop,
-                                  inkEconomy: pdfInkEconomy,
-                                );
+                                late final Uint8List bytes;
+                                if (pdfLayout ==
+                                    _PdfManyLayout.a4FrenteSobreVerso2Digital) {
+                                  var pastorSig = '';
+                                  try {
+                                    pastorSig = (await FirebaseStorageService
+                                                .getPastorSignatureConfigDownloadUrl(
+                                                    list.first.igrejaDocId) ??
+                                            '')
+                                        .trim();
+                                  } catch (_) {}
+                                  try {
+                                    bytes = await _buildPdfMultiWalletRaster(
+                                      context,
+                                      list,
+                                      signatoryNome: sigEmit?.nome,
+                                      signatoryCargo: sigEmit?.cargo,
+                                      signatoryAssinaturaUrl:
+                                          sigEmit?.assinaturaUrl,
+                                      pastorSigFallback: pastorSig,
+                                    );
+                                  } catch (e, st) {
+                                    debugPrint(
+                                        'emitir vários: raster falhou, PDF vetorial: $e\n$st');
+                                    bytes = await _buildPdfMulti(
+                                      list,
+                                      lay.format,
+                                      signatoryNome: sigEmit?.nome,
+                                      signatoryCargo: sigEmit?.cargo,
+                                      signatoryAssinaturaUrl:
+                                          sigEmit?.assinaturaUrl,
+                                      gridCols: lay.cols,
+                                      gridRows: lay.rows,
+                                      pvcCropMarks: lay.pvcCrop,
+                                      inkEconomy: pdfInkEconomy,
+                                      frontVersoPorLinha:
+                                          lay.frontVersoPorLinha,
+                                      digitalVerticalStack:
+                                          lay.digitalVerticalStack,
+                                    );
+                                  }
+                                } else if (pdfLayout ==
+                                        _PdfManyLayout.a4FrenteVerso5PorFolha &&
+                                    !pdfInkEconomy) {
+                                  var pastorSig = '';
+                                  try {
+                                    pastorSig = (await FirebaseStorageService
+                                                .getPastorSignatureConfigDownloadUrl(
+                                                    list.first.igrejaDocId) ??
+                                            '')
+                                        .trim();
+                                  } catch (_) {}
+                                  try {
+                                    bytes =
+                                        await _buildPdfMultiWalletRasterFrenteVersoLinhaA4(
+                                      context,
+                                      list,
+                                      signatoryNome: sigEmit?.nome,
+                                      signatoryCargo: sigEmit?.cargo,
+                                      signatoryAssinaturaUrl:
+                                          sigEmit?.assinaturaUrl,
+                                      pastorSigFallback: pastorSig,
+                                    );
+                                  } catch (e, st) {
+                                    debugPrint(
+                                        'emitir vários: raster frente|verso falhou, PDF vetorial: $e\n$st');
+                                    bytes = await _buildPdfMulti(
+                                      list,
+                                      lay.format,
+                                      signatoryNome: sigEmit?.nome,
+                                      signatoryCargo: sigEmit?.cargo,
+                                      signatoryAssinaturaUrl:
+                                          sigEmit?.assinaturaUrl,
+                                      gridCols: lay.cols,
+                                      gridRows: lay.rows,
+                                      pvcCropMarks: lay.pvcCrop,
+                                      inkEconomy: pdfInkEconomy,
+                                      frontVersoPorLinha:
+                                          lay.frontVersoPorLinha,
+                                      digitalVerticalStack:
+                                          lay.digitalVerticalStack,
+                                    );
+                                  }
+                                } else {
+                                  bytes = await _buildPdfMulti(
+                                    list,
+                                    lay.format,
+                                    signatoryNome: sigEmit?.nome,
+                                    signatoryCargo: sigEmit?.cargo,
+                                    signatoryAssinaturaUrl: sigEmit?.assinaturaUrl,
+                                    gridCols: lay.cols,
+                                    gridRows: lay.rows,
+                                    pvcCropMarks: lay.pvcCrop,
+                                    inkEconomy: pdfInkEconomy,
+                                    frontVersoPorLinha: lay.frontVersoPorLinha,
+                                    digitalVerticalStack:
+                                        lay.digitalVerticalStack,
+                                  );
+                                }
                                 if (context.mounted)
                                   await showPdfActions(context,
                                       bytes: bytes,
@@ -1090,7 +1591,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             },
                       icon: const Icon(Icons.picture_as_pdf_rounded),
                       label: Text(
-                        (pdfLayout == _PdfManyLayout.a4Grid2x2 ||
+                        (pdfLayout == _PdfManyLayout.a4FrenteVerso5PorFolha ||
+                                pdfLayout ==
+                                    _PdfManyLayout.a4FrenteSobreVerso2Digital ||
+                                pdfLayout == _PdfManyLayout.a4Grid2x2 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x3 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x4 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x5)
@@ -1100,9 +1604,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       style: FilledButton.styleFrom(
                           backgroundColor: ThemeCleanPremium.primary),
                     ),
+                      ),
+                    ),
                   ),
                 ),
-              ],
+                    ],
+                  ),
+                ),
+              ),
             ),
           );
         },
@@ -1424,8 +1933,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   bool get _emModoListaGestor {
     if (!_canManage || _isRestrictedMember) return false;
     final mid = (widget.memberId ?? '').trim();
-    final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
-    return mid.isEmpty && cpf.length < 11;
+    return mid.isEmpty;
   }
 
   String _safeMemberFileStub(String id) {
@@ -1673,13 +2181,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final signat = selected;
 
       if (modo == 'visual' && signat != null) {
+        final signatFresh = await _fetchSignatoryAssinaturaFresh(signat);
         final list = <_CardData>[];
         for (final id in ids) {
           final card = await _cardDataForMemberId(
               id, tpl.tenant, tpl.cardCfg, tpl.igrejaDocId);
           if (card == null) continue;
           await preLoadImages(card,
-              signatoryAssinaturaUrl: signat.assinaturaUrl);
+              signatoryAssinaturaUrl: signatFresh.assinaturaUrl);
           list.add(card);
         }
         if (context.mounted) Navigator.of(context).pop();
@@ -1690,17 +2199,45 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           return;
         }
-        final merged = await _buildPdfMulti(
-          list,
-          PdfPageFormat.a4,
-          signatoryNome: signat.nome,
-          signatoryCargo: signat.cargo,
-          signatoryAssinaturaUrl: signat.assinaturaUrl,
-          gridCols: 1,
-          gridRows: 1,
-        );
+        final layVisual =
+            _pdfManyLayoutParams(_PdfManyLayout.a4FrenteSobreVerso2Digital);
+        late final Uint8List merged;
+        var pastorSig = '';
+        try {
+          pastorSig = (await FirebaseStorageService
+                      .getPastorSignatureConfigDownloadUrl(
+                          list.first.igrejaDocId) ??
+                  '')
+              .trim();
+        } catch (_) {}
+        try {
+          merged = await _buildPdfMultiWalletRaster(
+            context,
+            list,
+            signatoryNome: signatFresh.nome,
+            signatoryCargo: signatFresh.cargo,
+            signatoryAssinaturaUrl: signatFresh.assinaturaUrl,
+            pastorSigFallback: pastorSig,
+          );
+        } catch (e, st) {
+          debugPrint(
+              'assinatura lote visual: raster falhou, vetor: $e\n$st');
+          merged = await _buildPdfMulti(
+            list,
+            layVisual.format,
+            signatoryNome: signatFresh.nome,
+            signatoryCargo: signatFresh.cargo,
+            signatoryAssinaturaUrl: signatFresh.assinaturaUrl,
+            gridCols: layVisual.cols,
+            gridRows: layVisual.rows,
+            pvcCropMarks: layVisual.pvcCrop,
+            inkEconomy: false,
+            frontVersoPorLinha: layVisual.frontVersoPorLinha,
+            digitalVerticalStack: layVisual.digitalVerticalStack,
+          );
+        }
         if (context.mounted) {
-          final r = await _firestoreAssinaturaLote(ids, signat);
+          final r = await _firestoreAssinaturaLote(ids, signatFresh);
           _snackFirestoreAssinaturaResult(context, r);
         }
         if (context.mounted) {
@@ -1728,7 +2265,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         final cfgPdf = _cardConfigForPdf(card);
         var bytes = await _buildPdf(
           card,
-          PdfPageFormat.a4,
+          _kPdfCr80Export,
           configOverride: cfgPdf,
           signatoryNome: null,
           signatoryCargo: null,
@@ -1807,6 +2344,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     var incluirAssinatura = options.isNotEmpty;
     var selected = _selectSignatory(options, defSig.isEmpty ? null : defSig);
 
+    var pdfLayoutLote = _PdfManyLayout.a4FrenteVerso5PorFolha;
     final go = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -1824,13 +2362,56 @@ class _MemberCardPageState extends State<MemberCardPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('PDF único — ${ids.length} carteirinha(s)',
+              Text('PDF em lote — ${ids.length} carteirinha(s)',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               Text(
-                'Um PDF em A4: uma carteirinha por página (frente e verso alinhados). Abre primeiro para visualizar; imprimir ou compartilhar fica na tela do PDF.',
+                'Um único PDF: por defeito, cada membro com frente e verso na mesma linha (até 5 por folha A4), igual ao modelo da carteira no módulo Membro.',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<_PdfManyLayout>(
+                value: pdfLayoutLote,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Disposição no papel A4',
+                  helperText:
+                      'Predefinição: 5 por folha, frente e verso lado a lado (captura do ecrã). Grades 2×N: 1.ª folha só frentes, 2.ª só versos.',
+                  border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4FrenteVerso5PorFolha,
+                      child: Text(
+                          '5 por folha — frente e verso na mesma linha (modelo digital — predefinição)')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4FrenteSobreVerso2Digital,
+                      child: Text(
+                          '2 por folha — frente sobre verso (como no ecrã vertical)')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4OnePerPage,
+                      child: Text('1 por folha (maior no centro)')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4Grid2x2,
+                      child: Text('4 por folha — grelha 2×2')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4Grid2x3,
+                      child: Text('6 por folha — grelha 2×3')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4Grid2x4,
+                      child: Text('8 por folha — grelha 2×4')),
+                  DropdownMenuItem(
+                      value: _PdfManyLayout.a4Grid2x5,
+                      child: Text('10 por folha — grelha 2×5')),
+                ],
+                onChanged: (v) => setModal(
+                    () => pdfLayoutLote =
+                        v ?? _PdfManyLayout.a4FrenteVerso5PorFolha),
               ),
               const SizedBox(height: 16),
               CheckboxListTile(
@@ -1909,13 +2490,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
       return;
     }
 
-    final prog = ValueNotifier<int>(0);
+    final prog = ValueNotifier<double>(0);
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => ValueListenableBuilder<int>(
+      builder: (_) => ValueListenableBuilder<double>(
         valueListenable: prog,
-        builder: (_, n, __) => PopScope(
+        builder: (_, p, __) => PopScope(
           canPop: false,
           child: AlertDialog(
             shape: RoundedRectangleBorder(
@@ -1926,10 +2507,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 LinearProgressIndicator(
-                    value: ids.isEmpty ? null : n / ids.length),
+                  value: ids.length <= 1
+                      ? null
+                      : (ids.isEmpty ? null : p.clamp(0.0, 1.0)),
+                ),
                 const SizedBox(height: 16),
                 Text(
-                  n == 0 ? 'Preparando…' : 'Gerando $n de ${ids.length}…',
+                  p < 0.14
+                      ? 'A carregar membros e identidade visual (logo)…'
+                      : (p < 0.24
+                          ? 'A finalizar branding…'
+                          : (p < 0.93
+                              ? 'A preparar fotos (em paralelo)…'
+                              : 'A montar o PDF…')),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                 ),
@@ -1952,19 +2542,37 @@ class _MemberCardPageState extends State<MemberCardPage> {
         } catch (_) {}
       }
       final tpl = await _loadCarteiraTemplateContext();
-      final signat = incluirAssinatura ? selected : null;
-
-      final list = <_CardData>[];
-      for (var i = 0; i < ids.length; i++) {
-        final id = ids[i];
-        final card = await _cardDataForMemberId(
-            id, tpl.tenant, tpl.cardCfg, tpl.igrejaDocId);
-        if (card == null) continue;
-        await preLoadImages(card,
-            signatoryAssinaturaUrl: signat?.assinaturaUrl);
-        list.add(card);
-        prog.value = i + 1;
+      ({
+        String memberId,
+        String nome,
+        String cargo,
+        String? assinaturaUrl,
+      })? signat = incluirAssinatura ? selected : null;
+      if (signat != null) {
+        signat = await _fetchSignatoryAssinaturaFresh(signat);
       }
+
+      prog.value = 0.04;
+      // Membros (Firestore) em paralelo com logo da igreja — reduz tempo em que o diálogo fica em “preparar logo”.
+      final batch = await Future.wait<dynamic>([
+        Future.wait(
+          ids.map(
+            (id) => _cardDataForMemberId(
+              id,
+              tpl.tenant,
+              tpl.cardCfg,
+              tpl.igrejaDocId,
+            ),
+          ),
+        ),
+        _prefetchLogoFromCarteiraContext(tpl),
+      ]);
+      final resolved = batch[0] as List<_CardData?>;
+      final list = <_CardData>[];
+      for (final c in resolved) {
+        if (c != null) list.add(c);
+      }
+      prog.value = 0.16;
 
       if (list.isEmpty) {
         if (nav.canPop()) nav.pop();
@@ -1976,17 +2584,116 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return;
       }
 
-      /// A4 vertical: uma carteirinha por folha (frente + verso empilhados, alinhados).
-      final lay = _pdfManyLayoutParams(_PdfManyLayout.a4OnePerPage);
-      final bytes = await _buildPdfMulti(
-        list,
-        lay.format,
-        signatoryNome: signat?.nome,
-        signatoryCargo: signat?.cargo,
-        signatoryAssinaturaUrl: signat?.assinaturaUrl,
-        gridCols: lay.cols,
-        gridRows: lay.rows,
-      );
+      final sigUrl = signat?.assinaturaUrl;
+      // Assinatura do líder (perfil Membros — URL fresca acima).
+      await _prefetchSharedPdfBrandingForLote(list, signatoryAssinaturaUrl: sigUrl);
+      prog.value = 0.24;
+
+      // Só fotos por membro (logo já está em cache).
+      const preloadBatch = 30;
+      for (var i = 0; i < list.length; i += preloadBatch) {
+        final end = min(i + preloadBatch, list.length);
+        final chunk = list.sublist(i, end);
+        await Future.wait(
+          chunk.map(
+            (card) => preLoadImages(
+              card,
+              signatoryAssinaturaUrl: sigUrl,
+            ),
+          ),
+        );
+        if (kIsWeb) await Future<void>.delayed(Duration.zero);
+        prog.value = 0.2 + 0.72 * (end / list.length);
+      }
+      prog.value = 0.94;
+
+      final lay = _pdfManyLayoutParams(pdfLayoutLote);
+      late final Uint8List bytes;
+      if (pdfLayoutLote ==
+          _PdfManyLayout.a4FrenteSobreVerso2Digital) {
+        var pastorSig = '';
+        try {
+          pastorSig = (await FirebaseStorageService
+                      .getPastorSignatureConfigDownloadUrl(
+                          list.first.igrejaDocId) ??
+                  '')
+              .trim();
+        } catch (_) {}
+        try {
+          bytes = await _buildPdfMultiWalletRaster(
+            context,
+            list,
+            signatoryNome: signat?.nome,
+            signatoryCargo: signat?.cargo,
+            signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            pastorSigFallback: pastorSig,
+          );
+        } catch (e, st) {
+          debugPrint(
+              '_gerarPdfUnicoLote: raster falhou, vetor: $e\n$st');
+          bytes = await _buildPdfMulti(
+            list,
+            lay.format,
+            signatoryNome: signat?.nome,
+            signatoryCargo: signat?.cargo,
+            signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            gridCols: lay.cols,
+            gridRows: lay.rows,
+            inkEconomy: false,
+            frontVersoPorLinha: lay.frontVersoPorLinha,
+            digitalVerticalStack: lay.digitalVerticalStack,
+          );
+        }
+      } else if (pdfLayoutLote ==
+          _PdfManyLayout.a4FrenteVerso5PorFolha) {
+        var pastorSig = '';
+        try {
+          pastorSig = (await FirebaseStorageService
+                      .getPastorSignatureConfigDownloadUrl(
+                          list.first.igrejaDocId) ??
+                  '')
+              .trim();
+        } catch (_) {}
+        try {
+          bytes =
+              await _buildPdfMultiWalletRasterFrenteVersoLinhaA4(
+            context,
+            list,
+            signatoryNome: signat?.nome,
+            signatoryCargo: signat?.cargo,
+            signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            pastorSigFallback: pastorSig,
+          );
+        } catch (e, st) {
+          debugPrint(
+              '_gerarPdfUnicoLote: raster frente|verso falhou, vetor: $e\n$st');
+          bytes = await _buildPdfMulti(
+            list,
+            lay.format,
+            signatoryNome: signat?.nome,
+            signatoryCargo: signat?.cargo,
+            signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            gridCols: lay.cols,
+            gridRows: lay.rows,
+            inkEconomy: false,
+            frontVersoPorLinha: lay.frontVersoPorLinha,
+            digitalVerticalStack: lay.digitalVerticalStack,
+          );
+        }
+      } else {
+        bytes = await _buildPdfMulti(
+          list,
+          lay.format,
+          signatoryNome: signat?.nome,
+          signatoryCargo: signat?.cargo,
+          signatoryAssinaturaUrl: signat?.assinaturaUrl,
+          gridCols: lay.cols,
+          gridRows: lay.rows,
+          inkEconomy: false,
+          frontVersoPorLinha: lay.frontVersoPorLinha,
+          digitalVerticalStack: lay.digitalVerticalStack,
+        );
+      }
       final produced = list.length;
       if (nav.canPop()) nav.pop();
       prog.dispose();
@@ -2048,10 +2755,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (mounted) setState(() => _loadFuture = _load());
   }
 
-  String _qrPayload(String tenantId, String memberId) {
-    return CarteirinhaConsultaUrl.validationUrl(tenantId, memberId);
-  }
-
   /// Nome mascarado para o verso do PDF / validação pública.
   String _maskNomePublico(String nome) {
     final p =
@@ -2082,7 +2785,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     try {
       final tenantSnap =
           await db.collection('igrejas').doc(igrejaDocId).get();
-      tenant = tenantSnap.data() ?? {};
+      tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
+        ..['id'] = igrejaDocId;
     } catch (_) {}
     try {
       final carteiraSnap = await db
@@ -2106,10 +2810,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
             cardCfg['title'] = global['title'];
           if (cardCfg['logoUrl'] == null && global['logoUrl'] != null)
             cardCfg['logoUrl'] = global['logoUrl'];
-          if (cardCfg['bgColor'] == null && global['bgColor'] != null)
+          if (cardCfg['bgColor'] == null && global['bgColor'] != null) {
             cardCfg['bgColor'] = global['bgColor'];
-          if (cardCfg['textColor'] == null && global['textColor'] != null)
+          }
+          if (cardCfg['textColor'] == null && global['textColor'] != null) {
             cardCfg['textColor'] = global['textColor'];
+          }
+          if (cardCfg['bgColorSecondary'] == null &&
+              global['bgColorSecondary'] != null) {
+            cardCfg['bgColorSecondary'] = global['bgColorSecondary'];
+          }
+          if (cardCfg['accentColor'] == null && global['accentColor'] != null) {
+            cardCfg['accentColor'] = global['accentColor'];
+          }
+          if (cardCfg['accentGold'] == null && global['accentGold'] != null) {
+            cardCfg['accentGold'] = global['accentGold'];
+          }
         }
       } catch (_) {}
     }
@@ -2180,7 +2896,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<void> _prefetchPdfAssetsForCard(_CardData data,
       {String? signatoryAssinaturaUrl}) async {
     final cfg = _cardConfigForPdf(data);
-    await _pdfLogoProvider(cfg, data);
+    final cid = data.igrejaDocId.trim();
+    if (cid.isEmpty || !_pdfLogoProviderMemo.containsKey(cid)) {
+      await _pdfLogoProvider(cfg, data);
+    }
     if (cfg.showPhoto) {
       final u = await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
           igrejaDocId: data.igrejaDocId);
@@ -2197,14 +2916,41 @@ class _MemberCardPageState extends State<MemberCardPage> {
         signatoryAssinaturaUrl: signatoryAssinaturaUrl);
   }
 
-  /// Converte hex (6 chars, com ou sem #) para PdfColor. Usa 0xAARRGGBB (alpha=255) para
-  /// coincidir exatamente com a cor exibida na tela (Flutter Color), evitando diferença ao imprimir/exportar.
-  PdfColor _hexToPdfColor(String hex, PdfColor fallback) {
-    final clean = hex.replaceAll('#', '').trim();
-    if (clean.length != 6) return fallback;
-    final v = int.tryParse(clean, radix: 16);
-    if (v == null) return fallback;
-    return PdfColor.fromInt(0xFF000000 | v);
+  /// Pré-carrega o logo assim que existe contexto de template — corre em paralelo a [Future.wait] dos membros.
+  Future<void> _prefetchLogoFromCarteiraContext(
+    ({
+      Map<String, dynamic> tenant,
+      Map<String, dynamic> cardCfg,
+      String igrejaDocId,
+    }) tpl,
+  ) async {
+    final synthetic = _CardData(
+      memberId: '__logo_prefetch__',
+      member: const <String, dynamic>{},
+      cardConfig: Map<String, dynamic>.from(tpl.cardCfg),
+      tenant: tpl.tenant,
+      igrejaDocId: tpl.igrejaDocId,
+    );
+    final cfg = _cardConfigForPdf(synthetic);
+    await _pdfLogoProvider(cfg, synthetic);
+  }
+
+  /// Assinatura do líder + logo só se ainda não estiver em cache (após [_prefetchLogoFromCarteiraContext]).
+  Future<void> _prefetchSharedPdfBrandingForLote(
+    List<_CardData> list, {
+    String? signatoryAssinaturaUrl,
+  }) async {
+    if (list.isEmpty) return;
+    final any = list.first;
+    final cid = any.igrejaDocId.trim();
+    final cfg = _cardConfigForPdf(any);
+    if (cid.isEmpty ||
+        !_pdfLogoProviderMemo.containsKey(cid) ||
+        _pdfLogoProviderMemo[cid] == null) {
+      await _pdfLogoProvider(cfg, any);
+    }
+    final s = (signatoryAssinaturaUrl ?? '').trim();
+    if (s.isNotEmpty) await _pdfImageProviderFromUrlCached(s);
   }
 
   /// Mesmo tamanho físico da frente e do verso (CR80 ~ ISO/IEC 7810).
@@ -2214,27 +2960,49 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// Cache de imagens na mesma geração de PDF (evita baixar a mesma foto/logo várias vezes).
   final Map<String, pw.ImageProvider?> _pdfImageSessionCache = {};
   final Map<String, Uint8List?> _pdfImageBytesSessionCache = {};
+  /// Logo resolvida uma vez por `igrejaDocId` — evita [loadReportPdfBranding] N vezes no lote.
+  final Map<String, pw.ImageProvider?> _pdfLogoProviderMemo = {};
 
   void _clearPdfImageSessionCache() {
     _pdfImageSessionCache.clear();
     _pdfImageBytesSessionCache.clear();
+    _pdfLogoProviderMemo.clear();
   }
 
-  Future<Uint8List?> _resizeForPdf(Uint8List bytes, {int maxSide = 300}) async {
+  /// Redimensiona fora da UI no mobile (decode JPEG/PNG é pesado); na web mantém na thread atual.
+  Future<Uint8List?> _resizeForPdf(Uint8List bytes, {int maxSide = 200}) async {
+    if (bytes.length < 33) return null;
+    try {
+      if (kIsWeb) {
+        return _resizeForPdfOnMainIsolate(bytes, maxSide: maxSide);
+      }
+      final out = await compute(
+        carteirinhaPdfResizeBytesForEmbed,
+        <String, dynamic>{'b': bytes, 'm': maxSide, 'q': 68},
+      );
+      return out ?? _resizeForPdfOnMainIsolate(bytes, maxSide: maxSide);
+    } catch (_) {
+      return _resizeForPdfOnMainIsolate(bytes, maxSide: maxSide);
+    }
+  }
+
+  Uint8List? _resizeForPdfOnMainIsolate(Uint8List bytes, {int maxSide = 200}) {
     try {
       final decoded = img.decodeImage(bytes);
-      if (decoded == null) return bytes;
+      if (decoded == null) return null;
       final w = decoded.width;
       final h = decoded.height;
-      if (w <= maxSide && h <= maxSide) return bytes;
-      final scale = w >= h ? (maxSide / w) : (maxSide / h);
-      final rw = (w * scale).round().clamp(1, maxSide);
-      final rh = (h * scale).round().clamp(1, maxSide);
-      final resized = img.copyResize(decoded,
-          width: rw, height: rh, interpolation: img.Interpolation.average);
-      return Uint8List.fromList(img.encodeJpg(resized, quality: 78));
+      img.Image toEncode = decoded;
+      if (w > maxSide || h > maxSide) {
+        final scale = w >= h ? (maxSide / w) : (maxSide / h);
+        final rw = (w * scale).round().clamp(1, maxSide);
+        final rh = (h * scale).round().clamp(1, maxSide);
+        toEncode = img.copyResize(decoded,
+            width: rw, height: rh, interpolation: img.Interpolation.average);
+      }
+      return Uint8List.fromList(img.encodeJpg(toEncode, quality: 68));
     } catch (_) {
-      return bytes;
+      return null;
     }
   }
 
@@ -2266,11 +3034,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ).timeout(const Duration(seconds: 18), onTimeout: () => null);
         if (bytes != null && bytes.length > 32) {
           final out = await _resizeForPdf(bytes);
-          _pdfImageBytesSessionCache[u] = out;
-          return out;
+          if (out != null && out.length > 32) {
+            _pdfImageBytesSessionCache[u] = out;
+            return out;
+          }
         }
       } catch (_) {}
-      _pdfImageBytesSessionCache[u] = null;
       return null;
     }
     try {
@@ -2280,11 +3049,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
       );
       if (b != null && b.length > 32) {
         final out = await _resizeForPdf(Uint8List.fromList(b));
-        _pdfImageBytesSessionCache[u] = out;
-        return out;
+        if (out != null && out.length > 32) {
+          _pdfImageBytesSessionCache[u] = out;
+          return out;
+        }
       }
     } catch (_) {}
-    _pdfImageBytesSessionCache[u] = null;
     return null;
   }
 
@@ -2418,6 +3188,46 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return options.first;
   }
 
+  /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (módulo Membros).
+  Future<
+      ({
+        String memberId,
+        String nome,
+        String cargo,
+        String? assinaturaUrl,
+      })> _fetchSignatoryAssinaturaFresh(
+    ({
+      String memberId,
+      String nome,
+      String cargo,
+      String? assinaturaUrl,
+    }) s,
+  ) async {
+    try {
+      final col = FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('membros');
+      final doc = await MemberDocumentResolve.findByHint(col, s.memberId.trim());
+      if (doc == null || !doc.exists) return s;
+      final d = doc.data() ?? {};
+      final urlFresh =
+          (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
+      final urlFallback = (s.assinaturaUrl ?? '').trim();
+      final url = urlFresh.isNotEmpty ? urlFresh : urlFallback;
+      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? s.nome).toString().trim();
+      final cargo = signatoryCargoDisplayLabel(d);
+      return (
+        memberId: s.memberId,
+        nome: nome.isEmpty ? s.nome : nome,
+        cargo: cargo.isEmpty ? s.cargo : cargo,
+        assinaturaUrl: url.isEmpty ? null : url,
+      );
+    } catch (_) {
+      return s;
+    }
+  }
+
   /// PDF: [networkImage] do pacote `pdf` falha com frequência em URLs do Firebase Storage (web/token).
   /// Bytes vêm de [_loadCachedImageBytes] (SDK no Storage); último recurso [networkImage].
   Future<pw.ImageProvider?> _pdfImageProviderFromUrl(String? rawUrl) async {
@@ -2436,14 +3246,23 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<pw.ImageProvider?> _pdfLogoProvider(
       _CardConfig cfg, _CardData data) async {
-    final tenant = data.tenant;
     final igrejaId = data.igrejaDocId.trim();
+    if (igrejaId.isNotEmpty && _pdfLogoProviderMemo.containsKey(igrejaId)) {
+      return _pdfLogoProviderMemo[igrejaId];
+    }
+    final tenant = data.tenant;
     final logoDataBase64 = cfg.logoDataBase64;
     final logoUrl = cfg.logoUrl;
     pw.ImageProvider? logo;
     try {
       if (logoDataBase64 != null && logoDataBase64.isNotEmpty) {
-        logo = pw.MemoryImage(base64Decode(logoDataBase64));
+        try {
+          final raw = Uint8List.fromList(base64Decode(logoDataBase64));
+          final out = await _resizeForPdf(raw, maxSide: 400);
+          if (out != null && out.length > 32) {
+            logo = pw.MemoryImage(out);
+          }
+        } catch (_) {}
       } else if (logoUrl.isNotEmpty) {
         logo = await _pdfImageProviderFromUrlCached(logoUrl);
       }
@@ -2468,11 +3287,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final branding = await loadReportPdfBranding(igrejaId);
           final lb = branding.logoBytes;
           if (lb != null && lb.length > 32) {
-            logo = pw.MemoryImage(lb);
+            final out = await _resizeForPdf(lb, maxSide: 400);
+            if (out != null && out.length > 32) {
+              logo = pw.MemoryImage(out);
+            }
           }
         } catch (_) {}
       }
     } catch (_) {}
+    if (igrejaId.isNotEmpty) {
+      _pdfLogoProviderMemo[igrejaId] = logo;
+    }
     return logo;
   }
 
@@ -2486,13 +3311,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required String nomePai,
     required String nomeMae,
     required String sexo,
-    required String qr,
 
     /// Mesma linha da carteira digital (admissão / batismo).
     required String admissionLine,
 
-    /// QR fica no verso; mantido na API por compatibilidade.
-    bool showFrontQr = false,
     required _CardConfig cfg,
     required PdfColor bgColor,
     required PdfColor? bgColorSec,
@@ -2512,7 +3334,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     // Modelo único (igual à carteira digital): degradê, logo em caixa clara, painel vidro.
     const cardHeight = 228.0;
     final inkEco = bgColor == PdfColors.white && bgColorSec == null;
-    final pdfGold = CarteirinhaVisualTokens.accentGoldPdf;
+    final ac = accentColor;
     final secGrad = bgColorSec ?? bgColor;
     final deco = pw.BoxDecoration(
       color: inkEco ? PdfColors.white : null,
@@ -2525,7 +3347,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           : null,
       borderRadius: pw.BorderRadius.circular(16),
       border: pw.Border.all(
-        color: inkEco ? PdfColors.grey400 : pdfGold,
+        color: inkEco ? PdfColors.grey400 : ac,
         width: 1,
       ),
     );
@@ -2536,17 +3358,32 @@ class _MemberCardPageState extends State<MemberCardPage> {
         admissionLine.trim().isEmpty ? 'Admissão: —' : admissionLine.trim();
 
     final columnChildren = <pw.Widget>[
+      if (!inkEco)
+        pw.Container(
+          width: width,
+          height: 2.8,
+          margin: const pw.EdgeInsets.only(bottom: 8),
+          decoration: pw.BoxDecoration(
+            borderRadius: pw.BorderRadius.circular(1.2),
+            gradient: pw.LinearGradient(
+              colors: [
+                ac,
+                PdfColor(1, 1, 1, 0.42),
+              ],
+            ),
+          ),
+        ),
       pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Container(
-            width: 44,
-            height: 44,
+            width: 82,
+            height: 82,
             decoration: pw.BoxDecoration(
               color: inkEco ? PdfColors.grey100 : PdfColors.white,
               borderRadius: pw.BorderRadius.circular(10),
             ),
-            padding: const pw.EdgeInsets.all(4),
+            padding: const pw.EdgeInsets.all(3),
             child: logo != null
                 ? pw.Center(child: pw.Image(logo, fit: pw.BoxFit.contain))
                 : pw.Center(
@@ -2607,7 +3444,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 height: 72,
                 decoration: pw.BoxDecoration(
                   borderRadius: pw.BorderRadius.circular(36),
-                  border: pw.Border.all(color: pdfGold, width: 2),
+                  border: pw.Border.all(color: ac, width: 2),
                   color: inkEco ? PdfColors.white : PdfColor(1, 1, 1, 0.2),
                 ),
                 child: photo != null
@@ -2627,7 +3464,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         ),
                       ),
               ),
-              pw.SizedBox(width: 12),
+              pw.SizedBox(width: 10),
             ],
             pw.Expanded(
               child: pw.Column(
@@ -2638,7 +3475,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       padding: const pw.EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: pw.BoxDecoration(
-                        color: PdfColor(pdfGold.red, pdfGold.green, pdfGold.blue,
+                        color: PdfColor(ac.red, ac.green, ac.blue,
                             inkEco ? 0.35 : 0.22),
                         borderRadius: pw.BorderRadius.circular(8),
                       ),
@@ -2732,22 +3569,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? signatoryNome,
     String? signatoryCargo,
   }) {
-    final validationUrl = _qrPayload(data.igrejaDocId, data.memberId);
-    final barcodeData = '${data.igrejaDocId}|${data.memberId}';
     final igreja = cfg.title;
-    final g1 = _hexToPdfColor(cfg.bgColor, PdfColor.fromHex('#004D40'));
-    final g2 = cfg.bgColorSecondary != null
-        ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
-        : CarteirinhaVisualTokens.flutterColorToPdfColor(
-            CarteirinhaVisualTokens.gradientEndFromPrimary(cfg.bgColorValue),
-          );
-    final fg = _hexToPdfColor(cfg.textColor, PdfColors.white);
+    final pal = _pdfCarteiraColors(cfg, pdfInkEconomy);
+    final g1 = pal.bg;
+    final g2 = pal.bgEnd;
+    final fg = pal.fg;
     final validadePdf = _validityLabel(data.member).trim();
-    final cong = _congregacaoFromMember(data.member);
     final frase = cfg.fraseRodape.trim();
     final cpfFmt = _formatCpfForCard(_memberCpfRaw(data.member));
     final nasc = _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
     final filiacaoTxt = walletFiliacaoFromMember(data.member);
+    final tel = _telefoneFromMember(data.member);
+    final em = _emailFromMember(data.member);
     final snIn = (signatoryNome ?? '').trim();
     final sn = snIn.isNotEmpty
         ? snIn
@@ -2757,25 +3590,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ? scIn
         : (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
     return VersoCarteirinhaPdfWidget(
-      validationUrl: validationUrl,
       nomeIgreja: igreja,
       regrasUso: cfg.versoRegrasUso,
       validadeDestaque: validadePdf.isNotEmpty ? validadePdf : null,
-      barcodeData: barcodeData,
-      gradientStart: g1,
-      gradientEnd: g2,
+      // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradê.
+      gradientStart: g2,
+      gradientEnd: g1,
       foregroundColor: fg,
       rodapeColor: PdfColor(
           fg.red, fg.green, fg.blue, (fg.alpha * 0.72).clamp(0.0, 1.0)),
-      congregacao: cong.isNotEmpty ? cong : null,
       fraseInstitucional: frase.isNotEmpty ? frase : null,
       pdfInkEconomy: pdfInkEconomy,
       cpfDoc: cpfFmt,
       nascimentoDoc: nasc,
       filiacaoPaiMaeDoc: filiacaoTxt,
+      telefoneDoc: tel,
+      emailDoc: em,
       assinaturaImage: signatoryImage,
       signatoryNome: sn,
       signatoryCargo: sc,
+      showRegrasUso: false,
     );
   }
 
@@ -2784,7 +3618,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       String? signatoryNome,
       String? signatoryCargo,
       String? signatoryAssinaturaUrl}) async {
-    _clearPdfImageSessionCache();
     try {
       final doc = await _newCarteirinhaPdfDoc();
       final cfg = configOverride ?? _cardConfigForPdf(data);
@@ -2792,6 +3625,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if ((signatoryAssinaturaUrl ?? '').trim().isNotEmpty) {
         signatoryImage =
             await _pdfImageProviderFromUrlCached(signatoryAssinaturaUrl);
+      }
+      if (signatoryImage == null) {
+        final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
+            .toString()
+            .trim();
+        if (su.isNotEmpty) {
+          signatoryImage = await _pdfImageProviderFromUrlCached(su);
+        }
       }
       await _addCardPageToDoc(doc, data, format, cfg,
           signatoryNome: signatoryNome,
@@ -2842,30 +3683,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
             igrejaDocId: data.igrejaDocId)
         : '';
-    final brandAccent = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
-    final PdfColor bgColor;
-    final PdfColor? bgColorSec;
-    final PdfColor textColor;
-    if (pdfInkEconomy) {
-      bgColor = PdfColors.white;
-      bgColorSec = null;
-      textColor = PdfColors.grey900;
-    } else {
-      bgColor = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
-      bgColorSec = cfg.bgColorSecondary != null
-          ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
-          : CarteirinhaVisualTokens.flutterColorToPdfColor(
-              CarteirinhaVisualTokens.gradientEndFromPrimary(cfg.bgColorValue),
-            );
-      textColor = _hexToPdfColor(cfg.textColor, PdfColors.white);
-    }
-    final accentColor = brandAccent;
+    final pal = _pdfCarteiraColors(cfg, pdfInkEconomy);
+    final PdfColor bgColor = pal.bg;
+    final PdfColor? bgColorSec = pdfInkEconomy ? null : pal.bgEnd;
+    final PdfColor textColor = pal.fg;
+    final accentColor = cfg.accentPdfColor;
     final logo = await _pdfLogoProvider(cfg, data);
     pw.ImageProvider? photo;
     if (photoUrl.isNotEmpty) {
       photo = await _pdfImageProviderFromUrlCached(photoUrl);
     }
-    final qr = _qrPayload(data.igrejaDocId, data.memberId);
     final face = _pdfCardFace(
       name: name,
       cargo: cargo,
@@ -2876,7 +3703,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       nomePai: nomePai,
       nomeMae: nomeMae,
       sexo: sexo,
-      qr: qr,
       admissionLine: admissionLinePdf,
       cfg: cfg,
       bgColor: bgColor,
@@ -2885,7 +3711,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       accentColor: accentColor,
       logo: logo,
       photo: photo,
-      showFrontQr: true,
       signatoryImage: signatoryImage,
       signatoryNome: signatoryNome,
       signatoryCargo: signatoryCargo,
@@ -2925,30 +3750,40 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final compactCard =
         format.width <= cw + 1 && format.height <= ch + 1;
     if (compactCard) {
+      /// CR80: frente sobre verso (igual à carteirinha digital e ao PNG exportado).
+      const gap = 12.0;
+      final tall = PdfPageFormat(cw, ch * 2 + gap);
       doc.addPage(
         pw.Page(
-          pageFormat: format,
-          build: (_) => pw.Center(child: face),
-        ),
-      );
-      doc.addPage(
-        pw.Page(
-          pageFormat: format,
-          build: (_) => pw.Center(child: versoSlot),
+          pageFormat: tall,
+          build: (_) => pw.Center(
+            child: pw.Column(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                face,
+                pw.SizedBox(height: gap),
+                versoSlot,
+              ],
+            ),
+          ),
         ),
       );
       return;
     }
+    const gapA4 = 14.0;
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
         build: (context) => pw.Center(
           child: pw.Column(
             mainAxisAlignment: pw.MainAxisAlignment.center,
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
               face,
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: gapA4),
               versoSlot,
             ],
           ),
@@ -2957,34 +3792,431 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
+  /// Frente + verso com os mesmos widgets da carteira digital (captura em lote fora do ecrã).
+  Widget _walletDigitalFrontBackForRaster({
+    required BuildContext context,
+    required _CardData data,
+    required _CardConfig cfg,
+    required double wCard,
+    required String sigUrl,
+    required String signatoryNome,
+    required String signatoryCargo,
+    required bool ladoALado,
+  }) {
+    final name = _memberNome(data.member);
+    final cpf = _memberCpfRaw(data.member);
+    final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
+    final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
+    final nascimento =
+        _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+    final validade = _validityLabel(data.member);
+    final colorA = cfg.bgColorValue;
+    final colorB = cfg.bgColorSecondaryValue ??
+        CarteirinhaVisualTokens.gradientEndFromPrimary(colorA);
+    final accentGold = cfg.accentColorValue;
+    final logoSlot = (cfg.logoDataBase64 != null &&
+            cfg.logoDataBase64!.isNotEmpty)
+        ? Image.memory(
+            base64Decode(cfg.logoDataBase64!),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Image.asset(
+              'assets/LOGO_GESTAO_YAHWEH.png',
+              fit: BoxFit.contain,
+            ),
+          )
+        : StableChurchLogo(
+            tenantId: data.igrejaDocId,
+            tenantData: data.tenant,
+            storagePath: ChurchImageFields.logoStoragePath(data.tenant),
+            imageUrl:
+                cfg.logoUrl.trim().isNotEmpty ? cfg.logoUrl.trim() : null,
+            width: 160,
+            height: 160,
+            fit: BoxFit.contain,
+            memCacheWidth: 320,
+            memCacheHeight: 320,
+          );
+    final photoSlot = FotoMembroWidget(
+      key: ValueKey<String>(
+        'raster_wallet_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
+      ),
+      imageUrl: photoUrlPreview.isEmpty ? null : photoUrlPreview,
+      tenantId: data.igrejaDocId,
+      memberId: data.memberId,
+      cpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
+      memberData: data.member,
+      authUid: _memberAuthUidForCarteiraFoto(data.member),
+      size: 72,
+      memCacheWidth: 220,
+      memCacheHeight: 220,
+      imageCacheRevision: memberPhotoDisplayCacheRevision(data.member),
+    );
+    final cpfFmt = _formatCpfForCard(cpf);
+    final filiacaoTxt = walletFiliacaoFromMember(data.member);
+    final telM = _telefoneFromMember(data.member);
+    final emM = _emailFromMember(data.member);
+    final signatoryNameWallet = signatoryNome.trim().isNotEmpty
+        ? signatoryNome.trim()
+        : (data.member['carteirinhaAssinadaPorNome'] ?? '').toString();
+    final signatoryCargoWallet = signatoryCargo.trim().isNotEmpty
+        ? signatoryCargo.trim()
+        : (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString();
+    final sigUrlUse = sigUrl.trim();
+
+    final hCard = DigitalWalletCardLayout.cardHeight(wCard);
+    final front = MemberDigitalWalletFront(
+      width: wCard,
+      colorA: colorA,
+      colorB: colorB,
+      textColor: cfg.textColorValue,
+      accentGold: accentGold,
+      churchTitle: cfg.title,
+      churchSubtitle: cfg.subtitle,
+      logoSlot: logoSlot,
+      photoSlot: photoSlot,
+      showPhoto: cfg.showPhoto,
+      memberName: name,
+      cargo: _cargoDisplay(data.member, cfg),
+      admission: () {
+        final a = _admissionBatismoLine(data.member);
+        return a.isEmpty ? '—' : a;
+      }(),
+    );
+    final back = MemberDigitalWalletBack(
+      width: wCard,
+      colorA: colorA,
+      colorB: colorB,
+      textColor: cfg.textColorValue,
+      accentGold: accentGold,
+      churchTitle: cfg.title,
+      cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
+      nascimento: nascimento.isEmpty ? '—' : nascimento,
+      filiacaoPaiMae: filiacaoTxt.isEmpty ? '—' : filiacaoTxt,
+      validade: validade.isEmpty ? '—' : validade,
+      telefone: telM.isEmpty ? '—' : telM,
+      email: emM.isEmpty ? '—' : emM,
+      signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
+      signatoryName: signatoryNameWallet,
+      signatoryCargo: signatoryCargoWallet,
+      fraseRodape: cfg.fraseRodape,
+    );
+    if (!ladoALado) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          front,
+          const SizedBox(height: 14),
+          back,
+        ],
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        front,
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 1,
+          height: hCard,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: Colors.grey.shade500,
+                  width: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 11),
+        back,
+      ],
+    );
+  }
+
+  double? _aspectRatioFromPngBytes(Uint8List bytes) {
+    final im = img.decodeImage(bytes);
+    if (im == null || im.width <= 0) return null;
+    return im.height / im.width;
+  }
+
+  /// Várias carteirinhas num único PDF — **mesmo visual** da carteira digital (captura raster),
+  /// página A4 por membro (como o PDF único “Visualizar”).
+  Future<Uint8List> _buildPdfMultiWalletRaster(
+    BuildContext context,
+    List<_CardData> list, {
+    String? signatoryNome,
+    String? signatoryCargo,
+    String? signatoryAssinaturaUrl,
+    String pastorSigFallback = '',
+  }) async {
+    if (list.isEmpty) {
+      throw StateError('Lista vazia');
+    }
+    final doc = await _newCarteirinhaPdfDoc();
+    const cardWPt = VersoCarteirinhaPdfWidget.cardWidthPt;
+    final pr = MediaQuery.devicePixelRatioOf(context).clamp(1.25, 2.25);
+    final batchSig = (signatoryAssinaturaUrl ?? '').trim();
+    final batchNome = (signatoryNome ?? '').trim();
+    final batchCargo = (signatoryCargo ?? '').trim();
+
+    try {
+      for (final data in list) {
+        final cfg = _effectiveCardConfig(data);
+        _warmupCarteiraAssets(data, cfg);
+        final fromMember =
+            (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+        final resolvedSig = batchSig.isNotEmpty
+            ? batchSig
+            : (fromMember.isNotEmpty ? fromMember : pastorSigFallback.trim());
+        final sn = batchNome.isNotEmpty
+            ? batchNome
+            : (data.member['carteirinhaAssinadaPorNome'] ?? '')
+                .toString()
+                .trim();
+        final sc = batchCargo.isNotEmpty
+            ? batchCargo
+            : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
+                .toString()
+                .trim();
+
+        if (!mounted) throw StateError('contexto inválido');
+        setState(() {
+          _rasterBatchCard = data;
+          _rasterBatchLadoALado = false;
+          _rasterBatchSigUrl = resolvedSig;
+          _rasterBatchSignatoryNome = sn;
+          _rasterBatchSignatoryCargo = sc;
+        });
+        for (var j = 0; j < 6; j++) {
+          await WidgetsBinding.instance.endOfFrame;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 140));
+        if (resolvedSig.isNotEmpty) {
+          await _precacheWalletSigForExport(context, resolvedSig);
+          await Future<void>.delayed(const Duration(milliseconds: 220));
+        }
+        final png =
+            await _rasterBatchScreenshotController.capture(pixelRatio: pr);
+        if (png == null || png.isEmpty) {
+          throw StateError('Falha ao capturar carteirinha (${data.memberId})');
+        }
+        final img = pw.MemoryImage(png);
+        doc.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 28),
+            build: (c) => pw.Center(
+              child: pw.Image(
+                img,
+                width: cardWPt,
+                fit: pw.BoxFit.fitWidth,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rasterBatchCard = null;
+          _rasterBatchLadoALado = false;
+          _rasterBatchSigUrl = '';
+          _rasterBatchSignatoryNome = '';
+          _rasterBatchSignatoryCargo = '';
+        });
+      }
+    }
+    return doc.save();
+  }
+
+  /// A4: até 5 membros por folha; **por membro**, frente e verso na mesma linha, com captura raster
+  /// dos widgets da carteira digital (fidelidade ao ecrã).
+  Future<Uint8List> _buildPdfMultiWalletRasterFrenteVersoLinhaA4(
+    BuildContext context,
+    List<_CardData> list, {
+    String? signatoryNome,
+    String? signatoryCargo,
+    String? signatoryAssinaturaUrl,
+    String pastorSigFallback = '',
+  }) async {
+    if (list.isEmpty) {
+      throw StateError('Lista vazia');
+    }
+    const membersPerPage = 5;
+    const marginH = 36.0;
+    const marginV = 28.0;
+    const gapBetweenRowsPt = 8.0;
+    final doc = await _newCarteirinhaPdfDoc();
+    final pageFormat = PdfPageFormat.a4;
+    final innerW = pageFormat.width - marginH * 2;
+    final innerH = pageFormat.height - marginV * 2;
+    final pr = MediaQuery.devicePixelRatioOf(context).clamp(1.25, 2.25);
+    final batchSig = (signatoryAssinaturaUrl ?? '').trim();
+    final batchNome = (signatoryNome ?? '').trim();
+    final batchCargo = (signatoryCargo ?? '').trim();
+
+    try {
+      for (var pageStart = 0;
+          pageStart < list.length;
+          pageStart += membersPerPage) {
+        final end = min(pageStart + membersPerPage, list.length);
+        final chunk = list.sublist(pageStart, end);
+        final pngBytesList = <Uint8List>[];
+        final aspects = <double>[];
+
+        for (final data in chunk) {
+          final cfg = _effectiveCardConfig(data);
+          _warmupCarteiraAssets(data, cfg);
+          final fromMember =
+              (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+          final resolvedSig = batchSig.isNotEmpty
+              ? batchSig
+              : (fromMember.isNotEmpty ? fromMember : pastorSigFallback.trim());
+          final sn = batchNome.isNotEmpty
+              ? batchNome
+              : (data.member['carteirinhaAssinadaPorNome'] ?? '')
+                  .toString()
+                  .trim();
+          final sc = batchCargo.isNotEmpty
+              ? batchCargo
+              : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
+                  .toString()
+                  .trim();
+
+          if (!mounted) throw StateError('contexto inválido');
+          setState(() {
+            _rasterBatchCard = data;
+            _rasterBatchLadoALado = true;
+            _rasterBatchSigUrl = resolvedSig;
+            _rasterBatchSignatoryNome = sn;
+            _rasterBatchSignatoryCargo = sc;
+          });
+          for (var j = 0; j < 6; j++) {
+            await WidgetsBinding.instance.endOfFrame;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 140));
+          if (resolvedSig.isNotEmpty) {
+            await _precacheWalletSigForExport(context, resolvedSig);
+            await Future<void>.delayed(const Duration(milliseconds: 220));
+          }
+          final png =
+              await _rasterBatchScreenshotController.capture(pixelRatio: pr);
+          if (png == null || png.isEmpty) {
+            throw StateError('Falha ao capturar carteirinha (${data.memberId})');
+          }
+          final ar = _aspectRatioFromPngBytes(png);
+          if (ar == null) {
+            throw StateError('Imagem inválida após captura (${data.memberId})');
+          }
+          pngBytesList.add(png);
+          aspects.add(ar);
+        }
+
+        var sumNaturalH = 0.0;
+        for (final a in aspects) {
+          sumNaturalH += innerW * a;
+        }
+        if (aspects.length > 1) {
+          sumNaturalH += gapBetweenRowsPt * (aspects.length - 1);
+        }
+        final scale = sumNaturalH > innerH ? innerH / sumNaturalH : 1.0;
+
+        final rowWidgets = <pw.Widget>[];
+        for (var i = 0; i < pngBytesList.length; i++) {
+          final wPdf = innerW * scale;
+          final hPdf = innerW * aspects[i] * scale;
+          rowWidgets.add(
+            pw.SizedBox(
+              width: wPdf,
+              height: hPdf,
+              child: pw.Image(
+                pw.MemoryImage(pngBytesList[i]),
+                fit: pw.BoxFit.fill,
+              ),
+            ),
+          );
+          if (i < pngBytesList.length - 1) {
+            rowWidgets.add(pw.SizedBox(height: gapBetweenRowsPt * scale));
+          }
+        }
+
+        doc.addPage(
+          pw.Page(
+            pageFormat: pageFormat,
+            margin: const pw.EdgeInsets.symmetric(
+                horizontal: marginH, vertical: marginV),
+            build: (_) => pw.Center(
+              child: pw.Column(
+                mainAxisSize: pw.MainAxisSize.min,
+                children: rowWidgets,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rasterBatchCard = null;
+          _rasterBatchLadoALado = false;
+          _rasterBatchSigUrl = '';
+          _rasterBatchSignatoryNome = '';
+          _rasterBatchSignatoryCargo = '';
+        });
+      }
+    }
+    return doc.save();
+  }
+
   /// PDF com o **mesmo layout** da área “Carteira digital (Wallet)” na tela — captura
   /// [MemberDigitalWalletFront] + [MemberDigitalWalletBack] (logo [StableChurchLogo],
   /// foto [FotoMembroWidget]). Evita divergência do modelo só em PDF vetorial.
   Future<Uint8List> _buildPdfFromWalletScreenshot(BuildContext context) async {
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    await WidgetsBinding.instance.endOfFrame;
+    // Aguarda pintura completa da carteira (glass/gradient) sem atraso fixo longo.
+    for (var i = 0; i < 3; i++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
     if (!context.mounted) {
       throw StateError('Contexto inválido para exportar PDF.');
     }
-    final pr = MediaQuery.devicePixelRatioOf(context).clamp(2.0, 4.0);
+    final pr = MediaQuery.devicePixelRatioOf(context).clamp(1.25, 2.25);
     final png = await _walletScreenshotController.capture(pixelRatio: pr);
     if (png == null || png.isEmpty) {
       throw StateError('Não foi possível capturar a carteirinha.');
     }
     final doc = await _newCarteirinhaPdfDoc();
     final img = pw.MemoryImage(png);
+    const cardWPt = VersoCarteirinhaPdfWidget.cardWidthPt;
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(20),
+        margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 28),
         build: (c) => pw.Center(
-          child: pw.Image(img, fit: pw.BoxFit.contain),
+          child: pw.Image(
+            img,
+            width: cardWPt,
+            fit: pw.BoxFit.fitWidth,
+          ),
         ),
       ),
     );
     return doc.save();
   }
 
+  Future<void> _precacheWalletSigForExport(
+      BuildContext context, String? rawUrl) async {
+    final u = (rawUrl ?? '').trim();
+    if (u.isEmpty || !context.mounted) return;
+    try {
+      await precacheImage(NetworkImage(u), context);
+    } catch (_) {}
+  }
+
+  /// PDF único: **prioriza** o mesmo layout da carteira na tela (captura raster).
+  /// Recua para PDF vetorial se a captura falhar (ex.: widget ainda não pintado).
   Future<Uint8List> _exportCarteirinhaPdfPreferringWalletModel(
     BuildContext context,
     _CardData data,
@@ -2994,11 +4226,30 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? signatoryCargo,
     String? signatoryAssinaturaUrl,
   }) async {
+    final urlO = (signatoryAssinaturaUrl ?? '').trim();
+    final nomeO = (signatoryNome ?? '').trim();
+    final cargoO = (signatoryCargo ?? '').trim();
+    final hasOverrides =
+        urlO.isNotEmpty || nomeO.isNotEmpty || cargoO.isNotEmpty;
+    if (hasOverrides && mounted) {
+      await _precacheWalletSigForExport(context, signatoryAssinaturaUrl);
+      setState(() {
+        _walletPdfExportSigUrl = urlO.isNotEmpty ? urlO : null;
+        _walletPdfExportSignatoryNome = nomeO.isNotEmpty ? nomeO : null;
+        _walletPdfExportSignatoryCargo = cargoO.isNotEmpty ? cargoO : null;
+      });
+      for (var i = 0; i < 8; i++) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      if (urlO.isNotEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
+    }
     try {
       return await _buildPdfFromWalletScreenshot(context);
     } catch (e, st) {
       debugPrint(
-          'member_card: PDF raster (carteira na tela) indisponível, usando PDF vetorial: $e\n$st');
+          'member_card: captura da carteira falhou, usando PDF vetorial: $e\n$st');
       return await _buildPdf(
         data,
         format,
@@ -3007,11 +4258,41 @@ class _MemberCardPageState extends State<MemberCardPage> {
         signatoryCargo: signatoryCargo,
         signatoryAssinaturaUrl: signatoryAssinaturaUrl,
       );
+    } finally {
+      if (hasOverrides && mounted) {
+        setState(() {
+          _walletPdfExportSigUrl = null;
+          _walletPdfExportSignatoryNome = null;
+          _walletPdfExportSignatoryCargo = null;
+        });
+      }
     }
   }
 
   Future<void> _showGerarPdfComAssinatura(
       BuildContext context, _CardData data) async {
+    final assinadaEm = data.member['carteirinhaAssinadaEm'];
+    final assinadaPorNome =
+        (data.member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    final assinaturaUrl = (data.member['carteirinhaAssinaturaUrl'] ?? '')
+        .toString()
+        .trim();
+    final isSigned = assinadaEm != null ||
+        assinadaPorNome.isNotEmpty ||
+        assinaturaUrl.isNotEmpty;
+    if (_isRestrictedMember && !_canManage && !isSigned) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Sua carteirinha ainda não está assinada. Solicite assinatura ao pastor/gestor para liberar a exportação.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final cfg = _effectiveCardConfig(data);
     if (_canManage) {
       final options = await _loadSignatoryOptions();
@@ -3114,7 +4395,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   await _exportCarteirinhaPdfPreferringWalletModel(
                                 context,
                                 data,
-                                PdfPageFormat.a4,
+                                _kPdfCr80Export,
                                 cfg,
                                 signatoryNome: nome,
                                 signatoryCargo: cargo,
@@ -3183,7 +4464,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             await _exportCarteirinhaPdfPreferringWalletModel(
           context,
           data,
-          PdfPageFormat.a4,
+          _kPdfCr80Export,
           cfg,
           signatoryNome: storedNome.isNotEmpty ? storedNome : null,
           signatoryCargo: storedCargo,
@@ -3194,12 +4475,103 @@ class _MemberCardPageState extends State<MemberCardPage> {
               bytes: bytes, filename: 'carteirinha_${data.memberId}.pdf');
       } catch (e) {
         final bytes =
-            await _buildPdf(data, PdfPageFormat.a4, configOverride: cfg);
+            await _buildPdf(data, _kPdfCr80Export, configOverride: cfg);
         if (context.mounted)
           await showPdfActions(context,
               bytes: bytes, filename: 'carteirinha_${data.memberId}.pdf');
       }
     }
+  }
+
+  /// Frente + verso PDF (sem escala) — mesmo modelo da carteira digital.
+  Future<({pw.Widget face, pw.Widget verso})> _pdfMemberFaceVersoUnscaled(
+    _CardData data, {
+    required bool inkEconomy,
+    pw.ImageProvider? signatoryImage,
+    String? signatoryNome,
+    String? signatoryCargo,
+  }) async {
+    final cfgRaw = _cardConfigForPdf(data);
+    final cfg = cfgRaw;
+    final name = _memberNome(data.member);
+    final cargo = _cargoDisplay(data.member, cfg);
+    final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
+    final nascimento =
+        _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+    final batismo = _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
+    final validade = _validityLabel(data.member).trim().isEmpty
+        ? '---'
+        : _validityLabel(data.member);
+    final nomePai = _memberFatherName(data.member).trim().isEmpty
+        ? '---'
+        : _memberFatherName(data.member);
+    final nomeMae = _memberMotherName(data.member).trim().isEmpty
+        ? '---'
+        : _memberMotherName(data.member);
+    final sexo = _memberSexo(data.member);
+    final photoUrl = cfg.showPhoto
+        ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
+            igrejaDocId: data.igrejaDocId)
+        : '';
+    final palGrid = _pdfCarteiraColors(cfg, inkEconomy);
+    final PdfColor bgColor = palGrid.bg;
+    final PdfColor? bgColorSec = inkEconomy ? null : palGrid.bgEnd;
+    final PdfColor textColor = palGrid.fg;
+    final accentColor = cfg.accentPdfColor;
+    final logo = await _pdfLogoProvider(cfgRaw, data);
+    pw.ImageProvider? photo;
+    if (photoUrl.isNotEmpty) {
+      photo = await _pdfImageProviderFromUrlCached(photoUrl);
+    }
+    final admissionLinePdf = () {
+      final s = _admissionBatismoLine(data.member).trim();
+      return s.isEmpty ? 'Admissão: —' : s;
+    }();
+    final face = _pdfCardFace(
+      name: name,
+      cargo: cargo,
+      cpf: cpf.isEmpty ? '---' : cpf,
+      nascimento: nascimento.isEmpty ? '---' : nascimento,
+      batismo: batismo.isEmpty ? '---' : batismo,
+      validade: validade,
+      nomePai: nomePai,
+      nomeMae: nomeMae,
+      sexo: sexo,
+      admissionLine: admissionLinePdf,
+      cfg: cfg,
+      bgColor: bgColor,
+      bgColorSec: bgColorSec,
+      textColor: textColor,
+      accentColor: accentColor,
+      logo: logo,
+      photo: photo,
+      signatoryImage: signatoryImage,
+      signatoryNome: signatoryNome,
+      signatoryCargo: signatoryCargo,
+      outerSlotWidth: _pdfCardSlotW,
+      outerSlotHeight: _pdfCardSlotH,
+    );
+    pw.ImageProvider? sigIV = signatoryImage;
+    if (sigIV == null) {
+      final su =
+          (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+      if (su.isNotEmpty) {
+        sigIV = await _pdfImageProviderFromUrlCached(su);
+      }
+    }
+    final verso = pw.SizedBox(
+      width: _pdfCardSlotW,
+      height: _pdfCardSlotH,
+      child: _pwVersoCarteirinhaBody(
+        data,
+        cfgRaw,
+        pdfInkEconomy: inkEconomy,
+        signatoryImage: sigIV,
+        signatoryNome: signatoryNome,
+        signatoryCargo: signatoryCargo,
+      ),
+    );
+    return (face: face, verso: verso);
   }
 
   Future<Uint8List> _buildPdfMulti(
@@ -3213,15 +4585,152 @@ class _MemberCardPageState extends State<MemberCardPage> {
     bool pvcCropMarks = false,
     bool inkEconomy = false,
     bool showCutGuides = true,
+    bool frontVersoPorLinha = false,
+    bool digitalVerticalStack = false,
   }) async {
     // Não limpar cache no início: [_gerarPdfUnicoLote] / assinatura em lote já rodaram
     // [preLoadImages] — limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
     try {
       final doc = await _newCarteirinhaPdfDoc();
       pw.ImageProvider? signatoryImage;
-      final sigUrl = (signatoryAssinaturaUrl ?? '').trim();
-      if (sigUrl.isNotEmpty) {
-        signatoryImage = await _pdfImageProviderFromUrlCached(sigUrl);
+      final sigUrlParam = (signatoryAssinaturaUrl ?? '').trim();
+      if (sigUrlParam.isNotEmpty) {
+        signatoryImage =
+            await _pdfImageProviderFromUrlCached(sigUrlParam);
+      }
+      // Só usa assinatura gravada na ficha do **membro** quando o PDF não pediu
+      // assinatura explícita do líder (evita misturar outro signatário).
+      if (signatoryImage == null &&
+          sigUrlParam.isEmpty &&
+          list.isNotEmpty) {
+        final su = (list.first.member['carteirinhaAssinaturaUrl'] ?? '')
+            .toString()
+            .trim();
+        if (su.isNotEmpty) {
+          signatoryImage = await _pdfImageProviderFromUrlCached(su);
+        }
+      }
+
+      if (frontVersoPorLinha) {
+        final membersPerPage = digitalVerticalStack ? 2 : 5;
+        const crW = VersoCarteirinhaPdfWidget.cardWidthPt;
+        const crH = VersoCarteirinhaPdfWidget.cardHeightPt;
+        const baseVersoW = VersoCarteirinhaPdfWidget.cardWidthPt;
+        const baseVersoH = VersoCarteirinhaPdfWidget.cardHeightPt;
+        final margin = showCutGuides ? 22.0 : 18.0;
+        const gapMid = 5.0;
+        const gapStack = 8.0;
+
+        for (var pageStart = 0;
+            pageStart < list.length;
+            pageStart += membersPerPage) {
+          final end = min(pageStart + membersPerPage, list.length);
+          final chunk = list.sublist(pageStart, end);
+
+          final innerW = format.width - margin * 2;
+          final innerH = format.height - margin * 2;
+          final nRows = chunk.length;
+          final rowH = innerH / nRows;
+          final halfW = (innerW - gapMid) / 2;
+
+          // Paralelo: [_gerarPdfUnicoLote] já pré-carregou fotos; aqui só monta widgets (antes era sequencial).
+          final pairs = await Future.wait([
+            for (final data in chunk)
+              _pdfMemberFaceVersoUnscaled(
+                data,
+                inkEconomy: inkEconomy,
+                signatoryImage: signatoryImage,
+                signatoryNome: signatoryNome,
+                signatoryCargo: signatoryCargo,
+              ),
+          ]);
+
+          final lineRows = <pw.Widget>[];
+          for (var r = 0; r < nRows; r++) {
+            final pair = pairs[r];
+            if (digitalVerticalStack) {
+              final stackH = crH + gapStack + baseVersoH;
+              final scaleStack =
+                  min(innerW / crW, (rowH - 6) / stackH) * 0.92;
+              lineRows.add(
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                    child: pw.Center(
+                      child: pw.Transform.scale(
+                        alignment: pw.Alignment.center,
+                        scale: scaleStack,
+                        child: pw.Column(
+                          mainAxisSize: pw.MainAxisSize.min,
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pair.face,
+                            pw.SizedBox(height: gapStack),
+                            pair.verso,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            } else {
+              final scaleF = min(halfW / crW, (rowH - 6) / crH) * 0.92;
+              final scaleV =
+                  min(halfW / baseVersoW, (rowH - 6) / baseVersoH) * 0.92;
+              lineRows.add(
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        pw.Expanded(
+                          child: pw.Center(
+                            child: pw.Transform.scale(
+                              alignment: pw.Alignment.center,
+                              scale: scaleF,
+                              child: pair.face,
+                            ),
+                          ),
+                        ),
+                        pw.SizedBox(width: gapMid),
+                        pw.Expanded(
+                          child: pw.Center(
+                            child: pw.Transform.scale(
+                              alignment: pw.Alignment.center,
+                              scale: scaleV,
+                              child: pair.verso,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+
+          pw.Widget body = pw.Column(children: lineRows);
+          if (showCutGuides) {
+            body = CarteirinhaA4CutGuides.overlayOnGrid(
+              cols: 2,
+              rows: nRows,
+              child: body,
+            );
+          }
+          doc.addPage(
+            pw.Page(
+              pageFormat: format,
+              build: (_) => pw.Padding(
+                padding: pw.EdgeInsets.all(margin),
+                child: body,
+              ),
+            ),
+          );
+        }
+        return doc.save();
       }
 
       if (gridCols <= 1 && gridRows <= 1) {
@@ -3237,123 +4746,96 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return doc.save();
       }
 
-      const baseW = 360.0;
-      final hasSig = (signatoryNome ?? '').trim().isNotEmpty;
-      final baseH = hasSig ? 268.0 : 228.0;
+      // Mesmo tamanho físico CR80 que a folha “1 por página” / modelo no ecrã.
+      const crW = VersoCarteirinhaPdfWidget.cardWidthPt;
+      const crH = VersoCarteirinhaPdfWidget.cardHeightPt;
       final slots = gridCols * gridRows;
       final multiCell = gridCols > 1 || gridRows > 1;
       final margin = (showCutGuides && multiCell) ? 22.0 : 18.0;
       final cellW = (format.width - margin * 2) / gridCols;
       final cellH = (format.height - margin * 2) / gridRows;
-      final scale = min(cellW / baseW, cellH / baseH) * 0.92;
+      final scale = min(cellW / crW, cellH / crH) * 0.92;
 
       for (var i = 0; i < list.length; i += slots) {
         final end = (i + slots > list.length) ? list.length : i + slots;
         final chunk = list.sublist(i, end);
-        await Future.wait(chunk.map((d) async {
-          final c0 = _cardConfigForPdf(d);
-          if (!c0.showPhoto) return;
-          final u = await _resolvedMemberPhotoUrlForPdf(d.memberId, d.member,
-              igrejaDocId: d.igrejaDocId);
-          if (u.isNotEmpty) await _pdfImageProviderFromUrlCached(u);
-        }));
 
-        final cells = <pw.Widget>[];
-
-        for (var k = 0; k < slots; k++) {
-          if (k < chunk.length) {
-            final data = chunk[k];
-            final cfgRaw = _cardConfigForPdf(data);
-            final cfg = cfgRaw;
-            final name = _memberNome(data.member);
-            final cargo = _cargoDisplay(data.member, cfg);
-            final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
-            final nascimento =
-                _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-            final batismo =
-                _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
-            final validade = _validityLabel(data.member).trim().isEmpty
-                ? '---'
-                : _validityLabel(data.member);
-            final nomePai = _memberFatherName(data.member).trim().isEmpty
-                ? '---'
-                : _memberFatherName(data.member);
-            final nomeMae = _memberMotherName(data.member).trim().isEmpty
-                ? '---'
-                : _memberMotherName(data.member);
-            final sexo = _memberSexo(data.member);
-            final photoUrl = cfg.showPhoto
-                ? await _resolvedMemberPhotoUrlForPdf(
-                    data.memberId, data.member,
-                    igrejaDocId: data.igrejaDocId)
-                : '';
-            final brandAccent =
-                _hexToPdfColor(cfgRaw.bgColor, PdfColors.blue800);
-            final PdfColor bgColor;
-            final PdfColor? bgColorSec;
-            final PdfColor textColor;
-            if (inkEconomy) {
-              bgColor = PdfColors.white;
-              bgColorSec = null;
-              textColor = PdfColors.grey900;
-            } else {
-              bgColor = _hexToPdfColor(cfg.bgColor, PdfColors.blue800);
-              bgColorSec = cfg.bgColorSecondary != null
-                  ? _hexToPdfColor(cfg.bgColorSecondary!, PdfColors.blue900)
-                  : CarteirinhaVisualTokens.flutterColorToPdfColor(
-                      CarteirinhaVisualTokens.gradientEndFromPrimary(
-                          cfg.bgColorValue),
-                    );
-              textColor = _hexToPdfColor(cfg.textColor, PdfColors.white);
-            }
-            final accentColor = brandAccent;
-            final logo = await _pdfLogoProvider(cfgRaw, data);
-            pw.ImageProvider? photo;
-            if (photoUrl.isNotEmpty) {
-              photo = await _pdfImageProviderFromUrlCached(photoUrl);
-            }
-            final qr = _qrPayload(data.igrejaDocId, data.memberId);
-            final admissionLinePdf = () {
-              final s = _admissionBatismoLine(data.member).trim();
-              return s.isEmpty ? 'Admissão: —' : s;
-            }();
-            final face = _pdfCardFace(
-              name: name,
-              cargo: cargo,
-              cpf: cpf.isEmpty ? '---' : cpf,
-              nascimento: nascimento.isEmpty ? '---' : nascimento,
-              batismo: batismo.isEmpty ? '---' : batismo,
-              validade: validade,
-              nomePai: nomePai,
-              nomeMae: nomeMae,
-              sexo: sexo,
-              qr: qr,
-              admissionLine: admissionLinePdf,
-              cfg: cfg,
-              bgColor: bgColor,
-              bgColorSec: bgColorSec,
-              textColor: textColor,
-              accentColor: accentColor,
-              logo: logo,
-              photo: photo,
-              showFrontQr: true,
-              signatoryImage: signatoryImage,
-              signatoryNome: signatoryNome,
-              signatoryCargo: signatoryCargo,
-            );
-            cells.add(
-              pw.Center(
-                child: pw.Transform.scale(
-                  alignment: pw.Alignment.center,
-                  scale: scale,
-                  child: face,
-                ),
-              ),
-            );
-          } else {
-            cells.add(pw.SizedBox());
+        Future<pw.Widget> buildGridFaceCell(int k) async {
+          if (k >= chunk.length) return pw.SizedBox();
+          final data = chunk[k];
+          final cfgRaw = _cardConfigForPdf(data);
+          final cfg = cfgRaw;
+          final name = _memberNome(data.member);
+          final cargo = _cargoDisplay(data.member, cfg);
+          final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
+          final nascimento =
+              _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+          final batismo =
+              _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
+          final validade = _validityLabel(data.member).trim().isEmpty
+              ? '---'
+              : _validityLabel(data.member);
+          final nomePai = _memberFatherName(data.member).trim().isEmpty
+              ? '---'
+              : _memberFatherName(data.member);
+          final nomeMae = _memberMotherName(data.member).trim().isEmpty
+              ? '---'
+              : _memberMotherName(data.member);
+          final sexo = _memberSexo(data.member);
+          final photoUrl = cfg.showPhoto
+              ? await _resolvedMemberPhotoUrlForPdf(
+                  data.memberId, data.member,
+                  igrejaDocId: data.igrejaDocId)
+              : '';
+          final palGrid = _pdfCarteiraColors(cfg, inkEconomy);
+          final PdfColor bgColor = palGrid.bg;
+          final PdfColor? bgColorSec = inkEconomy ? null : palGrid.bgEnd;
+          final PdfColor textColor = palGrid.fg;
+          final accentColor = cfg.accentPdfColor;
+          final logo = await _pdfLogoProvider(cfgRaw, data);
+          pw.ImageProvider? photo;
+          if (photoUrl.isNotEmpty) {
+            photo = await _pdfImageProviderFromUrlCached(photoUrl);
           }
+          final admissionLinePdf = () {
+            final s = _admissionBatismoLine(data.member).trim();
+            return s.isEmpty ? 'Admissão: —' : s;
+          }();
+          final face = _pdfCardFace(
+            name: name,
+            cargo: cargo,
+            cpf: cpf.isEmpty ? '---' : cpf,
+            nascimento: nascimento.isEmpty ? '---' : nascimento,
+            batismo: batismo.isEmpty ? '---' : batismo,
+            validade: validade,
+            nomePai: nomePai,
+            nomeMae: nomeMae,
+            sexo: sexo,
+            admissionLine: admissionLinePdf,
+            cfg: cfg,
+            bgColor: bgColor,
+            bgColorSec: bgColorSec,
+            textColor: textColor,
+            accentColor: accentColor,
+            logo: logo,
+            photo: photo,
+            signatoryImage: signatoryImage,
+            signatoryNome: signatoryNome,
+            signatoryCargo: signatoryCargo,
+            outerSlotWidth: _pdfCardSlotW,
+            outerSlotHeight: _pdfCardSlotH,
+          );
+          return pw.Center(
+            child: pw.Transform.scale(
+              alignment: pw.Alignment.center,
+              scale: scale,
+              child: face,
+            ),
+          );
         }
+
+        final cells =
+            await Future.wait(List.generate(slots, buildGridFaceCell));
 
         final rowWidgets = <pw.Widget>[];
         for (var r = 0; r < gridRows; r++) {
@@ -3396,48 +4878,45 @@ class _MemberCardPageState extends State<MemberCardPage> {
           ),
         );
 
-        final versoCells = <pw.Widget>[];
         const baseVersoW = VersoCarteirinhaPdfWidget.cardWidthPt;
         const baseVersoH = VersoCarteirinhaPdfWidget.cardHeightPt;
         final scaleV = min(cellW / baseVersoW, cellH / baseVersoH) * 0.92;
 
-        for (var k = 0; k < slots; k++) {
-          if (k < chunk.length) {
-            final data = chunk[k];
-            final cfgRaw = _cardConfigForPdf(data);
-            pw.ImageProvider? sigIV = signatoryImage;
-            if (sigIV == null) {
-              final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
-                  .toString()
-                  .trim();
-              if (su.isNotEmpty) {
-                sigIV = await _pdfImageProviderFromUrlCached(su);
-              }
+        Future<pw.Widget> buildGridVersoCell(int k) async {
+          if (k >= chunk.length) return pw.SizedBox();
+          final data = chunk[k];
+          final cfgRaw = _cardConfigForPdf(data);
+          pw.ImageProvider? sigIV = signatoryImage;
+          if (sigIV == null) {
+            final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
+                .toString()
+                .trim();
+            if (su.isNotEmpty) {
+              sigIV = await _pdfImageProviderFromUrlCached(su);
             }
-            versoCells.add(
-              pw.Center(
-                child: pw.Transform.scale(
-                  alignment: pw.Alignment.center,
-                  scale: scaleV,
-                  child: pw.SizedBox(
-                    width: _pdfCardSlotW,
-                    height: _pdfCardSlotH,
-                    child: _pwVersoCarteirinhaBody(
-                      data,
-                      cfgRaw,
-                      pdfInkEconomy: inkEconomy,
-                      signatoryImage: sigIV,
-                      signatoryNome: signatoryNome,
-                      signatoryCargo: signatoryCargo,
-                    ),
-                  ),
+          }
+          return pw.Center(
+            child: pw.Transform.scale(
+              alignment: pw.Alignment.center,
+              scale: scaleV,
+              child: pw.SizedBox(
+                width: _pdfCardSlotW,
+                height: _pdfCardSlotH,
+                child: _pwVersoCarteirinhaBody(
+                  data,
+                  cfgRaw,
+                  pdfInkEconomy: inkEconomy,
+                  signatoryImage: sigIV,
+                  signatoryNome: signatoryNome,
+                  signatoryCargo: signatoryCargo,
                 ),
               ),
-            );
-          } else {
-            versoCells.add(pw.SizedBox());
-          }
+            ),
+          );
         }
+
+        final versoCells =
+            await Future.wait(List.generate(slots, buildGridVersoCell));
 
         final versoRowWidgets = <pw.Widget>[];
         for (var r = 0; r < gridRows; r++) {
@@ -3635,8 +5114,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final warmKey = '${data.memberId}|$memberPhoto|$signUrl|$logoUrl';
     if (_lastWarmupKey == warmKey) return;
     _lastWarmupKey = warmKey;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+    unawaited(() async {
       Future<void> warm(String u) async {
         if (u.isEmpty || !isValidImageUrl(u)) return;
         try {
@@ -3654,9 +5132,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         } catch (_) {}
       }
 
-      warm(memberPhoto);
-      warm(signUrl);
-      unawaited(() async {
+      Future<void> warmLogo() async {
         var u = logoUrl;
         if (u.isEmpty || !isValidImageUrl(u)) {
           final r = await FirebaseStorageService.getChurchLogoDownloadUrl(
@@ -3667,8 +5143,223 @@ class _MemberCardPageState extends State<MemberCardPage> {
         }
         if (!mounted) return;
         await warm(u);
-      }());
-    });
+      }
+
+      await Future.wait<void>([
+        warm(memberPhoto),
+        warm(signUrl),
+        warmLogo(),
+      ]);
+    }());
+  }
+
+  bool _showMemberFinanceHistory(_CardData data) {
+    if (_isRestrictedMember) return true;
+    if (_canManage) return true;
+    return AppPermissions.canViewFinance(
+      widget.role,
+      memberCanViewFinance: data.member['podeVerFinanceiro'] == true,
+      permissions: AppPermissions.normalizePermissions(
+        data.member['permissions'] ?? data.member['PERMISSIONS'],
+      ),
+    );
+  }
+
+  Widget _buildMemberFinanceHistorySection(_CardData data) {
+    final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    final tid = data.igrejaDocId;
+    final mid = data.memberId;
+    final stream = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('finance')
+        .where('memberDocId', isEqualTo: mid)
+        .orderBy('createdAt', descending: true)
+        .limit(40)
+        .snapshots();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withOpacity(0.08),
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                ),
+                child: Icon(Icons.payments_rounded,
+                    color: ThemeCleanPremium.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Histórico financeiro',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1E293B),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isRestrictedMember
+                ? 'Lançamentos em que este cadastro é o titular (ex.: dízimos e recorrências).'
+                : 'Lançamentos do financeiro que referenciam este membro (memberDocId).',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: stream,
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Não foi possível carregar o histórico. Verifique permissão ou conexão.',
+                    style: TextStyle(fontSize: 13, color: Colors.orange.shade800),
+                  ),
+                );
+              }
+              if (snap.connectionState == ConnectionState.waiting &&
+                  snap.data == null) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+              final docs = snap.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Nenhum lançamento vinculado a este cadastro.',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                  ),
+                );
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: docs.length,
+                separatorBuilder: (_, __) => Divider(
+                  height: 1,
+                  color: Colors.grey.shade200,
+                ),
+                itemBuilder: (context, i) {
+                  final m = docs[i].data();
+                  final tipo =
+                      (m['type'] ?? m['tipo'] ?? 'entrada').toString().toLowerCase();
+                  final isEntrada =
+                      tipo == 'entrada' || tipo == 'receita' || tipo == 'in';
+                  final raw = m['amount'] ?? m['valor'] ?? 0;
+                  final valor = raw is num
+                      ? raw.toDouble()
+                      : double.tryParse(raw.toString()) ?? 0;
+                  final desc = (m['descricao'] ?? m['memo'] ?? '').toString();
+                  final cat = (m['categoria'] ?? '').toString();
+                  final comp = (m['competencia'] ?? '').toString();
+                  Timestamp? ts = m['createdAt'] is Timestamp
+                      ? m['createdAt'] as Timestamp
+                      : null;
+                  final dataStr = ts != null
+                      ? '${ts.toDate().day.toString().padLeft(2, '0')}/${ts.toDate().month.toString().padLeft(2, '0')}/${ts.toDate().year}'
+                      : '';
+                  final valorStr =
+                      '${isEntrada ? '+' : '−'} ${brl.format(valor.abs())}';
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (desc.isNotEmpty)
+                                Text(
+                                  desc,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              if (cat.isNotEmpty || comp.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    [
+                                      if (cat.isNotEmpty) cat,
+                                      if (comp.isNotEmpty) 'Comp. $comp',
+                                    ].join(' · '),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ),
+                              if (dataStr.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    dataStr,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          valorStr,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: isEntrada
+                                ? const Color(0xFF166534)
+                                : const Color(0xFF991B1B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   String _cargoDisplay(Map<String, dynamic> member, _CardConfig cfg) {
@@ -3686,6 +5377,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final hideAppBarEmbedded = widget.embeddedInShell && isMobile;
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       floatingActionButton: _emModoListaGestor &&
@@ -3703,7 +5396,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     icon: const Icon(Icons.picture_as_pdf_rounded,
                         color: Colors.white),
                     label: Text(
-                      'PDF lote (${_carteiraListaSelecionados.length})',
+                      'Vários em PDF (${_carteiraListaSelecionados.length})',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w600),
                     ),
@@ -3727,59 +5420,139 @@ class _MemberCardPageState extends State<MemberCardPage> {
               ),
             )
           : null,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.maybePop(context),
-          tooltip: 'Voltar',
-        ),
-        title: const Text('Carteirinha digital',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Exportar PDF',
-            icon: const Icon(Icons.picture_as_pdf_rounded),
-            style: IconButton.styleFrom(
-                minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                    ThemeCleanPremium.minTouchTarget)),
-            onPressed: () async {
-              final future = _loadFuture;
-              if (future == null) return;
-              final data = await future;
-              if (data == null || !context.mounted) return;
-              await _showGerarPdfComAssinatura(context, data);
-            },
-          ),
-          if (_canManage)
-            IconButton(
-              tooltip: 'Configurar cor e logo',
-              icon: const Icon(Icons.palette_rounded),
-              style: IconButton.styleFrom(
-                  minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                      ThemeCleanPremium.minTouchTarget)),
-              onPressed: () async {
-                await Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        _CarteiraConfigPage(tenantId: widget.tenantId),
+      appBar: hideAppBarEmbedded
+          ? null
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => Navigator.maybePop(context),
+                tooltip: 'Voltar',
+              ),
+              title: const Text('Carteirinha digital',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+              flexibleSpace: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      ThemeCleanPremium.primary,
+                      ThemeCleanPremium.primary.withValues(alpha: 0.92),
+                      ThemeCleanPremium.navSidebar,
+                    ],
                   ),
-                );
-                setState(() {
-                  _loadFuture = _load();
-                });
-              },
+                ),
+              ),
+              backgroundColor: Colors.transparent,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              surfaceTintColor: Colors.transparent,
+              actions: [
+                IconButton(
+                  tooltip: 'Exportar PDF',
+                  icon: const Icon(Icons.picture_as_pdf_rounded),
+                  style: IconButton.styleFrom(
+                      minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
+                          ThemeCleanPremium.minTouchTarget)),
+                  onPressed: () async {
+                    final future = _loadFuture;
+                    if (future == null) return;
+                    final data = await future;
+                    if (data == null || !context.mounted) return;
+                    await _showGerarPdfComAssinatura(context, data);
+                  },
+                ),
+                if (_canManage)
+                  IconButton(
+                    tooltip: 'Configurar cor e logo',
+                    icon: const Icon(Icons.palette_rounded),
+                    style: IconButton.styleFrom(
+                        minimumSize: const Size(
+                            ThemeCleanPremium.minTouchTarget,
+                            ThemeCleanPremium.minTouchTarget)),
+                    onPressed: () async {
+                      await Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              _CarteiraConfigPage(tenantId: widget.tenantId),
+                        ),
+                      );
+                      setState(() {
+                        _loadFuture = _load();
+                      });
+                    },
+                  ),
+                const SizedBox(width: 8),
+              ],
             ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        child: FutureBuilder<_CardData?>(
-          future: _loadFuture,
-          builder: (context, snap) {
+      body: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+          if (hideAppBarEmbedded)
+            Material(
+              color: ThemeCleanPremium.cardBackground,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      tooltip: 'Exportar PDF',
+                      icon: const Icon(Icons.picture_as_pdf_rounded),
+                      color: ThemeCleanPremium.primary,
+                      style: IconButton.styleFrom(
+                          minimumSize: const Size(
+                              ThemeCleanPremium.minTouchTarget,
+                              ThemeCleanPremium.minTouchTarget)),
+                      onPressed: () async {
+                        final future = _loadFuture;
+                        if (future == null) return;
+                        final data = await future;
+                        if (data == null || !context.mounted) return;
+                        await _showGerarPdfComAssinatura(context, data);
+                      },
+                    ),
+                    if (_canManage)
+                      IconButton(
+                        tooltip: 'Configurar cor e logo',
+                        icon: const Icon(Icons.palette_rounded),
+                        color: ThemeCleanPremium.primary,
+                        style: IconButton.styleFrom(
+                            minimumSize: const Size(
+                                ThemeCleanPremium.minTouchTarget,
+                                ThemeCleanPremium.minTouchTarget)),
+                        onPressed: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  _CarteiraConfigPage(tenantId: widget.tenantId),
+                            ),
+                          );
+                          setState(() {
+                            _loadFuture = _load();
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: DecoratedBox(
+        decoration: BoxDecoration(gradient: ThemeCleanPremium.churchPanelBodyGradient),
+        child: SafeArea(
+          top: !hideAppBarEmbedded,
+          child: FutureBuilder<_CardData?>(
+            future: _loadFuture,
+            builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -3804,15 +5577,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           if (_isRestrictedMember) {
                             _loadFuture = _load();
                           } else {
-                            final hasMember = (widget.memberId != null &&
-                                    widget.memberId!.trim().isNotEmpty) ||
-                                (widget.cpf != null &&
-                                    widget.cpf!
-                                            .replaceAll(RegExp(r'[^0-9]'), '')
-                                            .length >=
-                                        11);
-                            _loadFuture =
-                                hasMember ? _load() : Future.value(null);
+                            _loadFuture = _hasExplicitMemberTarget
+                                ? _load()
+                                : Future.value(null);
                           }
                         }),
                         icon: const Icon(Icons.refresh_rounded),
@@ -3828,110 +5595,225 @@ class _MemberCardPageState extends State<MemberCardPage> {
               if (_isRestrictedMember) {
                 return Center(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.badge_rounded,
-                            size: 64, color: Colors.grey.shade400),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Minha Carteirinha',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w700),
-                          textAlign: TextAlign.center,
+                    padding: ThemeCleanPremium.pagePadding(context),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: ThemeCleanPremium.spaceXl,
+                          vertical: ThemeCleanPremium.spaceXxl,
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Cadastro de membro não encontrado. Entre em contato com o gestor da igreja.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 15, color: Colors.grey.shade700),
+                        decoration: ThemeCleanPremium.premiumSurfaceCard,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.badge_rounded,
+                              size: 56,
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.38),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceMd),
+                            const Text(
+                              'Minha Carteirinha',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: ThemeCleanPremium.onSurface,
+                                letterSpacing: 0.2,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            Text(
+                              'Cadastro de membro não encontrado. Entre em contato com o gestor da igreja.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                height: 1.45,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceMd),
+                            FilledButton.icon(
+                              onPressed: () =>
+                                  setState(() => _loadFuture = _load()),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Tentar novamente'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: ThemeCleanPremium.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: ThemeCleanPremium.spaceLg,
+                                  vertical: ThemeCleanPremium.spaceSm,
+                                ),
+                                minimumSize: const Size(
+                                  ThemeCleanPremium.minTouchTarget,
+                                  ThemeCleanPremium.minTouchTarget,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 24),
-                        FilledButton.icon(
-                          onPressed: () =>
-                              setState(() => _loadFuture = _load()),
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Tentar novamente'),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 );
               }
               return Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.badge_rounded,
-                          size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Emissão de Carteirinha',
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.w700),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Carteirinha digital: personalize cores, logo e modelo em “Configurar cor e logo”.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 13, color: Colors.grey.shade700),
-                      ),
-                      if (_canManage) ...[
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => _CarteiraConfigPage(
-                                    tenantId: widget.tenantId),
+                  padding: ThemeCleanPremium.pagePadding(context),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                      decoration: ThemeCleanPremium.premiumSurfaceCard,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.badge_rounded,
+                                  size: 28,
+                                  color: ThemeCleanPremium.primary,
+                                ),
                               ),
-                            );
-                            setState(() => _loadFuture = _load());
-                          },
-                          icon: const Icon(Icons.palette_rounded, size: 20),
-                          label: const Text(
-                              'Configurar cor e logo da carteirinha'),
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      Text(
-                        'Selecione um membro abaixo para emitir a carteirinha ou use o botão para ir à lista completa.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 15, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Emissão de Carteirinha',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: ThemeCleanPremium.onSurface,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Carteirinha digital: personalize cores, logo e modelo em “Configurar cor e logo”.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        color: ThemeCleanPremium.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_canManage) ...[
+                            const SizedBox(height: 14),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                await Navigator.push<void>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => _CarteiraConfigPage(
+                                        tenantId: widget.tenantId),
+                                  ),
+                                );
+                                setState(() => _loadFuture = _load());
+                              },
+                              icon: const Icon(Icons.palette_rounded, size: 20),
+                              label: const Text(
+                                  'Configurar cor e logo da carteirinha'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: ThemeCleanPremium.primary,
+                                side: BorderSide(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.35),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 18),
+                          Text(
+                            'Selecione um membro abaixo para emitir a carteirinha ou use o botão para ir à lista completa.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.45,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                        controller: _memberSearchController,
                         decoration: InputDecoration(
-                          hintText: 'Buscar por nome ou CPF...',
-                          prefixIcon:
-                              const Icon(Icons.search_rounded, size: 22),
+                          labelText: 'Buscar',
+                          hintText: 'Nome ou CPF...',
+                          prefixIcon: const Icon(Icons.search_rounded, size: 22),
                           border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd)),
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd,
+                            ),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd,
+                            ),
+                            borderSide: BorderSide(
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.65),
+                              width: 1.4,
+                            ),
+                          ),
                           filled: true,
-                          fillColor: Colors.white,
+                          fillColor: const Color(0xFFF8FAFC),
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 12),
                         ),
-                        onChanged: (v) => setState(() => _memberSearch = v),
+                        onChanged: (_) {
+                          _memberSearchDebounce?.cancel();
+                          _memberSearchDebounce = Timer(
+                              const Duration(milliseconds: 280), () {
+                            if (!mounted) return;
+                            setState(() =>
+                                _memberSearch = _memberSearchController.text);
+                          });
+                        },
                       ),
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: const Color(0xFFF8FAFC),
                           borderRadius:
                               BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                          border: Border.all(color: const Color(0xFFE8EDF3)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3947,7 +5829,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w700,
-                                        color: Colors.grey.shade800)),
+                                        color: ThemeCleanPremium.onSurface)),
                                 const Spacer(),
                                 TextButton(
                                   onPressed: () => setState(() {
@@ -4098,21 +5980,62 @@ class _MemberCardPageState extends State<MemberCardPage> {
                               .map((m) => (m.photoUrl ?? '').trim())
                               .where((u) => u.isNotEmpty)
                               .toList();
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!context.mounted) return;
-                            preloadNetworkImages(context, preloadUrls,
-                                maxItems: 12);
-                          });
+                          final fp =
+                              '${filtered.length}|${_memberSearch.hashCode}|${preloadUrls.join('|')}';
+                          if (fp != _memberListPreloadFingerprint) {
+                            _memberListPreloadFingerprint = fp;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!context.mounted) return;
+                              preloadNetworkImages(context, preloadUrls,
+                                  maxItems: 12);
+                            });
+                          }
                           if (filtered.isEmpty) {
                             return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              child: Text(
-                                all.isEmpty
-                                    ? 'Nenhum membro cadastrado.'
-                                    : 'Nenhum membro corresponde à busca e aos filtros.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontSize: 14, color: Colors.grey.shade600),
+                              padding: const EdgeInsets.only(top: 8, bottom: 4),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 22,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.05),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd,
+                                  ),
+                                  border: Border.all(
+                                    color: ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.14),
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      all.isEmpty
+                                          ? Icons.people_outline_rounded
+                                          : Icons.search_off_rounded,
+                                      size: 40,
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.35),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      all.isEmpty
+                                          ? 'Nenhum membro cadastrado.'
+                                          : 'Nenhum membro corresponde à busca e aos filtros.',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        height: 1.45,
+                                        color: ThemeCleanPremium.onSurfaceVariant,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
                           }
@@ -4295,6 +6218,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ],
                     ],
                   ),
+                    ),
+                  ),
                 ),
               );
             }
@@ -4308,7 +6233,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
             final nascimento =
                 _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
             final validade = _validityLabel(data.member);
-            final qr = _qrPayload(data.igrejaDocId, data.memberId);
             _warmupCarteiraAssets(data, cfg);
 
             return Center(
@@ -4318,16 +6242,104 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     vertical: ThemeCleanPremium.spaceMd),
                 child: Column(
                   children: [
+                    if (_canManage) ...[
+                      Align(
+                        alignment: Alignment.center,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 400),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.white,
+                                  ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.05),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius:
+                                  BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                              border: Border.all(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.2),
+                              ),
+                              boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(
+                                    Icons.person_search_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Emissão para',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.35,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.maybePop(context),
+                                  child: const Text('Escolher outro'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    ],
                     Container(
                       width: 360,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                          horizontal: 14, vertical: 14),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            ThemeCleanPremium.primary.withValues(alpha: 0.03),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
                         borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
                         boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: const Color(0xFFEAF0F7)),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
                       child: Row(
                         children: [
@@ -4367,15 +6379,51 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Center(
-                      child: FilledButton.icon(
-                        onPressed: () async =>
-                            _showGerarPdfComAssinatura(context, data),
-                        icon: const Icon(Icons.picture_as_pdf_rounded),
-                        label: const Text('Exportar PDF'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: ThemeCleanPremium.primary,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 14),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () async =>
+                              _showGerarPdfComAssinatura(context, data),
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                          child: Ink(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  ThemeCleanPremium.primary,
+                                  ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.88),
+                                  ThemeCleanPremium.navSidebar,
+                                ],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusLg),
+                              boxShadow: ThemeCleanPremium.cardShadowHover,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 28, vertical: 16),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.picture_as_pdf_rounded,
+                                      color: Colors.white, size: 22),
+                                  const SizedBox(width: 10),
+                                  const Text(
+                                    'Exportar PDF',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -4500,9 +6548,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'O PDF “Exportar PDF” usa esta mesma carteira (captura de ecrã): vidro (glass), borda dourada e QR no verso. '
-                      'Cores em Configurar carteirinha. '
-                      'Assinatura: Configurar carteirinha ou `igrejas/{id}/configuracoes/assinatura.png`.',
+                      'Exportar PDF usa o mesmo visual da carteira abaixo (frente + verso); '
+                      'visualização em folha A4 com largura de cartão CR80 para caber na tela. '
+                      'PDF vetorial (se a captura falhar) usa páginas no tamanho do cartão. '
+                      'Cores e destaque em Configurar carteirinha. '
+                      'Assinatura: Configurar carteirinha ou assinatura no cadastro do signatário.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
@@ -4521,9 +6571,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 '')
                             .toString()
                             .trim();
-                        final sigUrl = memberSig.isNotEmpty
-                            ? memberSig
-                            : (snapPastor.data ?? '').trim();
+                        final snapSig = (snapPastor.data ?? '').trim();
+                        final exportSig = (_walletPdfExportSigUrl ?? '').trim();
+                        final sigUrl = exportSig.isNotEmpty
+                            ? exportSig
+                            : (memberSig.isNotEmpty ? memberSig : snapSig);
                         final wCard = min(
                           360.0,
                           MediaQuery.sizeOf(context).width -
@@ -4533,8 +6585,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         final colorB = cfg.bgColorSecondaryValue ??
                             CarteirinhaVisualTokens.gradientEndFromPrimary(
                                 colorA);
-                        final accentGold =
-                            CarteirinhaVisualTokens.accentGoldFlutter;
+                        final accentGold = cfg.accentColorValue;
                         final logoSlot = (cfg.logoDataBase64 != null &&
                                 cfg.logoDataBase64!.isNotEmpty)
                             ? Image.memory(
@@ -4548,16 +6599,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             : StableChurchLogo(
                                 tenantId: data.igrejaDocId,
                                 tenantData: data.tenant,
+                                storagePath:
+                                    ChurchImageFields.logoStoragePath(data.tenant),
                                 imageUrl: cfg.logoUrl.trim().isNotEmpty
                                     ? cfg.logoUrl.trim()
                                     : null,
-                                width: 44,
-                                height: 44,
+                                // Tamanho lógico alto: [FittedBox] na carteira escala para o quadrado; cache maior = mais nítido.
+                                width: 160,
+                                height: 160,
                                 fit: BoxFit.contain,
-                                memCacheWidth: 88,
-                                memCacheHeight: 88,
+                                memCacheWidth: 320,
+                                memCacheHeight: 320,
                               );
                         final photoSlot = FotoMembroWidget(
+                          key: ValueKey<String>(
+                            'wallet_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
+                          ),
                           imageUrl:
                               photoUrlPreview.isEmpty ? null : photoUrlPreview,
                           tenantId: data.igrejaDocId,
@@ -4567,10 +6624,30 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           memberData: data.member,
                           authUid: _memberAuthUidForCarteiraFoto(data.member),
                           size: 72,
+                          memCacheWidth: 220,
+                          memCacheHeight: 220,
+                          imageCacheRevision:
+                              memberPhotoDisplayCacheRevision(data.member),
                         );
                         final cpfFmt = _formatCpfForCard(cpf);
                         final filiacaoTxt =
                             walletFiliacaoFromMember(data.member);
+                        final telM = _telefoneFromMember(data.member);
+                        final emM = _emailFromMember(data.member);
+                        final signatoryNameWallet = (_walletPdfExportSignatoryNome ??
+                                    '')
+                                .trim()
+                                .isNotEmpty
+                            ? _walletPdfExportSignatoryNome!.trim()
+                            : (data.member['carteirinhaAssinadaPorNome'] ?? '')
+                                .toString();
+                        final signatoryCargoWallet = (_walletPdfExportSignatoryCargo ??
+                                    '')
+                                .trim()
+                                .isNotEmpty
+                            ? _walletPdfExportSignatoryCargo!.trim()
+                            : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
+                                .toString();
                         return Column(
                           children: [
                             Screenshot(
@@ -4605,16 +6682,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         }(),
                                       ),
                                       const SizedBox(height: 14),
-                                      Text(
-                                        'VERSO — validação & dados',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.blueGrey.shade700,
-                                          letterSpacing: 0.3,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
                                       MemberDigitalWalletBack(
                                         width: wCard,
                                         colorA: colorA,
@@ -4632,23 +6699,29 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         validade: validade.isEmpty
                                             ? '—'
                                             : validade,
-                                        validationUrl: qr,
+                                        telefone:
+                                            telM.isEmpty ? '—' : telM,
+                                        email: emM.isEmpty ? '—' : emM,
                                         signatureImageUrl:
                                             sigUrl.isEmpty ? null : sigUrl,
-                                        signatoryName: (data.member[
-                                                    'carteirinhaAssinadaPorNome'] ??
-                                                '')
-                                            .toString(),
-                                        signatoryCargo: (data.member[
-                                                    'carteirinhaAssinadaPorCargo'] ??
-                                                '')
-                                            .toString(),
-                                        congregacao:
-                                            _congregacaoFromMember(data.member),
+                                        signatoryName: signatoryNameWallet,
+                                        signatoryCargo: signatoryCargoWallet,
                                         fraseRodape: cfg.fraseRodape,
                                       ),
                                     ],
                                   ),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                'Verso — dados do membro (incluído no PDF/PNG acima)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blueGrey.shade600,
+                                  letterSpacing: 0.2,
                                 ),
                               ),
                             ),
@@ -4704,6 +6777,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         );
                       },
                     ),
+                    if (_showMemberFinanceHistory(data))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: _buildMemberFinanceHistorySection(data),
+                      ),
                     if (_canManage)
                       Padding(
                         padding: const EdgeInsets.only(top: 16),
@@ -4716,7 +6794,42 @@ class _MemberCardPageState extends State<MemberCardPage> {
               ),
             );
           },
+            ),
+          ),
         ),
+      ),
+    ],
+      ),
+    ),
+    if (_rasterBatchCard != null)
+      Positioned(
+        left: -12000,
+        top: 0,
+        child: SizedBox(
+          width: _rasterBatchLadoALado ? 780 : 400,
+          child: Screenshot(
+            controller: _rasterBatchScreenshotController,
+            child: ColoredBox(
+              color: const Color(0xFFF8FAFC),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                child: _walletDigitalFrontBackForRaster(
+                  context: context,
+                  data: _rasterBatchCard!,
+                  cfg: _effectiveCardConfig(_rasterBatchCard!),
+                  wCard: _rasterBatchLadoALado ? 352 : 360,
+                  sigUrl: _rasterBatchSigUrl,
+                  signatoryNome: _rasterBatchSignatoryNome,
+                  signatoryCargo: _rasterBatchSignatoryCargo,
+                  ladoALado: _rasterBatchLadoALado,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+        ],
       ),
     );
   }
@@ -4786,7 +6899,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
           name: 'carteira_digital.png',
         ),
       ],
-      subject: 'Carteira digital — Gestão YAHWEH',
     );
   }
 
@@ -4814,12 +6926,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         digits = '55$digits';
       }
     }
-    final link =
-        CarteirinhaConsultaUrl.validationUrl(widget.tenantId, data.memberId);
     final church =
         cfg.title.trim().isEmpty ? 'sua igreja' : cfg.title.trim();
-    final caption =
-        'Carteirinha digital — $church\nValidade: $validade\nConsulta: $link';
     try {
       final pr = MediaQuery.devicePixelRatioOf(context).clamp(2.0, 4.0);
       final bytes = await _walletScreenshotController.capture(pixelRatio: pr);
@@ -4833,7 +6941,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
               name: 'carteirinha_${data.memberId}.png',
             ),
           ],
-          text: caption,
         );
         if (context.mounted && digits.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -4849,11 +6956,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (_) {}
     if (!context.mounted) return;
     if (digits.isEmpty) {
-      await Share.share(caption, subject: 'Carteirinha — $church');
+      await Share.share(
+        'Carteirinha digital — $church. Validade: $validade',
+        subject: 'Carteirinha — $church',
+      );
       return;
     }
     final text = Uri.encodeComponent(
-      'Olá! Sua carteirinha digital ($church).\n$caption',
+      'Olá! Segue a imagem da carteirinha digital ($church).',
     );
     final uri = Uri.parse('https://wa.me/$digits?text=$text');
     try {
@@ -4877,20 +6987,36 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final bg = ok ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2);
     final fg = ok ? const Color(0xFF166534) : const Color(0xFF991B1B);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+        border: Border.all(
+          color: ok
+              ? const Color(0xFFBBF7D0).withValues(alpha: 0.9)
+              : const Color(0xFFFECACA).withValues(alpha: 0.9),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 14, color: fg),
+          Icon(icon, size: 15, color: fg),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style:
-                TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w800, color: fg),
+            ),
           ),
         ],
       ),
@@ -5032,6 +7158,9 @@ class _CardConfig {
   final String bgColor;
   final String textColor;
   final String? bgColorSecondary;
+
+  /// Hex 6 dígitos (sem #) — faixa dourada / detalhes; Firestore: `accentColor` ou `accentGold`.
+  final String? accentColorHex;
   final String cargoLabel;
   final bool showPhoto;
 
@@ -5053,6 +7182,7 @@ class _CardConfig {
     required this.bgColor,
     required this.textColor,
     this.bgColorSecondary,
+    this.accentColorHex,
     this.cargoLabel = '',
     this.showPhoto = true,
     this.versoRegrasUso,
@@ -5069,6 +7199,7 @@ class _CardConfig {
       bgColor: bgColor,
       textColor: textColor,
       bgColorSecondary: bgColorSecondary,
+      accentColorHex: accentColorHex,
       cargoLabel: cargoLabel,
       showPhoto: showPhoto,
       versoRegrasUso: versoRegrasUso,
@@ -5107,6 +7238,9 @@ class _CardConfig {
       bgColor: (data['bgColor'] ?? '#0B2F6B').toString(),
       textColor: (data['textColor'] ?? '#FFFFFF').toString(),
       bgColorSecondary: _optHex(data['bgColorSecondary']),
+      accentColorHex: _optHex(data['accentColor'] ??
+          data['accentGold'] ??
+          data['carteiraAccentColor']),
       cargoLabel: (data['cargoLabel'] ?? '').toString().trim(),
       showPhoto: data['showPhoto'] != false,
       versoRegrasUso: _parseVersoRegras(data['regrasVerso'] ??
@@ -5134,6 +7268,17 @@ class _CardConfig {
       ? null
       : _hexToColor(bgColorSecondary!, const Color(0xFF1E3A5F));
   Color get textColorValue => _hexToColor(textColor, Colors.white);
+
+  /// Cor de destaque (bordas, selo) — igual à carteirinha digital e ao PDF.
+  Color get accentColorValue {
+    if (accentColorHex == null || accentColorHex!.length != 6) {
+      return CarteirinhaVisualTokens.accentGoldFlutter;
+    }
+    return _hexToColor('#${accentColorHex!}', CarteirinhaVisualTokens.accentGoldFlutter);
+  }
+
+  PdfColor get accentPdfColor =>
+      CarteirinhaVisualTokens.flutterColorToPdfColor(accentColorValue);
 
   Color _hexToColor(String hex, Color fallback) {
     final clean = hex.replaceAll('#', '').trim();
@@ -5166,7 +7311,6 @@ class _CarteiraLogoImage extends StatefulWidget {
   final double width;
   final double height;
   final BoxFit fit;
-  final Widget? placeholder;
   final Widget? errorWidget;
 
   const _CarteiraLogoImage({
@@ -5174,7 +7318,6 @@ class _CarteiraLogoImage extends StatefulWidget {
     required this.width,
     required this.height,
     this.fit = BoxFit.contain,
-    this.placeholder,
     this.errorWidget,
   });
 
@@ -5246,7 +7389,6 @@ class _CarteiraLogoImageState extends State<_CarteiraLogoImage> {
           height: widget.height,
           memCacheWidth: mcW,
           memCacheHeight: mcH,
-          placeholder: widget.placeholder,
           errorWidget: err,
         );
       },
@@ -5271,6 +7413,8 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
   String _bgColor = '#0B2F6B';
   String _textColor = '#FFFFFF';
   String? _bgColorSecondary;
+  /// Bordas / faixa superior / selo — mesmo valor na carteirinha e no PDF.
+  String _accentColor = 'E8C478';
   bool _showPhoto = true;
   bool _loading = true;
   bool _saving = false;
@@ -5385,7 +7529,8 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
       if (snap.exists && snap.data() != null) cfg = snap.data()!;
       final tenantSnap =
           await db.collection('igrejas').doc(widget.tenantId).get();
-      tenant = tenantSnap.data() ?? {};
+      tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
+        ..['id'] = widget.tenantId;
       _tenantData = Map<String, dynamic>.from(tenant);
     } catch (_) {}
     final tenantLogo = churchTenantLogoUrl(tenant);
@@ -5415,6 +7560,11 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     final sec =
         (cfg['bgColorSecondary'] ?? '').toString().replaceAll('#', '').trim();
     _bgColorSecondary = sec.length == 6 ? sec : null;
+    final ac = (cfg['accentColor'] ?? cfg['accentGold'] ?? 'E8C478')
+        .toString()
+        .replaceAll('#', '')
+        .trim();
+    _accentColor = ac.length == 6 ? ac : 'E8C478';
     final savedDef = (cfg['defaultSignatoryMemberId'] ?? '').toString().trim();
     _defaultSignatoryMemberId = savedDef.isEmpty ? null : savedDef;
 
@@ -5518,6 +7668,7 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
             _bgColorSecondary != null && _bgColorSecondary!.length == 6
                 ? _bgColorSecondary
                 : null,
+        'accentColor': _accentColor.length == 6 ? _accentColor : 'E8C478',
         'showPhoto': _showPhoto,
         'visualModel': 'padrao',
         'carteiraVisualModel': 'padrao',
@@ -5905,6 +8056,25 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
                                 () => setState(
                                     () => _textColor = _colorToHex(c))))
                             .toList()),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    _buildLabel('Cor de destaque (bordas e faixa)'),
+                    Text(
+                      'Aplica na carteirinha digital e no PDF — ouro por defeito.',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _carteiraCores
+                          .map((c) => _colorChip(
+                              c,
+                              _accentColor,
+                              () => setState(
+                                  () => _accentColor = _colorToHex(c))))
+                          .toList(),
+                    ),
                   ],
                 ),
               ),

@@ -1,12 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
-/// Imagem estável: resolve path/gs/https via [AppStorageImageService] e exibe com [FreshFirebaseStorageImage].
+/// Imagem estável: resolve path/gs/https via [AppStorageImageService] e exibe com [ResilientNetworkImage].
 class StableStorageImage extends StatefulWidget {
   const StableStorageImage({
     super.key,
@@ -126,9 +125,8 @@ class _StableStorageImageState extends State<StableStorageImage> {
                 StateError('resolveImageUrl vazio ou inválido: ${u ?? "null"}'));
             return err;
           }
-          // Na web, forçar `skipFreshDisplayUrl: false` alinha ao pipeline getData/http do Storage
-          // (token/HTML/CORS); no app móvel mantém o flag do widget para menos round-trips.
-          Widget img = SafeNetworkImage(
+          // [ResilientNetworkImage]: renova token Storage antes do decode (igual carteirinha, mural).
+          Widget img = ResilientNetworkImage(
             key: ValueKey<String>('stable_$clean'),
             imageUrl: clean,
             width: widget.width,
@@ -138,7 +136,6 @@ class _StableStorageImageState extends State<StableStorageImage> {
             memCacheHeight: widget.memCacheHeight,
             placeholder: ph,
             errorWidget: err,
-            skipFreshDisplayUrl: kIsWeb ? false : widget.skipFreshDisplayUrl,
             onLoadError: widget.onLoadError,
           );
           if (widget.borderRadius != null) {
@@ -166,6 +163,8 @@ class StableChurchLogo extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.memCacheWidth,
     this.memCacheHeight,
+    /// Ex.: spinner no tom do cabeçalho escuro (site público).
+    this.loadingPlaceholder,
   });
 
   final String? storagePath;
@@ -178,6 +177,7 @@ class StableChurchLogo extends StatefulWidget {
   final BoxFit fit;
   final int? memCacheWidth;
   final int? memCacheHeight;
+  final Widget? loadingPlaceholder;
 
   @override
   State<StableChurchLogo> createState() => _StableChurchLogoState();
@@ -210,6 +210,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
         o.height != widget.height ||
         o.memCacheWidth != widget.memCacheWidth ||
         o.memCacheHeight != widget.memCacheHeight ||
+        o.loadingPlaceholder != widget.loadingPlaceholder ||
         _tenantSig(o.tenantData) != _tenantSig(widget.tenantData);
   }
 
@@ -258,17 +259,18 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
 
   @override
   Widget build(BuildContext context) {
-    final ph = SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade500),
-        ),
-      ),
-    );
+    final ph = widget.loadingPlaceholder ??
+        SizedBox(
+          width: widget.width,
+          height: widget.height,
+          child: Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade500),
+            ),
+          ),
+        );
     return SizedBox(
       width: widget.width,
       height: widget.height,
@@ -292,7 +294,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
           }
           return ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: SafeNetworkImage(
+            child: ResilientNetworkImage(
               key: ValueKey<String>('church_logo_$clean'),
               imageUrl: clean,
               width: widget.width,
@@ -302,7 +304,6 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
               memCacheHeight: widget.memCacheHeight,
               placeholder: ph,
               errorWidget: _fallback(),
-              skipFreshDisplayUrl: kIsWeb ? false : true,
             ),
           );
         },
@@ -416,7 +417,7 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
           child: SizedBox(
             width: widget.radius * 2,
             height: widget.radius * 2,
-            child: SafeNetworkImage(
+            child: ResilientNetworkImage(
               key: ValueKey<String>('church_circle_$clean'),
               imageUrl: clean,
               fit: BoxFit.cover,
@@ -426,7 +427,6 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
               memCacheHeight: cacheSize,
               placeholder: fallback,
               errorWidget: fallback,
-              skipFreshDisplayUrl: true,
             ),
           ),
         );

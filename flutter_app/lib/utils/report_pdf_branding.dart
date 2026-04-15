@@ -73,6 +73,9 @@ Future<Uint8List?> _fetchOneLogoCandidate(String raw) async {
   return null;
 }
 
+/// Evita repetir Firestore/Storage ao gerar várias carteirinhas no mesmo lote.
+final Map<String, Future<ReportPdfBranding>> _loadReportPdfBrandingMemo = {};
+
 /// Carrega nome, cor e bytes da logo da igreja (Firestore + Storage + config de certificados).
 Future<ReportPdfBranding> loadReportPdfBranding(String tenantId) async {
   final seed = tenantId.trim();
@@ -83,6 +86,13 @@ Future<ReportPdfBranding> loadReportPdfBranding(String tenantId) async {
       accent: ReportPdfBranding.defaultAccent,
     );
   }
+  return _loadReportPdfBrandingMemo.putIfAbsent(
+    seed,
+    () => _loadReportPdfBrandingUncached(seed),
+  );
+}
+
+Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
   var tid = seed;
   try {
     final r = (await TenantResolverService.resolveEffectiveTenantId(seed)).trim();

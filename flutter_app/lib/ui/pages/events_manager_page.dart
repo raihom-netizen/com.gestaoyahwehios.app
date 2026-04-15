@@ -18,10 +18,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/event_template_schedule.dart'
+    show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
-    show noticiaDocEhEventoSpecialFeed;
+    show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaPhotoUrls,
@@ -57,17 +59,22 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show buildNoticiaInviteShareMessage;
+import 'package:gestao_yahweh/utils/share_text_polish.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
-        buildNoticiaInviteShareMessage,
-        resolveNoticiaShareSheetMedia;
+        BrDateDdMmYyyyInputFormatter,
+        formatBrDateDdMmYyyy,
+        parseBrDateDdMmYyyy;
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
   final String role;
+  /// Permissões granulares (`igrejas/.../users/{uid}`) — ex.: `eventos` para publicar no feed.
+  final List<String>? permissions;
   /// Dentro do shell: sem AppBar azul duplicada; abas compactas no corpo.
   final bool embeddedInShell;
 
@@ -78,6 +85,7 @@ class EventsManagerPage extends StatefulWidget {
     super.key,
     required this.tenantId,
     required this.role,
+    this.permissions,
     this.embeddedInShell = false,
     this.initialFeedSearchQuery,
   });
@@ -93,8 +101,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
 
-  /// Membro só visualiza o mural de eventos; edição fica com equipe (pastor, secretário, tesoureiro, etc.).
+  /// Alinhado às regras Firestore [canWriteMuralFeed]: equipe + permissão `eventos` em usuários.
   bool get _canWrite {
+    if (AppPermissions.hasModulePermission(widget.permissions, 'eventos')) {
+      return true;
+    }
     if (AppPermissions.isRestrictedMember(widget.role)) return false;
     final r = widget.role.toLowerCase();
     return r == 'adm' ||
@@ -123,15 +134,22 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           .doc(widget.tenantId)
           .collection('event_templates');
 
+  void _onMainTabChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: _canWrite ? 3 : 1, vsync: this);
+    _tab.addListener(_onMainTabChanged);
     _loadTenant();
   }
 
   @override
   void dispose() {
+    _tab.removeListener(_onMainTabChanged);
     _tab.dispose();
     super.dispose();
   }
@@ -239,6 +257,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         TextEditingController(text: (data['location'] ?? '').toString());
     final recurrence =
         ValueNotifier<String>((data['recurrence'] ?? 'weekly').toString());
+    final includeInAgenda =
+        ValueNotifier<bool>(data['includeInAgenda'] != false);
     // Mesma extração do feed/eventos: imageUrls (lista ou mapas), imageUrl, defaultImageUrl, fotos, etc.
     final urls = _eventImageUrlsFromData(data);
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
@@ -286,29 +306,74 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final res = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setSheetState) => Padding(
           padding: EdgeInsets.fromLTRB(
-              24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          child: SingleChildScrollView(
-            child: Column(
+              0, 0, 0, MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 24,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Center(
-                      child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(2)))),
-                  const SizedBox(height: 16),
-                  Text(doc == null ? 'Novo Evento Fixo' : 'Editar Evento Fixo',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary,
+                          ThemeCleanPremium.primaryLight,
+                        ],
+                      ),
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(24)),
+                    ),
+                    child: Column(
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          doc == null
+                              ? 'Novo evento fixo'
+                              : 'Editar evento fixo',
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   TextField(
                       controller: titleCtrl,
                       decoration: const InputDecoration(
@@ -593,19 +658,78 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             onChanged: (nv) =>
                                 recurrence.value = nv ?? 'weekly',
                           )),
+                  const SizedBox(height: 12),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: includeInAgenda,
+                    builder: (_, v, __) => SwitchListTile(
+                      value: v,
+                      onChanged: (nv) => includeInAgenda.value = nv,
+                      contentPadding: EdgeInsets.zero,
+                      activeTrackColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                      activeThumbColor: ThemeCleanPremium.primary,
+                      title: const Text(
+                        'Gerar na agenda e na programação pública',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        'Desligado: mantém o culto no resumo de horários do site, sem expandir datas na agenda interna nem na programação pública; também não permite «Gerar no feed» em massa.',
+                        style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: Colors.grey.shade600),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 20),
-                  Row(children: [
-                    Expanded(
+                  Row(
+                    children: [
+                      Expanded(
                         child: OutlinedButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancelar'))),
-                    const SizedBox(width: 12),
-                    Expanded(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            foregroundColor: ThemeCleanPremium.primary,
+                            side: BorderSide(
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.4),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusLg),
+                            ),
+                          ),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: FilledButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Salvar'))),
-                  ]),
-                ]),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            backgroundColor: ThemeCleanPremium.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusLg),
+                            ),
+                          ),
+                          child: const Text(
+                            'Salvar',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -620,6 +744,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       'time': timeCtrl.text.trim(),
       'location': locCtrl.text.trim(),
       'recurrence': recurrence.value,
+      'includeInAgenda': includeInAgenda.value,
       'active': true,
       'updatedAt': now,
     };
@@ -648,6 +773,19 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   Future<void> _generateFromTemplate(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
     final data = doc.data() ?? {};
+    if (!eventTemplateIncludeInAgenda(data)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Este modelo está com «Gerar na agenda» desligado. Ative na edição do evento fixo para gerar entradas em massa.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final title = (data['title'] ?? '').toString();
     final defaultImageUrl =
         (data['defaultImageUrl'] ?? data['imageUrl'] ?? '').toString().trim();
@@ -733,8 +871,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final tsNow = Timestamp.now();
     final imageUrls =
         defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
+    final agendaCol = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('agenda');
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     for (final dt in dates) {
-      batch.set(_noticias.doc(), {
+      final notRef = _noticias.doc();
+      final endAgenda = dt.add(const Duration(hours: 2));
+      batch.set(notRef, {
         'type': 'evento',
         'title': title,
         'text': '',
@@ -745,6 +890,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         'location': location,
         'videoUrl': '',
         'startAt': Timestamp.fromDate(dt),
+        'dataEvento': Timestamp.fromDate(dt),
         'templateId': doc.id,
         'generated': true,
         'active': true,
@@ -752,6 +898,25 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         'rsvp': <String>[],
         'createdAt': tsNow,
         'updatedAt': tsNow,
+      });
+      batch.set(agendaCol.doc(), {
+        'title': title,
+        'description': '',
+        'startTime': Timestamp.fromDate(dt),
+        'endTime': Timestamp.fromDate(endAgenda),
+        'color': '2563eb',
+        'category': 'culto',
+        'location': location,
+        'templateId': doc.id,
+        'generated': true,
+        'noticiaId': notRef.id,
+        'recurrence': recurrence,
+        'needSound': false,
+        'needDataShow': false,
+        'needCantina': false,
+        'createdAt': tsNow,
+        'updatedAt': tsNow,
+        'createdByUid': uid,
       });
     }
     await batch.commit();
@@ -765,71 +930,6 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     var d = DateTime(from.year, from.month, from.day);
     while (d.weekday != weekday) d = d.add(const Duration(days: 1));
     return d;
-  }
-
-  Future<void> _seedDefaults() async {
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-              title: const Text('Criar eventos padrão'),
-              content: const Text(
-                  'Cria eventos fixos comuns (oração, EBD, culto). Pode editar depois.'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancelar')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Criar'))
-              ],
-            ));
-    if (ok != true) return;
-    final now = Timestamp.now();
-    final batch = FirebaseFirestore.instance.batch();
-    for (final it in [
-      {
-        'title': 'Culto de Oração',
-        'weekday': 1,
-        'time': '19:30',
-        'recurrence': 'weekly'
-      },
-      {
-        'title': 'Campanha da Libertação',
-        'weekday': 5,
-        'time': '19:30',
-        'recurrence': 'weekly'
-      },
-      {
-        'title': 'Escola Dominical',
-        'weekday': 7,
-        'time': '09:00',
-        'recurrence': 'weekly'
-      },
-      {
-        'title': 'Culto da Família',
-        'weekday': 7,
-        'time': '19:00',
-        'recurrence': 'weekly'
-      }
-    ]) {
-      batch.set(_templates.doc(), {
-        'title': it['title'],
-        'weekday': it['weekday'],
-        'time': it['time'],
-        'location': '',
-        'recurrence': it['recurrence'],
-        'active': true,
-        'createdAt': now,
-        'updatedAt': now
-      });
-    }
-    await batch.commit();
-    if (mounted)
-      ScaffoldMessenger.of(context)
-          .showSnackBar(ThemeCleanPremium.successSnackBar('Padrões criados!'));
   }
 
   @override
@@ -847,11 +947,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           unselectedLabelColor: Colors.white70,
           indicatorColor: ThemeCleanPremium.navSidebarAccent,
           indicatorWeight: 2.5,
-          tabs: const [
-            Tab(text: 'Feed'),
-            Tab(text: 'Eventos Fixos'),
-            Tab(text: 'Dashboard'),
-          ],
+          tabs: _canWrite
+              ? const [
+                  Tab(text: 'Feed'),
+                  Tab(text: 'Eventos Fixos'),
+                  Tab(text: 'Dashboard'),
+                ]
+              : const [
+                  Tab(text: 'Feed'),
+                ],
         );
     TabBar tabBarLight() => TabBar(
           controller: _tab,
@@ -865,11 +969,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           unselectedLabelColor: Colors.grey.shade600,
           indicatorColor: ThemeCleanPremium.primary,
           indicatorWeight: 2.5,
-          tabs: const [
-            Tab(text: 'Feed'),
-            Tab(text: 'Eventos Fixos'),
-            Tab(text: 'Dashboard'),
-          ],
+          tabs: _canWrite
+              ? const [
+                  Tab(text: 'Feed'),
+                  Tab(text: 'Eventos Fixos'),
+                  Tab(text: 'Dashboard'),
+                ]
+              : const [
+                  Tab(text: 'Feed'),
+                ],
         );
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
@@ -889,7 +997,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                     fontSize: isMobile ? 17 : 16,
                     fontWeight: FontWeight.w700),
               ),
-              bottom: _canWrite
+              bottom: _tab.length > 1
                   ? PreferredSize(
                       preferredSize: const Size.fromHeight(40),
                       child: SizedBox(height: 40, child: tabBarPrimary()),
@@ -898,7 +1006,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             ),
       body: SafeArea(
           child: Column(children: [
-        if (_canWrite && !showAppBar)
+        if (_tab.length > 1 && !showAppBar)
           Material(
             color: Colors.white,
             elevation: 0,
@@ -932,25 +1040,295 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             _FixosTab(
                 key: _fixosTabKey,
                 templates: _templates,
+                noticias: _noticias,
                 canWrite: _canWrite,
                 onEdit: _editTemplate,
                 onDelete: _deleteTemplate,
                 onGenerate: _generateFromTemplate,
-                onSeed: _seedDefaults),
+                onOpenNoticiaEvento: (doc) => _novoEvento(doc: doc)),
           if (_canWrite)
             _DashboardEventosTab(noticias: _noticias, canWrite: _canWrite),
         ])),
       ])),
-      floatingActionButton: _canWrite
-          ? FloatingActionButton.extended(
-              onPressed: () => _novoEvento(),
-              backgroundColor: ThemeCleanPremium.primary,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_a_photo_rounded),
-              label: const Text('Novo evento'),
+      floatingActionButton: _canWrite && _tab.index == 0
+          ? Container(
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    ThemeCleanPremium.primaryLight,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                  ...ThemeCleanPremium.softUiCardShadow,
+                ],
+              ),
+              child: FloatingActionButton.extended(
+                onPressed: () => _novoEvento(),
+                icon: const Icon(Icons.add_a_photo_rounded, size: 24),
+                label: const Text(
+                  'Novo evento',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                hoverElevation: 0,
+                focusElevation: 0,
+                highlightElevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+              ),
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+}
+
+/// CRUD simples de categorias (nome + cor) na subcoleção `event_categories`.
+class _EventCategoriesManagerSheet extends StatefulWidget {
+  final String tenantId;
+  const _EventCategoriesManagerSheet({required this.tenantId});
+
+  @override
+  State<_EventCategoriesManagerSheet> createState() =>
+      _EventCategoriesManagerSheetState();
+}
+
+class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerSheet> {
+  static const List<Color> _palette = [
+    Color(0xFF2563EB),
+    Color(0xFF16A34A),
+    Color(0xFFEA580C),
+    Color(0xFF9333EA),
+    Color(0xFFDB2777),
+    Color(0xFF0891B2),
+    Color(0xFFCA8A04),
+    Color(0xFF475569),
+  ];
+
+  final _nome = TextEditingController();
+  Color _selectedColor = _palette[0];
+  bool _saving = false;
+
+  CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore
+      .instance
+      .collection('igrejas')
+      .doc(widget.tenantId)
+      .collection('event_categories');
+
+  Future<void> _add() async {
+    final nome = _nome.text.trim();
+    if (nome.isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      await _col.add({
+        'nome': nome,
+        'cor': _selectedColor.value,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      _nome.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Categoria adicionada.'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _delete(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir categoria'),
+        content: Text(
+            'Remover "${(doc.data()?['nome'] ?? doc.id)}"? Eventos antigos mantêm a cor gravada.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await doc.reference.delete();
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nome.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                'Categorias de eventos',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                  color: Colors.grey.shade900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _nome,
+                decoration: const InputDecoration(
+                  labelText: 'Nova categoria',
+                  prefixIcon: Icon(Icons.label_outline_rounded),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text('Cor na agenda',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final c in _palette)
+                    InkWell(
+                      onTap: () => setState(() => _selectedColor = c),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: c,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _selectedColor == c
+                                ? Colors.black87
+                                : Colors.white,
+                            width: _selectedColor == c ? 2.5 : 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _saving ? null : _add,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.add_rounded),
+                label: Text(_saving ? 'Salvando…' : 'Adicionar'),
+              ),
+              const SizedBox(height: 16),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _col.snapshots(),
+                builder: (context, snap) {
+                  if (!snap.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final docs = snap.data!.docs.toList()
+                    ..sort((a, b) => (a.data()['nome'] ?? '')
+                        .toString()
+                        .toLowerCase()
+                        .compareTo(
+                            (b.data()['nome'] ?? '').toString().toLowerCase()));
+                  if (docs.isEmpty) {
+                    return Text(
+                      'Nenhuma categoria ainda.',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Cadastradas',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade800)),
+                      const SizedBox(height: 8),
+                      ...docs.map((d) {
+                        final nome = (d.data()['nome'] ?? d.id).toString();
+                        final cor = d.data()['cor'];
+                        final color = cor is int ? Color(cor) : Colors.grey;
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: color,
+                            radius: 12,
+                          ),
+                          title: Text(nome),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            onPressed: () => _delete(d),
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1321,18 +1699,23 @@ class _FeedTabState extends State<_FeedTab> {
                                   _selectMode
                                       ? Icons.close_rounded
                                       : Icons.check_box_outline_blank_rounded,
-                                  size: 18),
+                                  size: 20),
                               label: Text(_selectMode
                                   ? 'Cancelar seleção'
                                   : 'Selecionar'),
                               style: OutlinedButton.styleFrom(
                                 minimumSize: const Size(
                                     0, ThemeCleanPremium.minTouchTarget),
-                                side: BorderSide(
-                                    color: ThemeCleanPremium.primary
-                                        .withOpacity(0.25)),
+                                side: const BorderSide(
+                                  color: ThemeCleanPremium.primary,
+                                  width: 1.75,
+                                ),
                                 backgroundColor: Colors.white,
                                 foregroundColor: ThemeCleanPremium.primary,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700),
                               ),
                             ),
                             if (_selectMode)
@@ -1341,29 +1724,37 @@ class _FeedTabState extends State<_FeedTab> {
                                     ? null
                                     : _deleteSelectedFeed,
                                 icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 18),
+                                    size: 20),
                                 label: Text(
                                     'Excluir (${_selectedEventIds.length})'),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: ThemeCleanPremium.error,
+                                  foregroundColor: Colors.white,
                                   minimumSize: const Size(
                                       0, ThemeCleanPremium.minTouchTarget),
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 16),
+                                      horizontal: 18, vertical: 12),
+                                  elevation: 1,
+                                  textStyle: const TextStyle(
+                                      fontWeight: FontWeight.w700),
                                 ),
                               )
                             else
                               FilledButton.icon(
                                 onPressed: _deleteByCurrentPeriod,
                                 icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 18),
+                                    size: 20),
                                 label: const Text('Excluir por período'),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: ThemeCleanPremium.error,
+                                  foregroundColor: Colors.white,
                                   minimumSize: const Size(
                                       0, ThemeCleanPremium.minTouchTarget),
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 16),
+                                      horizontal: 18, vertical: 12),
+                                  elevation: 1,
+                                  textStyle: const TextStyle(
+                                      fontWeight: FontWeight.w700),
                                 ),
                               ),
                           ],
@@ -2115,15 +2506,15 @@ class _EventoPostState extends State<_EventoPost>
       publicSiteUrl: publicSite,
       inviteCardUrl: inviteUrl,
     );
-    final media = await resolveNoticiaShareSheetMedia(data);
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
       context,
       shareLink: inviteUrl,
       shareMessage: msg,
-      shareSubject: 'Convite — $churchName',
-      previewImageUrl: media.previewImageUrl,
-      videoPlayUrl: media.videoPlayUrl,
+      shareSubject: churchName,
+      previewImageUrl: null,
+      videoPlayUrl: null,
+      noticiaDataForLazyMedia: data,
       sharePositionOrigin: shareOrigin,
     );
   }
@@ -2776,143 +3167,7 @@ class _EventoPostState extends State<_EventoPost>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Vídeo em tela cheia — Chewie (controles) no app; HTML5 na web.
-// ═══════════════════════════════════════════════════════════════════════════════
-class _FullScreenNetworkVideoPage extends StatelessWidget {
-  final String videoUrl;
-  final String title;
-  final String? thumbnailUrl;
-  const _FullScreenNetworkVideoPage({
-    required this.videoUrl,
-    this.title = '',
-    this.thumbnailUrl,
-  });
-
-  Future<void> _openBrowser() async {
-    final u = Uri.tryParse(videoUrl);
-    if (u != null && await canLaunchUrl(u)) {
-      await launchUrl(u, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final videoLayer = kIsWeb
-        ? LayoutBuilder(
-            builder: (context, c) {
-              return Center(
-                child: SizedBox(
-                  width: c.maxWidth,
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: buildPremiumHtmlVideo(
-                        videoUrl,
-                        autoplay: true,
-                        muted: false,
-                        loop: false,
-                        controls: true,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          )
-        : Center(
-            child: ChurchHostedVideoSurface(
-              videoUrl: videoUrl,
-              thumbnailUrl: thumbnailUrl,
-              autoPlay: true,
-            ),
-          );
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned.fill(child: videoLayer),
-          SafeArea(
-            child: Stack(
-              children: [
-                if (title.isNotEmpty)
-                  Positioned(
-                    top: 4,
-                    left: 12,
-                    right: 56,
-                    child: IgnorePointer(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          shadows: [
-                            Shadow(
-                                blurRadius: 14,
-                                color: Colors.black.withValues(alpha: 0.85))
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                Positioned(
-                  top: 0,
-                  right: 4,
-                  child: Material(
-                    color: Colors.black45,
-                    shape: const CircleBorder(),
-                    clipBehavior: Clip.antiAlias,
-                    child: IconButton(
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white, size: 26),
-                      onPressed: () => Navigator.pop(context),
-                      tooltip: 'Fechar',
-                    ),
-                  ),
-                ),
-                if (kIsWeb)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton.outlined(
-                              style: IconButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                minimumSize: const Size(
-                                    ThemeCleanPremium.minTouchTarget,
-                                    ThemeCleanPremium.minTouchTarget),
-                              ),
-                              onPressed: _openBrowser,
-                              icon: const Icon(Icons.open_in_new_rounded),
-                              tooltip: 'Navegador',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Vídeo hospedado: foto/vídeo em destaque + barra fina no topo + toque → tela cheia (EcoFire)
+// Vídeo hospedado: foto/vídeo em destaque + barra fina no topo + toque → teatro → tela cheia
 // ═══════════════════════════════════════════════════════════════════════════════
 class _HostedVideoInlinePanel extends StatefulWidget {
   final String videoUrl;
@@ -2948,15 +3203,12 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
   Future<void> _openFullscreen() async {
     if (!mounted) return;
     final t = sanitizeImageUrl(widget.thumbUrl);
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => _FullScreenNetworkVideoPage(
-          videoUrl: widget.videoUrl,
-          title: widget.title,
-          thumbnailUrl: isValidImageUrl(t) ? t : null,
-        ),
-      ),
+    await showChurchHostedVideoDialog(
+      context,
+      videoUrl: widget.videoUrl,
+      thumbnailUrl: isValidImageUrl(t) ? t : null,
+      autoPlay: true,
+      title: widget.title,
     );
     if (mounted) setState(() {});
   }
@@ -3804,8 +4056,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   DateTime _date = DateTime.now().add(const Duration(days: 1));
   DateTime? _validUntil;
   bool _publicSite = true;
+  /// Espelha data/hora no calendário interno (`agenda` com [noticiaId]).
+  bool _syncAgenda = false;
+  bool _allDay = false;
+  late DateTime _allDayEndDate;
+  late DateTime _endDateTime;
+  String? _eventCategoryId;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _categoryDocs = [];
+  bool _loadingCategories = false;
+  bool _notifyLeaders = false;
+  bool _notifyMembers = false;
   bool _saving = false;
   bool _uploadingVideo = false;
+  /// null = a comprimir / a preparar; 0–1 = progresso real do upload ao Storage.
+  double? _videoUploadFraction;
   bool _buscandoCep = false;
 
   /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
@@ -4078,11 +4342,230 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     try {
       _date = (data['startAt'] as Timestamp).toDate();
     } catch (_) {}
+    _allDayEndDate = DateTime(_date.year, _date.month, _date.day);
+    _endDateTime = _date.add(const Duration(hours: 2));
+    _allDay = data['allDay'] == true;
+    try {
+      final endRaw = (data['endAt'] as Timestamp?)?.toDate();
+      if (_allDay) {
+        if (endRaw != null) {
+          _allDayEndDate =
+              DateTime(endRaw.year, endRaw.month, endRaw.day);
+        } else {
+          _allDayEndDate = DateTime(_date.year, _date.month, _date.day);
+        }
+      } else if (endRaw != null) {
+        _endDateTime = endRaw;
+      }
+    } catch (_) {}
+    final cid = (data['eventCategoryId'] ?? '').toString().trim();
+    _eventCategoryId = cid.isEmpty ? null : cid;
+    _notifyLeaders = data['notifyLeaders'] == true;
+    _notifyMembers = data['notifyMembers'] == true;
     try {
       final v = data['validUntil'];
       if (v is Timestamp) _validUntil = v.toDate();
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
+    unawaited(_loadCategories());
+    if (widget.doc != null) {
+      unawaited(_refreshAgendaLinkFromFirestore());
+    }
+  }
+
+  Future<void> _refreshAgendaLinkFromFirestore() async {
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('agenda')
+          .where('noticiaId', isEqualTo: widget.doc!.id)
+          .limit(1)
+          .get();
+      if (!mounted) return;
+      setState(() => _syncAgenda = q.docs.isNotEmpty);
+    } catch (_) {}
+  }
+
+  String _agendaCategoryKeyFromEvent() {
+    for (final c in _categoryDocs) {
+      if (c.id == _eventCategoryId) {
+        final nome = (c.data()['nome'] ?? '').toString().toLowerCase();
+        if (nome.contains('culto')) return 'culto';
+        if (nome.contains('líder') ||
+            nome.contains('lider') ||
+            nome.contains('reuni')) {
+          return 'lideranca';
+        }
+        if (nome.contains('ebd') ||
+            nome.contains('ensino') ||
+            nome.contains('escola')) {
+          return 'ensino_ebd';
+        }
+        return 'evento_social';
+      }
+    }
+    return 'evento_social';
+  }
+
+  String _agendaColorHexForCategory() {
+    for (final c in _categoryDocs) {
+      if (c.id == _eventCategoryId) {
+        final cor = c.data()['cor'];
+        if (cor is int) {
+          return '#${(cor & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+        }
+      }
+    }
+    return '#E11D48';
+  }
+
+  Future<void> _upsertAgendaLinkedNoticia(String noticiaId) async {
+    final (start, end) = _computeStartEndForSave();
+    final cat = _agendaCategoryKeyFromEvent();
+    final colorHex = _agendaColorHexForCategory();
+    final agendaCol = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('agenda');
+    final existing =
+        await agendaCol.where('noticiaId', isEqualTo: noticiaId).limit(10).get();
+    final payload = <String, dynamic>{
+      'title': _title.text.trim(),
+      'description': _text.text.trim(),
+      'startTime': Timestamp.fromDate(start),
+      'endTime': Timestamp.fromDate(end),
+      'noticiaId': noticiaId,
+      'category': cat,
+      'color': colorHex,
+      'location': _localSalvo(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (existing.docs.isEmpty) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+      await agendaCol.add(payload);
+    } else {
+      for (final d in existing.docs) {
+        await d.reference.set(payload, SetOptions(merge: true));
+      }
+    }
+  }
+
+  Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
+    final q = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('agenda')
+        .where('noticiaId', isEqualTo: noticiaId)
+        .get();
+    final batch = FirebaseFirestore.instance.batch();
+    for (final d in q.docs) {
+      batch.delete(d.reference);
+    }
+    await batch.commit();
+  }
+
+  Future<void> _applyAgendaSyncAfterSave(String postId) async {
+    try {
+      if (_syncAgenda) {
+        await _upsertAgendaLinkedNoticia(postId);
+      } else if (widget.doc != null) {
+        await _removeAgendaLinkedNoticia(postId);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Calendário interno: $e'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() => _loadingCategories = true);
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('event_categories')
+          .get();
+      final list = q.docs.toList()
+        ..sort((a, b) => (a.data()['nome'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+      if (mounted) {
+        setState(() {
+          _categoryDocs = list;
+          _loadingCategories = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingCategories = false);
+    }
+  }
+
+  (DateTime, DateTime) _computeStartEndForSave() {
+    if (_allDay) {
+      final s = DateTime(_date.year, _date.month, _date.day);
+      final eDay = DateTime(
+        _allDayEndDate.year,
+        _allDayEndDate.month,
+        _allDayEndDate.day,
+      );
+      if (eDay.isBefore(s)) {
+        final end =
+            DateTime(s.year, s.month, s.day, 23, 59, 59);
+        return (s, end);
+      }
+      final end = DateTime(eDay.year, eDay.month, eDay.day, 23, 59, 59);
+      return (s, end);
+    }
+    final start = _date;
+    var end = _endDateTime;
+    if (!end.isAfter(start)) {
+      end = start.add(const Duration(hours: 2));
+    }
+    return (start, end);
+  }
+
+  Map<String, dynamic> _schedulingAndCategoryFields({required bool merge}) {
+    final (start, end) = _computeStartEndForSave();
+    final startTs = Timestamp.fromDate(start);
+    final out = <String, dynamic>{
+      'allDay': _allDay,
+      'startAt': startTs,
+      'endAt': Timestamp.fromDate(end),
+      // dataEvento: índice da Agenda (sidebar); alinhado ao início do evento no mural.
+      'dataEvento': startTs,
+      'notifyLeaders': _notifyLeaders,
+      'notifyMembers': _notifyMembers,
+    };
+    if (_eventCategoryId != null && _eventCategoryId!.isNotEmpty) {
+      QueryDocumentSnapshot<Map<String, dynamic>>? cat;
+      for (final c in _categoryDocs) {
+        if (c.id == _eventCategoryId) {
+          cat = c;
+          break;
+        }
+      }
+      if (cat != null) {
+        final d = cat.data();
+        out['eventCategoryId'] = cat.id;
+        out['eventCategoryName'] = (d['nome'] ?? '').toString();
+        final cor = d['cor'];
+        if (cor is int) out['eventCategoryColor'] = cor;
+      }
+    } else if (merge) {
+      out['eventCategoryId'] = FieldValue.delete();
+      out['eventCategoryName'] = FieldValue.delete();
+      out['eventCategoryColor'] = FieldValue.delete();
+    }
+    return out;
   }
 
   @override
@@ -4316,26 +4799,37 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    setState(() => _uploadingVideo = true);
+    setState(() {
+      _uploadingVideo = true;
+      _videoUploadFraction = null;
+    });
     try {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'Comprimindo e enviando vídeo (960p, máx. ${_maxVideoSeconds}s)...'));
+                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 480p). Máx. ${_maxVideoSeconds}s.'));
       final result = await VideoHandlerService.instance.pickCompressAndUpload(
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
         videoSlotIndex: slot,
         maxDuration: const Duration(seconds: 60),
+        onUploadProgress: (p) {
+          if (!mounted) return;
+          setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
+        },
       );
       if (result == null || !mounted) {
-        setState(() => _uploadingVideo = false);
+        setState(() {
+          _uploadingVideo = false;
+          _videoUploadFraction = null;
+        });
         return;
       }
       setState(() {
         _eventVideos
             .add({'videoUrl': result.videoUrl, 'thumbUrl': result.thumbUrl});
         _uploadingVideo = false;
+        _videoUploadFraction = null;
       });
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4343,7 +4837,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 'Vídeo anexado (máx. ${_maxVideoSeconds}s, até $_maxVideosPerEvent por evento).'));
     } catch (e) {
       if (mounted) {
-        setState(() => _uploadingVideo = false);
+        setState(() {
+          _uploadingVideo = false;
+          _videoUploadFraction = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('Erro ao enviar vídeo: $e'),
             backgroundColor: ThemeCleanPremium.error));
@@ -4457,7 +4954,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ? 'Aguarde o envio em andamento…'
                       : videosFull
                           ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                          : 'Até 60 s — compressão 960p rápida',
+                          : 'Até 60 s — MP4 leve envia direto; senão 480p',
                   style: TextStyle(
                     fontSize: 12,
                     color: (_uploadingVideo || videosFull)
@@ -4532,13 +5029,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         'videoUrl': firstVideoUrl,
         'thumbUrl': firstThumbUrl,
         'videos': videosClean,
-        'startAt': Timestamp.fromDate(_date),
         'active': true,
         'likes': widget.doc?.data()?['likes'] ?? <String>[],
         'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
         'updatedAt': FieldValue.serverTimestamp(),
         'generated': false,
         'publicSite': _publicSite,
+        ..._schedulingAndCategoryFields(merge: widget.doc != null),
         ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
       };
       if (firstUrl.isNotEmpty) {
@@ -4574,6 +5071,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           postDocId: postId,
         );
       }
+      await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(widget.doc == null
@@ -4634,7 +5132,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'videoUrl': firstVideoUrl,
               'thumbUrl': firstThumbUrl,
               'videos': vClean,
-              'startAt': Timestamp.fromDate(_date),
               'active': true,
               'updatedAt': FieldValue.serverTimestamp(),
               'createdAt': FieldValue.serverTimestamp(),
@@ -4646,6 +5143,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'likesCount': 0,
               'rsvpCount': 0,
               'commentsCount': 0,
+              ..._schedulingAndCategoryFields(merge: false),
               ..._locationFieldsForSave(allowDeleteSentinels: false),
             };
             if (_validUntil != null)
@@ -4703,11 +5201,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'videoUrl': firstVideoUrl,
               'thumbUrl': firstThumbUrl,
               'videos': vClean2,
-              'startAt': Timestamp.fromDate(_date),
               'updatedAt': FieldValue.serverTimestamp(),
               'generated': false,
               'publicSite': _publicSite,
               'imageVariants': FieldValue.delete(),
+              ..._schedulingAndCategoryFields(merge: true),
               ..._locationFieldsForSave(allowDeleteSentinels: true),
             };
             if (_validUntil != null)
@@ -4725,6 +5223,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               );
             }
           }
+          await _applyAgendaSyncAfterSave(postId);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                 ThemeCleanPremium.successSnackBar('Evento publicado!'));
@@ -4956,24 +5455,56 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                               ],
                             ),
                             child: _uploadingVideo
-                                ? Column(
+                                ? Builder(
+                                    builder: (context) {
+                                      final upFrac = _videoUploadFraction;
+                                      return Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const SizedBox(
-                                        width: 26,
-                                        height: 26,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Enviando…',
-                                        style: TextStyle(
+                                      if (upFrac != null) ...[
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                            child: LinearProgressIndicator(
+                                              value: upFrac,
+                                              minHeight: 5,
+                                              backgroundColor:
+                                                  Colors.grey.shade300,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Enviando ${(upFrac * 100).clamp(0, 100).round()}%',
+                                          style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.grey.shade700),
-                                      ),
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ] else ...[
+                                        const SizedBox(
+                                          width: 26,
+                                          height: 26,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'A preparar…',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ],
                                     ],
+                                      );
+                                    },
                                   )
                                 : Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -5033,6 +5564,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               child: Column(children: [
                 TextField(
                     controller: _title,
+                    autocorrect: true,
+                    enableSuggestions: true,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
                         labelText: 'Título do evento *',
                         prefixIcon: Icon(Icons.title_rounded))),
@@ -5040,10 +5574,322 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 TextField(
                     controller: _text,
                     maxLines: 4,
+                    autocorrect: true,
+                    enableSuggestions: true,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
                         labelText: 'Descrição / legenda',
                         prefixIcon: Icon(Icons.notes_rounded),
                         alignLabelWithHint: true)),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _title.text = modernizeShareText(_title.text);
+                        _text.text = modernizeShareText(_text.text);
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        ThemeCleanPremium.successSnackBar(
+                            'Texto ajustado para compartilhar.'),
+                      );
+                    },
+                    icon: Icon(Icons.auto_fix_high_rounded,
+                        size: 18, color: ThemeCleanPremium.primary),
+                    label: Text(
+                      'Corrigir e modernizar texto',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Icon(Icons.schedule_rounded,
+                        size: 22,
+                        color: ThemeCleanPremium.primary.withOpacity(0.85)),
+                    const SizedBox(width: 8),
+                    Text('Data, horário e categoria',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: Colors.grey.shade800)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (_loadingCategories)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: LinearProgressIndicator(minHeight: 3),
+                  ),
+                DropdownButtonFormField<String?>(
+                  value: _eventCategoryId != null &&
+                          _categoryDocs.any((c) => c.id == _eventCategoryId)
+                      ? _eventCategoryId
+                      : null,
+                  decoration: const InputDecoration(
+                    labelText: 'Categoria',
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Sem categoria'),
+                    ),
+                    ..._categoryDocs.map((c) {
+                      final n = (c.data()['nome'] ?? c.id).toString();
+                      final cor = c.data()['cor'];
+                      final col = cor is int
+                          ? Color(cor)
+                          : ThemeCleanPremium.primary;
+                      return DropdownMenuItem<String?>(
+                        value: c.id,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: col,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(n)),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                  onChanged: (v) => setState(() => _eventCategoryId = v),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      await showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(20)),
+                        ),
+                        builder: (ctx) => _EventCategoriesManagerSheet(
+                          tenantId: widget.tenantId,
+                        ),
+                      );
+                      await _loadCategories();
+                    },
+                    icon: const Icon(Icons.tune_rounded, size: 20),
+                    label: const Text('Gerir categorias'),
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _allDay,
+                  onChanged: (v) => setState(() {
+                    _allDay = v;
+                    if (v) {
+                      _allDayEndDate =
+                          DateTime(_date.year, _date.month, _date.day);
+                    }
+                  }),
+                  title: const Text('Dia inteiro'),
+                  subtitle: Text(
+                    'Marca o(s) dia(s) completo(s) na agenda colorida.',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  secondary: const Icon(Icons.calendar_view_day_rounded),
+                ),
+                if (_allDay) ...[
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _date,
+                            firstDate: DateTime.now()
+                                .subtract(const Duration(days: 365)),
+                            lastDate:
+                                DateTime.now().add(const Duration(days: 730)),
+                            locale: const Locale('pt', 'BR'),
+                          );
+                          if (d != null && mounted) {
+                            setState(() {
+                              _date = DateTime(
+                                  d.year, d.month, d.day, 12, 0);
+                              final startDay =
+                                  DateTime(d.year, d.month, d.day);
+                              if (_allDayEndDate.isBefore(startDay)) {
+                                _allDayEndDate = startDay;
+                              }
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.event_rounded, size: 18),
+                        label: Text(
+                          'Início: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final first =
+                              DateTime(_date.year, _date.month, _date.day);
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _allDayEndDate.isBefore(first)
+                                ? first
+                                : _allDayEndDate,
+                            firstDate: first,
+                            lastDate:
+                                DateTime.now().add(const Duration(days: 730)),
+                            locale: const Locale('pt', 'BR'),
+                          );
+                          if (d != null && mounted) {
+                            setState(() => _allDayEndDate =
+                                DateTime(d.year, d.month, d.day));
+                          }
+                        },
+                        icon: const Icon(Icons.event_repeat_rounded, size: 18),
+                        label: Text(
+                          'Fim: ${_allDayEndDate.day.toString().padLeft(2, '0')}/${_allDayEndDate.month.toString().padLeft(2, '0')}/${_allDayEndDate.year}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ]),
+                ] else ...[
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: _date,
+                        firstDate:
+                            DateTime.now().subtract(const Duration(days: 365)),
+                        lastDate:
+                            DateTime.now().add(const Duration(days: 730)),
+                        locale: const Locale('pt', 'BR'),
+                        helpText: 'Data de início',
+                        cancelText: 'Cancelar',
+                        confirmText: 'OK',
+                      );
+                      if (d != null && mounted) {
+                        final t = await showTimePicker(
+                          context: context,
+                          initialTime: TimeOfDay.fromDateTime(_date),
+                          builder: (context, child) => MediaQuery(
+                            data: MediaQuery.of(context)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                          helpText: 'Horário de início',
+                          cancelText: 'Cancelar',
+                          confirmText: 'OK',
+                        );
+                        if (t != null && mounted) {
+                          setState(() => _date = DateTime(
+                              d.year, d.month, d.day, t.hour, t.minute));
+                        }
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Início',
+                        prefixIcon: Icon(Icons.calendar_month_rounded),
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        '${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year} ${_date.hour.toString().padLeft(2, '0')}:${_date.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: _endDateTime,
+                        firstDate: _date,
+                        lastDate:
+                            DateTime.now().add(const Duration(days: 730)),
+                        locale: const Locale('pt', 'BR'),
+                        helpText: 'Data de término',
+                        cancelText: 'Cancelar',
+                        confirmText: 'OK',
+                      );
+                      if (d != null && mounted) {
+                        final t = await showTimePicker(
+                          context: context,
+                          initialTime: TimeOfDay.fromDateTime(_endDateTime),
+                          builder: (context, child) => MediaQuery(
+                            data: MediaQuery.of(context)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                          helpText: 'Horário de término',
+                          cancelText: 'Cancelar',
+                          confirmText: 'OK',
+                        );
+                        if (t != null && mounted) {
+                          setState(() => _endDateTime = DateTime(
+                              d.year, d.month, d.day, t.hour, t.minute));
+                        }
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Término',
+                        prefixIcon: Icon(Icons.event_available_rounded),
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        '${_endDateTime.day.toString().padLeft(2, '0')}/${_endDateTime.month.toString().padLeft(2, '0')}/${_endDateTime.year} ${_endDateTime.hour.toString().padLeft(2, '0')}:${_endDateTime.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _notifyLeaders,
+                  onChanged: (v) => setState(() => _notifyLeaders = v),
+                  title: const Text('Notificar líderes'),
+                  subtitle: Text(
+                    'Preferência salva no evento; push depende do app e políticas.',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  secondary:
+                      Icon(Icons.admin_panel_settings_rounded,
+                          color: ThemeCleanPremium.primary),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _notifyMembers,
+                  onChanged: (v) => setState(() => _notifyMembers = v),
+                  title: const Text('Notificar membros'),
+                  subtitle: Text(
+                    'Preferência salva no evento; envio em massa pode exigir função no servidor.',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  secondary: Icon(Icons.groups_rounded,
+                      color: ThemeCleanPremium.primary),
+                ),
                 const SizedBox(height: 20),
                 Row(
                   children: [
@@ -5330,47 +6176,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                 ],
                 const SizedBox(height: 14),
-                GestureDetector(
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: _date,
-                      firstDate:
-                          DateTime.now().subtract(const Duration(days: 365)),
-                      lastDate: DateTime.now().add(const Duration(days: 730)),
-                      locale: const Locale('pt', 'BR'),
-                      helpText: 'Selecionar data',
-                      cancelText: 'Cancelar',
-                      confirmText: 'OK',
-                    );
-                    if (d != null && mounted) {
-                      final t = await showTimePicker(
-                        context: context,
-                        initialTime: TimeOfDay.fromDateTime(_date),
-                        builder: (context, child) => MediaQuery(
-                          data: MediaQuery.of(context)
-                              .copyWith(alwaysUse24HourFormat: true),
-                          child: child!,
-                        ),
-                        helpText: 'Selecionar horário',
-                        cancelText: 'Cancelar',
-                        confirmText: 'OK',
-                      );
-                      if (t != null && mounted)
-                        setState(() => _date =
-                            DateTime(d.year, d.month, d.day, t.hour, t.minute));
-                    }
-                  },
-                  child: AbsorbPointer(
-                      child: TextField(
-                          decoration: const InputDecoration(
-                              labelText: 'Data e horário',
-                              prefixIcon: Icon(Icons.calendar_month_rounded)),
-                          controller: TextEditingController(
-                              text:
-                                  '${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year} ${_date.hour.toString().padLeft(2, '0')}:${_date.minute.toString().padLeft(2, '0')}'))),
-                ),
-                const SizedBox(height: 14),
                 Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -5445,6 +6250,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               secondary:
                   Icon(Icons.public_rounded, color: ThemeCleanPremium.primary),
             ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _syncAgenda,
+              onChanged: (v) => setState(() => _syncAgenda = v),
+              title: const Text('Sincronizar com a agenda interna'),
+              subtitle: Text(
+                _syncAgenda
+                    ? 'Cria ou atualiza um item no calendário (Agenda) com a mesma data e hora, vinculado a este post.'
+                    : 'Não espelha no módulo Agenda inteligente.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              secondary: Icon(Icons.edit_calendar_rounded,
+                  color: ThemeCleanPremium.primary),
+            ),
             const SizedBox(height: 24),
             ConstrainedBox(
               constraints: BoxConstraints(minHeight: max(52, minTouch)),
@@ -5481,23 +6300,217 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Período personalizado na lista «Próximos na programação» — digitar e/ou calendário.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _UpcomingCustomPeriodDialog extends StatefulWidget {
+  final DateTime initialStart;
+  final DateTime initialEnd;
+
+  const _UpcomingCustomPeriodDialog({
+    required this.initialStart,
+    required this.initialEnd,
+  });
+
+  @override
+  State<_UpcomingCustomPeriodDialog> createState() =>
+      _UpcomingCustomPeriodDialogState();
+}
+
+class _UpcomingCustomPeriodDialogState extends State<_UpcomingCustomPeriodDialog> {
+  late final TextEditingController _startCtrl;
+  late final TextEditingController _endCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCtrl = TextEditingController(
+      text: formatBrDateDdMmYyyy(widget.initialStart),
+    );
+    _endCtrl = TextEditingController(
+      text: formatBrDateDdMmYyyy(widget.initialEnd),
+    );
+  }
+
+  @override
+  void dispose() {
+    _startCtrl.dispose();
+    _endCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openStartCalendar() async {
+    final now = DateTime.now();
+    final parsed = parseBrDateDdMmYyyy(_startCtrl.text);
+    final initial = parsed ?? widget.initialStart;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 4, 12, 31),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: ColorScheme.light(
+            primary: ThemeCleanPremium.primary,
+            onPrimary: Colors.white,
+            surface: Colors.white,
+            onSurface: ThemeCleanPremium.onSurface,
+          ),
+        ),
+        child: child ?? const SizedBox.shrink(),
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() => _startCtrl.text = formatBrDateDdMmYyyy(picked));
+    }
+  }
+
+  Future<void> _openEndCalendar() async {
+    final now = DateTime.now();
+    final startP = parseBrDateDdMmYyyy(_startCtrl.text);
+    final endP = parseBrDateDdMmYyyy(_endCtrl.text);
+    final initial = endP ?? startP ?? widget.initialEnd;
+    final first = startP ?? DateTime(now.year - 2);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(first) ? first : initial,
+      firstDate: DateTime(first.year, first.month, first.day),
+      lastDate: DateTime(now.year + 4, 12, 31),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: ColorScheme.light(
+            primary: ThemeCleanPremium.primary,
+            onPrimary: Colors.white,
+            surface: Colors.white,
+            onSurface: ThemeCleanPremium.onSurface,
+          ),
+        ),
+        child: child ?? const SizedBox.shrink(),
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() => _endCtrl.text = formatBrDateDdMmYyyy(picked));
+    }
+  }
+
+  void _apply() {
+    final s = parseBrDateDdMmYyyy(_startCtrl.text);
+    final e = parseBrDateDdMmYyyy(_endCtrl.text);
+    if (s == null || e == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Informe data inicial e final válidas (dd/mm/aaaa).'),
+        ),
+      );
+      return;
+    }
+    if (e.isBefore(s)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A data final não pode ser anterior à data inicial.'),
+        ),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      DateTimeRange(
+        start: DateTime(s.year, s.month, s.day),
+        end: DateTime(e.year, e.month, e.day),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      ),
+      title: const Text('Período personalizado'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Digite as datas ou toque nos ícones para abrir primeiro o calendário da data inicial e depois o da final.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _startCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [BrDateDdMmYyyyInputFormatter()],
+              decoration: InputDecoration(
+                labelText: 'Data inicial',
+                hintText: 'dd/mm/aaaa',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: 'Abrir calendário (início)',
+                  icon: Icon(Icons.calendar_today_rounded,
+                      color: ThemeCleanPremium.primary),
+                  onPressed: _openStartCalendar,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _endCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [BrDateDdMmYyyyInputFormatter()],
+              decoration: InputDecoration(
+                labelText: 'Data final',
+                hintText: 'dd/mm/aaaa',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: 'Abrir calendário (fim)',
+                  icon: Icon(Icons.calendar_month_rounded,
+                      color: ThemeCleanPremium.primary),
+                  onPressed: _openEndCalendar,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _apply,
+          child: const Text('Aplicar'),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Aba Eventos Fixos — leitura pontual para evitar INTERNAL ASSERTION FAILED.
 // ═══════════════════════════════════════════════════════════════════════════════
 class _FixosTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> templates;
+  final CollectionReference<Map<String, dynamic>> noticias;
   final bool canWrite;
   final void Function({DocumentSnapshot<Map<String, dynamic>>? doc}) onEdit;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onDelete;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onGenerate;
-  final VoidCallback onSeed;
+  final void Function(DocumentSnapshot<Map<String, dynamic>> doc)
+      onOpenNoticiaEvento;
   const _FixosTab(
       {super.key,
       required this.templates,
+      required this.noticias,
       required this.canWrite,
       required this.onEdit,
       required this.onDelete,
       required this.onGenerate,
-      required this.onSeed});
+      required this.onOpenNoticiaEvento});
 
   @override
   State<_FixosTab> createState() => _FixosTabState();
@@ -5508,24 +6521,419 @@ String _templateImageUrl(Map<String, dynamic> m) => imageUrlFromMap(m);
 
 class _FixosTabState extends State<_FixosTab> {
   static const _wn = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  static const _wdEvento = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _proximosNoticiasFuture;
   String _fixFilterPeriod = 'all';
   bool _selectMode = false;
   final Set<String> _selectedTemplateIds = <String>{};
+
+  /// Filtro da lista “Próximos na programação” (notícias `evento`): 7/15/30/mês/custom.
+  String _upcomingViewFilter = '30';
+  DateTime? _upcomingCustomStart;
+  DateTime? _upcomingCustomEnd;
+  bool _upcomingSelectMode = false;
+  final Set<String> _selectedNoticiaIds = <String>{};
 
   @override
   void initState() {
     super.initState();
     _templatesFuture = _load();
+    _proximosNoticiasFuture = _loadProximosNoticias();
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     await Future.delayed(const Duration(milliseconds: 100));
-    return widget.templates.orderBy('title').get();
+    return widget.templates.get();
   }
 
-  void _refresh() => setState(() => _templatesFuture = _load());
+  static int _timeSortMinutes(String t) {
+    final p = t.split(':');
+    final h = int.tryParse(p.isNotEmpty ? p[0] : '') ?? 0;
+    final m = int.tryParse(p.length > 1 ? p[1] : '') ?? 0;
+    return h * 60 + m;
+  }
+
+  static int _compareTemplates(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) {
+    final ma = a.data();
+    final mb = b.data();
+    final wa =
+        (ma['weekday'] is int) ? (ma['weekday'] as int).clamp(1, 7) : 7;
+    final wb =
+        (mb['weekday'] is int) ? (mb['weekday'] as int).clamp(1, 7) : 7;
+    if (wa != wb) return wa.compareTo(wb);
+    final ta = _timeSortMinutes(ma['time']?.toString() ?? '19:30');
+    final tb = _timeSortMinutes(mb['time']?.toString() ?? '19:30');
+    if (ta != tb) return ta.compareTo(tb);
+    return (ma['title'] ?? '')
+        .toString()
+        .toLowerCase()
+        .compareTo((mb['title'] ?? '').toString().toLowerCase());
+  }
+
+  /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instâncias com data.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadProximosNoticias() async {
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await Future.delayed(const Duration(milliseconds: 80));
+    final now = DateTime.now();
+    final rangeStart = DateTime(now.year, now.month, now.day);
+    final rangeEnd = rangeStart.add(const Duration(days: 400));
+    try {
+      final snap = await widget.noticias
+          .where('type', isEqualTo: 'evento')
+          .where('startAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+          .orderBy('startAt')
+          .limit(250)
+          .get();
+      return snap.docs;
+    } catch (_) {
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await widget.noticias
+            .orderBy('startAt', descending: false)
+            .limit(200)
+            .get();
+      } catch (_) {
+        snap = await widget.noticias.limit(250).get();
+      }
+      final out = snap.docs.where((d) {
+        if ((d.data()['type'] ?? '').toString() != 'evento') return false;
+        final sa = d.data()['startAt'];
+        if (sa is! Timestamp) return false;
+        final dt = sa.toDate();
+        return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+      }).toList();
+      out.sort((a, b) {
+        final ta = a.data()['startAt'];
+        final tb = b.data()['startAt'];
+        if (ta is Timestamp && tb is Timestamp) return ta.compareTo(tb);
+        return 0;
+      });
+      return out;
+    }
+  }
+
+  String _formatNoticiaEventoDataLinha(Map<String, dynamic> data) {
+    final startTs = data['startAt'];
+    if (startTs is! Timestamp) return '';
+    final dt = startTs.toDate();
+    if (data['allDay'] == true) {
+      final w = dt.weekday >= 1 && dt.weekday <= 7
+          ? _wdEvento[dt.weekday]
+          : '';
+      return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} — dia inteiro';
+    }
+    final w =
+        dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
+    return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// Filtro de templates por data de criação/atualização (alinhado a “excluir por período”).
+  DateTime? _templateCreatedOrUpdated(Map<String, dynamic> m) {
+    final c = m['createdAt'];
+    if (c is Timestamp) return c.toDate();
+    final u = m['updatedAt'];
+    if (u is Timestamp) return u.toDate();
+    return null;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredTemplates(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (_fixFilterPeriod == 'all') return docs;
+    return docs.where((d) {
+      final dt = _templateCreatedOrUpdated(d.data());
+      if (dt == null) return false;
+      return _isWithinPeriod(dt, _fixFilterPeriod);
+    }).toList();
+  }
+
+  /// Filtro de eventos da agenda (notícias `type: evento`) por intervalo de [startAt].
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyUpcomingFilter(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    late DateTime start;
+    late DateTime end;
+
+    switch (_upcomingViewFilter) {
+      case '7':
+        start = today;
+        end = today.add(const Duration(days: 7));
+        break;
+      case '15':
+        start = today;
+        end = today.add(const Duration(days: 15));
+        break;
+      case '30':
+        start = today;
+        end = today.add(const Duration(days: 30));
+        break;
+      case 'month':
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+        break;
+      case 'last_month':
+        start = DateTime(now.year, now.month - 1, 1);
+        end = DateTime(now.year, now.month, 0, 23, 59, 59);
+        break;
+      case 'custom':
+        if (_upcomingCustomStart != null && _upcomingCustomEnd != null) {
+          start = DateTime(_upcomingCustomStart!.year,
+              _upcomingCustomStart!.month, _upcomingCustomStart!.day);
+          end = DateTime(_upcomingCustomEnd!.year, _upcomingCustomEnd!.month,
+              _upcomingCustomEnd!.day, 23, 59, 59);
+        } else {
+          start = today;
+          end = today.add(const Duration(days: 30));
+        }
+        break;
+      default:
+        start = today;
+        end = today.add(const Duration(days: 30));
+    }
+
+    return docs.where((d) {
+      final sa = d.data()['startAt'];
+      if (sa is! Timestamp) return false;
+      final dt = sa.toDate();
+      return !dt.isBefore(start) && !dt.isAfter(end);
+    }).toList();
+  }
+
+  Future<void> _pickUpcomingCustomRange() async {
+    final now = DateTime.now();
+    final initialStart = _upcomingCustomStart ?? now;
+    final initialEnd = _upcomingCustomEnd ?? now.add(const Duration(days: 30));
+    final range = await showDialog<DateTimeRange>(
+      context: context,
+      builder: (ctx) => _UpcomingCustomPeriodDialog(
+        initialStart: initialStart,
+        initialEnd: initialEnd,
+      ),
+    );
+    if (range == null || !mounted) return;
+    setState(() {
+      _upcomingViewFilter = 'custom';
+      _upcomingCustomStart = range.start;
+      _upcomingCustomEnd = range.end;
+      _selectedNoticiaIds.clear();
+    });
+  }
+
+  Future<void> _deleteNoticiaRefs(
+    List<DocumentReference<Map<String, dynamic>>> refs) async {
+    if (!widget.canWrite || refs.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Excluir eventos da agenda'),
+        content: Text(
+            'Deseja excluir ${refs.length} evento(s) da agenda/feed? '
+            'Itens gerados por culto fixo podem ser recriados ao gerar de novo.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    const int chunkSize = 400;
+    for (var i = 0; i < refs.length; i += chunkSize) {
+      final batch = FirebaseFirestore.instance.batch();
+      final chunk = refs.sublist(
+          i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
+      for (final r in chunk) {
+        batch.delete(r);
+      }
+      await batch.commit();
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Evento(s) removido(s) da agenda.'));
+      setState(() {
+        _selectedNoticiaIds.clear();
+        _upcomingSelectMode = false;
+        _proximosNoticiasFuture = _loadProximosNoticias();
+      });
+    }
+  }
+
+  Future<void> _deleteSelectedNoticias() async {
+    final refs = _selectedNoticiaIds
+        .map((id) => widget.noticias.doc(id))
+        .toList();
+    await _deleteNoticiaRefs(refs);
+  }
+
+  Future<void> _deleteVisibleNoticias(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> visible) async {
+    if (visible.isEmpty) return;
+    await _deleteNoticiaRefs(visible.map((e) => e.reference).toList());
+  }
+
+  void _toggleUpcomingSelectMode() {
+    setState(() {
+      _upcomingSelectMode = !_upcomingSelectMode;
+      _selectedNoticiaIds.clear();
+    });
+  }
+
+  Widget _buildUpcomingFilterChips() {
+    Widget chip(String id, String label) {
+      final sel = _upcomingViewFilter == id;
+      return FilterChip(
+        label: Text(label),
+        selected: sel,
+        onSelected: (_) => setState(() {
+          _upcomingViewFilter = id;
+          _selectedNoticiaIds.clear();
+        }),
+        selectedColor: ThemeCleanPremium.primary.withValues(alpha: 0.2),
+        checkmarkColor: ThemeCleanPremium.primary,
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+          color: sel ? ThemeCleanPremium.primary : Colors.grey.shade800,
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              chip('7', '7 dias'),
+              chip('15', '15 dias'),
+              chip('30', '30 dias'),
+              chip('month', 'Este mês'),
+              chip('last_month', 'Mês anterior'),
+              ActionChip(
+                avatar: Icon(Icons.date_range_rounded,
+                    size: 18, color: ThemeCleanPremium.primary),
+                label: const Text('Período…'),
+                onPressed: _pickUpcomingCustomRange,
+              ),
+            ],
+          ),
+          if (_upcomingViewFilter == 'custom' &&
+              _upcomingCustomStart != null &&
+              _upcomingCustomEnd != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Período: ${_upcomingCustomStart!.day.toString().padLeft(2, '0')}/${_upcomingCustomStart!.month.toString().padLeft(2, '0')}/${_upcomingCustomStart!.year} '
+              '– ${_upcomingCustomEnd!.day.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.month.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.year}',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpcomingActionRow(
+    int visibleCount,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> visible,
+  ) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          OutlinedButton.icon(
+            onPressed: _toggleUpcomingSelectMode,
+            icon: Icon(
+              _upcomingSelectMode
+                  ? Icons.close_rounded
+                  : Icons.check_box_outline_blank_rounded,
+              size: 18,
+            ),
+            label: Text(
+                _upcomingSelectMode ? 'Cancelar seleção' : 'Selecionar'),
+          ),
+          if (_upcomingSelectMode && visible.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  if (_selectedNoticiaIds.length == visible.length) {
+                    _selectedNoticiaIds.clear();
+                  } else {
+                    _selectedNoticiaIds
+                      ..clear()
+                      ..addAll(visible.map((e) => e.id));
+                  }
+                });
+              },
+              child: Text(
+                _selectedNoticiaIds.length == visible.length
+                    ? 'Desmarcar todos'
+                    : 'Selecionar todos',
+              ),
+            ),
+          if (_upcomingSelectMode && _selectedNoticiaIds.isNotEmpty)
+            TextButton(
+              onPressed: () =>
+                  setState(() => _selectedNoticiaIds.clear()),
+              child: const Text('Limpar seleção'),
+            ),
+          if (_upcomingSelectMode)
+            FilledButton.icon(
+              onPressed: _selectedNoticiaIds.isEmpty
+                  ? null
+                  : _deleteSelectedNoticias,
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              label: Text('Excluir (${_selectedNoticiaIds.length})'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error,
+                foregroundColor: Colors.white,
+              ),
+            )
+          else
+            FilledButton.icon(
+              onPressed:
+                  visible.isEmpty ? null : () => _deleteVisibleNoticias(visible),
+              icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+              label: Text('Excluir visíveis ($visibleCount)'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error,
+                foregroundColor: Colors.white,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _refresh() => setState(() {
+        _templatesFuture = _load();
+        _proximosNoticiasFuture = _loadProximosNoticias();
+      });
 
   void _toggleFixSelectMode() {
     setState(() {
@@ -5617,17 +7025,192 @@ class _FixosTabState extends State<_FixosTab> {
     final docs = snap.docs;
     final toDelete = <DocumentReference<Map<String, dynamic>>>[];
     for (final d in docs) {
-      final raw = d.data()['createdAt'];
-      if (raw is Timestamp) {
-        final dt = raw.toDate();
-        if (_isWithinPeriod(dt, _fixFilterPeriod)) toDelete.add(d.reference);
+      if (_fixFilterPeriod == 'all') {
+        toDelete.add(d.reference);
+      } else {
+        final dt = _templateCreatedOrUpdated(d.data());
+        if (dt != null && _isWithinPeriod(dt, _fixFilterPeriod)) {
+          toDelete.add(d.reference);
+        }
       }
     }
     await _deleteTemplateRefs(toDelete);
   }
 
+  /// Cartão de evento da agenda (coleção notícias) — mesma interação da lista sem templates.
+  Widget _buildUpcomingNoticiaCard(
+      QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final m = d.data();
+    final title = (m['title'] ?? 'Evento').toString().trim();
+    final linha = _formatNoticiaEventoDataLinha(m);
+    final ehFeed =
+        !noticiaEventoEhRotinaOuGeradoAutomatico(m, d.id);
+    final rotulo = ehFeed ? 'Feed' : 'Agenda / gerado';
+    final sel = _selectedNoticiaIds.contains(d.id);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: _upcomingSelectMode && sel
+            ? Border.all(color: ThemeCleanPremium.primary, width: 1.5)
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          onTap: () {
+            if (_upcomingSelectMode && widget.canWrite) {
+              setState(() {
+                if (sel) {
+                  _selectedNoticiaIds.remove(d.id);
+                } else {
+                  _selectedNoticiaIds.add(d.id);
+                }
+              });
+            } else {
+              widget.onOpenNoticiaEvento(d);
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_upcomingSelectMode && widget.canWrite)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8, top: 10),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Checkbox(
+                        value: sel,
+                        onChanged: (_) {
+                          setState(() {
+                            if (sel) {
+                              _selectedNoticiaIds.remove(d.id);
+                            } else {
+                              _selectedNoticiaIds.add(d.id);
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.event_rounded,
+                    color: ThemeCleanPremium.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title.isEmpty ? 'Evento' : title,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+                      if (linha.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          linha,
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          rotulo,
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_upcomingSelectMode)
+                  Icon(Icons.chevron_right_rounded,
+                      color: Colors.grey.shade400),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botão no estilo do módulo Património (+ Novo Bem).
+  Widget _buildNovoEventoFixoPremiumButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => widget.onEdit(),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            gradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.primary,
+                ThemeCleanPremium.primaryLight,
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+              ...ThemeCleanPremium.softUiCardShadow,
+            ],
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                SizedBox(width: 8),
+                Text(
+                  'Novo evento fixo',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _openEventoFixoDetail(
       BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) {
+    final dm = doc.data() ?? {};
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => _EventoFixoDetailPage(
         doc: doc,
@@ -5640,10 +7223,12 @@ class _FixosTabState extends State<_FixosTab> {
           Navigator.of(context).pop();
           widget.onDelete(doc);
         },
-        onGenerate: () {
-          Navigator.of(context).pop();
-          widget.onGenerate(doc);
-        },
+        onGenerate: eventTemplateIncludeInAgenda(dm)
+            ? () {
+                Navigator.of(context).pop();
+                widget.onGenerate(doc);
+              }
+            : null,
       ),
     ));
   }
@@ -5663,41 +7248,154 @@ class _FixosTabState extends State<_FixosTab> {
         if (snap.connectionState != ConnectionState.done || !snap.hasData) {
           return const ChurchPanelLoadingBody();
         }
-        final docs = snap.data!.docs;
+        final docs = snap.data!.docs.toList()
+          ..sort(_compareTemplates);
         if (docs.isEmpty) {
-          return ThemeCleanPremium.premiumEmptyState(
-            icon: Icons.event_repeat_rounded,
-            title: 'Nenhum evento fixo',
-            subtitle:
-                'Defina cultos semanais e horários recorrentes. Você pode começar pelos modelos sugeridos.',
-            action: widget.canWrite
-                ? Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: widget.onSeed,
-                        icon: const Icon(Icons.auto_awesome_rounded),
-                        label: const Text('Criar padrões'),
+          return FutureBuilder<
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            future: _proximosNoticiasFuture,
+            builder: (context, proxSnap) {
+              if (proxSnap.hasError) {
+                return ChurchPanelErrorBody(
+                  title: 'Não foi possível carregar agenda e feed',
+                  error: proxSnap.error,
+                  onRetry: () => setState(() {
+                    _proximosNoticiasFuture = _loadProximosNoticias();
+                  }),
+                );
+              }
+              if (proxSnap.connectionState != ConnectionState.done ||
+                  !proxSnap.hasData) {
+                return const ChurchPanelLoadingBody();
+              }
+              final upcoming = proxSnap.data!;
+              final vis = _applyUpcomingFilter(upcoming);
+              return RefreshIndicator(
+                onRefresh: () async {
+                  setState(() {
+                    _templatesFuture = _load();
+                    _proximosNoticiasFuture = _loadProximosNoticias();
+                  });
+                  await _proximosNoticiasFuture;
+                },
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Icon(Icons.event_repeat_rounded,
+                                size: 56,
+                                color: ThemeCleanPremium.primary
+                                    .withOpacity(0.85)),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Nenhum modelo de culto fixo',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.grey.shade900),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Enquanto isso, veja abaixo os próximos eventos da agenda, do feed e instâncias geradas — ou crie cada culto fixo com «Novo evento fixo».',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.35,
+                                  color: Colors.grey.shade600),
+                            ),
+                            if (widget.canWrite) ...[
+                              const SizedBox(height: 16),
+                              Center(child: _buildNovoEventoFixoPremiumButton()),
+                            ],
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                upcoming.isEmpty
+                                    ? 'Programação'
+                                    : vis.length == upcoming.length
+                                        ? 'Próximos na programação (${upcoming.length})'
+                                        : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey.shade800),
+                              ),
+                            ),
+                            if (upcoming.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              _buildUpcomingFilterChips(),
+                              if (widget.canWrite) ...[
+                                const SizedBox(height: 10),
+                                _buildUpcomingActionRow(vis.length, vis),
+                              ],
+                            ],
+                          ],
+                        ),
                       ),
-                      FilledButton.icon(
-                        onPressed: () => widget.onEdit(),
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('Novo'),
+                    ),
+                    if (upcoming.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 88),
+                          child: Center(
+                            child: Text(
+                              'Nenhum evento com data nos próximos ~400 dias. Use a aba Feed ou Agenda para publicar eventos.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 13, color: Colors.grey.shade600),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (vis.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 88),
+                          child: Center(
+                            child: Text(
+                              'Nenhum evento no período selecionado. Ajuste o filtro (7, 15, 30 dias, este mês, mês anterior ou período personalizado).',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 13, color: Colors.grey.shade600),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, i) {
+                              return _buildUpcomingNoticiaCard(vis[i]);
+                            },
+                            childCount: vis.length,
+                          ),
+                        ),
                       ),
-                    ],
-                  )
-                : null,
+                  ],
+                ),
+              );
+            },
           );
         }
+        final filtered = _filteredTemplates(docs);
         return RefreshIndicator(
           onRefresh: () async {
             _refresh();
           },
           child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
-              itemCount: docs.length + 1,
+              itemCount: filtered.length + 2,
               itemBuilder: (context, i) {
                 if (i == 0)
                   return Padding(
@@ -5705,27 +7403,32 @@ class _FixosTabState extends State<_FixosTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Row(children: [
-                          Text(
-                            '${docs.length} evento(s) fixo(s)',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600),
-                          ),
-                          const Spacer(),
-                          TextButton.icon(
-                              onPressed: widget.onSeed,
-                              icon: const Icon(Icons.auto_awesome_rounded,
-                                  size: 16),
-                              label: const Text('Padrões',
-                                  style: TextStyle(fontSize: 12))),
-                          TextButton.icon(
-                              onPressed: () => widget.onEdit(),
-                              icon: const Icon(Icons.add_rounded, size: 16),
-                              label: const Text('Novo',
-                                  style: TextStyle(fontSize: 12))),
-                        ]),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _fixFilterPeriod == 'all'
+                                    ? '${docs.length} evento(s) fixo(s)'
+                                    : '${filtered.length} de ${docs.length} evento(s) fixo(s) (filtro)',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (widget.canWrite)
+                              _buildNovoEventoFixoPremiumButton(),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'O período filtra a lista abaixo e define quais modelos entram em “Excluir por período”. Em “Todos”, esse botão exclui todos os modelos.',
+                          style: TextStyle(
+                              fontSize: 11,
+                              height: 1.25,
+                              color: Colors.grey.shade600),
+                        ),
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 8,
@@ -5750,6 +7453,40 @@ class _FixosTabState extends State<_FixosTab> {
                                 foregroundColor: ThemeCleanPremium.primary,
                               ),
                             ),
+                            if (_selectMode && filtered.isNotEmpty)
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    final ids =
+                                        filtered.map((e) => e.id).toList();
+                                    final allSel = ids.every(
+                                        _selectedTemplateIds.contains);
+                                    if (allSel) {
+                                      for (final id in ids) {
+                                        _selectedTemplateIds.remove(id);
+                                      }
+                                    } else {
+                                      for (final id in ids) {
+                                        _selectedTemplateIds.add(id);
+                                      }
+                                    }
+                                  });
+                                },
+                                child: Text(
+                                  filtered.isNotEmpty &&
+                                          filtered.every((e) =>
+                                              _selectedTemplateIds
+                                                  .contains(e.id))
+                                      ? 'Desmarcar visíveis'
+                                      : 'Selecionar visíveis',
+                                ),
+                              ),
+                            if (_selectMode && _selectedTemplateIds.isNotEmpty)
+                              TextButton(
+                                onPressed: () => setState(
+                                    () => _selectedTemplateIds.clear()),
+                                child: const Text('Limpar seleção'),
+                              ),
                             SizedBox(
                               width: 160,
                               child: DropdownButtonFormField<String>(
@@ -5770,8 +7507,10 @@ class _FixosTabState extends State<_FixosTab> {
                                   DropdownMenuItem(
                                       value: 'year', child: Text('Este ano')),
                                 ],
-                                onChanged: (v) => setState(
-                                    () => _fixFilterPeriod = v ?? 'all'),
+                                onChanged: (v) => setState(() {
+                                  _fixFilterPeriod = v ?? 'all';
+                                  _selectedTemplateIds.clear();
+                                }),
                               ),
                             ),
                             if (_selectMode)
@@ -5810,8 +7549,67 @@ class _FixosTabState extends State<_FixosTab> {
                       ],
                     ),
                   );
+                if (i == filtered.length + 1) {
+                  return FutureBuilder<
+                      List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+                    future: _proximosNoticiasFuture,
+                    builder: (context, proxSnap) {
+                      if (proxSnap.connectionState != ConnectionState.done ||
+                          !proxSnap.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final upcoming = proxSnap.data!;
+                      final vis = _applyUpcomingFilter(upcoming);
+                      if (upcoming.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Divider(height: 28),
+                            Text(
+                              vis.length == upcoming.length
+                                  ? 'Próximos na programação (${upcoming.length})'
+                                  : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade800),
+                            ),
+                            const SizedBox(height: 10),
+                            _buildUpcomingFilterChips(),
+                            if (widget.canWrite) ...[
+                              const SizedBox(height: 8),
+                              _buildUpcomingActionRow(vis.length, vis),
+                            ],
+                            const SizedBox(height: 8),
+                            if (vis.isEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  'Nenhum evento no período selecionado.',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 13),
+                                ),
+                              )
+                            else
+                              ...vis.map(_buildUpcomingNoticiaCard).toList(),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                }
                 final idx = i - 1;
-                final d = docs[idx];
+                final d = filtered[idx];
                 final m = d.data();
                 final selected = _selectedTemplateIds.contains(d.id);
                 final title = (m['title'] ?? '').toString();
@@ -5997,14 +7795,16 @@ class _FixosTabState extends State<_FixosTab> {
                                                     style: TextStyle(
                                                         color: Colors.red))
                                               ])),
-                                        const PopupMenuItem(
-                                            value: 'gerar',
-                                            child: Row(children: [
-                                              Icon(Icons.auto_awesome_rounded,
-                                                  size: 20),
-                                              SizedBox(width: 10),
-                                              Text('Gerar no feed')
-                                            ])),
+                                        if (eventTemplateIncludeInAgenda(
+                                            d.data()))
+                                          const PopupMenuItem(
+                                              value: 'gerar',
+                                              child: Row(children: [
+                                                Icon(Icons.auto_awesome_rounded,
+                                                    size: 20),
+                                                SizedBox(width: 10),
+                                                Text('Gerar no feed')
+                                              ])),
                                       ],
                                     ),
                                 ])))));
@@ -6021,13 +7821,13 @@ class _EventoFixoDetailPage extends StatelessWidget {
   final bool canEdit;
   final VoidCallback onEdit;
   final VoidCallback? onDelete;
-  final VoidCallback onGenerate;
+  final VoidCallback? onGenerate;
   const _EventoFixoDetailPage(
       {required this.doc,
       required this.canEdit,
       required this.onEdit,
       this.onDelete,
-      required this.onGenerate});
+      this.onGenerate});
 
   static const _wn = [
     '',
@@ -6132,6 +7932,14 @@ class _EventoFixoDetailPage extends StatelessWidget {
                       ],
                       const SizedBox(height: 12),
                       _detailRow(Icons.repeat_rounded, 'Recorrência', recLabel),
+                      const SizedBox(height: 12),
+                      _detailRow(
+                        Icons.event_available_rounded,
+                        'Agenda e programação pública',
+                        eventTemplateIncludeInAgenda(m)
+                            ? 'Sim — datas na agenda e «Gerar no feed»'
+                            : 'Não — só no resumo de horários do site',
+                      ),
                     ]),
               ),
               const SizedBox(height: 24),
@@ -6164,13 +7972,18 @@ class _EventoFixoDetailPage extends StatelessWidget {
                         style: OutlinedButton.styleFrom(
                             foregroundColor: ThemeCleanPremium.error))),
               ],
-              const SizedBox(height: 12),
-              SizedBox(
+              if (onGenerate != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                      onPressed: () => onGenerate(),
-                      icon: const Icon(Icons.auto_awesome_rounded, size: 20),
-                      label: const Text('Gerar no feed'))),
+                    onPressed: () => onGenerate!(),
+                    icon:
+                        const Icon(Icons.auto_awesome_rounded, size: 20),
+                    label: const Text('Gerar no feed'),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -6211,6 +8024,7 @@ class _DashboardEventosTab extends StatefulWidget {
 class _DashboardEventosTabState extends State<_DashboardEventosTab> {
   static const int _maxEvents = 20;
   List<_EventStats> _stats = [];
+  List<PieChartSectionData> _categoryPieSections = [];
   bool _loading = true;
   String? _error;
 
@@ -6232,18 +8046,54 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         // Fallback sem orderBy (evita exigir índice no Firestore).
         snap = await widget.noticias.limit(150).get();
       }
-      var eventDocs = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
-      if (eventDocs.length > 1 &&
+      var allSorted = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
+      if (allSorted.length > 1 &&
           snap.docs.isNotEmpty &&
           snap.docs.first.data().containsKey('startAt')) {
-        eventDocs.sort((a, b) {
+        allSorted.sort((a, b) {
           final ta = a.data()['startAt'];
           final tb = b.data()['startAt'];
           if (ta is Timestamp && tb is Timestamp) return tb.compareTo(ta);
           return 0;
         });
       }
-      eventDocs = eventDocs.take(_maxEvents).toList();
+      final catMap = <String, int>{};
+      for (final d in allSorted) {
+        final data = d.data();
+        final raw = (data['eventCategoryName'] ?? '').toString().trim();
+        final key = raw.isEmpty ? 'Sem categoria' : raw;
+        catMap[key] = (catMap[key] ?? 0) + 1;
+      }
+      final pieColors = <Color>[
+        ThemeCleanPremium.primary,
+        ThemeCleanPremium.success,
+        Colors.orange.shade600,
+        Colors.purple.shade400,
+        const Color(0xFF0EA5E9),
+        Colors.pink.shade400,
+        Colors.teal.shade600,
+        Colors.brown.shade400,
+      ];
+      final pieSections = <PieChartSectionData>[];
+      var ci = 0;
+      for (final e in catMap.entries) {
+        final raw = e.key;
+        final short = raw.length > 16 ? '${raw.substring(0, 16)}…' : raw;
+        pieSections.add(PieChartSectionData(
+          value: e.value.toDouble(),
+          title: '$short\n${e.value}',
+          color: pieColors[ci % pieColors.length],
+          radius: 46,
+          titleStyle: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            height: 1.15,
+          ),
+        ));
+        ci++;
+      }
+      var eventDocs = allSorted.take(_maxEvents).toList();
       final list = <_EventStats>[];
       for (final d in eventDocs) {
         final data = d.data();
@@ -6266,6 +8116,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       if (mounted)
         setState(() {
           _stats = list;
+          _categoryPieSections = pieSections;
           _loading = false;
         });
     } catch (e) {
@@ -6311,6 +8162,26 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 80),
         children: [
           const SizedBox(height: 8),
+          if (_categoryPieSections.isNotEmpty) ...[
+            _ChartCard(
+              title: 'Eventos por categoria (amostra dos últimos registros)',
+              icon: Icons.pie_chart_outline_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: null,
+              child: SizedBox(
+                height: 240,
+                child: PieChart(
+                  PieChartData(
+                    sections: _categoryPieSections,
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 44,
+                    startDegreeOffset: -90,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceLg),
+          ],
           _ChartCard(
             title: 'Confirmações de presença (RSVP) por evento',
             icon: Icons.check_circle_rounded,

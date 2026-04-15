@@ -12,9 +12,76 @@ import 'package:gestao_yahweh/ui/widgets/marketing_web_lazy_logo_image.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Markdown mínimo (sem dependência): `**negrito**`, `*itálico*` ou `_itálico_`.
+List<InlineSpan> lightMarkdownInlineSpans(String input, TextStyle base) {
+  final italicMerge = base.merge(const TextStyle(fontStyle: FontStyle.italic));
+  final boldMerge = base.merge(const TextStyle(fontWeight: FontWeight.w700));
+  final boldItalicMerge = base.merge(
+    const TextStyle(fontWeight: FontWeight.w700, fontStyle: FontStyle.italic),
+  );
+
+  List<InlineSpan> italicSpans(String t, TextStyle normal, TextStyle italic) {
+    final spans = <InlineSpan>[];
+    final re = RegExp(r'\*([^*]+)\*|_([^_]+)_');
+    var start = 0;
+    for (final m in re.allMatches(t)) {
+      if (m.start > start) {
+        spans.add(TextSpan(text: t.substring(start, m.start), style: normal));
+      }
+      final content = m.group(1) ?? m.group(2) ?? '';
+      spans.add(TextSpan(text: content, style: italic));
+      start = m.end;
+    }
+    if (start < t.length) {
+      spans.add(TextSpan(text: t.substring(start), style: normal));
+    }
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: t, style: normal));
+    }
+    return spans;
+  }
+
+  final out = <InlineSpan>[];
+  final reBold = RegExp(r'\*\*([\s\S]+?)\*\*');
+  var start = 0;
+  for (final m in reBold.allMatches(input)) {
+    if (m.start > start) {
+      out.addAll(italicSpans(input.substring(start, m.start), base, italicMerge));
+    }
+    final inner = m.group(1)!;
+    out.addAll(italicSpans(inner, boldMerge, boldItalicMerge));
+    start = m.end;
+  }
+  if (start < input.length) {
+    out.addAll(italicSpans(input.substring(start), base, italicMerge));
+  }
+  if (out.isEmpty) {
+    out.addAll(italicSpans(input, base, italicMerge));
+  }
+  return out;
+}
+
+/// Texto padrão do subtítulo da galeria de igrejas (site divulgação).
+const String kMarketingGaleriaIgrejasSubtitle =
+    'Galeria das Igrejas que já utilizam o sistema Gestão YAHWEH.';
+
+/// Mesma mensagem com negritos para o bloco “hero” acima dos cards.
+const String kMarketingGaleriaIgrejasSubtitleMd =
+    'Galeria das Igrejas que **já utilizam** o sistema **Gestão YAHWEH**.';
+
 /// Destaque público: igrejas que usam o Gestão YAHWEH (`app_public/marketing_clientes`).
 class MarketingClientesShowcaseSection extends StatefulWidget {
-  const MarketingClientesShowcaseSection({super.key});
+  /// Quando false, oculta o título/subtítulo (ex.: landing com «acesso rápido» acima).
+  final bool showSectionHeading;
+
+  /// Com [showSectionHeading] false, ainda exibe o bloco de subtítulo premium da galeria (recomendado no site).
+  final bool showPremiumGaleriaLead;
+
+  const MarketingClientesShowcaseSection({
+    super.key,
+    this.showSectionHeading = true,
+    this.showPremiumGaleriaLead = true,
+  });
 
   /// Quantas igrejas mostrar antes de «Veja mais».
   static const int publicPreviewCount = 3;
@@ -330,6 +397,7 @@ class _MarketingClientesShowcaseSectionState
         if (items.isEmpty) return const SizedBox.shrink();
 
         final title = (data?['sectionTitle'] as String?)?.trim();
+        final sectionSubtitle = (data?['sectionSubtitle'] as String?)?.trim();
         final w = MediaQuery.sizeOf(context).width;
         final crossAxisCount = w >= 1100
             ? 3
@@ -346,14 +414,20 @@ class _MarketingClientesShowcaseSectionState
         return Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _SectionHeading(
-              title: title?.isNotEmpty == true
-                  ? title!
-                  : 'Igrejas que confiam no Gestão YAHWEH',
-              subtitle:
-                  'Conheça algumas igrejas que já utilizam o sistema no dia a dia.',
-            ),
-            const SizedBox(height: ThemeCleanPremium.spaceLg),
+            if (widget.showSectionHeading) ...[
+              _SectionHeading(
+                title: title?.isNotEmpty == true
+                    ? title!
+                    : 'Igrejas que confiam no Gestão YAHWEH',
+                subtitle: sectionSubtitle?.isNotEmpty == true
+                    ? sectionSubtitle!
+                    : kMarketingGaleriaIgrejasSubtitle,
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceLg),
+            ] else if (widget.showPremiumGaleriaLead) ...[
+              const _PremiumGaleriaIgrejasLead(),
+              const SizedBox(height: ThemeCleanPremium.spaceLg),
+            ],
             Align(
               alignment: Alignment.center,
               child: GridView.builder(
@@ -416,32 +490,189 @@ class _SectionHeading extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.inter(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: ThemeCleanPremium.onSurface,
-            letterSpacing: -0.5,
-            height: 1.2,
-          ),
-        ),
-        const SizedBox(height: 10),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              color: ThemeCleanPremium.onSurfaceVariant,
-              height: 1.45,
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
+        Text.rich(
+          TextSpan(
+            children: lightMarkdownInlineSpans(
+              title,
+              GoogleFonts.inter(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: ThemeCleanPremium.onSurface,
+                letterSpacing: -0.5,
+                height: 1.2,
+              ),
             ),
           ),
+          textAlign: TextAlign.center,
         ),
+        const SizedBox(height: 10),
+        _PremiumGaleriaSubtitleText(text: subtitle),
       ],
+    );
+  }
+}
+
+/// Subtítulo “super premium” sob o título da seção (respeita texto do CMS / Firestore).
+class _PremiumGaleriaSubtitleText extends StatelessWidget {
+  const _PremiumGaleriaSubtitleText({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 720),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              primary.withValues(alpha: 0.08),
+              const Color(0xFFF8FAFC),
+              const Color(0xFFEFF6FF).withValues(alpha: 0.85),
+            ],
+          ),
+          border: Border.all(
+            color: primary.withValues(alpha: 0.22),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withValues(alpha: 0.10),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
+              spreadRadius: -4,
+            ),
+          ],
+        ),
+        child: Text.rich(
+          TextSpan(
+            children: lightMarkdownInlineSpans(
+              text,
+              GoogleFonts.inter(
+                color: const Color(0xFF1E3A8A),
+                height: 1.5,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+/// Bloco de destaque acima da galeria quando o título principal está oculto (site divulgação).
+class _PremiumGaleriaIgrejasLead extends StatelessWidget {
+  const _PremiumGaleriaIgrejasLead();
+
+  @override
+  Widget build(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    final primary = ThemeCleanPremium.primary;
+    final isNarrow = w < 560;
+    final fs = isNarrow ? 16.0 : 18.0;
+
+    final iconBox = Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            primary,
+            Color.lerp(primary, const Color(0xFF1E3A8A), 0.35)!,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: const Icon(Icons.collections_rounded, color: Colors.white, size: 26),
+    );
+
+    final richText = Text.rich(
+      TextSpan(
+        children: lightMarkdownInlineSpans(
+          kMarketingGaleriaIgrejasSubtitleMd,
+          GoogleFonts.inter(
+            fontSize: fs,
+            fontWeight: FontWeight.w600,
+            height: 1.45,
+            letterSpacing: -0.35,
+            color: const Color(0xFF0F172A),
+          ),
+        ),
+      ),
+      textAlign: isNarrow ? TextAlign.center : TextAlign.start,
+    );
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 920),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: w < 400 ? 14 : 26,
+          vertical: 22,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              const Color(0xFFF0F9FF).withValues(alpha: 0.95),
+              primary.withValues(alpha: 0.06),
+            ],
+          ),
+          border: Border.all(
+            color: const Color(0xFFBFDBFE).withValues(alpha: 0.9),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withValues(alpha: 0.14),
+              blurRadius: 32,
+              offset: const Offset(0, 14),
+              spreadRadius: -8,
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: isNarrow
+            ? Column(
+                children: [
+                  iconBox,
+                  const SizedBox(height: 16),
+                  richText,
+                ],
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  iconBox,
+                  const SizedBox(width: 20),
+                  Expanded(child: richText),
+                ],
+              ),
+      ),
     );
   }
 }
@@ -682,6 +913,7 @@ class _ClienteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nome = _str('nomeIgreja');
+    final corpo = _str('corpo');
     final pastor = _str('pastor');
     final gestor = _str('gestor');
     final loc = _str('localizacao');
@@ -746,6 +978,24 @@ class _ClienteCard extends StatelessWidget {
                         color: ThemeCleanPremium.onSurface,
                       ),
                     ),
+                    if (corpo.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text.rich(
+                        TextSpan(
+                          children: lightMarkdownInlineSpans(
+                            corpo,
+                            GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              height: 1.4,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                     if (pastor.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       _InfoRow(

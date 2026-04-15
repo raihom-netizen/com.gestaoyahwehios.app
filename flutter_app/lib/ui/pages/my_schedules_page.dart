@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
@@ -8,11 +9,678 @@ import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
+/// Agrupa documentos de escala por dia civil (ordenados por horário dentro do dia).
+Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedulesByDay(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+) {
+  final map = <DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+  for (final d in docs) {
+    DateTime? dt;
+    try {
+      dt = (d.data()['date'] as Timestamp).toDate();
+    } catch (_) {}
+    if (dt == null) continue;
+    final day = DateTime(dt.year, dt.month, dt.day);
+    map.putIfAbsent(day, () => []).add(d);
+  }
+  for (final list in map.values) {
+    list.sort((a, b) {
+      final ta = (a.data()['time'] ?? '').toString();
+      final tb = (b.data()['time'] ?? '').toString();
+      return ta.compareTo(tb);
+    });
+  }
+  return map;
+}
+
+String _capitalizeFirstLetter(String s) {
+  final t = s.trim();
+  if (t.isEmpty) return s;
+  return '${t[0].toUpperCase()}${t.substring(1)}';
+}
+
+String _statusLabelPt(String raw) {
+  switch (raw) {
+    case 'confirmado':
+      return 'Confirmado';
+    case 'indisponivel':
+      return 'Indisponível';
+    case 'falta_nao_justificada':
+      return 'Falta';
+    default:
+      return raw.isEmpty ? 'Pendente' : raw;
+  }
+}
+
+Color _statusColor(String raw) {
+  switch (raw) {
+    case 'confirmado':
+      return ThemeCleanPremium.success;
+    case 'indisponivel':
+      return ThemeCleanPremium.error;
+    case 'falta_nao_justificada':
+      return const Color(0xFFB91C1C);
+    default:
+      return Colors.grey.shade600;
+  }
+}
+
+/// Pré-visualização premium: uma ou várias frentes (mesmo dia).
+Future<void> showEscalaPremiumPreviewSheet(
+  BuildContext context, {
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  required DateTime now,
+  required String cpfDigits,
+  required List<Color> deptColors,
+  required Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm,
+  Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap,
+  DateTime? dayContext,
+}) async {
+  if (docs.isEmpty) return;
+  final primary = ThemeCleanPremium.primary;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    useRootNavigator: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final bottomInset = MediaQuery.paddingOf(ctx).bottom;
+      final maxH = MediaQuery.sizeOf(ctx).height * 0.92;
+      return Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxH),
+            child: Material(
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(20, 10, 12, 16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          primary,
+                          primary.withValues(alpha: 0.85),
+                          const Color(0xFF0F172A).withValues(alpha: 0.92),
+                        ],
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              icon: const Icon(Icons.close_rounded, color: Colors.white),
+                              tooltip: 'Fechar',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(Icons.groups_rounded, color: Colors.white, size: 26),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    docs.length > 1
+                                        ? 'Escalas do dia'
+                                        : 'Detalhe da escala',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withValues(alpha: 0.88),
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    dayContext != null
+                                        ? _capitalizeFirstLetter(
+                                            DateFormat("EEEE, d 'de' MMMM yyyy", 'pt_BR').format(dayContext),
+                                          )
+                                        : (() {
+                                            DateTime? dt;
+                                            try {
+                                              dt = (docs.first.data()['date'] as Timestamp).toDate();
+                                            } catch (_) {}
+                                            return dt != null
+                                                ? _capitalizeFirstLetter(
+                                                    DateFormat("EEEE, d 'de' MMMM yyyy", 'pt_BR').format(dt),
+                                                  )
+                                                : 'Data';
+                                          })(),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var di = 0; di < docs.length; di++) ...[
+                            if (di > 0) const SizedBox(height: 18),
+                            _EscalaPreviewSection(
+                              doc: docs[di],
+                              now: now,
+                              cpfDigits: cpfDigits,
+                              deptColors: deptColors,
+                              onConfirm: onConfirm,
+                              onRequestSwap: onRequestSwap,
+                              showDividerHeader: docs.length > 1,
+                              indexLabel: docs.length > 1 ? '${di + 1}/${docs.length}' : null,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _EscalaPreviewSection extends StatelessWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final DateTime now;
+  final String cpfDigits;
+  final List<Color> deptColors;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap;
+  final bool showDividerHeader;
+  final String? indexLabel;
+
+  const _EscalaPreviewSection({
+    required this.doc,
+    required this.now,
+    required this.cpfDigits,
+    required this.deptColors,
+    required this.onConfirm,
+    this.onRequestSwap,
+    this.showDividerHeader = false,
+    this.indexLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final m = doc.data();
+    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    final title = (m['title'] ?? 'Escala').toString();
+    final dept = (m['departmentName'] ?? '').toString();
+    final time = (m['time'] ?? '').toString();
+    final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
+    final deptId = (m['departmentId'] ?? '').toString();
+    final color = deptColors[deptId.hashCode.abs() % deptColors.length];
+    DateTime? dt;
+    try {
+      dt = (m['date'] as Timestamp).toDate();
+    } catch (_) {}
+    final isFuture = dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
+
+    String confForCpf(String c) {
+      var s = (confirmations[c] ?? '').toString();
+      if (s.isEmpty) {
+        for (final k in confirmations.keys) {
+          if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
+              c.replaceAll(RegExp(r'[^0-9]'), '')) {
+            s = (confirmations[k] ?? '').toString();
+            break;
+          }
+        }
+      }
+      return s;
+    }
+
+    String myStatus = confForCpf(cpfDigits);
+    final unavailabilityReasons = (m['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
+    String? myReason;
+    for (final k in unavailabilityReasons.keys) {
+      if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
+          cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
+        final v = unavailabilityReasons[k];
+        if (v is Map && v['reason'] != null) myReason = v['reason'].toString();
+        break;
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0C0F172A), blurRadius: 16, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showDividerHeader)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: Row(
+                children: [
+                  Expanded(child: Divider(color: Colors.grey.shade300, height: 1)),
+                  if (indexLabel != null) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        indexLabel!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                    Expanded(child: Divider(color: Colors.grey.shade300, height: 1)),
+                  ],
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                    ),
+                    if (time.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [color.withValues(alpha: 0.95), color.withValues(alpha: 0.65)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.35),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.schedule_rounded, color: Colors.white, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              time,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                if (dt != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.event_rounded, size: 18, color: Colors.grey.shade600),
+                      const SizedBox(width: 6),
+                      Text(
+                        DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (dept.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: color.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.church_rounded, size: 18, color: color),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            dept,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Text(
+                  'Equipe (${cpfs.isEmpty ? 0 : cpfs.length})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey.shade700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (cpfs.isEmpty)
+                  Text(
+                    'Nenhum membro listado nesta frente.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  )
+                else
+                  ...List.generate(cpfs.length, (i) {
+                    final c = cpfs[i];
+                    final n = i < names.length && names[i].trim().isNotEmpty
+                        ? names[i].trim()
+                        : 'Membro ${i + 1}';
+                    final conf = confForCpf(c);
+                    final stColor = _statusColor(conf.isEmpty ? '' : conf);
+                    final initials = n.isNotEmpty
+                        ? n.trim().split(RegExp(r'\s+')).where((x) => x.isNotEmpty).take(2).map((x) => x[0]).join()
+                        : '?';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: stColor.withValues(alpha: 0.15),
+                              child: Text(
+                                initials.isNotEmpty ? initials.toUpperCase() : '?',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: stColor,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    n,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  if (c.length == 11)
+                                    Text(
+                                      '***.${c.substring(6, 9)}-**',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: stColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                _statusLabelPt(conf),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: stColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                if (isFuture && cpfDigits.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ConfirmButton(
+                          label: 'Confirmar',
+                          icon: Icons.check_circle_rounded,
+                          color: ThemeCleanPremium.success,
+                          active: myStatus == 'confirmado',
+                          onTap: () async {
+                            await onConfirm(doc, myStatus == 'confirmado' ? '' : 'confirmado');
+                            if (context.mounted) Navigator.pop(context);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _ConfirmButton(
+                          label: 'Indisponível',
+                          icon: Icons.cancel_rounded,
+                          color: ThemeCleanPremium.error,
+                          active: myStatus == 'indisponivel',
+                          onTap: () async {
+                            if (myStatus == 'indisponivel') {
+                              await onConfirm(doc, '');
+                              if (context.mounted) Navigator.pop(context);
+                              return;
+                            }
+                            final reason = await showDialog<String>(
+                              context: context,
+                              builder: (ctx) {
+                                final ctrl = TextEditingController();
+                                return AlertDialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                                  ),
+                                  title: const Row(
+                                    children: [
+                                      Icon(Icons.cancel_rounded, color: ThemeCleanPremium.error),
+                                      SizedBox(width: 10),
+                                      Text('Indisponível', style: TextStyle(fontWeight: FontWeight.w800)),
+                                    ],
+                                  ),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      const Text(
+                                        'Informe o motivo (o gestor verá esta justificativa):',
+                                        style: TextStyle(fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: ctrl,
+                                        maxLines: 3,
+                                        decoration: InputDecoration(
+                                          hintText: 'Ex.: viagem, saúde, compromisso...',
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                                          ),
+                                          filled: true,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                                      style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+                                      child: const Text('Enviar'),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                            if (reason != null) {
+                              await onConfirm(
+                                doc,
+                                'indisponivel',
+                                reason.isNotEmpty ? reason : null,
+                              );
+                              if (context.mounted) Navigator.pop(context);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (onRequestSwap != null) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await onRequestSwap!(doc);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                        label: const Text('Solicitar troca'),
+                      ),
+                    ),
+                  ],
+                ] else if (myStatus.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: (myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error)
+                          .withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          myStatus == 'confirmado'
+                              ? 'Você confirmou presença'
+                              : 'Você marcou indisponível',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: myStatus == 'confirmado'
+                                ? ThemeCleanPremium.success
+                                : ThemeCleanPremium.error,
+                          ),
+                        ),
+                        if (myStatus == 'indisponivel' && (myReason ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Motivo: ${myReason!.trim()}',
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class MySchedulesPage extends StatefulWidget {
   final String tenantId;
   final String cpf;
   final String role;
-  const MySchedulesPage({super.key, required this.tenantId, required this.cpf, required this.role});
+  /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartão do módulo.
+  final bool embeddedInShell;
+  const MySchedulesPage({
+    super.key,
+    required this.tenantId,
+    required this.cpf,
+    required this.role,
+    this.embeddedInShell = false,
+  });
 
   @override
   State<MySchedulesPage> createState() => _MySchedulesPageState();
@@ -27,7 +695,8 @@ const _periodFilterKeys = [
 ];
 
 class _MySchedulesPageState extends State<MySchedulesPage> {
-  late final String _cpfDigits;
+  /// Pode ser preenchido a partir da ficha em `membros` se o perfil vier sem CPF.
+  String _cpfDigits = '';
   late Future<String> _effectiveTidFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _allDocs = [];
   bool _loading = true;
@@ -36,6 +705,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime? _periodStart;
   DateTime? _periodEnd;
+  /// Vista em grade (cartões) vs lista por dia.
+  bool _useGridView = false;
 
   static const _deptColors = [
     Color(0xFF3B82F6), Color(0xFF16A34A), Color(0xFFE11D48), Color(0xFFF59E0B),
@@ -47,7 +718,85 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
     _effectiveTidFuture = TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-    _load();
+    _bootstrap();
+  }
+
+  /// Extrai 11 dígitos do documento de membro (campos CPF/cpf ou ID = CPF).
+  String? _cpfDigitsFromMemberDoc(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    for (final k in ['CPF', 'cpf', 'documento']) {
+      final raw = (data[k] ?? '').toString();
+      final d = raw.replaceAll(RegExp(r'[^0-9]'), '');
+      if (d.length == 11) return d;
+    }
+    final idDigits = doc.id.replaceAll(RegExp(r'[^0-9]'), '');
+    if (idDigits.length == 11) return idDigits;
+    return null;
+  }
+
+  /// Quando o login não traz CPF no perfil, busca na ficha `membros` (authUid / e-mail).
+  Future<void> _hydrateCpfFromMemberRecord() async {
+    if (_cpfDigits.length == 11) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    late final String tid;
+    try {
+      tid = await _effectiveTidFuture;
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    final col = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('membros');
+
+    Future<bool> applyFirst(QuerySnapshot<Map<String, dynamic>> snap) async {
+      if (snap.docs.isEmpty) return false;
+      final extracted = _cpfDigitsFromMemberDoc(snap.docs.first);
+      if (extracted != null && mounted) {
+        setState(() => _cpfDigits = extracted);
+        return true;
+      }
+      return false;
+    }
+
+    try {
+      if (await applyFirst(
+          await col.where('authUid', isEqualTo: user.uid).limit(1).get())) {
+        return;
+      }
+    } catch (_) {}
+    try {
+      if (await applyFirst(
+          await col.where('firebaseUid', isEqualTo: user.uid).limit(1).get())) {
+        return;
+      }
+    } catch (_) {}
+
+    final email = user.email?.trim();
+    if (email == null || email.isEmpty) return;
+    final variants = <String>{email, email.toLowerCase()};
+    for (final v in variants) {
+      try {
+        if (await applyFirst(
+            await col.where('email', isEqualTo: v).limit(1).get())) {
+          return;
+        }
+      } catch (_) {}
+      try {
+        if (await applyFirst(
+            await col.where('EMAIL', isEqualTo: v).limit(1).get())) {
+          return;
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _bootstrap() async {
+    await _hydrateCpfFromMemberRecord();
+    if (mounted) await _load();
   }
 
   bool get _isAdmin {
@@ -75,8 +824,12 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
             ? (await schedules.where('departmentId', whereIn: deptIds).get()).docs
             : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-        for (final d in byMember) map[d.id] = d;
-        for (final d in byDept) map.putIfAbsent(d.id, () => d);
+        for (final d in byMember) {
+          map[d.id] = d;
+        }
+        for (final d in byDept) {
+          map.putIfAbsent(d.id, () => d);
+        }
         docs = map.values.toList()..sort((a, b) {
           final da = (a.data()['date'] as Timestamp?)?.toDate();
           final db = (b.data()['date'] as Timestamp?)?.toDate();
@@ -503,19 +1256,21 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   }
 
   Future<void> _openAvailabilityCalendar() async {
+    await _hydrateCpfFromMemberRecord();
+    if (!mounted) return;
     if (_cpfDigits.length != 11) {
-      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
-                'Informe o CPF no cadastro para usar o calendário de indisponibilidade.')),
+                'Não foi possível identificar seu CPF (cadastro de membro). '
+                'Confira se a ficha tem CPF ou está vinculada ao seu login (e-mail).')),
       );
       return;
     }
     final tid = await _effectiveTidFuture;
-    if (!context.mounted) return;
+    if (!mounted) return;
     final mid = await _resolveMemberDocId(tid);
-    if (!context.mounted) return;
+    if (!mounted) return;
     if (mid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -532,27 +1287,59 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ),
       ),
     );
-    if (!context.mounted) return;
+    if (!mounted) return;
     await _load();
   }
 
   Future<void> _confirmPresence(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) async {
     if (_cpfDigits.isEmpty) return;
     final key = _confirmationKey(doc.data() ?? {});
-    final updates = <String, dynamic>{};
+    // Não usar 'confirmations.$key': pontos no CPF formatado viram segmentos aninhados no update().
+    final updates = <Object, Object?>{};
     if (status.isEmpty) {
-      updates['confirmations.$key'] = FieldValue.delete();
-      updates['unavailabilityReasons.$key'] = FieldValue.delete();
+      updates[FieldPath(['confirmations', key])] = FieldValue.delete();
+      updates[FieldPath(['unavailabilityReasons', key])] = FieldValue.delete();
     } else {
-      updates['confirmations.$key'] = status;
+      updates[FieldPath(['confirmations', key])] = status;
       if (status == 'indisponivel' && (motivo ?? '').trim().isNotEmpty) {
-        updates['unavailabilityReasons.$key'] = {'reason': motivo!.trim(), 'at': FieldValue.serverTimestamp()};
+        updates[FieldPath(['unavailabilityReasons', key])] = {
+          'reason': motivo!.trim(),
+          'at': FieldValue.serverTimestamp(),
+        };
       } else if (status != 'indisponivel') {
-        updates['unavailabilityReasons.$key'] = FieldValue.delete();
+        updates[FieldPath(['unavailabilityReasons', key])] = FieldValue.delete();
       }
     }
-    await doc.reference.update(updates);
-    await _load();
+    try {
+      await doc.reference.update(updates);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status.isEmpty
+                ? 'Confirmação atualizada.'
+                : (status == 'confirmado'
+                    ? 'Presença confirmada.'
+                    : 'Indisponibilidade registrada.'),
+          ),
+        ),
+      );
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Não foi possível salvar. ${e.message ?? e.code}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao salvar: $e')),
+      );
+    }
   }
 
   /// Um único eixo de rolagem (web + app): filtros, resumo e lista sobem/descem juntos.
@@ -589,6 +1376,41 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: ThemeCleanPremium.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Lista por dia',
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                style: IconButton.styleFrom(
+                  backgroundColor: !_useGridView
+                      ? ThemeCleanPremium.primary.withValues(alpha: 0.14)
+                      : null,
+                ),
+                onPressed: () => setState(() => _useGridView = false),
+                icon: Icon(
+                  Icons.view_list_rounded,
+                  size: 20,
+                  color: !_useGridView ? ThemeCleanPremium.primary : Colors.grey,
+                ),
+              ),
+            ),
+            Tooltip(
+              message: 'Grade de cartões',
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                style: IconButton.styleFrom(
+                  backgroundColor: _useGridView
+                      ? ThemeCleanPremium.primary.withValues(alpha: 0.14)
+                      : null,
+                ),
+                onPressed: () => setState(() => _useGridView = true),
+                icon: Icon(
+                  Icons.grid_view_rounded,
+                  size: 20,
+                  color: _useGridView ? ThemeCleanPremium.primary : Colors.grey,
+                ),
               ),
             ),
           ],
@@ -634,7 +1456,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ),
       );
     } else {
-      children.addAll(_buildScheduleListWithDateHeaders(sorted, now));
+      if (_useGridView) {
+        children.add(_buildScheduleGrid(sorted, now));
+      } else {
+        children.addAll(_buildScheduleListWithDateHeaders(sorted, now));
+      }
     }
     return children;
   }
@@ -660,6 +1486,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ],
       ),
       body: SafeArea(
+        top: !widget.embeddedInShell,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : Column(
@@ -669,7 +1496,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     Padding(
                       padding: EdgeInsets.fromLTRB(
                         pagePad.left,
-                        ThemeCleanPremium.spaceSm,
+                        widget.embeddedInShell ? 4 : ThemeCleanPremium.spaceSm,
                         pagePad.right,
                         ThemeCleanPremium.spaceSm,
                       ),
@@ -785,8 +1612,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     DateTime now,
   ) {
-    Navigator.push(
-      context,
+    Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (_) => _MinhaEscalaListaPage(
           titulo: titulo,
@@ -1196,75 +2022,296 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       onRequestSwap: _cpfDigits.length == 11
           ? () => _abrirPedidoTroca(context, doc)
           : null,
+      onOpenPreview: () => showEscalaPremiumPreviewSheet(
+        context,
+        docs: [doc],
+        now: now,
+        cpfDigits: _cpfDigits,
+        deptColors: _deptColors,
+        onConfirm: _confirmPresence,
+        onRequestSwap: _cpfDigits.length == 11
+            ? (d) => _abrirPedidoTroca(context, d)
+            : null,
+      ),
     );
   }
 
-  /// Agrupa a lista por dia com título legível (pt_BR).
+  /// Grade compacta: toque abre o mesmo preview premium da lista.
+  Widget _buildScheduleGrid(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    DateTime now,
+  ) {
+    final w = MediaQuery.sizeOf(context).width;
+    final crossAxis = w >= 900 ? 3 : (w >= 560 ? 2 : 1);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxis,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: crossAxis >= 3 ? 1.42 : (crossAxis == 2 ? 1.28 : 1.12),
+      ),
+      itemCount: docs.length,
+      itemBuilder: (context, i) {
+        final doc = docs[i];
+        final m = doc.data();
+        final title = (m['title'] ?? 'Escala').toString();
+        final dept = (m['departmentName'] ?? '').toString();
+        final time = (m['time'] ?? '').toString();
+        final deptId = (m['departmentId'] ?? '').toString();
+        final color = _deptColors[deptId.hashCode.abs() % _deptColors.length];
+        DateTime? dt;
+        try {
+          dt = (m['date'] as Timestamp).toDate();
+        } catch (_) {}
+        final dateLine = dt != null
+            ? DateFormat("dd/MM/yyyy · EEE", 'pt_BR').format(dt)
+            : '';
+        return Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          child: InkWell(
+            onTap: () => showEscalaPremiumPreviewSheet(
+              context,
+              docs: [doc],
+              now: now,
+              cpfDigits: _cpfDigits,
+              deptColors: _deptColors,
+              onConfirm: _confirmPresence,
+              onRequestSwap: _cpfDigits.length == 11
+                  ? (d) => _abrirPedidoTroca(context, d)
+                  : null,
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (dateLine.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              dateLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                          if (dept.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              dept,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: color,
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          Row(
+                            children: [
+                              if (time.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: color.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.schedule_rounded, size: 14, color: color),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        time,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: color,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              const Spacer(),
+                              Icon(
+                                Icons.open_in_new_rounded,
+                                size: 16,
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Agrupa a lista por dia com título legível (pt_BR); toque no dia abre preview com todas as frentes.
   List<Widget> _buildScheduleListWithDateHeaders(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     DateTime now,
   ) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final out = <Widget>[];
-    DateTime? lastDay;
+    final withDate = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final withoutDate = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (final doc in docs) {
       DateTime? dt;
       try {
         dt = (doc.data()['date'] as Timestamp).toDate();
       } catch (_) {}
       if (dt != null) {
-        final dayOnly = DateTime(dt.year, dt.month, dt.day);
-        if (lastDay == null || dayOnly != lastDay) {
-          lastDay = dayOnly;
-          final raw =
-              DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(dayOnly);
-          final cap = raw.isEmpty
-              ? ''
-              : '${raw[0].toUpperCase()}${raw.substring(1)}';
-          final sameCalendarDay = dayOnly.year == now.year &&
-              dayOnly.month == now.month &&
-              dayOnly.day == now.day;
-          out.add(
-            Padding(
-              padding: EdgeInsets.only(
-                top: out.isEmpty ? 0 : 20,
-                bottom: 10,
+        withDate.add(doc);
+      } else {
+        withoutDate.add(doc);
+      }
+    }
+    final grouped = _groupSchedulesByDay(withDate);
+    final dayKeys = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
+    for (final dayOnly in dayKeys) {
+      final dayDocs = grouped[dayOnly]!;
+      final raw = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(dayOnly);
+      final cap = _capitalizeFirstLetter(raw);
+      final sameCalendarDay = dayOnly.year == now.year &&
+          dayOnly.month == now.month &&
+          dayOnly.day == now.day;
+      out.add(
+        Padding(
+          padding: EdgeInsets.only(
+            top: out.isEmpty ? 0 : 20,
+            bottom: 10,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: () => showEscalaPremiumPreviewSheet(
+                context,
+                docs: dayDocs,
+                now: now,
+                cpfDigits: _cpfDigits,
+                deptColors: _deptColors,
+                onConfirm: _confirmPresence,
+                onRequestSwap: _cpfDigits.length == 11
+                    ? (d) => _abrirPedidoTroca(context, d)
+                    : null,
+                dayContext: dayOnly,
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      cap,
-                      style: GoogleFonts.poppins(
-                        fontSize: isMobile ? 15 : 16,
-                        fontWeight: FontWeight.w800,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.groups_2_rounded,
+                      size: 22,
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
                     ),
-                  ),
-                  if (sameCalendarDay)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        'Hoje',
+                        cap,
                         style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: ThemeCleanPremium.primary,
+                          fontSize: isMobile ? 15 : 16,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.onSurface,
                         ),
                       ),
                     ),
-                ],
+                    if (sameCalendarDay)
+                      Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Hoje',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                        ),
+                      ),
+                    Text(
+                      'Pré-visualizar',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.7),
+                    ),
+                  ],
+                ),
               ),
             ),
-          );
-        }
+          ),
+        ),
+      );
+      for (final doc in dayDocs) {
+        out.add(_buildEventCard(doc, now));
       }
+    }
+    for (final doc in withoutDate) {
       out.add(_buildEventCard(doc, now));
     }
     return out;
@@ -1279,6 +2326,7 @@ class _ScaleEventCard extends StatelessWidget {
   final List<Color> deptColors;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
   final VoidCallback? onRequestSwap;
+  final VoidCallback onOpenPreview;
 
   const _ScaleEventCard({
     required this.doc,
@@ -1286,6 +2334,7 @@ class _ScaleEventCard extends StatelessWidget {
     required this.cpfDigits,
     required this.deptColors,
     required this.onConfirm,
+    required this.onOpenPreview,
     this.onRequestSwap,
   });
 
@@ -1324,7 +2373,13 @@ class _ScaleEventCard extends StatelessWidget {
     final isFuture = dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
     final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
 
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      child: InkWell(
+        onTap: onOpenPreview,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1347,7 +2402,7 @@ class _ScaleEventCard extends StatelessWidget {
                     if (time.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                         child: Text(time, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
                       ),
                   ]),
@@ -1384,7 +2439,7 @@ class _ScaleEventCard extends StatelessWidget {
                           message: '$n (${conf.isEmpty ? 'pendente' : conf})',
                           child: CircleAvatar(
                             radius: 14,
-                            backgroundColor: bg.withOpacity(0.2),
+                            backgroundColor: bg.withValues(alpha: 0.2),
                             child: Text(n.isNotEmpty ? n[0].toUpperCase() : '?', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: bg)),
                           ),
                         );
@@ -1479,7 +2534,7 @@ class _ScaleEventCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: (myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error).withOpacity(0.08),
+                        color: (myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error).withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
@@ -1502,6 +2557,8 @@ class _ScaleEventCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }
@@ -1620,31 +2677,63 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     SizedBox(height: i == 0 ? 8 : 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.primary.withOpacity(0.1),
+                    Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      child: InkWell(
+                        onTap: () => showEscalaPremiumPreviewSheet(
+                          context,
+                          docs: events,
+                          now: widget.now,
+                          cpfDigits: widget.cpfDigits,
+                          deptColors: _deptColors,
+                          onConfirm: _confirm,
+                          onRequestSwap: widget.onRequestSwap,
+                          dayContext: date,
+                        ),
                         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                        border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.2)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.calendar_today_rounded, size: 20, color: ThemeCleanPremium.primary),
-                          const SizedBox(width: 10),
-                          Text(
-                            label,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                            border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.2)),
                           ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: ThemeCleanPremium.primary.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text('${events.length} frente(s)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: ThemeCleanPremium.primary)),
+                          child: Row(
+                            children: [
+                              Icon(Icons.calendar_today_rounded, size: 20, color: ThemeCleanPremium.primary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  '${events.length} frente(s)',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.visibility_rounded,
+                                size: 20,
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1654,6 +2743,15 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                       cpfDigits: widget.cpfDigits,
                       deptColors: _deptColors,
                       onConfirm: _confirm,
+                      onOpenPreview: () => showEscalaPremiumPreviewSheet(
+                        context,
+                        docs: [doc],
+                        now: widget.now,
+                        cpfDigits: widget.cpfDigits,
+                        deptColors: _deptColors,
+                        onConfirm: _confirm,
+                        onRequestSwap: widget.onRequestSwap,
+                      ),
                       onRequestSwap: widget.onRequestSwap != null
                           ? () => widget.onRequestSwap!(doc)
                           : null,
@@ -1730,9 +2828,9 @@ class _ConfirmButton extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: active ? color : color.withOpacity(0.06),
+            color: active ? color : color.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: active ? color : color.withOpacity(0.3)),
+            border: Border.all(color: active ? color : color.withValues(alpha: 0.3)),
           ),
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             Icon(icon, size: 16, color: active ? Colors.white : color),

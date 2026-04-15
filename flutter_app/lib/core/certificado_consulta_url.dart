@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 /// plena permanece com a secretaria da igreja.
 ///
 /// **Protocolo UUID** ([protocolValidationUrl]): aponta para `/#/validar?cid=` e resolve
-/// `certificados_protocol_index` → `igrejas/{tenantId}/certificados_emitidos/{id}` (legado: raiz).
+/// `igrejas/{tenantId}/certificados_protocol_index` (collection group) → `certificados_emitidos` (legado na raiz).
 /// O QR no PDF é gerado em vetor pelo pacote `pdf`
 /// ([BarcodeWidget]), sem ficheiro de imagem no Storage.
 class CertificadoConsultaUrl {

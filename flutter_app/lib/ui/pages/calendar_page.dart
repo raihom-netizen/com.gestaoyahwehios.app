@@ -8,18 +8,31 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/core/event_template_schedule.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
+import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+/// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
+int _compareAgendaDayKeysAscending(String a, String b) {
+  try {
+    return DateTime.parse(a).compareTo(DateTime.parse(b));
+  } catch (_) {
+    return a.compareTo(b);
+  }
+}
 
 class CalendarPage extends StatefulWidget {
   final String tenantId;
@@ -51,6 +64,12 @@ class _CalendarPageState extends State<CalendarPage>
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _agendaSub;
   /// `null` = todas as categorias.
   String? _filterCategoryKey;
+  /// `null` = todas as origens; senão `agenda`, `noticias` ou `cultos`.
+  String? _filterSourceKey;
+  /// Só posts do feed com [publicSite] (visíveis no site público).
+  bool _filterPublicSiteOnly = false;
+  /// Dias (yyyy-MM-dd) com pelo menos uma escala de ministério — alerta no calendário.
+  Set<String> _escalaDayKeys = {};
   bool _loading = false;
   String? _loadError;
   late final AnimationController _slideCtrl;
@@ -58,6 +77,10 @@ class _CalendarPageState extends State<CalendarPage>
   DateTime? _periodStart;
   DateTime? _periodEnd;
   List<String> _customTipos = [];
+  /// Categorias personalizadas (`event_categories`) — mesma coleção do Mural de eventos.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventCategoryDocs = [];
+
+  static const String _customCategoryPrefix = 'ec_';
 
   /// Chaves persistidas no Firestore (`agenda.category`).
   static const Map<String, String> _categoryLabels = {
@@ -97,6 +120,36 @@ class _CalendarPageState extends State<CalendarPage>
     Color(0xFF0D9488),
   ];
 
+  /// Paleta extra (mostrada recolhida para poupar espaço).
+  static const List<Color> _agendaPaletteExtraColors = [
+    Color(0xFFBE123C),
+    Color(0xFF7E22CE),
+    Color(0xFF0EA5E9),
+    Color(0xFF65A30D),
+    Color(0xFFDC2626),
+    Color(0xFF4F46E5),
+    Color(0xFF14B8A6),
+    Color(0xFFEAB308),
+    Color(0xFF92400E),
+    Color(0xFF1E3A8A),
+    Color(0xFF831843),
+    Color(0xFF14532D),
+    Color(0xFF9D174D),
+    Color(0xFF312E81),
+    Color(0xFF713F12),
+    Color(0xFF164E63),
+    Color(0xFFEC4899),
+    Color(0xFF22C55E),
+    Color(0xFF78716C),
+    Color(0xFFEF4444),
+  ];
+
+  static String _categoryKeyForEventCategoryId(String id) =>
+      '$_customCategoryPrefix$id';
+
+  static bool _isCustomCategoryKey(String k) =>
+      k.startsWith(_customCategoryPrefix);
+
   static List<Color> _markerColorsForEvents(List<_CalendarEvent> events) {
     final out = <Color>[];
     for (final e in events.take(8)) {
@@ -113,10 +166,180 @@ class _CalendarPageState extends State<CalendarPage>
   static const Color _singleEventCellGreen = Color(0xFF16A34A);
   static const Color _singleEventCellText = Colors.white;
 
-  static bool _lightBackground(Color c) => c.computeLuminance() > 0.72;
+  /// Acima disto usamos texto escuro no dia; evita “sumir” o número em amarelos/verdes claros.
+  static bool _lightBackground(Color c) => c.computeLuminance() > 0.58;
 
   bool _sameVisibleMonth(DateTime day, DateTime focusedDay) =>
       day.year == focusedDay.year && day.month == focusedDay.month;
+
+  static const Color _kNationalHolidayDot = Color(0xFFE11D48);
+
+  BoxDecoration _plainDayDecoration({
+    required bool isToday,
+    required bool isSelected,
+    required bool isOutside,
+    required bool isWeekend,
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    final radius = ControleTotalCalendarTheme.cellRadius;
+    if (isSelected) {
+      return BoxDecoration(
+        color: primary,
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      );
+    }
+    if (isToday) {
+      return BoxDecoration(
+        color: primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: primary, width: 2.2),
+      );
+    }
+    if (isOutside) {
+      return BoxDecoration(
+        color: const Color(0xFFF1F5F9).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+      );
+    }
+    if (isWeekend) {
+      return BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: const Color(0xFFCBD5E1), width: 1.05),
+      );
+    }
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: const Color(0xFF94A3B8), width: 1.1),
+    );
+  }
+
+  TextStyle _plainDayTextStyle({
+    required bool isToday,
+    required bool isSelected,
+    required bool isOutside,
+    required bool isWeekend,
+    required double cellFs,
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    if (isSelected) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w800,
+        color: Colors.white,
+      );
+    }
+    if (isToday) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w800,
+        color: primary,
+      );
+    }
+    if (isOutside) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w500,
+        color: Colors.grey.shade400,
+      );
+    }
+    if (isWeekend) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey.shade600,
+      );
+    }
+    return GoogleFonts.poppins(
+      fontSize: cellFs,
+      fontWeight: FontWeight.w600,
+      color: ThemeCleanPremium.onSurface,
+    );
+  }
+
+  /// Dia sem eventos da agenda: mantém o visual do [TableCalendar] + ponto vermelho em feriado nacional.
+  Widget _buildPlainDayCell(
+    BuildContext context,
+    DateTime day,
+    DateTime focusedDay, {
+    required bool isToday,
+    required bool isSelected,
+    required bool isOutside,
+  }) {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final cellFs = isMobile ? 17.0 : 15.5;
+    final isWeekend =
+        day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
+    final isHoliday = HolidayHelper.holidayNameOn(day) != null;
+    const outerPad = EdgeInsets.all(1.85);
+    final radius = ControleTotalCalendarTheme.cellRadius;
+
+    return Padding(
+      padding: outerPad,
+      child: DecoratedBox(
+        decoration: _plainDayDecoration(
+          isToday: isToday,
+          isSelected: isSelected,
+          isOutside: isOutside,
+          isWeekend: isWeekend,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius - 0.5),
+          child: Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Center(
+                child: Text(
+                  day.day.toString(),
+                  style: _plainDayTextStyle(
+                    isToday: isToday,
+                    isSelected: isSelected,
+                    isOutside: isOutside,
+                    isWeekend: isWeekend,
+                    cellFs: cellFs,
+                  ),
+                ),
+              ),
+              if (isHoliday)
+                Positioned(
+                  bottom: 5,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: _kNationalHolidayDot,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 2,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   /// Fundo da célula quando há eventos; `null` deixa o tema padrão do [TableCalendar].
   Widget? _buildCalendarDayWithEvents(
@@ -128,7 +351,17 @@ class _CalendarPageState extends State<CalendarPage>
     required bool isOutside,
   }) {
     final events = _eventsByDay[_dayKey(day)] ?? [];
-    if (events.isEmpty) return null;
+    final isNationalHoliday = HolidayHelper.holidayNameOn(day) != null;
+    if (events.isEmpty) {
+      return _buildPlainDayCell(
+        context,
+        day,
+        focusedDay,
+        isToday: isToday,
+        isSelected: isSelected,
+        isOutside: isOutside,
+      );
+    }
 
     final isMobile = ThemeCleanPremium.isMobile(context);
     final cellFs = isMobile ? 17.0 : 15.5;
@@ -196,7 +429,13 @@ class _CalendarPageState extends State<CalendarPage>
     final bool light1 = n == 1 && _lightBackground(fill1.withValues(alpha: 0.92));
     final List<Shadow>? dayNumShadows = n == 1
         ? (light1
-            ? null
+            ? [
+                Shadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: 3,
+                  offset: const Offset(0, 1.2),
+                ),
+              ]
             : const [
                 Shadow(
                   color: Color(0x66000000),
@@ -206,9 +445,9 @@ class _CalendarPageState extends State<CalendarPage>
               ])
         : const [
             Shadow(
-              color: Color(0x88000000),
-              blurRadius: 4,
-              offset: Offset(0, 1),
+              color: Color(0xA0000000),
+              blurRadius: 5,
+              offset: Offset(0, 1.5),
             ),
           ];
     final TextStyle numStyle = GoogleFonts.poppins(
@@ -269,53 +508,100 @@ class _CalendarPageState extends State<CalendarPage>
           )
         : null;
 
-    return Stack(
-      alignment: Alignment.center,
-      clipBehavior: Clip.none,
-      children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(ControleTotalCalendarTheme.cellRadius),
-              border: border,
-              boxShadow: cellShadow,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(ControleTotalCalendarTheme.cellRadius - 1),
-              child: stripes,
-            ),
-          ),
+    final radius = ControleTotalCalendarTheme.cellRadius;
+    // Mesma margem visual do TableCalendar com células padrão — evita overflow para células vizinhas.
+    const outerPad = EdgeInsets.all(1.85);
+
+    return Padding(
+      padding: outerPad,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          border: border,
+          boxShadow: cellShadow,
         ),
-        Text(dayNum, style: numStyle),
-        if (markerDots != null)
-          Positioned(
-            left: 2,
-            right: 2,
-            bottom: 3,
-            child: Center(child: markerDots),
-          ),
-        if (extra > 0)
-          Positioned(
-            right: 2,
-            top: 1,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.68),
-                borderRadius: BorderRadius.circular(5),
-              ),
-              child: Text(
-                '+$extra',
-                style: GoogleFonts.poppins(
-                  fontSize: isMobile ? 9.5 : 8.5,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  height: 1,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius - 0.5),
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    Positioned.fill(child: stripes),
+                    Center(child: Text(dayNum, style: numStyle)),
+                    if (extra > 0)
+                      Positioned(
+                        right: 3,
+                        top: 2,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            '+$extra',
+                            style: GoogleFonts.poppins(
+                              fontSize: isMobile ? 9.5 : 8.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (isNationalHoliday)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: _kNationalHolidayDot,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.2),
+                                blurRadius: 2,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
+              if (markerDots != null)
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: markerDots,
+                  ),
+                ),
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 
@@ -345,6 +631,74 @@ class _CalendarPageState extends State<CalendarPage>
     final b = int.tryParse(h.substring(4, 6), radix: 16);
     if (r == null || g == null || b == null) return null;
     return Color(0xFF000000 | (r << 16) | (g << 8) | b);
+  }
+
+  /// Mesma regra que o formulário de eventos do feed (endereço em uma linha).
+  static String _churchAddressLineFromTenant(Map<String, dynamic> data) {
+    final endereco = (data['endereco'] ?? '').toString().trim();
+    if (endereco.isNotEmpty) return endereco;
+    final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
+    final bairro = (data['bairro'] ?? '').toString().trim();
+    final cidade =
+        (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
+    final estado = (data['estado'] ?? data['uf'] ?? '').toString().trim();
+    final cep = (data['cep'] ?? '').toString().trim();
+    final parts = <String>[];
+    if (rua.isNotEmpty) parts.add(rua);
+    if (bairro.isNotEmpty) parts.add(bairro);
+    if (cidade.isNotEmpty && estado.isNotEmpty) {
+      parts.add('$cidade - $estado');
+    } else if (cidade.isNotEmpty) {
+      parts.add(cidade);
+    } else if (estado.isNotEmpty) {
+      parts.add(estado);
+    }
+    if (cep.isNotEmpty) parts.add('CEP $cep');
+    return parts.join(', ');
+  }
+
+  static String _onlyDigitsAgenda(String s) =>
+      s.replaceAll(RegExp(r'\D'), '');
+
+  static String _formatCepDisplayAgenda(String digits) {
+    final d = _onlyDigitsAgenda(digits);
+    if (d.length <= 5) return d;
+    return '${d.substring(0, 5)}-${d.substring(5, d.length.clamp(5, 8))}';
+  }
+
+  static String _mergeAgendaLocationParts({
+    required String logradouro,
+    required String numero,
+    required String quadraLote,
+    required String bairro,
+    required String cidade,
+    required String uf,
+    required String cepDigits,
+  }) {
+    final parts = <String>[];
+    final rua = logradouro.trim();
+    final nume = numero.trim();
+    if (rua.isNotEmpty) {
+      parts.add(nume.isNotEmpty ? '$rua, Nº $nume' : rua);
+    } else if (nume.isNotEmpty) {
+      parts.add('Nº $nume');
+    }
+    final qd = quadraLote.trim();
+    if (qd.isNotEmpty) parts.add('Qd/Lt $qd');
+    final b = bairro.trim();
+    if (b.isNotEmpty) parts.add(b);
+    final cid = cidade.trim();
+    final u = uf.trim();
+    if (cid.isNotEmpty && u.isNotEmpty) {
+      parts.add('$cid - $u');
+    } else if (cid.isNotEmpty) {
+      parts.add(cid);
+    } else if (u.isNotEmpty) {
+      parts.add(u);
+    }
+    final cep = _onlyDigitsAgenda(cepDigits);
+    if (cep.length == 8) parts.add('CEP ${_formatCepDisplayAgenda(cep)}');
+    return parts.join(', ');
   }
 
   bool get _embeddedMobile =>
@@ -397,6 +751,13 @@ class _CalendarPageState extends State<CalendarPage>
           .doc(widget.tenantId)
           .collection('cultos');
 
+  /// Modelos de evento fixo (pré-cadastro ao escolher o dia).
+  CollectionReference<Map<String, dynamic>> get _eventTemplates =>
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('event_templates');
+
   static const _keyCustomTipos = 'agenda_tipos_custom';
 
   Future<void> _loadCustomTipos() async {
@@ -404,6 +765,25 @@ class _CalendarPageState extends State<CalendarPage>
     final raw = prefs.getString('${_keyCustomTipos}_${widget.tenantId}') ?? '';
     final list = raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet().toList()..sort();
     if (mounted) setState(() => _customTipos = list);
+  }
+
+  Future<void> _loadEventCategories() async {
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('event_categories')
+          .get();
+      final list = q.docs.toList()
+        ..sort((a, b) => (a.data()['nome'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+      if (mounted) {
+        setState(() => _eventCategoryDocs = list);
+        _rebuildMerged();
+      }
+    } catch (_) {}
   }
 
   List<String> get _allTipos {
@@ -415,8 +795,10 @@ class _CalendarPageState extends State<CalendarPage>
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    // Evita forçar refresh do token a cada abertura (latência extra no 1.º carregamento).
+    FirebaseAuth.instance.currentUser?.getIdToken();
     _loadCustomTipos();
+    unawaited(_loadEventCategories());
     final now = DateTime.now();
     _focusedMonth = DateTime(now.year, now.month);
     _focusedDay = DateTime(now.year, now.month, now.day);
@@ -455,6 +837,26 @@ class _CalendarPageState extends State<CalendarPage>
         return n.year;
       default:
         return n.year;
+    }
+  }
+
+  /// Mês alinhado ao calendário / lista (feriados do rodapé).
+  int get _holidayFooterMonth {
+    if (_agendaView != _AgendaViewKind.list) return _focusedMonth.month;
+    final n = DateTime.now();
+    switch (_listFilter) {
+      case 'mes_anterior':
+        final p = DateTime(n.year, n.month - 1);
+        return p.month;
+      case 'mes_atual':
+        return n.month;
+      case 'anual':
+        return n.month;
+      case 'periodo':
+        if (_periodStart != null) return _periodStart!.month;
+        return n.month;
+      default:
+        return n.month;
     }
   }
 
@@ -526,11 +928,34 @@ class _CalendarPageState extends State<CalendarPage>
       DateTime? endDt;
       if (endRaw is Timestamp) endDt = endRaw.toDate();
       var cat = (d['category'] ?? 'culto').toString().trim();
-      if (!_categoryColors.containsKey(cat)) cat = 'culto';
+      final ecId = (d['eventCategoryId'] ?? '').toString().trim();
+      if (ecId.isNotEmpty && !_isCustomCategoryKey(cat)) {
+        cat = _categoryKeyForEventCategoryId(ecId);
+      }
+      if (!_categoryColors.containsKey(cat) && !_isCustomCategoryKey(cat)) {
+        cat = 'culto';
+      }
       var colorHex = (d['color'] ?? '').toString().trim();
       if (colorHex.isEmpty) {
-        colorHex = _colorToHex(_categoryColors[cat]!);
+        if (_isCustomCategoryKey(cat)) {
+          final id = cat.substring(_customCategoryPrefix.length);
+          Color? col;
+          for (final c in _eventCategoryDocs) {
+            if (c.id == id) {
+              final cor = c.data()['cor'];
+              if (cor is int) col = Color(cor);
+              break;
+            }
+          }
+          colorHex = _colorToHex(
+              col ?? _categoryColors['culto'] ?? ThemeCleanPremium.primary);
+        } else {
+          colorHex = _colorToHex(_categoryColors[cat]!);
+        }
       }
+      final waRaw =
+          (d['whatsapp'] ?? d['contactPhone'] ?? d['telefone'] ?? '').toString();
+      final nid = (d['noticiaId'] ?? '').toString().trim();
       map.putIfAbsent(key, () => []).add(_CalendarEvent(
             id: doc.id,
             title: (d['title'] ?? '').toString(),
@@ -543,9 +968,11 @@ class _CalendarPageState extends State<CalendarPage>
             endDateTime: endDt,
             location: (d['location'] ?? d['local'] ?? '').toString(),
             responsible: (d['responsible'] ?? d['responsavel'] ?? '').toString(),
-            needSound: d['needSound'] == true,
-            needDataShow: d['needDataShow'] == true,
-            needCantina: d['needCantina'] == true,
+            contactPhone: waRaw.replaceAll(RegExp(r'\D'), ''),
+            needSound: false,
+            needDataShow: false,
+            needCantina: false,
+            linkedNoticiaId: nid.isEmpty ? null : nid,
           ));
     }
     for (final list in map.values) {
@@ -555,6 +982,16 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   String _labelForCategoryKey(String cat) {
+    if (_isCustomCategoryKey(cat)) {
+      final id = cat.substring(_customCategoryPrefix.length);
+      for (final c in _eventCategoryDocs) {
+        if (c.id == id) {
+          final n = (c.data()['nome'] ?? '').toString().trim();
+          if (n.isNotEmpty) return n;
+        }
+      }
+      return 'Categoria';
+    }
     switch (cat) {
       case 'culto':
         return 'Culto';
@@ -566,6 +1003,37 @@ class _CalendarPageState extends State<CalendarPage>
         return 'Ensino / EBD';
       default:
         return 'Evento';
+    }
+  }
+
+  static String _normTitleDedupe(String s) {
+    var t = s.toLowerCase().trim();
+    t = t.replaceAll(RegExp(r'\s+'), ' ');
+    return t;
+  }
+
+  /// Evita duplicar o mesmo culto quando já existe o mesmo título vindo do Mural / evento fixo (`noticias`).
+  void _suppressCultosWhenFeedCoversSameTitle(
+    Map<String, List<_CalendarEvent>> map,
+  ) {
+    for (final e in map.entries.toList()) {
+      final key = e.key;
+      final list = e.value;
+      final feedTitles = list
+          .where((x) => x.source == 'noticias')
+          .map((x) => _normTitleDedupe(x.title))
+          .where((t) => t.isNotEmpty)
+          .toSet();
+      if (feedTitles.isEmpty) continue;
+      final kept = list.where((x) {
+        if (x.source != 'cultos') return true;
+        final nt = _normTitleDedupe(x.title);
+        if (nt.isEmpty) return true;
+        return !feedTitles.contains(nt);
+      }).toList();
+      if (kept.length != list.length) {
+        map[key] = kept;
+      }
     }
   }
 
@@ -630,11 +1098,81 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
+  /// Remove do feed os posts já representados por um item da agenda com [noticiaId].
+  Map<String, List<_CalendarEvent>> _dedupeLinkedNoticias(
+    Map<String, List<_CalendarEvent>> merged,
+  ) {
+    final linked = <String>{};
+    for (final list in merged.values) {
+      for (final ev in list) {
+        final n = ev.linkedNoticiaId;
+        if (ev.source == 'agenda' && n != null && n.isNotEmpty) {
+          linked.add(n);
+        }
+      }
+    }
+    if (linked.isEmpty) return merged;
+    final out = <String, List<_CalendarEvent>>{};
+    for (final e in merged.entries) {
+      final list = e.value
+          .where((ev) =>
+              !(ev.source == 'noticias' && linked.contains(ev.id)))
+          .toList();
+      if (list.isNotEmpty) out[e.key] = list;
+    }
+    return out;
+  }
+
+  Map<String, List<_CalendarEvent>> _applySourceAndPublicFilter(
+    Map<String, List<_CalendarEvent>> input,
+  ) {
+    final out = <String, List<_CalendarEvent>>{};
+    for (final e in input.entries) {
+      final filtered = e.value.where((ev) {
+        if (_filterSourceKey != null && ev.source != _filterSourceKey) {
+          return false;
+        }
+        if (_filterPublicSiteOnly) {
+          if (ev.source != 'noticias' || ev.publicSite != true) {
+            return false;
+          }
+        }
+        return true;
+      }).toList();
+      if (filtered.isNotEmpty) out[e.key] = filtered;
+    }
+    return out;
+  }
+
+  Map<String, List<_CalendarEvent>> _markScheduleOverlaps(
+    Map<String, List<_CalendarEvent>> input,
+  ) {
+    final out = <String, List<_CalendarEvent>>{};
+    for (final e in input.entries) {
+      final dayHasEscala = _escalaDayKeys.contains(e.key);
+      out[e.key] = List.generate(
+        e.value.length,
+        (i) {
+          final ev = e.value[i];
+          if (!dayHasEscala) return ev;
+          return ev.copyWith(hasScheduleOverlap: true);
+        },
+      );
+    }
+    return out;
+  }
+
   void _rebuildMerged() {
-    final merged =
+    var merged =
         _mergeDayMaps(_legacyEventsByDay, _agendaEventsFromDocs(_agendaDocs));
-    final filtered = _applyCategoryFilter(merged);
-    final marked = _markConflicts(filtered);
+    merged = _dedupeLinkedNoticias(merged);
+    var filtered = _applyCategoryFilter(merged);
+    filtered = _applySourceAndPublicFilter(filtered);
+    var     marked = _markConflicts(filtered);
+    marked = _markScheduleOverlaps(marked);
+    for (final list in marked.values) {
+      list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    }
     if (mounted) {
       setState(() => _eventsByDay = marked);
     }
@@ -648,18 +1186,44 @@ class _CalendarPageState extends State<CalendarPage>
     final end = Timestamp.fromDate(rangeEnd);
 
     final map = <String, List<_CalendarEvent>>{};
+    final seenNoticiaIds = <String>{};
     String? err;
 
-    void addNoticias(QuerySnapshot<Map<String, dynamic>> snap) {
+    void addNoticias(QuerySnapshot<Map<String, dynamic>> snap,
+        {bool allowStartAtFallback = false}) {
       for (final doc in snap.docs) {
+        if (seenNoticiaIds.contains(doc.id)) continue;
         final d = doc.data();
-        final ts = (d['dataEvento'] ?? d['data']) as Timestamp?;
+        final typeField = (d['type'] ?? '').toString().trim();
+        final startAt = d['startAt'];
+        final dataEv = (d['dataEvento'] ?? d['data']) as Timestamp?;
+        // Posts `type: evento` (Mural / eventos fixos): hora canónica está em startAt;
+        // dataEvento às vezes veio só como data (meia-noite) ou desalinhado — priorizar startAt.
+        Timestamp? ts;
+        if (typeField == 'evento' && startAt is Timestamp) {
+          ts = startAt;
+        } else {
+          ts = dataEv;
+          if (ts == null && allowStartAtFallback && startAt is Timestamp) {
+            ts = startAt;
+          }
+        }
         if (ts == null) continue;
+        seenNoticiaIds.add(doc.id);
         final dt = ts.toDate();
         final key = _dayKey(dt);
         final tipo = (d['tipo'] ?? d['type'] ?? 'Evento').toString();
-        final eventColor = (d['eventColor'] ?? d['color'] ?? '').toString().trim();
         final ck = _categoryKeyFromLegacyType(tipo);
+        final eventColorStr =
+            (d['eventColor'] ?? d['color'] ?? '').toString().trim();
+        final eventColorHex = eventColorStr.isNotEmpty
+            ? eventColorStr
+            : (d['eventCategoryColor'] is int
+                ? _colorToHex(Color(d['eventCategoryColor'] as int))
+                : _colorToHex(
+                    _categoryColors[ck] ?? ThemeCleanPremium.primary));
+        final tplId = (d['templateId'] ?? '').toString().trim();
+        final gen = d['generated'] == true;
         map.putIfAbsent(key, () => []).add(_CalendarEvent(
               id: doc.id,
               title: (d['title'] ?? d['titulo'] ?? '').toString(),
@@ -667,10 +1231,12 @@ class _CalendarPageState extends State<CalendarPage>
               dateTime: dt,
               description: (d['description'] ?? d['descricao'] ?? '').toString(),
               source: 'noticias',
-              eventColorHex: eventColor.isEmpty
-                  ? _colorToHex(_categoryColors[ck] ?? ThemeCleanPremium.primary)
-                  : eventColor,
+              eventColorHex: eventColorHex,
               categoryKey: ck,
+              publicSite: d['publicSite'] != false,
+              contactPhone: '',
+              templateId: tplId.isEmpty ? null : tplId,
+              generatedFromTemplate: gen,
             ));
       }
     }
@@ -691,55 +1257,176 @@ class _CalendarPageState extends State<CalendarPage>
               dateTime: dt,
               description: (d['descricao'] ?? d['description'] ?? '').toString(),
               source: 'cultos',
+              publicSite: false,
               eventColorHex: eventColor.isEmpty
                   ? _colorToHex(_categoryColors['culto']!)
                   : eventColor,
               categoryKey: 'culto',
+              contactPhone: '',
             ));
       }
     }
 
     const timeoutDuration = Duration(seconds: 12);
 
-    try {
-      final noticiasSnap = await _noticias
-          .where('dataEvento', isGreaterThanOrEqualTo: start)
-          .where('dataEvento', isLessThanOrEqualTo: end)
-          .get()
-          .timeout(timeoutDuration);
-      addNoticias(noticiasSnap);
-    } catch (e) {
-      err ??= e is TimeoutException ? 'Tempo esgotado ao carregar eventos.' : e.toString();
+    Future<QuerySnapshot<Map<String, dynamic>>> loadNoticiasPorData() async {
       try {
-        final snap = await _noticiasIgrejas
+        return await _noticias
             .where('dataEvento', isGreaterThanOrEqualTo: start)
             .where('dataEvento', isLessThanOrEqualTo: end)
             .get()
             .timeout(timeoutDuration);
-        addNoticias(snap);
-        err = null;
-      } catch (_) {}
+      } catch (e) {
+        err ??= e is TimeoutException
+            ? 'Tempo esgotado ao carregar eventos.'
+            : e.toString();
+        try {
+          final snap = await _noticiasIgrejas
+              .where('dataEvento', isGreaterThanOrEqualTo: start)
+              .where('dataEvento', isLessThanOrEqualTo: end)
+              .get()
+              .timeout(timeoutDuration);
+          err = null;
+          return snap;
+        } catch (_) {
+          return await _noticias.limit(0).get();
+        }
+      }
     }
 
-    try {
-      final cultosSnap = await _cultos
-          .where('data', isGreaterThanOrEqualTo: start)
-          .where('data', isLessThanOrEqualTo: end)
-          .get()
-          .timeout(timeoutDuration);
-      addCultos(cultosSnap);
-    } catch (e) {
-      err ??= e is TimeoutException ? 'Tempo esgotado ao carregar eventos.' : e.toString();
+    Future<QuerySnapshot<Map<String, dynamic>>> loadCultosPorData() async {
       try {
-        final snap = await _cultosIgrejas
+        return await _cultos
             .where('data', isGreaterThanOrEqualTo: start)
             .where('data', isLessThanOrEqualTo: end)
             .get()
             .timeout(timeoutDuration);
-        addCultos(snap);
-        err = null;
-      } catch (_) {}
+      } catch (e) {
+        err ??= e is TimeoutException
+            ? 'Tempo esgotado ao carregar eventos.'
+            : e.toString();
+        try {
+          final snap = await _cultosIgrejas
+              .where('data', isGreaterThanOrEqualTo: start)
+              .where('data', isLessThanOrEqualTo: end)
+              .get()
+              .timeout(timeoutDuration);
+          err = null;
+          return snap;
+        } catch (_) {
+          return await _cultos.limit(0).get();
+        }
+      }
     }
+
+    Future<QuerySnapshot<Map<String, dynamic>>?> loadMuralEventos() async {
+      try {
+        return await _noticias
+            .where('type', isEqualTo: 'evento')
+            .where('startAt', isGreaterThanOrEqualTo: start)
+            .where('startAt', isLessThanOrEqualTo: end)
+            .get()
+            .timeout(timeoutDuration);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<QuerySnapshot<Map<String, dynamic>>?> loadEscalasNoPeriodo() async {
+      try {
+        return await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('escalas')
+            .where('date', isGreaterThanOrEqualTo: start)
+            .where('date', isLessThanOrEqualTo: end)
+            .get()
+            .timeout(timeoutDuration);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    var escalaKeys = <String>{};
+    try {
+      final parallel = await Future.wait<dynamic>([
+        loadNoticiasPorData(),
+        loadCultosPorData(),
+        loadMuralEventos(),
+        loadEscalasNoPeriodo(),
+      ]);
+      // Mural (`type: evento` + startAt) primeiro: define hora correta antes do índice por dataEvento.
+      final muralSnap =
+          parallel[2] as QuerySnapshot<Map<String, dynamic>>?;
+      if (muralSnap != null) {
+        addNoticias(muralSnap, allowStartAtFallback: true);
+      }
+      addNoticias(parallel[0] as QuerySnapshot<Map<String, dynamic>>);
+      addCultos(parallel[1] as QuerySnapshot<Map<String, dynamic>>);
+      final escSnap = parallel[3] as QuerySnapshot<Map<String, dynamic>>?;
+      if (escSnap != null) {
+        for (final d in escSnap.docs) {
+          final dt = (d.data()['date'] as Timestamp?)?.toDate();
+          if (dt != null) escalaKeys.add(_dayKey(dt));
+        }
+      }
+    } catch (e) {
+      err ??= e is TimeoutException
+          ? 'Tempo esgotado ao carregar eventos.'
+          : e.toString();
+    }
+
+    try {
+      final tplSnap =
+          await _eventTemplates.where('active', isEqualTo: true).get();
+      final dedupe = <String>{};
+      for (final list in map.values) {
+        for (final ev in list) {
+          dedupe.add('${_normTitleDedupe(ev.title)}|${_dayKey(ev.dateTime)}');
+        }
+      }
+      for (final doc in tplSnap.docs) {
+        final m = doc.data();
+        if (!eventTemplateIncludeInAgenda(m)) continue;
+        final title = (m['title'] ?? 'Culto').toString().trim();
+        if (title.isEmpty) continue;
+        final wd = (m['weekday'] is int) ? (m['weekday'] as int).clamp(1, 7) : 7;
+        final time = (m['time'] ?? '19:30').toString();
+        final rec = (m['recurrence'] ?? 'weekly').toString();
+        final loc = (m['location'] ?? '').toString();
+        final dates = expandTemplateOccurrencesInRange(
+          weekday: wd,
+          timeHHmm: time,
+          recurrence: rec,
+          rangeStart: rangeStart,
+          rangeEnd: rangeEnd,
+        );
+        for (final dt in dates) {
+          final dk = '${_normTitleDedupe(title)}|${_dayKey(dt)}';
+          if (dedupe.contains(dk)) continue;
+          dedupe.add(dk);
+          final dayKey = _dayKey(dt);
+          final cat = _categoryKeyFromLegacyType(title);
+          map.putIfAbsent(dayKey, () => []).add(_CalendarEvent(
+                id: 'virt_tpl_${doc.id}_$dayKey',
+                title: title,
+                type: _normalizeType(title),
+                dateTime: dt,
+                description: loc.isNotEmpty ? 'Local: $loc' : '',
+                source: 'noticias',
+                eventColorHex: _colorToHex(
+                    _categoryColors[cat] ?? ThemeCleanPremium.primary),
+                categoryKey: cat,
+                publicSite: true,
+                location: loc,
+                templateId: doc.id,
+                generatedFromTemplate: true,
+              ));
+        }
+      }
+    } catch (_) {}
+
+    _suppressCultosWhenFeedCoversSameTitle(map);
 
     for (final list in map.values) {
       list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
@@ -748,6 +1435,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (mounted) {
       setState(() {
         _legacyEventsByDay = map;
+        _escalaDayKeys = escalaKeys;
         _loading = false;
         _loadError = err;
       });
@@ -913,6 +1601,8 @@ class _CalendarPageState extends State<CalendarPage>
                     _buildViewToggleRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceSm),
                     _buildCategoryFilterRow(),
+                    const SizedBox(height: 8),
+                    _buildSourceFilterRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 350),
@@ -934,7 +1624,8 @@ class _CalendarPageState extends State<CalendarPage>
                         height: (isMobile && !_embeddedMobile)
                             ? 88
                             : ThemeCleanPremium.spaceLg),
-                    HolidayFooter(year: _holidayFooterYear),
+                    HolidayFooter(
+                        year: _holidayFooterYear, month: _holidayFooterMonth),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                   ],
                 ),
@@ -943,24 +1634,21 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  /// Calendário em cima (altura generosa), resumo do dia + mês abaixo — web largo em duas colunas.
+  /// Calendário em cima (altura generosa), eventos do dia + resumo do mês abaixo — um único scroll em todos os breakpoints.
   Widget _buildSplitCalendarBody({required bool wide, required bool isMobile}) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxH = constraints.maxHeight.isFinite && constraints.maxHeight > 0
-            ? constraints.maxHeight
-            : MediaQuery.sizeOf(context).height * 0.55;
-        final frac = _embeddedMobile ? 0.48 : 0.36;
-        final calendarH = wide
-            ? math.min(440.0, math.max(300.0, maxH * 0.36))
-            : math.min(460.0, math.max(260.0, maxH * frac));
+    final detailsBottomPad =
+        isMobile && !_embeddedMobile ? 72.0 : ThemeCleanPremium.spaceMd;
 
-        Widget calendarBlock() => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_loadError != null)
-                  Padding(
+    Widget unifiedScroll() => RefreshIndicator(
+          onRefresh: _loadEvents,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              if (_loadError != null)
+                SliverToBoxAdapter(
+                  child: Padding(
                     padding:
                         const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
                     child: ChurchPanelErrorBody(
@@ -969,192 +1657,121 @@ class _CalendarPageState extends State<CalendarPage>
                       onRetry: _loadEvents,
                     ),
                   ),
-                _buildViewToggleRow(),
-                const SizedBox(height: ThemeCleanPremium.spaceSm),
-                _buildCategoryFilterRow(),
-                const SizedBox(height: ThemeCleanPremium.spaceMd),
-                SizedBox(
-                  height: math.max(_tableCalendarTotalHeight(), calendarH),
-                  child: _buildCalendarTopOnly(),
                 ),
-              ],
-            );
-
-        final detailsBottomPad =
-            isMobile && !_embeddedMobile ? 72.0 : ThemeCleanPremium.spaceMd;
-
-        Widget detailsBlock() => RefreshIndicator(
-              onRefresh: _loadEvents,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(top: ThemeCleanPremium.spaceSm),
-                children: [
-                  _buildSelectedDayEvents(),
-                  const SizedBox(height: ThemeCleanPremium.spaceMd),
-                  Text(
-                    'Resumo do mês',
-                    style: GoogleFonts.poppins(
-                      fontSize: isMobile ? 17 : 16,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: ThemeCleanPremium.spaceSm),
-                  _buildFocusedMonthSummary(),
-                  const SizedBox(height: ThemeCleanPremium.spaceMd),
-                  HolidayFooter(year: _holidayFooterYear),
-                  SizedBox(height: detailsBottomPad),
-                ],
+              SliverToBoxAdapter(
+                child: _buildViewToggleRow(),
               ),
-            );
-
-        /// Telefone no shell: um único scroll — calendário + resumos (full screen útil).
-        Widget unifiedMobileScroll() => RefreshIndicator(
-              onRefresh: _loadEvents,
-              child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-                slivers: [
-                  if (_loadError != null)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                            bottom: ThemeCleanPremium.spaceSm),
-                        child: ChurchPanelErrorBody(
-                          title:
-                              'Não foi possível carregar alguns eventos',
-                          error: _loadError,
-                          onRetry: _loadEvents,
-                        ),
-                      ),
-                    ),
-                  SliverToBoxAdapter(
-                    child: _buildViewToggleRow(),
-                  ),
-                  const SliverToBoxAdapter(
-                      child: SizedBox(height: ThemeCleanPremium.spaceSm)),
-                  SliverToBoxAdapter(
-                    child: _buildCategoryFilterRow(),
-                  ),
-                  const SliverToBoxAdapter(
-                      child: SizedBox(height: ThemeCleanPremium.spaceMd)),
-                  SliverToBoxAdapter(
-                    child: LayoutBuilder(
-                      builder: (ctx, _) {
-                        final minH = MediaQuery.sizeOf(ctx).height *
-                            (_embeddedMobile ? 0.52 : 0.4);
-                        final h = math.max(_tableCalendarTotalHeight(), minH);
-                        return SizedBox(
-                          height: h,
-                          child: _buildTableCalendarCard(),
-                        );
-                      },
-                    ),
-                  ),
-                  if (_loading)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.all(ThemeCleanPremium.spaceSm),
-                        child: Center(
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
-                      ),
-                    ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
-                      child: _buildSelectedDayEvents(),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
-                      child: _buildMonthSectionHeader(),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _buildFocusedMonthSummary(),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(
-                        top: ThemeCleanPremium.spaceMd,
-                        bottom: ThemeCleanPremium.spaceSm,
-                      ),
-                      child: HolidayFooter(year: _holidayFooterYear),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(height: detailsBottomPad),
-                  ),
-                ],
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
+              SliverToBoxAdapter(
+                child: _buildCategoryFilterRow(),
               ),
-            );
-
-        if (wide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: 11,
-                child: SingleChildScrollView(
-                  child: calendarBlock(),
+              const SliverToBoxAdapter(child: SizedBox(height: 8)),
+              SliverToBoxAdapter(
+                child: _buildSourceFilterRow(),
+              ),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: ThemeCleanPremium.spaceMd)),
+              SliverToBoxAdapter(
+                child: LayoutBuilder(
+                  builder: (ctx, _) {
+                    final screenH = MediaQuery.sizeOf(ctx).height;
+                    final minFrac = wide
+                        ? 0.50
+                        : _embeddedMobile
+                            ? 0.52
+                            : isMobile
+                                ? 0.40
+                                : 0.45;
+                    final minH = screenH * minFrac;
+                    final h = math.max(_tableCalendarTotalHeight(), minH);
+                    return SizedBox(
+                      height: h,
+                      child: _buildTableCalendarCard(),
+                    );
+                  },
                 ),
               ),
-              const SizedBox(width: ThemeCleanPremium.spaceMd),
-              Expanded(flex: 9, child: detailsBlock()),
-            ],
-          );
-        }
-
-        // Mobile estreito: um único scroll (arrastar no calendário também move a página).
-        if (isMobile && !wide) {
-          final scroll = unifiedMobileScroll();
-          if (_embeddedMobile) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: scroll),
-              ],
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!_embeddedMobile)
-                Padding(
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                    top: ThemeCleanPremium.spaceSm,
+                    bottom: ThemeCleanPremium.spaceSm,
+                  ),
+                  child: HolidayFooter(
+                      year: _holidayFooterYear, month: _holidayFooterMonth),
+                ),
+              ),
+              if (_loading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(ThemeCleanPremium.spaceSm),
+                    child: Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(
+                child: Padding(
                   padding:
-                      const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                  child: Text(
-                    'Agenda inteligente',
-                    style: GoogleFonts.poppins(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.onSurface,
-                    ),
-                  ),
+                      const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
+                  child: _buildSelectedDayEvents(),
                 ),
-              Expanded(child: scroll),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
+                  child: _buildMonthSectionHeader(),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _buildFocusedMonthSummary(),
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(height: detailsBottomPad),
+              ),
             ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            calendarBlock(),
-            Expanded(child: detailsBlock()),
-          ],
+          ),
         );
-      },
-    );
+
+    if (_embeddedMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: unifiedScroll()),
+        ],
+      );
+    }
+
+    if (isMobile && !wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!_embeddedMobile)
+            Padding(
+              padding:
+                  const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+              child: Text(
+                'Agenda inteligente',
+                style: GoogleFonts.poppins(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+            ),
+          Expanded(child: unifiedScroll()),
+        ],
+      );
+    }
+
+    // Desktop / tablet: scroll único — sem coluna de detalhe à direita.
+    return unifiedScroll();
   }
 
   /// PDF + novo evento compactos (painel igreja no telefone — evita barra inferior sobre o calendário).
@@ -1204,16 +1821,16 @@ class _CalendarPageState extends State<CalendarPage>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF94A3B8), width: 1.2),
+        border: Border.all(color: const Color(0xFF64748B), width: 1.5),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x0F0F172A),
-            blurRadius: 16,
+            color: Color(0x180F172A),
+            blurRadius: 18,
             offset: Offset(0, 6),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(6),
       child: Row(
         children: [
           Expanded(
@@ -1245,65 +1862,266 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
+  Widget _buildPremiumCategoryFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    IconData? icon,
+    Color? accent,
+    int maxLabelLines = 1,
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    final ac = accent ?? primary;
+    return Material(
+      color: Colors.transparent,
+      elevation: 0,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: selected
+                ? ac.withValues(alpha: 0.22)
+                : const Color(0xFFF1F5F9),
+            border: Border.all(
+              color: selected ? ac : const Color(0xFFCBD5E1),
+              width: selected ? 2.5 : 1.5,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: ac.withValues(alpha: 0.30),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 20,
+                  color: selected ? ac : const Color(0xFF64748B),
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (maxLabelLines > 1)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 158),
+                  child: Text(
+                    label,
+                    maxLines: maxLabelLines,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: selected
+                          ? const Color(0xFF0F172A)
+                          : const Color(0xFF475569),
+                      letterSpacing: -0.25,
+                      height: 1.2,
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: selected
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFF475569),
+                    letterSpacing: -0.25,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCategoryFilterRow() {
     final primary = ThemeCleanPremium.primary;
     return SizedBox(
-      height: 44,
+      height: 54,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         children: [
           Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text('Todas',
-                  style: GoogleFonts.poppins(
-                      fontSize: 12.5, fontWeight: FontWeight.w700)),
+            padding: const EdgeInsets.only(right: 10),
+            child: _buildPremiumCategoryFilterChip(
+              label: 'Todas',
+              icon: Icons.dashboard_customize_rounded,
+              accent: primary,
               selected: _filterCategoryKey == null,
-              onSelected: (_) {
+              onTap: () {
                 _filterCategoryKey = null;
                 _rebuildMerged();
               },
-              selectedColor: primary.withValues(alpha: 0.16),
-              checkmarkColor: primary,
-              backgroundColor: const Color(0xFFF8FAFC),
-              side: BorderSide(
-                color: _filterCategoryKey == null ? primary : const Color(0xFF94A3B8),
-                width: _filterCategoryKey == null ? 2 : 1.2,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             ),
           ),
           for (final e in _categoryLabels.entries)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                avatar: Icon(_iconForCategoryKey(e.key),
-                    size: 16, color: _categoryColors[e.key]),
-                label: Text(e.value,
-                    style: GoogleFonts.poppins(
-                        fontSize: 12.5, fontWeight: FontWeight.w700)),
+              padding: const EdgeInsets.only(right: 10),
+              child: _buildPremiumCategoryFilterChip(
+                label: e.value,
+                icon: _iconForCategoryKey(e.key),
+                accent: _categoryColors[e.key] ?? primary,
                 selected: _filterCategoryKey == e.key,
-                onSelected: (_) {
+                onTap: () {
                   _filterCategoryKey =
                       _filterCategoryKey == e.key ? null : e.key;
                   _rebuildMerged();
                 },
-                selectedColor:
-                    (_categoryColors[e.key] ?? primary).withValues(alpha: 0.18),
-                checkmarkColor: _categoryColors[e.key],
-                backgroundColor: const Color(0xFFF8FAFC),
-                side: BorderSide(
-                  color: _filterCategoryKey == e.key
-                      ? (_categoryColors[e.key] ?? primary)
-                      : const Color(0xFF94A3B8),
-                  width: _filterCategoryKey == e.key ? 2 : 1.2,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              ),
+            ),
+          for (final c in _eventCategoryDocs)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Builder(
+                builder: (context) {
+                  final key = _categoryKeyForEventCategoryId(c.id);
+                  final nome = (c.data()['nome'] ?? 'Categoria').toString();
+                  final cor = c.data()['cor'];
+                  final accent = cor is int
+                      ? Color(cor)
+                      : ThemeCleanPremium.primary;
+                  return _buildPremiumCategoryFilterChip(
+                    label: nome,
+                    icon: Icons.label_outline_rounded,
+                    accent: accent,
+                    selected: _filterCategoryKey == key,
+                    onTap: () {
+                      _filterCategoryKey =
+                          _filterCategoryKey == key ? null : key;
+                      _rebuildMerged();
+                    },
+                  );
+                },
               ),
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSourceFilterRow() {
+    final primary = ThemeCleanPremium.primary;
+    void setSource(String key) {
+      setState(() {
+        _filterPublicSiteOnly = false;
+        _filterSourceKey = _filterSourceKey == key ? null : key;
+      });
+      _rebuildMerged();
+    }
+
+    void togglePublicOnly() {
+      setState(() {
+        _filterPublicSiteOnly = !_filterPublicSiteOnly;
+        if (_filterPublicSiteOnly) {
+          _filterSourceKey = null;
+        }
+      });
+      _rebuildMerged();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Origem',
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: ThemeCleanPremium.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _buildPremiumCategoryFilterChip(
+                  label: 'Todas',
+                  icon: Icons.layers_rounded,
+                  accent: primary,
+                  selected: _filterSourceKey == null && !_filterPublicSiteOnly,
+                  onTap: () {
+                    setState(() {
+                      _filterSourceKey = null;
+                      _filterPublicSiteOnly = false;
+                    });
+                    _rebuildMerged();
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _buildPremiumCategoryFilterChip(
+                  label: 'Agenda interna',
+                  icon: Icons.edit_calendar_rounded,
+                  accent: const Color(0xFF2563EB),
+                  selected: _filterSourceKey == 'agenda',
+                  onTap: () => setSource('agenda'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _buildPremiumCategoryFilterChip(
+                  label: 'Feed / eventos',
+                  icon: Icons.dynamic_feed_rounded,
+                  accent: const Color(0xFFDB2777),
+                  selected: _filterSourceKey == 'noticias',
+                  onTap: () => setSource('noticias'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _buildPremiumCategoryFilterChip(
+                  label: 'Cultos',
+                  icon: Icons.church_rounded,
+                  accent: const Color(0xFF16A34A),
+                  selected: _filterSourceKey == 'cultos',
+                  onTap: () => setSource('cultos'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _buildPremiumCategoryFilterChip(
+                  label: 'Só site público',
+                  icon: Icons.public_rounded,
+                  accent: const Color(0xFF0D9488),
+                  selected: _filterPublicSiteOnly,
+                  onTap: togglePublicOnly,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1333,26 +2151,35 @@ class _CalendarPageState extends State<CalendarPage>
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: active ? ThemeCleanPremium.primary : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: active
-                ? ThemeCleanPremium.primary.withValues(alpha: 0.35)
-                : const Color(0xFFCBD5E1),
-            width: 1.15,
+                ? ThemeCleanPremium.primary
+                : const Color(0xFF94A3B8),
+            width: active ? 2.0 : 1.5,
           ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18, color: active ? Colors.white : ThemeCleanPremium.onSurfaceVariant),
+            Icon(icon, size: 20, color: active ? Colors.white : ThemeCleanPremium.onSurface),
             const SizedBox(width: 6),
             Text(label, style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-              color: active ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              color: active ? Colors.white : ThemeCleanPremium.onSurface,
             )),
           ],
         ),
@@ -1364,12 +2191,30 @@ class _CalendarPageState extends State<CalendarPage>
 
   Widget _buildMonthSectionHeader() {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    return Text(
-      'Resumo do mês',
-      style: GoogleFonts.poppins(
-        fontSize: isMobile ? 17 : 16,
-        fontWeight: FontWeight.w800,
-        color: ThemeCleanPremium.onSurface,
+    return InkWell(
+      onTap: () => unawaited(_openFocusedMonthEventsSheet()),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Resumo do mês',
+                style: GoogleFonts.poppins(
+                  fontSize: isMobile ? 17 : 16,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: ThemeCleanPremium.onSurfaceVariant,
+              size: 22,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1406,14 +2251,7 @@ class _CalendarPageState extends State<CalendarPage>
         const SizedBox(height: ThemeCleanPremium.spaceMd),
         _buildSelectedDayEvents(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
-        Text(
-          'Resumo do mês',
-          style: GoogleFonts.poppins(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: ThemeCleanPremium.onSurface,
-          ),
-        ),
+        _buildMonthSectionHeader(),
         const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildFocusedMonthSummary(),
       ],
@@ -1462,7 +2300,7 @@ class _CalendarPageState extends State<CalendarPage>
             cellFs: cellFs,
             primary: ThemeCleanPremium.primary,
             onSurface: ThemeCleanPremium.onSurface,
-            cellMargin: const EdgeInsets.all(1.35),
+            cellMargin: const EdgeInsets.all(1.85),
           ),
           daysOfWeekStyle: DaysOfWeekStyle(
             weekdayStyle: GoogleFonts.poppins(
@@ -1557,7 +2395,8 @@ class _CalendarPageState extends State<CalendarPage>
       return _emptyDayMessage('Selecione um dia para ver os eventos');
     }
     final key = _dayKey(_selectedDay!);
-    final events = _eventsByDay[key] ?? [];
+    final events = List<_CalendarEvent>.from(_eventsByDay[key] ?? [])
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
     final label = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(_selectedDay!);
     final holidayName = HolidayHelper.holidayNameOn(_selectedDay!);
 
@@ -1668,39 +2507,55 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  Widget _buildEventCard(_CalendarEvent ev) {
+  /// [overlaySheetContext]: ao tocar (detalhes/editar), fecha o sheet/modal do resumo mensal antes da ação.
+  Widget _buildEventCard(_CalendarEvent ev, {BuildContext? overlaySheetContext}) {
     final color = _CalendarPageState._hexToColor(ev.eventColorHex) ?? _eventColors[ev.type] ?? ThemeCleanPremium.primaryLight;
     final time = DateFormat('HH:mm').format(ev.dateTime);
+    final canEditAgenda = _canWrite && ev.source == 'agenda';
+    String? monthListDayLine;
+    if (overlaySheetContext != null) {
+      final raw = DateFormat('EEEE, d/MM', 'pt_BR').format(ev.dateTime);
+      monthListDayLine =
+          raw.isEmpty ? raw : '${raw[0].toUpperCase()}${raw.substring(1)}';
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-      child: GestureDetector(
-        onTap: () => _showEventDetails(ev),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(
-              color: ev.hasConflict
-                  ? Colors.deepOrange.shade400
-                  : const Color(0xFFF1F5F9),
-              width: ev.hasConflict ? 1.5 : 1,
-            ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+          border: Border.all(
+            color: ev.hasConflict
+                ? Colors.deepOrange.shade400
+                : (ev.hasScheduleOverlap
+                    ? Colors.blue.shade400
+                    : const Color(0xFFF1F5F9)),
+            width: (ev.hasConflict || ev.hasScheduleOverlap) ? 1.5 : 1,
           ),
-          child: IntrinsicHeight(
-            child: Row(
-              children: [
-                Container(
-                  width: 5,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(ThemeCleanPremium.radiusMd),
-                    ),
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Container(
+                width: 5,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(ThemeCleanPremium.radiusMd),
                   ),
                 ),
-                Expanded(
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (overlaySheetContext != null) {
+                      Navigator.pop(overlaySheetContext);
+                    }
+                    _showEventDetails(ev);
+                  },
+                  behavior: HitTestBehavior.opaque,
                   child: Padding(
                     padding: const EdgeInsets.all(ThemeCleanPremium.spaceSm),
                     child: Row(
@@ -1730,6 +2585,72 @@ class _CalendarPageState extends State<CalendarPage>
                                           color: ThemeCleanPremium.onSurfaceVariant)),
                                 ],
                               ),
+                              if (monthListDayLine != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.calendar_today_rounded,
+                                        size: 14,
+                                        color: ThemeCleanPremium.onSurfaceVariant),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        monthListDayLine,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: ThemeCleanPremium.onSurfaceVariant,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  _originMetaChip(ev),
+                                  if (ev.linkedNoticiaId != null &&
+                                      ev.linkedNoticiaId!.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF1F5F9),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        'Vinculado ao feed',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF475569),
+                                        ),
+                                      ),
+                                    ),
+                                  if (ev.hasScheduleOverlap)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEFF6FF),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        'Escala no dia',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF1D4ED8),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -1738,8 +2659,47 @@ class _CalendarPageState extends State<CalendarPage>
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              if (_whatsappDigitsForEvent(ev) != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 2),
+                  child: IconButton(
+                    tooltip: 'WhatsApp',
+                    icon: const Icon(Icons.chat_rounded,
+                        color: Color(0xFF25D366), size: 24),
+                    onPressed: () =>
+                        _openWhatsAppDigits(_whatsappDigitsForEvent(ev)!),
+                  ),
+                ),
+              if (canEditAgenda)
+                Align(
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Editar',
+                        icon: Icon(Icons.edit_outlined,
+                            color: ThemeCleanPremium.primary, size: 22),
+                        onPressed: () {
+                          if (overlaySheetContext != null) {
+                            Navigator.pop(overlaySheetContext);
+                          }
+                          _showAddEvent(existing: ev);
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Remover só este',
+                        icon: Icon(Icons.delete_outline_rounded,
+                            color: ThemeCleanPremium.error, size: 22),
+                        onPressed: () =>
+                            _confirmDeleteSingleAgendaEvent(ev,
+                                sheetContext: overlaySheetContext),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -1758,6 +2718,48 @@ class _CalendarPageState extends State<CalendarPage>
         fontWeight: FontWeight.w600,
         color: color,
       )),
+    );
+  }
+
+  Widget _originMetaChip(_CalendarEvent ev) {
+    String label;
+    Color bg;
+    Color fg;
+    switch (ev.source) {
+      case 'agenda':
+        label = 'Agenda interna';
+        bg = const Color(0xFFDBEAFE);
+        fg = const Color(0xFF1D4ED8);
+        break;
+      case 'noticias':
+        label = ev.publicSite ? 'Feed / eventos' : 'Feed (só painel)';
+        bg = ev.publicSite ? const Color(0xFFFCE7F3) : const Color(0xFFF3F4F6);
+        fg = ev.publicSite ? const Color(0xFFBE185D) : const Color(0xFF6B7280);
+        break;
+      case 'cultos':
+        label = 'Cultos';
+        bg = const Color(0xFFDCFCE7);
+        fg = const Color(0xFF166534);
+        break;
+      default:
+        label = ev.source;
+        bg = Colors.grey.shade200;
+        fg = Colors.grey.shade800;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: fg,
+        ),
+      ),
     );
   }
 
@@ -1785,201 +2787,616 @@ class _CalendarPageState extends State<CalendarPage>
     final monthLabel =
         rawMonth.isEmpty ? '' : '${rawMonth[0].toUpperCase()}${rawMonth.substring(1)}';
 
+    final radius = BorderRadius.circular(ThemeCleanPremium.radiusMd);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderRadius: radius,
         boxShadow: ThemeCleanPremium.softUiCardShadow,
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.analytics_rounded, color: ThemeCleanPremium.primary, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  monthLabel,
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Material(
+          color: ThemeCleanPremium.cardBackground,
+          child: InkWell(
+            onTap: () => unawaited(_openFocusedMonthEventsSheet()),
+            child: Padding(
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.analytics_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          monthLabel,
+                          style: GoogleFonts.poppins(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        size: 26,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    total == 0
+                        ? 'Nenhum evento neste mês na faixa carregada.'
+                        : '$total evento${total == 1 ? '' : 's'} no mês',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                  if (total > 0 && byCat.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    ...byCat.entries.map((en) {
+                      final label = _categoryLabels[en.key] ?? en.key;
+                      final col = _categoryColors[en.key] ??
+                          ThemeCleanPremium.onSurfaceVariant;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                  color: col, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: GoogleFonts.poppins(
+                                    fontSize: 15, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            Text(
+                              '${en.value}',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 15, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'Toque para ver todos os eventos',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_CalendarEvent> _eventsInFocusedMonthSorted() {
+    final y = _focusedMonth.year;
+    final m = _focusedMonth.month;
+    final out = <_CalendarEvent>[];
+    for (final e in _eventsByDay.entries) {
+      DateTime? d;
+      try {
+        d = DateFormat('yyyy-MM-dd').parse(e.key);
+      } catch (_) {
+        continue;
+      }
+      if (d.year != y || d.month != m) continue;
+      out.addAll(e.value);
+    }
+    out.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    return out;
+  }
+
+  /// Lista completa do mês (mesmo critério do resumo): diálogo na web/tablet, bottom sheet no telefone.
+  Future<void> _openFocusedMonthEventsSheet() async {
+    final events = _eventsInFocusedMonthSorted();
+    final rawMonth = DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth);
+    final monthTitle = rawMonth.isEmpty
+        ? ''
+        : '${rawMonth[0].toUpperCase()}${rawMonth.substring(1)}';
+
+    final mq = MediaQuery.of(context);
+    final useDialog =
+        kIsWeb || mq.size.width >= 720 || !ThemeCleanPremium.isMobile(context);
+    final padH = useDialog ? 24.0 : 20.0;
+    final primary = ThemeCleanPremium.primary;
+
+    if (!mounted) return;
+
+    List<Widget> listBody(BuildContext sheetCtx) {
+      if (events.isEmpty) {
+        return [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
+            child: Column(
+              children: [
+                Icon(Icons.event_available_outlined,
+                    size: 52, color: Colors.grey.shade400),
+                const SizedBox(height: 14),
+                Text(
+                  'Nenhum evento neste mês.',
+                  textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
+                    color: Colors.grey.shade600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ];
+      }
+      return [
+        for (final ev in events)
+          _buildEventCard(ev, overlaySheetContext: sheetCtx),
+      ];
+    }
+
+    Widget monthHeaderBox() {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              primary.withValues(alpha: 0.14),
+              primary.withValues(alpha: 0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: primary.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_month_rounded, color: primary, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Eventos em $monthTitle',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      color: ThemeCleanPremium.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    events.isEmpty
+                        ? 'Nenhum evento neste mês'
+                        : '${events.length} ${events.length == 1 ? 'evento' : 'eventos'} · toque no cartão para detalhes',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget footerActions(BuildContext sheetCtx) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(padH, 4, padH, useDialog ? 16 : 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_canWrite) ...[
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetCtx);
+                    _openNewEventForDay(
+                      DateTime(
+                        _focusedMonth.year,
+                        _focusedMonth.month,
+                        1,
+                        10,
+                        0,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.add_rounded, size: 22),
+                  label: Text(
+                    'Novo evento',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    minimumSize:
+                        const Size(0, ThemeCleanPremium.minTouchTarget),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              TextButton(
+                onPressed: () => Navigator.pop(sheetCtx),
+                child: Text(
+                  'Fechar',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: ThemeCleanPremium.onSurface,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            total == 0
-                ? 'Nenhum evento neste mês na faixa carregada.'
-                : '$total evento${total == 1 ? '' : 's'} no mês',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: ThemeCleanPremium.primary,
+        ),
+      );
+    }
+
+    if (useDialog) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          return Dialog(
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: math.max(20, (mq.size.width - 520) / 2),
+              vertical: 24,
             ),
-          ),
-          if (total > 0 && byCat.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ...byCat.entries.map((en) {
-              final label = _categoryLabels[en.key] ?? en.key;
-              final col = _categoryColors[en.key] ?? ThemeCleanPremium.onSurfaceVariant;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(color: col, shape: BoxShape.circle),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: math.min(520, mq.size.width - 40),
+              height: math.min(620.0, mq.size.height * 0.82),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(padH, 20, padH, 8),
+                    child: monthHeaderBox(),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      padding: EdgeInsets.fromLTRB(padH, 8, padH, 8),
+                      children: [
+                        ...listBody(ctx),
+                        if (events.any((e) => e.source != 'agenda'))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4, bottom: 8),
+                            child: Text(
+                              _canWrite
+                                  ? 'Abra o evento para excluir posts do mural ou cultos — horários do mural seguem o início (startAt).'
+                                  : 'Itens do Mural ou Cultos só podem ser removidos por quem tem permissão (abrir o cartão).',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Text(
-                      '${en.value}',
-                      style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700),
-                    ),
-                  ],
+                  ),
+                  footerActions(ctx),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.65,
+        minChildSize: 0.35,
+        maxChildSize: 0.94,
+        expand: false,
+        builder: (_, scrollCtrl) {
+          return DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x14000000),
+                  blurRadius: 16,
+                  offset: Offset(0, -4),
                 ),
-              );
-            }),
-          ],
-        ],
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 10),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(padH, 16, padH, 8),
+                  child: monthHeaderBox(),
+                ),
+                Expanded(
+                  child: ListView(
+                    controller: scrollCtrl,
+                    padding: EdgeInsets.fromLTRB(padH, 4, padH, 8),
+                    children: [
+                      ...listBody(ctx),
+                      if (events.any((e) => e.source != 'agenda'))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 8),
+                          child: Text(
+                            _canWrite
+                                ? 'Abra o evento para excluir posts do mural ou cultos — horários do mural seguem o início (startAt).'
+                                : 'Itens do Mural ou Cultos só podem ser removidos por quem tem permissão (abrir o cartão).',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                footerActions(ctx),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
   // ─── List Filters ─────────────────────────────────────────────────────────────
 
+  String _listFilterChipLabel(String value, String defaultLabel) {
+    if (value == 'periodo' && _periodStart != null && _periodEnd != null) {
+      return '${_periodStart!.day}/${_periodStart!.month} - ${_periodEnd!.day}/${_periodEnd!.month}';
+    }
+    return defaultLabel;
+  }
+
+  Future<void> _applyListPeriodFilter(String value) async {
+    if (value == 'periodo') {
+      final start = await showDatePicker(
+        context: context,
+        initialDate: _periodStart ?? DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2035),
+      );
+      if (start == null || !mounted) return;
+      final end = await showDatePicker(
+        context: context,
+        initialDate: _periodEnd ?? start,
+        firstDate: start,
+        lastDate: DateTime(2035),
+      );
+      if (end != null && mounted) {
+        setState(() {
+          _listFilter = 'periodo';
+          _periodStart = start;
+          _periodEnd = end;
+        });
+        _loadEvents();
+        _restartAgendaSubscription();
+      }
+    } else {
+      setState(() => _listFilter = value);
+      _loadEvents();
+      _restartAgendaSubscription();
+    }
+  }
+
+  Widget _buildListPdfExportAction() {
+    final primary = ThemeCleanPremium.primary;
+    return Tooltip(
+      message: 'Exportar agenda em PDF',
+      child: Material(
+        color: Colors.transparent,
+        elevation: 0,
+        child: InkWell(
+          onTap: _exportAgendaPdf,
+          borderRadius: BorderRadius.circular(14),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: primary.withValues(alpha: 0.10),
+              border: Border.all(
+                color: primary.withValues(alpha: 0.45),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: primary.withValues(alpha: 0.22),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.picture_as_pdf_rounded,
+              size: 22,
+              color: primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildListFilters() {
-    final chips = [
-      ('Mês anterior', 'mes_anterior'),
-      ('Mês atual', 'mes_atual'),
-      ('Semanal', 'semanal'),
-      ('Diário', 'diario'),
-      ('Anual', 'anual'),
-      ('Por período', 'periodo'),
+    final primary = ThemeCleanPremium.primary;
+    const chipData = <(String, String, IconData)>[
+      ('Mês anterior', 'mes_anterior', Icons.navigate_before_rounded),
+      ('Mês atual', 'mes_atual', Icons.today_rounded),
+      ('Semanal', 'semanal', Icons.view_week_rounded),
+      ('Diário', 'diario', Icons.view_day_rounded),
+      ('Anual', 'anual', Icons.calendar_view_month_rounded),
+      ('Por período', 'periodo', Icons.date_range_rounded),
     ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          for (final (label, value) in chips)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(value == 'periodo' && _periodStart != null && _periodEnd != null
-                    ? '${_periodStart!.day}/${_periodStart!.month} - ${_periodEnd!.day}/${_periodEnd!.month}'
-                    : label),
-                selected: _listFilter == value,
-                onSelected: (v) async {
-                  if (value == 'periodo') {
-                    final start = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2035),
-                    );
-                    if (start == null || !mounted) return;
-                    final end = await showDatePicker(
-                      context: context,
-                      initialDate: start,
-                      firstDate: start,
-                      lastDate: DateTime(2035),
-                    );
-                    if (end != null && mounted) {
-                      setState(() {
-                        _listFilter = 'periodo';
-                        _periodStart = start;
-                        _periodEnd = end;
-                      });
-                      _loadEvents();
-                      _restartAgendaSubscription();
-                    }
-                  } else {
-                    setState(() => _listFilter = value);
-                    _loadEvents();
-                    _restartAgendaSubscription();
-                  }
-                },
+
+    return RepaintBoundary(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF64748B), width: 1.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x180F172A),
+              blurRadius: 18,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 54,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  children: [
+                    for (final (label, value, icon) in chipData)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: _buildPremiumCategoryFilterChip(
+                          label: _listFilterChipLabel(value, label),
+                          icon: icon,
+                          accent: primary,
+                          selected: _listFilter == value,
+                          maxLabelLines: value == 'periodo' ? 2 : 1,
+                          onTap: () {
+                            unawaited(_applyListPeriodFilter(value));
+                          },
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-          if (_canWrite)
-            IconButton(
-              tooltip: 'Exportar PDF',
-              onPressed: _exportAgendaPdf,
-              icon: const Icon(Icons.picture_as_pdf_rounded),
-            ),
-        ],
+            if (_canWrite) ...[
+              const SizedBox(width: 8),
+              _buildListPdfExportAction(),
+            ],
+          ],
+        ),
       ),
     );
   }
 
   Future<void> _exportAgendaPdf() async {
     try {
-      final sortedKeys = _eventsByDay.keys.toList()..sort();
+      final sortedKeys = _eventsByDay.keys.toList()
+        ..sort(_compareAgendaDayKeysAscending);
       if (sortedKeys.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum evento para exportar.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nenhum evento para exportar.')),
+          );
+        }
         return;
       }
-      final pdf = pw.Document();
-      final rows = <pw.TableRow>[
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(color: PdfColors.blue100),
-          children: [
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Data', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Horário', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Título', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Tipo', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-          ],
-        ),
-      ];
+      if (!mounted) return;
+      final branding = await loadReportPdfBranding(widget.tenantId);
+      if (!mounted) return;
+
+      final refMonth = toBeginningOfSentenceCase(
+        DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth),
+      );
+
+      final data = <List<String>>[];
       for (final key in sortedKeys) {
         final events = _eventsByDay[key]!;
         for (final ev in events) {
-          rows.add(pw.TableRow(
-            children: [
-              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(DateFormat('dd/MM/yyyy').format(ev.dateTime), style: const pw.TextStyle(fontSize: 9))),
-              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(DateFormat('HH:mm').format(ev.dateTime), style: const pw.TextStyle(fontSize: 9))),
-              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(ev.title.isNotEmpty ? ev.title : ev.type, style: const pw.TextStyle(fontSize: 9), maxLines: 2)),
-              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(ev.type, style: const pw.TextStyle(fontSize: 9))),
-            ],
-          ));
+          final titulo =
+              ev.title.isNotEmpty ? ev.title : ev.type;
+          data.add([
+            DateFormat('dd/MM/yyyy').format(ev.dateTime),
+            DateFormat('HH:mm').format(ev.dateTime),
+            titulo,
+            ev.type,
+          ]);
         }
       }
+
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
-          build: (ctx) {
-            final refMonth = DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth);
-            return [
-              pw.Header(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('Agenda — Gestão YAHWEH',
-                        style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 4),
-                    pw.Text('Referência: $refMonth', style: const pw.TextStyle(fontSize: 10)),
-                  ],
-                ),
-              ),
-              pw.Table(border: pw.TableBorder.all(width: 0.5), children: rows),
-            ];
-          },
+          margin: PdfSuperPremiumTheme.pageMargin,
+          header: (ctx) => pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 12),
+            child: PdfSuperPremiumTheme.header(
+              'Agenda de eventos',
+              branding: branding,
+              extraLines: [
+                'Referência: $refMonth',
+              ],
+            ),
+          ),
+          footer: (ctx) => PdfSuperPremiumTheme.footer(
+            ctx,
+            churchName: branding.churchName,
+          ),
+          build: (ctx) => [
+            PdfSuperPremiumTheme.fromTextArray(
+              headers: const ['Data', 'Horário', 'Título', 'Tipo'],
+              data: data,
+              accent: branding.accent,
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1.15),
+                1: pw.FlexColumnWidth(0.82),
+                2: pw.FlexColumnWidth(2.85),
+                3: pw.FlexColumnWidth(1.35),
+              },
+            ),
+          ],
         ),
       );
       final bytes = Uint8List.fromList(await pdf.save());
@@ -1996,7 +3413,8 @@ class _CalendarPageState extends State<CalendarPage>
   // ─── List View ─────────────────────────────────────────────────────────────
 
   Widget _buildListView({Key? key}) {
-    final sortedKeys = _eventsByDay.keys.toList()..sort();
+    final sortedKeys = _eventsByDay.keys.toList()
+      ..sort(_compareAgendaDayKeysAscending);
     if (sortedKeys.isEmpty && !_loading) {
       return _emptyDayMessage('Nenhum evento neste mês');
     }
@@ -2020,23 +3438,79 @@ class _CalendarPageState extends State<CalendarPage>
   Widget _buildDaySection(String dayKey) {
     final date = DateTime.parse(dayKey);
     final label = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(date);
-    final events = _eventsByDay[dayKey]!;
+    final events = List<_CalendarEvent>.from(_eventsByDay[dayKey] ?? [])
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
 
+    final stripe = events.isEmpty
+        ? ThemeCleanPremium.primary
+        : (_hexToColor(events.first.eventColorHex) ??
+            _categoryColors[events.first.categoryKey ?? ''] ??
+            ThemeCleanPremium.primary);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(
             bottom: ThemeCleanPremium.spaceXs,
             top: ThemeCleanPremium.spaceXs,
           ),
-          child: Text(
-            label[0].toUpperCase() + label.substring(1),
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: ThemeCleanPremium.onSurfaceVariant,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              colors: [
+                stripe.withValues(alpha: 0.14),
+                ThemeCleanPremium.primary.withValues(alpha: 0.06),
+              ],
             ),
+            border: Border.all(color: stripe.withValues(alpha: 0.28)),
+            boxShadow: [
+              BoxShadow(
+                color: stripe.withValues(alpha: 0.12),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 5,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: stripe,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label[0].toUpperCase() + label.substring(1),
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${events.length}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: stripe,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         ...events.map(_buildEventCard),
@@ -2071,7 +3545,108 @@ class _CalendarPageState extends State<CalendarPage>
     }
   }
 
+  String? _whatsappDigitsForEvent(_CalendarEvent ev) {
+    final w = ev.contactPhone.replaceAll(RegExp(r'\D'), '');
+    if (w.length >= 10) return w;
+    final r = ev.responsible.replaceAll(RegExp(r'\D'), '');
+    if (r.length >= 10) return r;
+    return null;
+  }
+
+  Future<void> _openWhatsAppDigits(String digits) async {
+    var d = digits.replaceAll(RegExp(r'\D'), '');
+    if (d.length < 10) return;
+    if (d.length == 11 && d.startsWith('0')) d = d.substring(1);
+    if (d.length == 10 && !d.startsWith('55')) d = '55$d';
+    final uri = Uri.parse('https://wa.me/$d');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _removeAgendaDocsLinkedToNoticia(String noticiaId) async {
+    final q = await _agenda
+        .where('noticiaId', isEqualTo: noticiaId)
+        .limit(25)
+        .get();
+    if (q.docs.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (final d in q.docs) {
+      batch.delete(d.reference);
+    }
+    await batch.commit();
+  }
+
   void _showEventDetails(_CalendarEvent ev) {
+    if (ev.id.startsWith('virt_tpl_')) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+              top: Radius.circular(ThemeCleanPremium.radiusXl)),
+        ),
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.paddingOf(ctx).bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Icon(Icons.event_repeat_rounded,
+                      color: ThemeCleanPremium.primary, size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Horário recorrente (modelo)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '${ev.title}\n\n'
+                'Este item é uma pré-visualização da programação fixa (eventos fixos). '
+                'Já aparece na agenda mesmo antes de gerar ocorrências no banco ou publicar no feed. '
+                'Para editar ou gerar em massa, use Eventos → Eventos fixos.',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendi'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
     final color = _hexToColor(ev.eventColorHex) ??
         _eventColors[ev.type] ??
         ThemeCleanPremium.primaryLight;
@@ -2131,6 +3706,49 @@ class _CalendarPageState extends State<CalendarPage>
                     ],
                   ),
                 ),
+              if (ev.hasScheduleOverlap)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.groups_rounded, color: Colors.blue.shade800),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Neste dia há escala de ministério — confira horários em Escalas.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _originMetaChip(ev),
+                  if (ev.linkedNoticiaId != null &&
+                      ev.linkedNoticiaId!.isNotEmpty)
+                    Chip(
+                      label: const Text('Vinculado ao post do feed'),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      labelStyle: const TextStyle(fontSize: 11),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
               Row(children: [
                 Container(
                   width: 44,
@@ -2175,25 +3793,27 @@ class _CalendarPageState extends State<CalendarPage>
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
                 _detailRow(Icons.person_rounded, ev.responsible.trim()),
               ],
-              if (ev.needSound || ev.needDataShow || ev.needCantina) ...[
+              if (_whatsappDigitsForEvent(ev) != null) ...[
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (ev.needSound)
-                      Chip(
-                          label: const Text('Som'),
-                          visualDensity: VisualDensity.compact),
-                    if (ev.needDataShow)
-                      Chip(
-                          label: const Text('DataShow'),
-                          visualDensity: VisualDensity.compact),
-                    if (ev.needCantina)
-                      Chip(
-                          label: const Text('Cantina'),
-                          visualDensity: VisualDensity.compact),
-                  ],
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () =>
+                        _openWhatsAppDigits(_whatsappDigitsForEvent(ev)!),
+                    icon: const Icon(Icons.chat_rounded, size: 22),
+                    label: Text(
+                      'WhatsApp',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
                 ),
               ],
               if (ev.description.isNotEmpty) ...[
@@ -2246,6 +3866,18 @@ class _CalendarPageState extends State<CalendarPage>
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _showAddEvent(existing: ev);
+                    },
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    label: const Text('Editar evento'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
                   child: TextButton.icon(
                     onPressed: () async {
                       final ok = await showDialog<bool>(
@@ -2280,6 +3912,121 @@ class _CalendarPageState extends State<CalendarPage>
                         color: ThemeCleanPremium.error),
                     label: Text('Excluir da agenda',
                         style: TextStyle(color: ThemeCleanPremium.error)),
+                  ),
+                ),
+              ],
+              if (_canWrite && ev.source == 'noticias') ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final ok = await showDialog<bool>(
+                        context: ctx,
+                        builder: (dctx) => AlertDialog(
+                          title: Text(ev.generatedFromTemplate
+                              ? 'Remover esta ocorrência?'
+                              : 'Excluir do Mural de Eventos?'),
+                          content: Text(
+                            ev.generatedFromTemplate
+                                ? 'Apaga só este registo em notícias (gerado pelo evento fixo). O modelo em «Eventos fixos» continua; pode gerar novamente.'
+                                : 'O post sai do Mural e dos espelhos na agenda interna.',
+                            style: const TextStyle(height: 1.35),
+                          ),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(dctx, false),
+                                child: const Text('Cancelar')),
+                            FilledButton(
+                                onPressed: () => Navigator.pop(dctx, true),
+                                child: const Text('Excluir')),
+                          ],
+                        ),
+                      );
+                      if (ok != true || !ctx.mounted) return;
+                      try {
+                        await _removeAgendaDocsLinkedToNoticia(ev.id);
+                        await _noticias.doc(ev.id).delete();
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        await _loadEvents();
+                        _restartAgendaSubscription();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          ThemeCleanPremium.successSnackBar('Evento removido.'),
+                        );
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Erro: $e')),
+                          );
+                        }
+                      }
+                    },
+                    icon: Icon(Icons.delete_outline_rounded,
+                        color: ThemeCleanPremium.error),
+                    label: Text(
+                      ev.generatedFromTemplate
+                          ? 'Remover ocorrência gerada'
+                          : 'Excluir do mural',
+                      style: TextStyle(
+                          color: ThemeCleanPremium.error,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+              if (_canWrite && ev.source == 'cultos') ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final ok = await showDialog<bool>(
+                        context: ctx,
+                        builder: (dctx) => AlertDialog(
+                          title: const Text('Excluir culto da agenda?'),
+                          content: const Text(
+                            'Remove o registo na coleção cultos. Não altera o Mural de Eventos.',
+                            style: TextStyle(height: 1.35),
+                          ),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(dctx, false),
+                                child: const Text('Cancelar')),
+                            FilledButton(
+                                onPressed: () => Navigator.pop(dctx, true),
+                                child: const Text('Excluir')),
+                          ],
+                        ),
+                      );
+                      if (ok != true || !ctx.mounted) return;
+                      try {
+                        await _cultos.doc(ev.id).delete();
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        await _loadEvents();
+                        _restartAgendaSubscription();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          ThemeCleanPremium.successSnackBar('Culto removido.'),
+                        );
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Erro: $e')),
+                          );
+                        }
+                      }
+                    },
+                    icon: Icon(Icons.delete_outline_rounded,
+                        color: ThemeCleanPremium.error),
+                    label: Text(
+                      'Excluir registo de culto',
+                      style: TextStyle(
+                          color: ThemeCleanPremium.error,
+                          fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
               ],
@@ -2341,20 +4088,18 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
-  Future<void> _confirmClearAgendaForDay(DateTime day) async {
-    final key = _dayKey(day);
-    final ids = (_eventsByDay[key] ?? [])
-        .where((e) => e.source == 'agenda')
-        .map((e) => e.id)
-        .toList();
-    if (ids.isEmpty) return;
+  /// [sheetContext] — se não for `null`, fecha o resumo do dia (bottom sheet/diálogo) após remover.
+  Future<void> _confirmDeleteSingleAgendaEvent(
+    _CalendarEvent ev, {
+    BuildContext? sheetContext,
+  }) async {
+    if (ev.source != 'agenda' || !_canWrite) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('Limpar agenda deste dia?'),
-        content: Text(
-          'Serão removidos ${ids.length} evento(s) da agenda. '
-          'Itens de cultos ou mural legado não são afetados.',
+        title: const Text('Remover este evento?'),
+        content: const Text(
+          'Apenas este item será excluído da agenda. Os outros eventos do mesmo dia permanecem.',
         ),
         actions: [
           TextButton(
@@ -2365,7 +4110,62 @@ class _CalendarPageState extends State<CalendarPage>
             style: FilledButton.styleFrom(
                 backgroundColor: ThemeCleanPremium.error),
             onPressed: () => Navigator.pop(dctx, true),
-            child: const Text('Limpar'),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _agenda.doc(ev.id).delete();
+      if (sheetContext != null && sheetContext.mounted) {
+        Navigator.pop(sheetContext);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Evento removido da agenda.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmClearAgendaForDay(DateTime day) async {
+    final key = _dayKey(day);
+    final ids = (_eventsByDay[key] ?? [])
+        .where((e) => e.source == 'agenda')
+        .map((e) => e.id)
+        .toList();
+    if (ids.isEmpty) return;
+    final multi = ids.length > 1;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(multi
+            ? 'Remover todos os eventos deste dia?'
+            : 'Remover evento da agenda?'),
+        content: Text(
+          multi
+              ? 'Serão removidos ${ids.length} eventos da agenda neste dia. '
+                  'Para apagar só um, use o ícone de lixeira no cartão do evento ou abra o evento e exclua.'
+              : 'Este é o único evento da agenda neste dia. '
+                  'Itens de cultos ou mural legado não são afetados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(multi ? 'Remover todos' : 'Remover'),
           ),
         ],
       ),
@@ -2377,7 +4177,9 @@ class _CalendarPageState extends State<CalendarPage>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${ids.length} evento(s) removido(s).')),
+          SnackBar(
+              content: Text(
+                  '${ids.length} evento${ids.length == 1 ? '' : 's'} removido${ids.length == 1 ? '' : 's'}.')),
         );
       }
     } catch (e) {
@@ -2568,6 +4370,7 @@ class _CalendarPageState extends State<CalendarPage>
             primary;
         final time = DateFormat('HH:mm').format(ev.dateTime);
         final title = ev.title.isNotEmpty ? ev.title : ev.type;
+        final canEditThis = _canWrite && ev.source == 'agenda';
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Material(
@@ -2576,85 +4379,153 @@ class _CalendarPageState extends State<CalendarPage>
             shadowColor: Colors.black.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(18),
             clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () {
-                Navigator.pop(ctx);
-                _showEventDetails(ev);
-              },
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: math.max(52.0, isMobile ? 56.0 : 58.0),
-                      margin: const EdgeInsets.only(left: 6, right: 4),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 6),
-                      decoration: BoxDecoration(
-                        color: stripeColor.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: stripeColor.withValues(alpha: 0.4)),
-                      ),
-                      child: Text(
-                        time,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                          color: const Color(0xFF0F172A),
-                          height: 1.1,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showEventDetails(ev);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(6, 6, 4, 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: math.max(52.0, isMobile ? 56.0 : 58.0),
+                            margin: const EdgeInsets.only(left: 6, right: 4),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 12, horizontal: 6),
+                            decoration: BoxDecoration(
+                              color: stripeColor.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                  color: stripeColor.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              time,
+                              textAlign: TextAlign.center,
                               style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.w700,
-                                fontSize: isMobile ? 15 : 16,
-                                color: ThemeCleanPremium.onSurface,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: const Color(0xFF0F172A),
+                                height: 1.1,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(_iconForType(ev.type),
-                                    size: 16,
-                                    color: stripeColor),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    ev.type,
-                                    maxLines: 1,
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: ThemeCleanPremium.onSurfaceVariant,
-                                      fontWeight: FontWeight.w600,
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: isMobile ? 15 : 16,
+                                      color: ThemeCleanPremium.onSurface,
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(_iconForType(ev.type),
+                                          size: 16,
+                                          color: stripeColor),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          ev.type,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: ThemeCleanPremium
+                                                .onSurfaceVariant,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (ev.responsible.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(Icons.person_rounded,
+                                            size: 15,
+                                            color: Colors.grey.shade600),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            ev.responsible.trim(),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              height: 1.25,
+                                              color: Colors.grey.shade800,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        if (_whatsappDigitsForEvent(ev) !=
+                                            null)
+                                          IconButton(
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(
+                                                minWidth: 34, minHeight: 34),
+                                            tooltip: 'WhatsApp',
+                                            icon: const Icon(Icons.chat_rounded,
+                                                color: Color(0xFF25D366),
+                                                size: 22),
+                                            onPressed: () =>
+                                                _openWhatsAppDigits(
+                                                    _whatsappDigitsForEvent(
+                                                        ev)!),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                          if (!canEditThis)
+                            Icon(Icons.chevron_right_rounded,
+                                color: Colors.grey.shade400, size: 26),
+                        ],
                       ),
                     ),
-                    Icon(Icons.chevron_right_rounded,
-                        color: Colors.grey.shade400, size: 26),
-                  ],
+                  ),
                 ),
-              ),
+                if (canEditThis) ...[
+                  IconButton(
+                    tooltip: 'Editar',
+                    icon: Icon(Icons.edit_outlined,
+                        color: ThemeCleanPremium.primary, size: 22),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _showAddEvent(existing: ev);
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'Remover só este',
+                    icon: Icon(Icons.delete_outline_rounded,
+                        color: ThemeCleanPremium.error, size: 22),
+                    onPressed: () =>
+                        _confirmDeleteSingleAgendaEvent(ev, sheetContext: ctx),
+                  ),
+                ],
+              ],
             ),
           ),
         );
@@ -2672,7 +4543,7 @@ class _CalendarPageState extends State<CalendarPage>
               FilledButton.icon(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _showAddEvent(presetDate: day);
+                  _openNewEventForDay(day);
                 },
                 icon: const Icon(Icons.add_rounded, size: 22),
                 label: Text(
@@ -2697,7 +4568,9 @@ class _CalendarPageState extends State<CalendarPage>
                   icon: Icon(Icons.delete_sweep_rounded,
                       color: ThemeCleanPremium.error),
                   label: Text(
-                    'Limpar agenda (${agendaDeletable.length})',
+                    agendaDeletable.length > 1
+                        ? 'Remover todos deste dia (${agendaDeletable.length})'
+                        : 'Remover evento da agenda',
                     style: TextStyle(
                       color: ThemeCleanPremium.error,
                       fontWeight: FontWeight.w700,
@@ -2733,7 +4606,9 @@ class _CalendarPageState extends State<CalendarPage>
         Padding(
           padding: const EdgeInsets.only(top: 4, bottom: 8),
           child: Text(
-            'Itens de cultos ou mural legado não podem ser apagados por aqui.',
+            _canWrite
+                ? 'Abra o evento para excluir posts do mural ou registos antigos de cultos — horários do mural usam o início (startAt) definido no editor.'
+                : 'Alguns itens vêm do Mural de Eventos ou de Cultos; só quem tem permissão pode removê-los ao abrir o cartão.',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey.shade600,
@@ -2847,27 +4722,348 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  // ─── Novo evento → coleção agenda (+ opcional mural) ───────────────────────
+  // ─── Novo/editar evento → coleção agenda (+ opcional mural ao criar) ────────
 
-  Future<void> _showAddEvent({DateTime? presetDate}) async {
-    final titleCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
-    final locCtrl = TextEditingController();
-    final respCtrl = TextEditingController();
-    final startTimeNotifier = ValueNotifier<String>('19:00');
-    final endTimeNotifier = ValueNotifier<String>('21:00');
-    final categoryNotifier = ValueNotifier<String>('culto');
-    final agendaColorNotifier =
-        ValueNotifier<Color>(_categoryColors['culto']!);
+  Future<void> _pickMemberForResponsibleSheet(
+    BuildContext ctx,
+    TextEditingController respCtrl,
+    TextEditingController whatsappCtrl,
+  ) async {
+    final all = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('membros')
+        .limit(500)
+        .get();
+    if (!ctx.mounted) return;
+    final qCtrl = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (bctx) {
+        return StatefulBuilder(
+          builder: (context, setSt) {
+            final q = qCtrl.text.toLowerCase().trim();
+            final filtered = all.docs.where((d) {
+              final data = d.data();
+              final nome = (data['nome'] ??
+                      data['NOME_COMPLETO'] ??
+                      data['displayName'] ??
+                      '')
+                  .toString()
+                  .toLowerCase();
+              if (q.length < 2) return nome.isNotEmpty;
+              return nome.contains(q);
+            }).take(80)
+                .toList();
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  MediaQuery.viewInsetsOf(context).bottom + 12,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Membros',
+                      style: GoogleFonts.poppins(
+                          fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      'Digite 2+ letras para filtrar (ou veja a lista).',
+                      style: GoogleFonts.poppins(
+                          fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: qCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Buscar',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
+                      onChanged: (_) => setSt(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: math.min(
+                          420, MediaQuery.sizeOf(context).height * 0.48),
+                      child: filtered.isEmpty
+                          ? Center(
+                              child: Text(
+                                q.length < 2
+                                    ? 'Digite para filtrar ou aguarde.'
+                                    : 'Nenhum resultado.',
+                                style: GoogleFonts.poppins(
+                                    color: Colors.grey.shade600),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (_, i) {
+                                final d = filtered[i];
+                                final data = d.data();
+                                final nome = (data['nome'] ??
+                                        data['NOME_COMPLETO'] ??
+                                        data['displayName'] ??
+                                        'Membro')
+                                    .toString();
+                                final w = (data['whatsapp'] ??
+                                        data['telefone'] ??
+                                        data['celular'] ??
+                                        '')
+                                    .toString();
+                                return ListTile(
+                                  title: Text(nome),
+                                  onTap: () {
+                                    respCtrl.text = nome;
+                                    if (w.isNotEmpty) {
+                                      whatsappCtrl.text =
+                                          w.replaceAll(RegExp(r'\D'), '');
+                                    }
+                                    Navigator.pop(bctx);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openNewEventForDay(DateTime day) async {
+    if (!_canWrite) return;
+    try {
+      final snap =
+          await _eventTemplates.where('active', isEqualTo: true).limit(48).get();
+      if (!mounted) return;
+      if (snap.docs.isEmpty) {
+        await _showAddEvent(presetDate: day);
+        return;
+      }
+      final pick = await showModalBottomSheet<_AgendaTplPick>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusXl)),
+        ),
+        builder: (ctx) {
+          final h = MediaQuery.sizeOf(ctx).height * 0.62;
+          return SafeArea(
+            child: SizedBox(
+              height: h,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Pré-cadastro ou novo',
+                      style: GoogleFonts.poppins(
+                          fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      'Use um evento fixo já cadastrado ou crie em branco.',
+                      style: GoogleFonts.poppins(
+                          fontSize: 13, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            leading: Icon(Icons.add_circle_outline_rounded,
+                                color: ThemeCleanPremium.primary),
+                            title: Text(
+                              'Novo evento em branco',
+                              style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w700),
+                            ),
+                            subtitle: const Text('Preencher manualmente'),
+                            onTap: () =>
+                                Navigator.pop(ctx, const _AgendaTplPick.blank()),
+                          ),
+                          const Divider(height: 1),
+                          ...snap.docs.map((d) {
+                            final m = d.data();
+                            final title =
+                                (m['title'] ?? m['titulo'] ?? 'Evento').toString();
+                            final t = (m['time'] ?? '19:30').toString();
+                            final loc = (m['location'] ?? '').toString();
+                            return ListTile(
+                              leading: Icon(Icons.event_repeat_rounded,
+                                  color: ThemeCleanPremium.primary),
+                              title: Text(title,
+                                  style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w600)),
+                              subtitle: Text(
+                                [t, loc]
+                                    .where((s) => s.toString().trim().isNotEmpty)
+                                    .join(' · '),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () =>
+                                  Navigator.pop(ctx, _AgendaTplPick.template(d)),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      if (!mounted || pick == null) return;
+      if (pick.isBlank) {
+        await _showAddEvent(presetDate: day);
+      } else if (pick.template != null) {
+        await _showAddEvent(presetDate: day, templateDoc: pick.template);
+      }
+    } catch (_) {
+      if (mounted) await _showAddEvent(presetDate: day);
+    }
+  }
+
+  Future<void> _showAddEvent({
+    DateTime? presetDate,
+    _CalendarEvent? existing,
+    DocumentSnapshot<Map<String, dynamic>>? templateDoc,
+  }) async {
+    await _loadEventCategories();
+    Map<String, dynamic>? existingDoc;
+    if (existing != null) {
+      final snap = await _agenda.doc(existing.id).get();
+      if (!snap.exists) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Evento não encontrado ou já removido.')),
+          );
+        }
+        return;
+      }
+      existingDoc = snap.data();
+    }
+
+    String fmtTime(DateTime d) =>
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+    final ev = existing;
+    final doc = existingDoc;
+    var initialCat =
+        (ev?.categoryKey ?? doc?['category'] ?? 'culto').toString().trim();
+    final ecPersist = (doc?['eventCategoryId'] ?? '').toString().trim();
+    if (ecPersist.isNotEmpty && !_isCustomCategoryKey(initialCat)) {
+      initialCat = _categoryKeyForEventCategoryId(ecPersist);
+    }
+    if (!_categoryColors.containsKey(initialCat) &&
+        !_isCustomCategoryKey(initialCat)) {
+      initialCat = 'culto';
+    }
+    final catKey = initialCat;
+
+    Color initialAgendaColor() {
+      if (ev != null) {
+        final fromHex = _hexToColor(ev.eventColorHex);
+        if (fromHex != null) return fromHex;
+      }
+      final hex = (doc?['color'] ?? '').toString().trim();
+      final c = _hexToColor(hex.isEmpty ? null : hex);
+      if (c != null) return c;
+      if (_isCustomCategoryKey(catKey)) {
+        final id = catKey.substring(_customCategoryPrefix.length);
+        for (final docc in _eventCategoryDocs) {
+          if (docc.id == id) {
+            final cor = docc.data()['cor'];
+            if (cor is int) return Color(cor);
+          }
+        }
+      }
+      return _categoryColors[_categoryColors.containsKey(catKey) ? catKey : 'culto'] ??
+          ThemeCleanPremium.primary;
+    }
+
+    var startDt =
+        ev?.dateTime ?? (presetDate ?? _selectedDay ?? DateTime.now());
+    var endDt = ev?.endDateTime ?? startDt.add(const Duration(hours: 2));
+    final tpl = templateDoc?.data();
+    if (tpl != null && existing == null) {
+      final pd = presetDate ?? _selectedDay ?? DateTime.now();
+      final tstr = (tpl['time'] ?? '19:30').toString();
+      final tp = tstr.split(':');
+      final hh = int.tryParse(tp.isNotEmpty ? tp[0] : '') ?? 19;
+      final mm = int.tryParse(tp.length > 1 ? tp[1] : '') ?? 0;
+      startDt = DateTime(pd.year, pd.month, pd.day, hh, mm);
+      endDt = startDt.add(const Duration(hours: 2));
+    }
+
+    final titleCtrl = TextEditingController(
+        text: (tpl != null && existing == null)
+            ? (tpl['title'] ?? '').toString()
+            : (ev?.title ?? ''));
+    final descCtrl = TextEditingController(text: ev?.description ?? '');
+    final locCtrl = TextEditingController(
+        text: (tpl != null && existing == null)
+            ? (tpl['location'] ?? '').toString()
+            : (ev?.location ?? ''));
+    final respCtrl = TextEditingController(text: ev?.responsible ?? '');
+    final whatsappCtrl = TextEditingController(
+      text: (doc?['whatsapp'] ?? ev?.contactPhone ?? '').toString(),
+    );
+    final cepPartCtrl = TextEditingController();
+    final logradouroPartCtrl = TextEditingController();
+    final numeroPartCtrl = TextEditingController();
+    final quadraPartCtrl = TextEditingController();
+    final bairroPartCtrl = TextEditingController();
+    final cidadePartCtrl = TextEditingController();
+    final ufPartCtrl = TextEditingController();
+    final locUsePartsNotifier = ValueNotifier<bool>(false);
+    final cepLoading = ValueNotifier<bool>(false);
+
+    final startTimeNotifier = ValueNotifier<String>(fmtTime(startDt));
+    final endTimeNotifier = ValueNotifier<String>(fmtTime(endDt));
+    final categoryNotifier = ValueNotifier<String>(catKey);
+    final agendaColorNotifier = ValueNotifier<Color>(initialAgendaColor());
     final dateNotifier = ValueNotifier<DateTime>(
-        presetDate ?? _selectedDay ?? DateTime.now());
-    final recurrenceNotifier = ValueNotifier<String>('none');
+      DateTime(startDt.year, startDt.month, startDt.day),
+    );
+    var recStr = (doc?['recurrence'] ?? 'none').toString().trim();
+    if (recStr.isEmpty) recStr = 'none';
+    final recurrenceNotifier = ValueNotifier<String>(recStr);
     final publishMuralNotifier = ValueNotifier<bool>(false);
-    final needSound = ValueNotifier<bool>(false);
-    final needDataShow = ValueNotifier<bool>(false);
-    final needCantina = ValueNotifier<bool>(false);
+    final publishSiteNotifier = ValueNotifier<bool>(true);
+    final categoryListRevision = ValueNotifier<int>(0);
     final saving = ValueNotifier<bool>(false);
 
+    if (!mounted) return;
     final savedDate = await showModalBottomSheet<DateTime?>(
       context: context,
       isScrollControlled: true,
@@ -2902,7 +5098,10 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               )),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
-              Text('Novo evento (agenda)',
+              Text(
+                  existing == null
+                      ? 'Novo evento (agenda)'
+                      : 'Editar evento (agenda)',
                   style: GoogleFonts.poppins(
                       fontSize: 20, fontWeight: FontWeight.w800)),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
@@ -2915,41 +5114,193 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
-              ValueListenableBuilder<String>(
-                valueListenable: categoryNotifier,
-                builder: (_, cat, __) => DropdownButtonFormField<String>(
-                  value: cat,
-                  decoration: const InputDecoration(
-                    labelText: 'Categoria',
-                    prefixIcon: Icon(Icons.palette_rounded),
-                  ),
-                  items: _categoryLabels.entries
-                      .map((e) => DropdownMenuItem(
-                            value: e.key,
+              ValueListenableBuilder<int>(
+                valueListenable: categoryListRevision,
+                builder: (_, __, ___) => ValueListenableBuilder<String>(
+                  valueListenable: categoryNotifier,
+                  builder: (_, cat, __) => DropdownButtonFormField<String>(
+                    value: cat,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Categoria',
+                      prefixIcon: Icon(Icons.palette_rounded),
+                    ),
+                    items: [
+                      ..._categoryLabels.entries.map(
+                        (e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: _categoryColors[e.key] ??
+                                      ThemeCleanPremium.primary,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(e.value)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      ..._eventCategoryDocs.map(
+                        (c) {
+                          final nome =
+                              (c.data()['nome'] ?? 'Categoria').toString();
+                          final cor = c.data()['cor'];
+                          final col = cor is int
+                              ? Color(cor)
+                              : ThemeCleanPremium.primary;
+                          return DropdownMenuItem(
+                            value: _categoryKeyForEventCategoryId(c.id),
                             child: Row(
                               children: [
                                 Container(
                                   width: 12,
                                   height: 12,
                                   decoration: BoxDecoration(
-                                    color: _categoryColors[e.key] ??
-                                        ThemeCleanPremium.primary,
+                                    color: col,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-                                Expanded(child: Text(e.value)),
+                                Expanded(child: Text(nome)),
                               ],
                             ),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) {
+                          );
+                        },
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
                       categoryNotifier.value = v;
-                      agendaColorNotifier.value = _categoryColors[v] ??
-                          ThemeCleanPremium.primary;
-                    }
-                  },
+                      if (_isCustomCategoryKey(v)) {
+                        final id = v.substring(_customCategoryPrefix.length);
+                        for (final c in _eventCategoryDocs) {
+                          if (c.id == id) {
+                            final cor = c.data()['cor'];
+                            if (cor is int) {
+                              agendaColorNotifier.value = Color(cor);
+                            }
+                            return;
+                          }
+                        }
+                      } else {
+                        agendaColorNotifier.value =
+                            _categoryColors[v] ?? ThemeCleanPremium.primary;
+                      }
+                    },
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () async {
+                          Color pickColor = _agendaPaletteColors[0];
+                          final nome = TextEditingController();
+                          final ok = await showDialog<bool>(
+                            context: ctx,
+                            builder: (dctx) => StatefulBuilder(
+                              builder: (context, setD) => AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16)),
+                                title: const Text('Nova categoria'),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    TextField(
+                                      controller: nome,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Nome da categoria',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Cor',
+                                      style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        for (final c in _agendaPaletteColors
+                                            .take(10))
+                                          InkWell(
+                                            onTap: () =>
+                                                setD(() => pickColor = c),
+                                            child: CircleAvatar(
+                                              backgroundColor: c,
+                                              radius: 18,
+                                              child: pickColor == c
+                                                  ? const Icon(Icons.check,
+                                                      color: Colors.white,
+                                                      size: 18)
+                                                  : null,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dctx, false),
+                                      child: const Text('Cancelar')),
+                                  FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dctx, true),
+                                      child: const Text('Salvar')),
+                                ],
+                              ),
+                            ),
+                          );
+                          if (ok != true || nome.text.trim().isEmpty) return;
+                          try {
+                            await FirebaseAuth.instance.currentUser
+                                ?.getIdToken(true);
+                            final ref = await FirebaseFirestore.instance
+                                .collection('igrejas')
+                                .doc(widget.tenantId)
+                                .collection('event_categories')
+                                .add({
+                              'nome': nome.text.trim(),
+                              'cor': pickColor.toARGB32(),
+                              'createdAt': FieldValue.serverTimestamp(),
+                            });
+                            await _loadEventCategories();
+                            categoryNotifier.value =
+                                _categoryKeyForEventCategoryId(ref.id);
+                            agendaColorNotifier.value = pickColor;
+                            categoryListRevision.value++;
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                ThemeCleanPremium.successSnackBar(
+                                    'Categoria criada.'),
+                              );
+                            }
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(content: Text('Erro: $e')),
+                              );
+                            }
+                          }
+                        },
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: Text(
+                    'Nova categoria',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
@@ -2963,7 +5314,7 @@ class _CalendarPageState extends State<CalendarPage>
               ),
               const SizedBox(height: 6),
               Text(
-                'Mesmas cores do módulo Escalas — a barra e os pontos do mês usam esta cor.',
+                'Toque na cor; expanda “Mais cores” para ver a paleta completa.',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   color: Colors.grey.shade600,
@@ -2973,44 +5324,129 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: 10),
               ValueListenableBuilder<Color>(
                 valueListenable: agendaColorNotifier,
-                builder: (_, picked, __) => Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _agendaPaletteColors.map((c) {
-                    final selected = picked == c;
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => agendaColorNotifier.value = c,
-                        customBorder: const CircleBorder(),
-                        child: Ink(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: c,
-                            border: Border.all(
-                              color: selected
-                                  ? ThemeCleanPremium.primary
-                                  : Colors.white,
-                              width: selected ? 3 : 1.5,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: c.withValues(alpha: 0.4),
-                                blurRadius: selected ? 8 : 4,
-                                offset: const Offset(0, 2),
+                builder: (_, picked, __) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _agendaPaletteColors.take(8).map((c) {
+                        final selected = picked == c;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => agendaColorNotifier.value = c,
+                            customBorder: const CircleBorder(),
+                            child: Ink(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: c,
+                                border: Border.all(
+                                  color: selected
+                                      ? ThemeCleanPremium.primary
+                                      : Colors.white,
+                                  width: selected ? 3 : 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: c.withValues(alpha: 0.4),
+                                    blurRadius: selected ? 8 : 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
+                              child: selected
+                                  ? const Icon(Icons.check_rounded,
+                                      color: Colors.white, size: 22)
+                                  : null,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    Theme(
+                      data: Theme.of(ctx).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(
+                          'Mais cores',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        childrenPadding: const EdgeInsets.only(bottom: 8),
+                        children: [
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              ..._agendaPaletteColors.skip(8).map((c) {
+                                final selected = picked == c;
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () =>
+                                        agendaColorNotifier.value = c,
+                                    customBorder: const CircleBorder(),
+                                    child: Ink(
+                                      width: 38,
+                                      height: 38,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: c,
+                                        border: Border.all(
+                                          color: selected
+                                              ? ThemeCleanPremium.primary
+                                              : Colors.white,
+                                          width: selected ? 3 : 1.5,
+                                        ),
+                                      ),
+                                      child: selected
+                                          ? const Icon(Icons.check_rounded,
+                                              color: Colors.white, size: 18)
+                                          : null,
+                                    ),
+                                  ),
+                                );
+                              }),
+                              ..._agendaPaletteExtraColors.map((c) {
+                                final selected = picked == c;
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () =>
+                                        agendaColorNotifier.value = c,
+                                    customBorder: const CircleBorder(),
+                                    child: Ink(
+                                      width: 38,
+                                      height: 38,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: c,
+                                        border: Border.all(
+                                          color: selected
+                                              ? ThemeCleanPremium.primary
+                                              : Colors.white,
+                                          width: selected ? 3 : 1.5,
+                                        ),
+                                      ),
+                                      child: selected
+                                          ? const Icon(Icons.check_rounded,
+                                              color: Colors.white, size: 18)
+                                          : null,
+                                    ),
+                                  ),
+                                );
+                              }),
                             ],
                           ),
-                          child: selected
-                              ? const Icon(Icons.check_rounded,
-                                  color: Colors.white, size: 22)
-                              : null,
-                        ),
+                        ],
                       ),
-                    );
-                  }).toList(),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -3127,52 +5563,345 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
+              Material(
+                color: const Color(0xFFF8FAFC),
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  title: Text(
+                    'Local do evento',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Igreja, CEP ou texto livre.',
+                    style: GoogleFonts.poppins(
+                        fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              try {
+                                final snap = await FirebaseFirestore.instance
+                                    .collection('igrejas')
+                                    .doc(widget.tenantId)
+                                    .get();
+                                final line = _churchAddressLineFromTenant(
+                                    snap.data() ?? {});
+                                if (line.isEmpty) {
+                                  if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      ThemeCleanPremium.successSnackBar(
+                                        'Cadastre o endereço da igreja em Cadastro da Igreja.',
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+                                locCtrl.text = line;
+                                locUsePartsNotifier.value = false;
+                              } catch (e) {
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(content: Text('Erro: $e')),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.church_rounded, size: 20),
+                            label: const Text('Usar endereço da igreja'),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: cepPartCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    labelText: 'CEP',
+                                    hintText: '00000-000',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ValueListenableBuilder<bool>(
+                                valueListenable: cepLoading,
+                                builder: (_, loading, __) => IconButton.filled(
+                                  tooltip: 'Buscar CEP',
+                                  onPressed: loading
+                                      ? null
+                                      : () async {
+                                          final d = _onlyDigitsAgenda(
+                                              cepPartCtrl.text);
+                                          if (d.length != 8) {
+                                            ScaffoldMessenger.of(ctx)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                    'Informe 8 dígitos.'),
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          cepLoading.value = true;
+                                          try {
+                                            final r = await fetchCep(d);
+                                            if (!r.ok) {
+                                              if (ctx.mounted) {
+                                                ScaffoldMessenger.of(ctx)
+                                                    .showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                        'CEP não encontrado.'),
+                                                  ),
+                                                );
+                                              }
+                                              return;
+                                            }
+                                            logradouroPartCtrl.text =
+                                                r.logradouro ?? '';
+                                            bairroPartCtrl.text =
+                                                r.bairro ?? '';
+                                            cidadePartCtrl.text =
+                                                r.localidade ?? '';
+                                            ufPartCtrl.text = r.uf ?? '';
+                                            cepPartCtrl.text =
+                                                _formatCepDisplayAgenda(d);
+                                            locUsePartsNotifier.value = true;
+                                            locCtrl.text =
+                                                _mergeAgendaLocationParts(
+                                              logradouro: logradouroPartCtrl.text,
+                                              numero: numeroPartCtrl.text,
+                                              quadraLote: quadraPartCtrl.text,
+                                              bairro: bairroPartCtrl.text,
+                                              cidade: cidadePartCtrl.text,
+                                              uf: ufPartCtrl.text,
+                                              cepDigits: cepPartCtrl.text,
+                                            );
+                                            if (ctx.mounted) {
+                                              ScaffoldMessenger.of(ctx)
+                                                  .showSnackBar(
+                                                ThemeCleanPremium.successSnackBar(
+                                                  'CEP encontrado. Complete número e Qd/Lt se precisar.',
+                                                ),
+                                              );
+                                            }
+                                          } finally {
+                                            cepLoading.value = false;
+                                          }
+                                        },
+                                  icon: loading
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2))
+                                      : const Icon(Icons.search_rounded),
+                                ),
+                              ),
+                            ],
+                          ),
+                          TextField(
+                            controller: logradouroPartCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Rua / Av.',
+                            ),
+                            onChanged: (_) {
+                              if (locUsePartsNotifier.value) {
+                                locCtrl.text = _mergeAgendaLocationParts(
+                                  logradouro: logradouroPartCtrl.text,
+                                  numero: numeroPartCtrl.text,
+                                  quadraLote: quadraPartCtrl.text,
+                                  bairro: bairroPartCtrl.text,
+                                  cidade: cidadePartCtrl.text,
+                                  uf: ufPartCtrl.text,
+                                  cepDigits: cepPartCtrl.text,
+                                );
+                              }
+                            },
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: numeroPartCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nº',
+                                  ),
+                                  onChanged: (_) {
+                                    if (locUsePartsNotifier.value) {
+                                      locCtrl.text =
+                                          _mergeAgendaLocationParts(
+                                        logradouro: logradouroPartCtrl.text,
+                                        numero: numeroPartCtrl.text,
+                                        quadraLote: quadraPartCtrl.text,
+                                        bairro: bairroPartCtrl.text,
+                                        cidade: cidadePartCtrl.text,
+                                        uf: ufPartCtrl.text,
+                                        cepDigits: cepPartCtrl.text,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: quadraPartCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Qd / Lt',
+                                  ),
+                                  onChanged: (_) {
+                                    if (locUsePartsNotifier.value) {
+                                      locCtrl.text =
+                                          _mergeAgendaLocationParts(
+                                        logradouro: logradouroPartCtrl.text,
+                                        numero: numeroPartCtrl.text,
+                                        quadraLote: quadraPartCtrl.text,
+                                        bairro: bairroPartCtrl.text,
+                                        cidade: cidadePartCtrl.text,
+                                        uf: ufPartCtrl.text,
+                                        cepDigits: cepPartCtrl.text,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          TextField(
+                            controller: bairroPartCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Bairro',
+                            ),
+                            onChanged: (_) {
+                              if (locUsePartsNotifier.value) {
+                                locCtrl.text = _mergeAgendaLocationParts(
+                                  logradouro: logradouroPartCtrl.text,
+                                  numero: numeroPartCtrl.text,
+                                  quadraLote: quadraPartCtrl.text,
+                                  bairro: bairroPartCtrl.text,
+                                  cidade: cidadePartCtrl.text,
+                                  uf: ufPartCtrl.text,
+                                  cepDigits: cepPartCtrl.text,
+                                );
+                              }
+                            },
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: cidadePartCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Cidade',
+                                  ),
+                                  onChanged: (_) {
+                                    if (locUsePartsNotifier.value) {
+                                      locCtrl.text =
+                                          _mergeAgendaLocationParts(
+                                        logradouro: logradouroPartCtrl.text,
+                                        numero: numeroPartCtrl.text,
+                                        quadraLote: quadraPartCtrl.text,
+                                        bairro: bairroPartCtrl.text,
+                                        cidade: cidadePartCtrl.text,
+                                        uf: ufPartCtrl.text,
+                                        cepDigits: cepPartCtrl.text,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: ufPartCtrl,
+                                  maxLength: 2,
+                                  textCapitalization:
+                                      TextCapitalization.characters,
+                                  decoration: const InputDecoration(
+                                    labelText: 'UF',
+                                    counterText: '',
+                                  ),
+                                  onChanged: (_) {
+                                    if (locUsePartsNotifier.value) {
+                                      locCtrl.text =
+                                          _mergeAgendaLocationParts(
+                                        logradouro: logradouroPartCtrl.text,
+                                        numero: numeroPartCtrl.text,
+                                        quadraLote: quadraPartCtrl.text,
+                                        bairro: bairroPartCtrl.text,
+                                        cidade: cidadePartCtrl.text,
+                                        uf: ufPartCtrl.text,
+                                        cepDigits: cepPartCtrl.text,
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceSm),
               TextField(
                 controller: locCtrl,
                 style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
-                  labelText: 'Local / sala',
+                  labelText: 'Local (linha final)',
                   prefixIcon: Icon(Icons.place_rounded),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: respCtrl,
+                      style: GoogleFonts.poppins(fontSize: 16),
+                      decoration: const InputDecoration(
+                        labelText: 'Responsável',
+                        prefixIcon: Icon(Icons.person_rounded),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Buscar membro',
+                    icon: Icon(Icons.groups_rounded,
+                        color: ThemeCleanPremium.primary),
+                    onPressed: () => _pickMemberForResponsibleSheet(
+                        ctx, respCtrl, whatsappCtrl),
+                  ),
+                ],
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceSm),
               TextField(
-                controller: respCtrl,
+                controller: whatsappCtrl,
+                keyboardType: TextInputType.phone,
                 style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
-                  labelText: 'Responsável',
-                  prefixIcon: Icon(Icons.person_rounded),
+                  labelText: 'WhatsApp do responsável (opcional)',
+                  hintText: 'DDD + número, só números',
+                  prefixIcon: Icon(Icons.chat_rounded, color: Color(0xFF25D366)),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
-              Text('Recursos', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
-              ValueListenableBuilder<bool>(
-                valueListenable: needSound,
-                builder: (_, v, __) => SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Som'),
-                  value: v,
-                  onChanged: (x) => needSound.value = x,
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: needDataShow,
-                builder: (_, v, __) => SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('DataShow'),
-                  value: v,
-                  onChanged: (x) => needDataShow.value = x,
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: needCantina,
-                builder: (_, v, __) => SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Cantina'),
-                  value: v,
-                  onChanged: (x) => needCantina.value = x,
-                ),
-              ),
               ValueListenableBuilder<String>(
                 valueListenable: recurrenceNotifier,
                 builder: (_, rec, __) => DropdownButtonFormField<String>(
@@ -3195,17 +5924,40 @@ class _CalendarPageState extends State<CalendarPage>
                   },
                 ),
               ),
-              ValueListenableBuilder<bool>(
-                valueListenable: publishMuralNotifier,
-                builder: (_, v, __) => SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Publicar também no Mural (avisos/eventos)'),
-                  subtitle: const Text(
-                      'Cria um post tipo evento visível no feed da igreja.'),
-                  value: v,
-                  onChanged: (x) => publishMuralNotifier.value = x,
+              if (existing == null) ...[
+                ValueListenableBuilder<bool>(
+                  valueListenable: publishMuralNotifier,
+                  builder: (_, v, __) => SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                        'Publicar também no Mural (avisos/eventos)'),
+                    subtitle: const Text(
+                        'Cria um post tipo evento visível no feed da igreja.'),
+                    value: v,
+                    onChanged: (x) {
+                      publishMuralNotifier.value = x;
+                      if (!x) publishSiteNotifier.value = false;
+                    },
+                  ),
                 ),
-              ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: publishMuralNotifier,
+                  builder: (_, muralOn, __) => muralOn
+                      ? ValueListenableBuilder<bool>(
+                          valueListenable: publishSiteNotifier,
+                          builder: (_, siteOn, ___) => SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Visível no site público'),
+                            subtitle: const Text(
+                              'Quem acessa o site da igreja vê este evento (respeita data e local).'),
+                            value: siteOn,
+                            onChanged: (x) =>
+                                publishSiteNotifier.value = x,
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
               TextField(
                 controller: descCtrl,
                 maxLines: 3,
@@ -3272,66 +6024,145 @@ class _CalendarPageState extends State<CalendarPage>
                             final colorHex =
                                 _colorToHex(agendaColorNotifier.value);
                             final rec = recurrenceNotifier.value;
-                            final starts =
-                                _expandAgendaRecurrence(startBase, rec);
-                            final batch = FirebaseFirestore.instance.batch();
-                            final seriesId = _agenda.doc().id;
-                            for (final st in starts) {
-                              final en = st.add(dur);
-                              final ref = _agenda.doc();
-                              batch.set(ref, {
+
+                            if (existing != null) {
+                              final nid =
+                                  (existingDoc?['noticiaId'] ?? '').toString().trim();
+                              final upd = <String, dynamic>{
                                 'title': titleCtrl.text.trim(),
                                 'description': descCtrl.text.trim(),
-                                'startTime': Timestamp.fromDate(st),
-                                'endTime': Timestamp.fromDate(en),
+                                'startTime': Timestamp.fromDate(startBase),
+                                'endTime': Timestamp.fromDate(endBase),
                                 'color': colorHex,
                                 'category': cat,
                                 'location': locCtrl.text.trim(),
                                 'responsible': respCtrl.text.trim(),
-                                'needSound': needSound.value,
-                                'needDataShow': needDataShow.value,
-                                'needCantina': needCantina.value,
+                                'whatsapp':
+                                    whatsappCtrl.text.replaceAll(RegExp(r'\D'), ''),
+                                'needSound': false,
+                                'needDataShow': false,
+                                'needCantina': false,
                                 'recurrence': rec,
-                                'seriesId': seriesId,
-                                'createdAt': FieldValue.serverTimestamp(),
-                                'createdByUid':
-                                    FirebaseAuth.instance.currentUser?.uid ??
-                                        '',
-                              });
-                            }
-                            await batch.commit();
-                            if (publishMuralNotifier.value) {
-                              await _noticias.add({
-                                'type': 'evento',
-                                'title': titleCtrl.text.trim(),
-                                'text': descCtrl.text.trim(),
-                                'startAt': Timestamp.fromDate(startBase),
-                                'dataEvento': Timestamp.fromDate(startBase),
-                                'description': descCtrl.text.trim(),
-                                'active': true,
-                                'publicSite': true,
-                                'generated': false,
-                                'likes': <String>[],
-                                'rsvp': <String>[],
-                                'createdAt': FieldValue.serverTimestamp(),
-                                'createdByUid':
-                                    FirebaseAuth.instance.currentUser?.uid ??
-                                        '',
-                                'likesCount': 0,
-                                'rsvpCount': 0,
-                                'commentsCount': 0,
                                 'updatedAt': FieldValue.serverTimestamp(),
-                              });
-                            }
-                            if (ctx.mounted) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  ThemeCleanPremium.successSnackBar(
-                                      'Evento salvo na agenda.'));
-                              final d = dateNotifier.value;
-                              Navigator.pop(
-                                ctx,
-                                DateTime(d.year, d.month, d.day),
-                              );
+                              };
+                              if (_isCustomCategoryKey(cat)) {
+                                final cid =
+                                    cat.substring(_customCategoryPrefix.length);
+                                upd['eventCategoryId'] = cid;
+                                for (final c in _eventCategoryDocs) {
+                                  if (c.id == cid) {
+                                    upd['eventCategoryName'] =
+                                        (c.data()['nome'] ?? '').toString();
+                                    final cor = c.data()['cor'];
+                                    if (cor is int) {
+                                      upd['eventCategoryColor'] = cor;
+                                    }
+                                    break;
+                                  }
+                                }
+                              } else {
+                                upd['eventCategoryId'] = FieldValue.delete();
+                                upd['eventCategoryName'] = FieldValue.delete();
+                                upd['eventCategoryColor'] = FieldValue.delete();
+                              }
+                              if (nid.isNotEmpty) upd['noticiaId'] = nid;
+                              await _agenda.doc(existing.id).update(upd);
+                              if (ctx.mounted) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                    ThemeCleanPremium.successSnackBar(
+                                        'Evento atualizado.'));
+                                final d = dateNotifier.value;
+                                Navigator.pop(
+                                  ctx,
+                                  DateTime(d.year, d.month, d.day),
+                                );
+                              }
+                            } else {
+                              String? muralNoticiaId;
+                              if (publishMuralNotifier.value) {
+                                final notRef = await _noticias.add({
+                                  'type': 'evento',
+                                  'title': titleCtrl.text.trim(),
+                                  'text': descCtrl.text.trim(),
+                                  'startAt': Timestamp.fromDate(startBase),
+                                  'dataEvento': Timestamp.fromDate(startBase),
+                                  'description': descCtrl.text.trim(),
+                                  'location': locCtrl.text.trim(),
+                                  'active': true,
+                                  'publicSite': publishSiteNotifier.value,
+                                  'generated': false,
+                                  'likes': <String>[],
+                                  'rsvp': <String>[],
+                                  'createdAt': FieldValue.serverTimestamp(),
+                                  'createdByUid':
+                                      FirebaseAuth.instance.currentUser?.uid ??
+                                          '',
+                                  'likesCount': 0,
+                                  'rsvpCount': 0,
+                                  'commentsCount': 0,
+                                  'updatedAt': FieldValue.serverTimestamp(),
+                                });
+                                muralNoticiaId = notRef.id;
+                              }
+                              final starts =
+                                  _expandAgendaRecurrence(startBase, rec);
+                              final batch = FirebaseFirestore.instance.batch();
+                              final seriesId = _agenda.doc().id;
+                              for (final st in starts) {
+                                final en = st.add(dur);
+                                final ref = _agenda.doc();
+                                final row = <String, dynamic>{
+                                  'title': titleCtrl.text.trim(),
+                                  'description': descCtrl.text.trim(),
+                                  'startTime': Timestamp.fromDate(st),
+                                  'endTime': Timestamp.fromDate(en),
+                                  'color': colorHex,
+                                  'category': cat,
+                                  'location': locCtrl.text.trim(),
+                                  'responsible': respCtrl.text.trim(),
+                                  'whatsapp': whatsappCtrl.text
+                                      .replaceAll(RegExp(r'\D'), ''),
+                                  'needSound': false,
+                                  'needDataShow': false,
+                                  'needCantina': false,
+                                  'recurrence': rec,
+                                  'seriesId': seriesId,
+                                  'createdAt': FieldValue.serverTimestamp(),
+                                  'createdByUid':
+                                      FirebaseAuth.instance.currentUser?.uid ??
+                                          '',
+                                  if (muralNoticiaId != null)
+                                    'noticiaId': muralNoticiaId,
+                                };
+                                if (_isCustomCategoryKey(cat)) {
+                                  final cid = cat
+                                      .substring(_customCategoryPrefix.length);
+                                  row['eventCategoryId'] = cid;
+                                  for (final c in _eventCategoryDocs) {
+                                    if (c.id == cid) {
+                                      row['eventCategoryName'] =
+                                          (c.data()['nome'] ?? '').toString();
+                                      final cor = c.data()['cor'];
+                                      if (cor is int) {
+                                        row['eventCategoryColor'] = cor;
+                                      }
+                                      break;
+                                    }
+                                  }
+                                }
+                                batch.set(ref, row);
+                              }
+                              await batch.commit();
+                              if (ctx.mounted) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                    ThemeCleanPremium.successSnackBar(
+                                        'Evento salvo na agenda.'));
+                                final d = dateNotifier.value;
+                                Navigator.pop(
+                                  ctx,
+                                  DateTime(d.year, d.month, d.day),
+                                );
+                              }
                             }
                           } catch (e) {
                             saving.value = false;
@@ -3353,7 +6184,11 @@ class _CalendarPageState extends State<CalendarPage>
                               strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.save_rounded),
                   label: Text(
-                    isSaving ? 'Salvando...' : 'Salvar na agenda',
+                    isSaving
+                        ? 'Salvando...'
+                        : (existing == null
+                            ? 'Salvar na agenda'
+                            : 'Salvar alterações'),
                     style: GoogleFonts.poppins(
                         fontSize: 16, fontWeight: FontWeight.w700),
                   ),
@@ -3417,6 +6252,13 @@ class _AgendaDiagonalSplitPainter extends CustomPainter {
       old.c1 != c1 || old.c2 != c2 || old.alphaMul != alphaMul;
 }
 
+class _AgendaTplPick {
+  final bool isBlank;
+  final QueryDocumentSnapshot<Map<String, dynamic>>? template;
+  const _AgendaTplPick.blank() : isBlank = true, template = null;
+  const _AgendaTplPick.template(this.template) : isBlank = false;
+}
+
 // ─── Calendar Event Model ─────────────────────────────────────────────────────
 
 class _CalendarEvent {
@@ -3431,10 +6273,20 @@ class _CalendarEvent {
   final DateTime? endDateTime;
   final String location;
   final String responsible;
+  /// Dígitos do WhatsApp / telefone (agenda interna).
+  final String contactPhone;
   final bool needSound;
   final bool needDataShow;
   final bool needCantina;
   final bool hasConflict;
+  /// Doc `noticias` vinculado (agenda interna espelhando o feed).
+  final String? linkedNoticiaId;
+  /// `event_templates` quando o post veio de evento fixo / gerado.
+  final String? templateId;
+  final bool generatedFromTemplate;
+  /// Só relevante para [source] == `noticias` — exibe no filtro “site público”.
+  final bool publicSite;
+  final bool hasScheduleOverlap;
 
   const _CalendarEvent({
     required this.id,
@@ -3448,15 +6300,23 @@ class _CalendarEvent {
     this.endDateTime,
     this.location = '',
     this.responsible = '',
+    this.contactPhone = '',
     this.needSound = false,
     this.needDataShow = false,
     this.needCantina = false,
     this.hasConflict = false,
+    this.linkedNoticiaId,
+    this.templateId,
+    this.generatedFromTemplate = false,
+    this.publicSite = true,
+    this.hasScheduleOverlap = false,
   });
 
   _CalendarEvent copyWith({
     bool? hasConflict,
+    bool? hasScheduleOverlap,
     String? eventColorHex,
+    String? contactPhone,
   }) {
     return _CalendarEvent(
       id: id,
@@ -3470,10 +6330,16 @@ class _CalendarEvent {
       endDateTime: endDateTime,
       location: location,
       responsible: responsible,
+      contactPhone: contactPhone ?? this.contactPhone,
       needSound: needSound,
       needDataShow: needDataShow,
       needCantina: needCantina,
       hasConflict: hasConflict ?? this.hasConflict,
+      linkedNoticiaId: linkedNoticiaId,
+      templateId: templateId,
+      generatedFromTemplate: generatedFromTemplate,
+      publicSite: publicSite,
+      hasScheduleOverlap: hasScheduleOverlap ?? this.hasScheduleOverlap,
     );
   }
 }

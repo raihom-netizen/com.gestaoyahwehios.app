@@ -3,7 +3,7 @@ REM Deploy web urgente - versao 11.0.32
 cd /d "%~dp0.."
 echo === Build web (release) ===
 call flutter pub get
-call flutter build web --release
+call flutter build web --release --no-tree-shake-icons
 if errorlevel 1 exit /b 1
 cd ..
 echo.

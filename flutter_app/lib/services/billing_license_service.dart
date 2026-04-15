@@ -276,6 +276,7 @@ class BillingLicenseService {
     for (final name in [
       'members', 'membros', 'event_templates', 'config', 'departamentos', 'patrimonio',
       'finance', 'categorias_receitas', 'categorias_despesas', 'contas', 'despesas_fixas',
+      'receitas_recorrentes',
       'usersIndex', 'users', 'fleet_vehicles', 'fleet_fuelings', 'fleet_documents',
       'eventos', 'pedidosOracao',
       'abastecimentos', 'combustiveis', 'veiculos',

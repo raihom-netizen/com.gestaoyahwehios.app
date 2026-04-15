@@ -1,0 +1,117 @@
+================================================================================
+GESTÃO YAHWEH — Depois de baixar distribution.cer (Apple Distribution)
+================================================================================
+Data referência: abril/2026 | Team: 82RC6YL7KL | Bundle: com.gestaoyahwehios.app
+
+O ficheiro distribution.cer é só o CERTIFICADO PÚBLICO. A Codemagic precisa do
+ficheiro .p12, que junta a CHAVE PRIVADA + certificado. Sem isso, o export do IPA
+falha ou o perfil diz que não inclui o certificado de assinatura.
+
+--------------------------------------------------------------------------------
+CHECKLIST (ordem)
+--------------------------------------------------------------------------------
+
+[ ] 1) MAC — Instalar o .cer no Keychain Access
+      - Duplo clique em distribution.cer (ou arrastar para "login" / "sistema").
+      - Tem de aparecer em "Os meus certificados" algo como:
+        "Apple Distribution: Raihom Barbosa (82RC6YL7KL)"
+      - Se só aparecer o certificado SEM chave privada (ícone estranho / não exporta .p12):
+        o CSR deste certificado foi criado NOUTRO sítio — tem de exportar .p12
+        na máquina onde foi gerado o pedido, ou revogar e criar novo certificado
+        com CSR feito neste Mac.
+
+[ ] 2) MAC — Exportar NOVO .p12
+      - Clique direito no certificado > Exportar 2 items (certificado + chave privada).
+      - Formato .p12, defina password (anotar = CM_CERTIFICATE_PASSWORD na Codemagic).
+
+[ ] 3) APPLE DEVELOPER — Atualizar o perfil App Store
+      - https://developer.apple.com/account/resources/profiles/list
+      - Perfil App Store de com.gestaoyahwehios.app (ex.: nome gestaoyahwehiosapp) > Edit.
+      - Em Certificates, marque o Apple Distribution que ACABOU de instalar / exportar.
+      - Save > Download do NOVO .mobileprovision (substitui o antigo).
+
+[ ] 4) CODEMAGIC — Secrets (grupo appstore_credentials)
+      - CM_CERTIFICATE = Base64 do NOVO .p12 (uma linha, sem quebras).
+        Mac:   cat NovoDistribution.p12 | base64 | tr -d '\n' | pbcopy
+        Win:   [Convert]::ToBase64String([IO.File]::ReadAllBytes("...\ficheiro.p12")) | Set-Clipboard
+      - CM_PROVISIONING_PROFILE = Base64 do NOVO .mobileprovision (uma linha).
+      - CM_CERTIFICATE_PASSWORD = password do .p12 (se tiver).
+
+[ ] 4b) CODEMAGIC — Conta / equipa: certificado ligado ao perfil ("Not uploaded")
+      Se em Personal Account settings (ou Team) > Available provisioning profiles
+      o perfil com.gestaoyahwehios.app aparece mas Certificate = "Not uploaded" (X vermelho):
+      - O .mobileprovision foi registado na Codemagic, mas falta o Apple Distribution
+        em formato .p12 na mesma conta/equipa (Code signing identities / iOS certificates).
+      - Faça upload do .p12 que corresponde ao certificado que está no perfil na Apple
+        (não basta só o .cer).
+      - Isto é independente dos secrets do passo 4: mesmo usando CM_* no workflow,
+        a lista "Available provisioning profiles" só fica verde quando o par
+        perfil + certificado estiver coerente na Codemagic.
+
+[ ] 5) REPOSITÓRIO — Confirmar codemagic.yaml do main
+      - O workflow na raiz inclui o passo "Verificar perfil vs P12 Distribution (fail-fast)"
+        que corre scripts/codemagic_ios_verify_profile_matches_p12.sh
+      - Se P12 e perfil não forem o mesmo par de certificado, o build falha em ~1 min
+        com mensagem clara (em vez de falhar ao fim do archive).
+
+[ ] 6) Build Codemagic
+      - Application settings > Configuration file from repository > branch main.
+      - Workflow: iOS Release (TestFlight).
+
+[ ] 6b) VERIFICAÇÃO AUTOMÁTICA LOCAL (Windows / Mac com Python + openssl no PATH)
+      Na raiz do repositório:
+        .\scripts\ios_verificar_perfil_com_p12.ps1
+      ou:
+        python scripts/ios_verify_profile_p12.py --ios-dir IOS
+      Deve imprimir «OK» antes de colar o Base64 do .mobileprovision na Codemagic.
+      Se falhar, o perfil na Apple não inclui o mesmo Apple Distribution que o .p12
+      (corrige no passo 3 — marcar o certificado certo em Certificates).
+
+--------------------------------------------------------------------------------
+Erro conhecido (resolvido com os passos acima)
+--------------------------------------------------------------------------------
+  exportArchive Provisioning profile "gestaoyahwehiosapp" doesn't include
+  signing certificate "Apple Distribution: Raihom Barbosa (82RC6YL7KL)".
+
+Significa: o .mobileprovision no secret CM_PROVISIONING_PROFILE foi gerado ANTES
+de incluir este certificado, OU o P12 no CM_CERTIFICATE é de OUTRO certificado.
+Refazer passos 3 e 4 com ficheiros NOVOS após o download do .cer.
+
+--------------------------------------------------------------------------------
+Erro: perfil não inclui "Sign In with Apple" / com.apple.developer.applesignin
+--------------------------------------------------------------------------------
+  Provisioning profile "gestaoyahwehiosapp" doesn't include the Sign In with Apple
+  capability.
+
+Causa: o App ID na Apple ou o perfil App Store foi criado sem "Sign In with Apple",
+mas o projeto iOS pedia essa entitlement em ios/Runner/Runner.entitlements.
+
+Opção A — Manter Apple Sign-In no iOS (recomendado se usa login com Apple):
+  1) developer.apple.com > Identifiers > App ID com.gestaoyahwehios.app
+     > Capabilities > ativar "Sign In with Apple" > Save.
+  2) Profiles > editar o perfil App Store desse App ID > Save > Download do novo
+     .mobileprovision.
+  3) Atualizar CM_PROVISIONING_PROFILE na Codemagic (Base64 do .mobileprovision).
+  4) No repositório, em Runner.entitlements, recolocar:
+     <key>com.apple.developer.applesignin</key>
+     <array><string>Default</string></array>
+
+Opção B — Build sem Apple Sign-In no iOS: entitlements sem applesignin (estado atual
+do repo); o IPA assina; o botão "Entrar com Apple" no iOS pode falhar até fazer A.
+
+--------------------------------------------------------------------------------
+Ficheiros nesta pasta (referência)
+--------------------------------------------------------------------------------
+  ATENÇÃO a datas: se gestaoyahwehiosapp.mobileprovision foi atualizado HOJE mas o
+  ficheiro gestaoyahwehiosapp (.p12) continua com data antiga, o P12 pode ser do
+  certificado ANTERIOR. Nesse caso o build falha (perfil inclui cert novo, P12 é velho).
+  Exporte um NOVO .p12 no Mac depois de instalar o distribution.cer atual.
+
+  distribution.cer     — cert público Apple (instalar no Mac; não colar na Codemagic)
+  gestaoyahwehiosapp.mobileprovision — cópia local; tem de ser a versão ATUAL da Apple
+  *.p8                 — API App Store Connect → APP_STORE_CONNECT_PRIVATE_KEY
+  Documentação: README_CREDENCIAIS.txt | CODEMAGIC_PASSO_A_PASSO.txt
+
+Não commitar .p12, .p8, .mobileprovision, .cer no Git (ver .gitignore na raiz).
+
+================================================================================

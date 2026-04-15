@@ -8,6 +8,19 @@ class BiometricService {
   static const _prefEnabled = 'biometric_enabled';
   static const _prefAsked = 'biometric_asked';
 
+  /// Após login na tela de login com biometria do aparelho, evita pedir digital de novo ao abrir o painel.
+  static bool _skipNextDashboardBiometricLock = false;
+
+  static void markBiometricVerifiedForNextPainelEntry() {
+    _skipNextDashboardBiometricLock = true;
+  }
+
+  static bool consumeSkipNextDashboardBiometricLock() {
+    if (!_skipNextDashboardBiometricLock) return false;
+    _skipNextDashboardBiometricLock = false;
+    return true;
+  }
+
   final LocalAuthentication _auth = LocalAuthentication();
 
   Future<bool> isEnabled() async {

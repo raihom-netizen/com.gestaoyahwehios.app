@@ -56,6 +56,12 @@ String churchDepartmentNameFromData(
     final short = id.length >= 8 ? id.substring(0, 8) : id;
     return 'Departamento $short';
   }
+  // Último recurso: nunca devolver nome vazio se existir id de documento (evita lista dedupe vazia).
+  if (id.isNotEmpty) {
+    return id.replaceAll('_', ' ').trim().isNotEmpty
+        ? id.replaceAll('_', ' ').trim()
+        : 'Departamento';
+  }
   return '';
 }
 
@@ -70,6 +76,48 @@ String normalizeChurchDepartmentNameKey(String name) {
       .trim()
       .toLowerCase()
       .replaceAll(RegExp(r'\s+'), ' ');
+}
+
+/// Remove acentos comuns (pt/EN) para formar id de documento [a-z0-9_].
+String churchDepartmentFoldAsciiForDocId(String input) {
+  if (input.isEmpty) return '';
+  const map = <String, String>{
+    'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
+    'é': 'e', 'ê': 'e', 'è': 'e', 'ë': 'e',
+    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+    'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
+    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+    'ç': 'c', 'ñ': 'n',
+    'Á': 'a', 'À': 'a', 'Ã': 'a', 'Â': 'a', 'Ä': 'a',
+    'É': 'e', 'Ê': 'e', 'È': 'e', 'Ë': 'e',
+    'Í': 'i', 'Ì': 'i', 'Î': 'i', 'Ï': 'i',
+    'Ó': 'o', 'Ò': 'o', 'Õ': 'o', 'Ô': 'o', 'Ö': 'o',
+    'Ú': 'u', 'Ù': 'u', 'Û': 'u', 'Ü': 'u',
+    'Ç': 'c', 'Ñ': 'n',
+  };
+  final buf = StringBuffer();
+  for (final c in input.runes) {
+    final ch = String.fromCharCode(c);
+    buf.write(map[ch] ?? ch);
+  }
+  return buf.toString().toLowerCase();
+}
+
+/// Id estável alinhado aos presets (`louvor`, `varoes`) — não usa ID auto do Firestore.
+String churchDepartmentStableDocIdCandidate(String name, String iconKey) {
+  String slug(String raw) {
+    var s = churchDepartmentFoldAsciiForDocId(raw.trim());
+    s = s.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    s = s.replaceAll(RegExp(r'_+'), '_');
+    s = s.replaceAll(RegExp(r'^_|_$'), '');
+    return s;
+  }
+
+  var s = slug(iconKey.isNotEmpty ? iconKey : name);
+  if (s.isEmpty) s = slug(name);
+  if (s.isEmpty) return 'departamento';
+  if (s.length > 120) s = s.substring(0, 120);
+  return s;
 }
 
 /// Exibe nome com capitalização amigável (ex.: "MOCIDADE" → "Mocidade").
@@ -131,6 +179,64 @@ List<QueryDocumentSnapshot<Map<String, dynamic>>> dedupeChurchDepartmentDocument
     if (cur == null || _deptDocScore(d) > _deptDocScore(cur)) {
       byKey[key] = d;
     }
+  }
+  final out = byKey.values.toList();
+  out.sort((a, b) {
+    final na = normalizeChurchDepartmentNameKey(churchDepartmentNameFromDoc(a));
+    final nb = normalizeChurchDepartmentNameKey(churchDepartmentNameFromDoc(b));
+    return na.compareTo(nb);
+  });
+  return out;
+}
+
+bool _hubPreferDocId(QueryDocumentSnapshot<Map<String, dynamic>> a) {
+  // Prefere ids canônicos (slug) a sufixos numéricos tipo jovens_2, criancas_3.
+  return !RegExp(r'_\d+$').hasMatch(a.id);
+}
+
+/// Hub “Departamentos”: um card por nome exibível — evita lista em branco por duplicatas
+/// e repetição visual (criancas + criancas_2). Mantém ativos e inativos; entre duplicatas
+/// de nome, prefere preset, doc com mais metadados, ativo e id sem `_2`.
+List<QueryDocumentSnapshot<Map<String, dynamic>>> dedupeChurchDepartmentDocumentsForHub(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+) {
+  final usable = docs.where((d) {
+    final name = churchDepartmentNameFromDoc(d);
+    return name.isNotEmpty;
+  }).toList();
+
+  final byKey = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+  for (final d in usable) {
+    final name = churchDepartmentNameFromDoc(d);
+    final key = normalizeChurchDepartmentNameKey(name);
+    final cur = byKey[key];
+    if (cur == null) {
+      byKey[key] = d;
+      continue;
+    }
+    final sd = _deptDocScore(d);
+    final sc = _deptDocScore(cur);
+    if (sd != sc) {
+      if (sd > sc) byKey[key] = d;
+      continue;
+    }
+    final ad = churchDepartmentDocIsActive(d.data());
+    final ac = churchDepartmentDocIsActive(cur.data());
+    if (ad != ac) {
+      if (ad) byKey[key] = d;
+      continue;
+    }
+    final pd = _hubPreferDocId(d);
+    final pc = _hubPreferDocId(cur);
+    if (pd != pc) {
+      if (pd) byKey[key] = d;
+      continue;
+    }
+    if (d.id.length != cur.id.length) {
+      if (d.id.length < cur.id.length) byKey[key] = d;
+      continue;
+    }
+    if (d.id.compareTo(cur.id) < 0) byKey[key] = d;
   }
   final out = byKey.values.toList();
   out.sort((a, b) {

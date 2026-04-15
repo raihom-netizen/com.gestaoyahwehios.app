@@ -55,6 +55,7 @@ class TenantResolverService {
     q('slug', raw);
     q('alias', raw);
     q('slugId', raw);
+    q('churchId', raw);
     if (normalized.isNotEmpty) {
       q('slug', normalized);
       q('alias', normalized);

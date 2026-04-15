@@ -21,10 +21,13 @@ import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
         runCertificateGalaLuxoBatchPdfPipeline,
         runCertificatePdfPipeline,
         warmCertificatePdfFontAssets;
+import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
+    show segundoNomeCasamentoFallbackDoCorpo;
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
@@ -37,22 +40,23 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        SafeCircleAvatarImage,
         SafeNetworkImage,
         FreshFirebaseStorageImage,
         churchTenantLogoUrl,
         churchTenantLogoUrlCandidates,
         firebaseStorageMediaUrlLooksLike,
-        imageUrlFromMap,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
+import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/cert_zip_opener.dart';
-import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/entity_image_fields.dart'
+    show ChurchImageFields;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -117,7 +121,7 @@ const _templates = [
     icon: Icons.favorite_rounded,
     cor: Color(0xFFDB2777),
     textoModelo:
-        'Certificamos que {NOME} contraiu matrimônio nesta igreja na data de {DATA_CERTIFICADO}, '
+        'Certificamos que {NOIVO} e {NOIVA} contrataram matrimônio nesta igreja na data de {DATA_CERTIFICADO}, '
         'tendo a cerimônia sido celebrada conforme os preceitos cristãos.\n\n'
         'Que o Senhor abençoe este lar com amor, paz e fidelidade.',
   ),
@@ -207,6 +211,58 @@ const _certLayoutOptions = [
   ),
 ];
 
+const int _kCertSignatorySlotCount = 3;
+
+/// Cargos sugeridos por posição (editáveis na configuração).
+const _kDefaultCertSlotCargos = [
+  'Pastor(a)',
+  'Gestor(a)',
+  'Secretário(a)',
+];
+
+/// Lê até 3 vagas de signatário a partir de `config/certificados` (novo formato ou legado).
+List<Map<String, String>> certSignatorySlotsFromConfig(
+    Map<String, dynamic>? cfg) {
+  final c = cfg ?? const <String, dynamic>{};
+  final raw = c['certSignatorySlots'];
+  if (raw is List && raw.isNotEmpty) {
+    return List.generate(_kCertSignatorySlotCount, (i) {
+      String memberId = '';
+      var cargoExibicao = _kDefaultCertSlotCargos[i];
+      if (i < raw.length && raw[i] is Map) {
+        final m = Map<String, dynamic>.from(raw[i] as Map);
+        memberId = (m['memberId'] ?? '').toString().trim();
+        final ce =
+            (m['cargoExibicao'] ?? m['cargo'] ?? '').toString().trim();
+        if (ce.isNotEmpty) cargoExibicao = ce;
+      }
+      return <String, String>{
+        'memberId': memberId,
+        'cargoExibicao': cargoExibicao,
+      };
+    });
+  }
+  final ids = c['defaultSignatoryMemberIds'];
+  final slots = List.generate(_kCertSignatorySlotCount, (i) {
+    String id = '';
+    if (ids is List && i < ids.length) {
+      id = ids[i].toString().trim();
+    }
+    return <String, String>{
+      'memberId': id,
+      'cargoExibicao': _kDefaultCertSlotCargos[i],
+    };
+  });
+  final single = (c['defaultSignatoryMemberId'] ?? '').toString().trim();
+  if (single.isNotEmpty && (slots[0]['memberId'] ?? '').isEmpty) {
+    slots[0] = <String, String>{
+      'memberId': single,
+      'cargoExibicao': slots[0]['cargoExibicao']!,
+    };
+  }
+  return slots;
+}
+
 class _CertFontStyleOption {
   final String id;
   final String nome;
@@ -269,6 +325,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
   /// Preferência ao gerar lote local: um PDF vs ZIP (lembrada entre sessões no mesmo ecrã).
   bool _batchPreferSinglePdf = true;
   final Set<String> _batchMemberIds = {};
+  /// Modelo de certificado por membro no modo lote (id do template em [_templates]).
+  final Map<String, String> _batchTemplateIdByMember = {};
   Map<String, dynamic>? _tenantData;
   Map<String, dynamic>? _certConfig;
   bool _tenantLoaded = false;
@@ -282,11 +340,23 @@ class _CertificadosPageState extends State<CertificadosPage> {
           .doc('certificados');
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
-    return FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('membros')
-        .get();
+    var tid = widget.tenantId;
+    try {
+      tid = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    } catch (_) {}
+    try {
+      return await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .get(const GetOptions(source: Source.serverAndCache));
+    } catch (_) {
+      return FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .get(const GetOptions(source: Source.server));
+    }
   }
 
   void _refreshMembers() {
@@ -373,6 +443,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
     }
     if (_tenantData != null) {
+      push(ChurchImageFields.logoStoragePath(_tenantData));
       push(ChurchStorageLayout.churchIdentityLogoPath(widget.tenantId));
       push(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(widget.tenantId));
       for (final u in churchTenantLogoUrlCandidates(_tenantData)) {
@@ -467,10 +538,60 @@ class _CertificadosPageState extends State<CertificadosPage> {
     return (data['subtitulo'] ?? '').toString().trim();
   }
 
+  _CertTemplate _templateFromId(String id) {
+    for (final t in _templates) {
+      if (t.id == id) return t;
+    }
+    return _templates.firstWhere((e) => e.id == 'membro');
+  }
+
   List<_SignatoryOption> _buildSignatoryOptions(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> allMembers) {
     final list = <_SignatoryOption>[];
+    final seenIds = <String>{};
+    final seenCpfs = <String>{};
+
+    _SignatoryOption? optionFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+      final d = doc.data();
+      if (!memberHasLeadershipForAssinatura(d)) return null;
+      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+      if (nome.isEmpty) return null;
+      final cpf =
+          (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+      if (cpf.length == 11) {
+        if (seenCpfs.contains(cpf)) return null;
+        seenCpfs.add(cpf);
+      }
+      final cargoOptions = signatoryCargoDisplayOptions(d);
+      return _SignatoryOption(
+        memberId: doc.id,
+        nome: nome,
+        cargo: cargoOptions.first,
+        cargoOptions: cargoOptions,
+        assinaturaUrl:
+            (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
+      );
+    }
+
     for (final doc in allMembers) {
+      final opt = optionFromDoc(doc);
+      if (opt == null) continue;
+      list.add(opt);
+      seenIds.add(doc.id);
+    }
+
+    // Membros escolhidos nas vagas (config) entram mesmo se outro membro “roubou” o mesmo CPF na lista.
+    for (final s in certSignatorySlotsFromConfig(_certConfig)) {
+      final id = (s['memberId'] ?? '').trim();
+      if (id.isEmpty || seenIds.contains(id)) continue;
+      QueryDocumentSnapshot<Map<String, dynamic>>? doc;
+      for (final d in allMembers) {
+        if (d.id == id) {
+          doc = d;
+          break;
+        }
+      }
+      if (doc == null) continue;
       final d = doc.data();
       if (!memberHasLeadershipForAssinatura(d)) continue;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
@@ -484,15 +605,26 @@ class _CertificadosPageState extends State<CertificadosPage> {
         assinaturaUrl:
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
       ));
+      seenIds.add(id);
     }
+
     list.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     return list;
   }
 
-  /// Pré-seleciona pastor(a) ou primeiro elegível.
+  /// Pré-seleciona signatários: `certSignatorySlots` (até 3), depois legado, depois heurística.
   List<String> _initialSelectedSignatoryIds(List<_SignatoryOption> options) {
     if (options.isEmpty) return [];
     final cfg = _certConfig ?? const <String, dynamic>{};
+    final fromSlots = <String>[];
+    for (final s in certSignatorySlotsFromConfig(cfg)) {
+      final id = (s['memberId'] ?? '').trim();
+      if (id.isEmpty) continue;
+      if (!options.any((o) => o.memberId == id)) continue;
+      if (fromSlots.contains(id)) continue;
+      fromSlots.add(id);
+    }
+    if (fromSlots.isNotEmpty) return fromSlots;
     final configuredListRaw = cfg['defaultSignatoryMemberIds'];
     if (configuredListRaw is List) {
       final configuredList = configuredListRaw
@@ -516,6 +648,26 @@ class _CertificadosPageState extends State<CertificadosPage> {
     if (pastors.length == 1) return [pastors.first.memberId];
     if (pastors.isNotEmpty) return [pastors.first.memberId];
     return [options.first.memberId];
+  }
+
+  String _cargoExibicaoParaSignatario(String memberId, String fallbackCargo) {
+    for (final s in certSignatorySlotsFromConfig(_certConfig)) {
+      if ((s['memberId'] ?? '').trim() == memberId) {
+        final c = (s['cargoExibicao'] ?? '').trim();
+        if (c.isNotEmpty) return c;
+      }
+    }
+    return fallbackCargo;
+  }
+
+  Map<String, String> _signatoryCargoOverridesFromConfig() {
+    final m = <String, String>{};
+    for (final s in certSignatorySlotsFromConfig(_certConfig)) {
+      final id = (s['memberId'] ?? '').trim();
+      final c = (s['cargoExibicao'] ?? '').trim();
+      if (id.isNotEmpty && c.isNotEmpty) m[id] = c;
+    }
+    return m;
   }
 
   @override
@@ -596,7 +748,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         /// celular e em janelas baixas no desktop.
         final pageEdge = ThemeCleanPremium.pagePadding(context);
         return DefaultTabController(
-          length: 2,
+          length: 3,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -608,7 +760,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   unselectedLabelColor: Colors.grey.shade600,
                   tabs: const [
                     Tab(text: 'Membros'),
-                    Tab(text: 'Histórico de emissões'),
+                    Tab(text: 'Painel de emissões'),
+                    Tab(text: 'Histórico de emissão'),
                   ],
                 ),
               ),
@@ -635,6 +788,79 @@ class _CertificadosPageState extends State<CertificadosPage> {
                 padding: EdgeInsets.fromLTRB(
                   pageEdge.left,
                   ThemeCleanPremium.spaceMd,
+                  pageEdge.right,
+                  ThemeCleanPremium.spaceSm,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary.withOpacity(0.07),
+                          Colors.white,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      boxShadow: ThemeCleanPremium.softUiCardShadow,
+                      border: Border.all(
+                        color: ThemeCleanPremium.primary.withOpacity(0.14),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        StableChurchLogo(
+                          tenantId: widget.tenantId,
+                          tenantData: _tenantData,
+                          width: 52,
+                          height: 52,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Certificados',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                  color: ThemeCleanPremium.primary,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _nomeIgreja,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.25,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  pageEdge.left,
+                  ThemeCleanPremium.spaceSm,
                   pageEdge.right,
                   0,
                 ),
@@ -707,6 +933,61 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   ),
                 ),
               ),
+              if (allDocs.isNotEmpty && signatoryOptionsAll.isEmpty)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    pageEdge.left,
+                    0,
+                    pageEdge.right,
+                    ThemeCleanPremium.spaceSm,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.draw_rounded,
+                              color: Colors.orange.shade900, size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Nenhum signatário elegível ainda',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                    color: Colors.orange.shade900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Defina CARGO ou FUNÇÕES na ficha (ex.: Pastor) — se FUNÇÕES estiver só como '
+                                  '“membro”, o cargo principal da ficha passa a contar. Opcional: no Firestore, '
+                                  'campo certificadoSignatario: true no membro.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: Colors.orange.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(
                   pageEdge.left,
@@ -766,44 +1047,115 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   ThemeCleanPremium.spaceSm,
                 ),
                 sliver: SliverToBoxAdapter(
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Flexible(
-                        child: Text(
-                          '${docs.length} membro(s)',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w700,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '${docs.length} membro(s)',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      FilterChip(
-                        label: Text(_batchMode ? 'Lote: ${_batchMemberIds.length}' : 'Modo lote'),
-                        selected: _batchMode,
-                        onSelected: (v) {
-                          setState(() {
-                            _batchMode = v;
-                            if (!v) _batchMemberIds.clear();
-                          });
-                        },
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        flex: 2,
-                        child: Text(
-                          _batchMode
-                              ? 'Toque para marcar; use o botão Lote'
-                              : 'Toque no nome para emitir certificado',
-                          textAlign: TextAlign.end,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
+                          FilterChip(
+                            label: Text(_batchMode
+                                ? 'Lote: ${_batchMemberIds.length}'
+                                : 'Emitir vários'),
+                            selected: _batchMode,
+                            selectedColor:
+                                ThemeCleanPremium.primary.withOpacity(0.18),
+                            checkmarkColor: ThemeCleanPremium.primary,
+                            onSelected: (v) {
+                              setState(() {
+                                _batchMode = v;
+                                if (!v) {
+                                  _batchMemberIds.clear();
+                                  _batchTemplateIdByMember.clear();
+                                }
+                              });
+                            },
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            flex: 2,
+                            child: Text(
+                              _batchMode
+                                  ? 'Marque na lista ou use os atalhos abaixo'
+                                  : 'Toque no nome para emitir certificado',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (_batchMode && docs.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.start,
+                          children: [
+                            ActionChip(
+                              avatar: Icon(Icons.select_all_rounded,
+                                  size: 18,
+                                  color: ThemeCleanPremium.primary),
+                              label: Text(
+                                'Lista (${docs.length})',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 13),
+                              ),
+                              onPressed: () => setState(() {
+                                _batchMemberIds
+                                  ..clear()
+                                  ..addAll(docs.map((d) => d.id));
+                              }),
+                            ),
+                            ActionChip(
+                              avatar: Icon(Icons.groups_rounded,
+                                  size: 18,
+                                  color: ThemeCleanPremium.primary),
+                              label: Text(
+                                'Todos (${allDocs.length})',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 13),
+                              ),
+                              onPressed: () => setState(() {
+                                _batchMemberIds
+                                  ..clear()
+                                  ..addAll(allDocs.map((d) => d.id));
+                                for (final id in _batchMemberIds) {
+                                  _batchTemplateIdByMember.putIfAbsent(
+                                      id, () => 'membro');
+                                }
+                              }),
+                            ),
+                            ActionChip(
+                              avatar: Icon(Icons.clear_all_rounded,
+                                  size: 18, color: Colors.grey.shade700),
+                              label: const Text(
+                                'Limpar',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 13),
+                              ),
+                              onPressed: () => setState(() {
+                                _batchMemberIds.clear();
+                                _batchTemplateIdByMember.clear();
+                              }),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -842,24 +1194,33 @@ class _CertificadosPageState extends State<CertificadosPage> {
                             .toString();
                         final cpf =
                             (data['CPF'] ?? data['cpf'] ?? '').toString();
-                        final foto = imageUrlFromMap(data);
-                        final hasFoto = foto.isNotEmpty;
+                        final cpfDigits = cpf.replaceAll(RegExp(r'\D'), '');
                         final avatarColor =
-                            avatarColorForMember(data, hasPhoto: hasFoto);
+                            avatarColorForMember(data, hasPhoto: false);
                         final docId = docs[i].id;
                         final batchSel = _batchMemberIds.contains(docId);
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            gradient: LinearGradient(
+                              colors: batchSel
+                                  ? [
+                                      Colors.white,
+                                      ThemeCleanPremium.primary
+                                          .withOpacity(0.04),
+                                    ]
+                                  : [Colors.white, Colors.white],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
                             borderRadius: BorderRadius.circular(
                                 ThemeCleanPremium.radiusMd),
                             boxShadow: ThemeCleanPremium.softUiCardShadow,
                             border: Border.all(
                               color: batchSel
-                                  ? ThemeCleanPremium.primary.withOpacity(0.35)
-                                  : const Color(0xFFF1F5F9),
+                                  ? ThemeCleanPremium.primary.withOpacity(0.45)
+                                  : const Color(0xFFE8EEF5),
                               width: batchSel ? 1.5 : 1,
                             ),
                           ),
@@ -873,8 +1234,11 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                   setState(() {
                                     if (batchSel) {
                                       _batchMemberIds.remove(docId);
+                                      _batchTemplateIdByMember.remove(docId);
                                     } else {
                                       _batchMemberIds.add(docId);
+                                      _batchTemplateIdByMember.putIfAbsent(
+                                          docId, () => 'membro');
                                     }
                                   });
                                 } else {
@@ -887,38 +1251,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                     horizontal: 18, vertical: 14),
                                 child: Row(
                                   children: [
-                                    hasFoto
-                                        ? ClipOval(
-                                            child: SizedBox(
-                                              width: 52,
-                                              height: 52,
-                                              child: SafeCircleAvatarImage(
-                                                imageUrl: foto,
-                                                radius: 26,
-                                                fallbackIcon:
-                                                    Icons.person_rounded,
-                                                fallbackColor: Colors.white,
-                                                backgroundColor: avatarColor ??
-                                                    Colors.grey.shade400,
-                                              ),
-                                            ),
-                                          )
-                                        : CircleAvatar(
-                                            radius: 26,
-                                            backgroundColor: avatarColor ??
-                                                Colors.grey.shade400,
-                                            child: Text(
-                                              (nome.isNotEmpty
-                                                      ? nome[0]
-                                                      : '?')
-                                                  .toUpperCase(),
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 18,
-                                              ),
-                                            ),
-                                          ),
+                                    FotoMembroWidget(
+                                      tenantId: widget.tenantId,
+                                      memberId: docId,
+                                      memberData: data,
+                                      cpfDigits: cpfDigits.isEmpty
+                                          ? null
+                                          : cpfDigits,
+                                      size: 52,
+                                      backgroundColor: avatarColor ??
+                                          Colors.grey.shade400,
+                                      fallbackIcon: Icons.person_rounded,
+                                    ),
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
@@ -943,25 +1287,155 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                         ],
                                       ),
                                     ),
-                                    if (_batchMode)
+                                    if (_batchMode) ...[
+                                      if (batchSel)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(right: 6),
+                                          child: PopupMenuButton<String>(
+                                            tooltip: 'Modelo para este membro',
+                                            onSelected: (tid) => setState(() =>
+                                                _batchTemplateIdByMember[docId] =
+                                                    tid),
+                                            itemBuilder: (ctx) => [
+                                              for (final ct in _templates)
+                                                PopupMenuItem(
+                                                  value: ct.id,
+                                                  child: ConstrainedBox(
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                            maxWidth: 280),
+                                                    child: Row(
+                                                      children: [
+                                                        Icon(ct.icon,
+                                                            size: 18,
+                                                            color: _corForTemplate(
+                                                                ct)),
+                                                        const SizedBox(
+                                                            width: 8),
+                                                        Expanded(
+                                                          child: Text(
+                                                            _tituloForTemplate(
+                                                                ct),
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                            child: Container(
+                                              constraints: const BoxConstraints(
+                                                  maxWidth: 148),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                border: Border.all(
+                                                  color: ThemeCleanPremium
+                                                      .primary
+                                                      .withValues(alpha: 0.35),
+                                                ),
+                                                color: ThemeCleanPremium.primary
+                                                    .withValues(alpha: 0.04),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons
+                                                        .workspace_premium_rounded,
+                                                    size: 15,
+                                                    color: _corForTemplate(
+                                                      _templateFromId(
+                                                        _batchTemplateIdByMember[
+                                                                docId] ??
+                                                            'membro',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Flexible(
+                                                    child: Text(
+                                                      _tituloForTemplate(
+                                                        _templateFromId(
+                                                          _batchTemplateIdByMember[
+                                                                  docId] ??
+                                                              'membro',
+                                                        ),
+                                                      ),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Icon(
+                                                    Icons.arrow_drop_down,
+                                                    size: 18,
+                                                    color: Colors.grey.shade700,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       Checkbox(
                                         value: batchSel,
                                         onChanged: (_) {
                                           setState(() {
                                             if (batchSel) {
                                               _batchMemberIds.remove(docId);
+                                              _batchTemplateIdByMember
+                                                  .remove(docId);
                                             } else {
                                               _batchMemberIds.add(docId);
+                                              _batchTemplateIdByMember
+                                                  .putIfAbsent(
+                                                docId,
+                                                () => 'membro',
+                                              );
                                             }
                                           });
                                         },
-                                      )
+                                      ),
+                                    ]
                                     else
-                                      Icon(
-                                        Icons.workspace_premium_rounded,
-                                        color: ThemeCleanPremium.primary
-                                            .withOpacity(0.6),
-                                        size: 26,
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              ThemeCleanPremium.primary,
+                                              ThemeCleanPremium.primaryLight,
+                                            ],
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: ThemeCleanPremium.primary
+                                                  .withValues(alpha: 0.42),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: const Icon(
+                                          Icons.workspace_premium_rounded,
+                                          color: Colors.white,
+                                          size: 22,
+                                        ),
                                       ),
                                   ],
                                 ),
@@ -982,7 +1456,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
                 right: pageEdge.right + 8,
                 bottom: 24,
                 child: SafeArea(
-                  child: Material(
+                  child: Tooltip(
+                    message:
+                        'Escolher o modelo por pessoa na lista; depois PDF único ou ZIP',
+                    child: Material(
                     elevation: 6,
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusMd),
@@ -1019,6 +1496,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       ),
                     ),
                   ),
+                  ),
                 ),
               ),
           ],
@@ -1027,6 +1505,15 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       tenantId: widget.tenantId,
                       onReprint: (cid) =>
                           _reemitirCertificadoPorProtocolo(context, cid),
+                      showCharts: true,
+                      showList: false,
+                    ),
+                    _CertificadosEmitidosHistoricoView(
+                      tenantId: widget.tenantId,
+                      onReprint: (cid) =>
+                          _reemitirCertificadoPorProtocolo(context, cid),
+                      showCharts: false,
+                      showList: true,
                     ),
                   ],
                 ),
@@ -1057,6 +1544,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     required String memberId,
     required _CertTemplate template,
     required String nomeMembro,
+    String nomeMembroLinha2 = '',
     required String cpfFormatado,
     required String textoCorpo,
     required String textoAdicional,
@@ -1080,6 +1568,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       'tipoCertificadoId': template.id,
       'tipoCertificadoNome': template.nome,
       'nomeMembro': nomeMembro,
+      'nomeMembroLinha2': nomeMembroLinha2,
       'cpfFormatado': cpfFormatado,
       'titulo': _tituloForTemplate(template),
       'subtitulo': _subtituloForTemplate(template),
@@ -1148,7 +1637,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
       },
     );
     try {
-      final snap = await CertificateEmitidoService.getPublic(cid);
+      final snap =
+          await CertificateEmitidoService.getForTenant(widget.tenantId, cid);
       if (!snap.exists || snap.data() == null) {
         throw Exception('Protocolo não encontrado');
       }
@@ -1202,6 +1692,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           institutionalPastorCargo:
               (d['institutionalPastorCargo'] ?? '').toString(),
           nomeMembro: (d['nomeMembro'] ?? '').toString(),
+          nomeMembroLinha2: (d['nomeMembroLinha2'] ?? '').toString(),
           cpfFormatado: (d['cpfFormatado'] ?? '').toString(),
           nomeIgreja: (d['nomeIgreja'] ?? _nomeIgreja).toString(),
           local: (d['local'] ?? '').toString(),
@@ -1237,7 +1728,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível reimprimir: $e')),
+          SnackBar(content: Text('Não foi possível reemitir: $e')),
         );
       }
     } finally {
@@ -1249,9 +1740,23 @@ class _CertificadosPageState extends State<CertificadosPage> {
       List<_SignatoryOption> options) {
     final initialIds = _initialSelectedSignatoryIds(options);
     if (initialIds.isEmpty) return [];
-    final selected =
-        options.where((o) => initialIds.contains(o.memberId)).toList();
-    return selected;
+    final byId = {for (final o in options) o.memberId: o};
+    final ordered = <_SignatoryOption>[];
+    for (final id in initialIds) {
+      final o = byId[id];
+      if (o != null) {
+        ordered.add(
+          _SignatoryOption(
+            memberId: o.memberId,
+            nome: o.nome,
+            cargo: _cargoExibicaoParaSignatario(id, o.cargo),
+            cargoOptions: o.cargoOptions,
+            assinaturaUrl: o.assinaturaUrl,
+          ),
+        );
+      }
+    }
+    return ordered;
   }
 
   Future<void> _onBatchFabTap(
@@ -1266,33 +1771,41 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
     if (selectedDocs.isEmpty) return;
 
-    final picked = await _showBatchTemplatePicker(context);
-    if (!mounted || picked == null) return;
-    final t = picked.template;
-    final singlePdf = picked.singlePdf;
+    final templateByMember = <String, _CertTemplate>{
+      for (final id in _batchMemberIds)
+        id: _templateFromId(_batchTemplateIdByMember[id] ?? 'membro'),
+    };
+    final distinctIds = templateByMember.values.map((e) => e.id).toSet();
 
     if (selectedDocs.length > 10) {
-      await _runCloudCertBatch(context, t, selectedDocs);
+      if (distinctIds.length > 1) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Lotes com mais de 10 membros na nuvem usam um único modelo. '
+              'Escolha o mesmo tipo para todos na lista ou divida o lote.',
+            ),
+            duration: Duration(seconds: 6),
+          ),
+        );
+        return;
+      }
+      await _runCloudCertBatch(
+          context, templateByMember.values.first, selectedDocs);
       return;
     }
 
-    await _gerarLocalmente(context, t, selectedDocs, allDocs,
-        signatoryOptionsAll,
-        singlePdf: singlePdf);
-  }
-
-  /// Até 10 membros: gera PDF único (Gala Luxo) ou ZIP localmente.
-  Future<void> _gerarLocalmente(
-    BuildContext context,
-    _CertTemplate template,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> selectedDocs,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
-    List<_SignatoryOption> signatoryOptionsAll, {
-    bool singlePdf = true,
-  }) {
-    return _runLocalCertBatch(
+    final singlePdf = await _showBatchGenerateSheet(
       context,
-      template,
+      selectedCount: selectedDocs.length,
+      distinctTemplateCount: distinctIds.length,
+    );
+    if (!mounted || singlePdf == null) return;
+
+    await _gerarLocalmente(
+      context,
+      templateByMember,
       selectedDocs,
       allDocs,
       signatoryOptionsAll,
@@ -1300,146 +1813,209 @@ class _CertificadosPageState extends State<CertificadosPage> {
     );
   }
 
-  Future<({_CertTemplate template, bool singlePdf})?> _showBatchTemplatePicker(
-      BuildContext context) {
+  /// Até 10 membros: gera PDF único (Gala Luxo) ou ZIP localmente.
+  Future<void> _gerarLocalmente(
+    BuildContext context,
+    Map<String, _CertTemplate> templateByMember,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> selectedDocs,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+    List<_SignatoryOption> signatoryOptionsAll, {
+    bool singlePdf = true,
+  }) {
+    return _runLocalCertBatch(
+      context,
+      templateByMember,
+      selectedDocs,
+      allDocs,
+      signatoryOptionsAll,
+      singlePdf: singlePdf,
+    );
+  }
+
+  /// Só opções de ficheiro — o modelo por membro é escolhido na lista (lote).
+  Future<bool?> _showBatchGenerateSheet(
+    BuildContext context, {
+    required int selectedCount,
+    required int distinctTemplateCount,
+  }) {
     var singlePdf = _batchPreferSinglePdf;
-    return showModalBottomSheet<({_CertTemplate template, bool singlePdf})>(
+    return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.vertical(
-              top: Radius.circular(ThemeCleanPremium.radiusMd)),
-        ),
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.58,
-          maxChildSize: 0.92,
-          minChildSize: 0.38,
-          builder: (ctx, scrollCtrl) => StatefulBuilder(
-            builder: (context, setModal) {
-              return Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: Colors.grey.shade400,
-                          borderRadius: BorderRadius.circular(2))),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      ThemeCleanPremium.spaceLg,
-                      ThemeCleanPremium.spaceLg,
-                      ThemeCleanPremium.spaceLg,
-                      0,
+      builder: (modalRouteContext) => StatefulBuilder(
+        builder: (stateContext, setModal) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(ThemeCleanPremium.radiusLg),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  blurRadius: 28,
+                  offset: const Offset(0, -6),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceLg,
+                  12,
+                  ThemeCleanPremium.spaceLg,
+                  ThemeCleanPremium.spaceLg +
+                      MediaQuery.paddingOf(modalRouteContext).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 18),
+                    Row(
                       children: [
-                        Text('Certificados em lote',
-                            style: TextStyle(
-                                fontSize: 13, color: Colors.grey.shade600)),
-                        const SizedBox(height: 6),
-                        const Text('Escolha o modelo',
-                            style: TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 12),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Um único PDF'),
-                          subtitle: Text(
-                            'Todas as páginas num ficheiro (ideal para impressão). Desligue para gerar ZIP com um PDF por pessoa.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                              height: 1.35,
-                            ),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: ThemeCleanPremium.primary.withValues(
+                                alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          value: singlePdf,
-                          onChanged: (v) {
-                            setModal(() => singlePdf = v);
-                            setState(() => _batchPreferSinglePdf = v);
-                          },
+                          child: Icon(
+                            Icons.auto_awesome_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Gerar certificados',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Formato do ficheiro',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                  controller: scrollCtrl,
-                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                      ThemeCleanPremium.spaceLg, 24),
-                  itemCount: _templates.length,
-                  itemBuilder: (context, i) {
-                    final t = _templates[i];
-                    final cor = _corForTemplate(t);
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.white,
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: cor.withOpacity(0.2)),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          onTap: () => Navigator.pop(ctx,
-                              (template: t, singlePdf: singlePdf)),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 18, vertical: 16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                      color: cor.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                  child: Icon(t.icon, color: cor, size: 26),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(_tituloForTemplate(t),
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 14)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                          'Usar para todos os selecionados',
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade500)),
-                                    ],
-                                  ),
-                                ),
-                                Icon(Icons.arrow_forward_ios_rounded,
-                                    size: 16, color: cor.withOpacity(0.5)),
-                              ],
-                            ),
-                          ),
+                        border: Border.all(
+                          color: const Color(0xFFE2E8F0),
+                        ),
+                        gradient: LinearGradient(
+                          colors: [
+                            ThemeCleanPremium.primary.withValues(alpha: 0.05),
+                            Colors.white,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
                       ),
-                    );
-                  },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$selectedCount membro(s) · '
+                            '${distinctTemplateCount == 1 ? 'mesmo modelo' : '${distinctTemplateCount} modelos diferentes'}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: ThemeCleanPremium.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            distinctTemplateCount == 1
+                                ? 'O tipo de certificado foi definido na coluna ao lado do nome.'
+                                : 'Cada pessoa pode ter um modelo diferente (coluna «Modelo» na lista). '
+                                    'Um PDF único inclui todas as páginas com o respetivo estilo.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.4,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Um único PDF',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        'Todas as páginas num ficheiro (ideal para impressão). '
+                        'Desligue para gerar ZIP com um PDF por pessoa.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                      ),
+                      value: singlePdf,
+                      onChanged: (v) {
+                        setModal(() => singlePdf = v);
+                        setState(() => _batchPreferSinglePdf = v);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          Navigator.of(modalRouteContext).pop(singlePdf),
+                      icon: const Icon(Icons.picture_as_pdf_rounded),
+                      label: const Text('Gerar agora'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: ThemeCleanPremium.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          Navigator.of(modalRouteContext).pop<bool>(null),
+                      child: const Text('Cancelar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1499,7 +2075,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      '$cloudTotal certificado(s) em um único PDF',
+                      '$cloudTotal certificado(s) — ${_tituloForTemplate(template)}',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
@@ -1527,6 +2103,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         'igrejaId': widget.tenantId,
         'listaMembrosId': selectedDocs.map((e) => e.id).toList(),
         'idAssinatura': template.id,
+        'templateId': template.id,
       });
       final data = res.data;
       final url = (data['downloadUrl'] ?? '').toString().trim();
@@ -1549,6 +2126,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
       setState(() {
         _batchMemberIds.clear();
+        _batchTemplateIdByMember.clear();
         _batchMode = false;
       });
     } catch (e) {
@@ -1565,13 +2143,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   Future<void> _runLocalCertBatch(
     BuildContext context,
-    _CertTemplate template,
+    Map<String, _CertTemplate> templateByMember,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> selectedDocs,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
     List<_SignatoryOption> signatoryOptionsAll, {
     bool singlePdf = true,
   }) async {
-    await _loadCertConfig();
+    _CertTemplate tpl(String docId) =>
+        templateByMember[docId] ?? _templateFromId('membro');
+    if (_certConfig == null) {
+      await _loadCertConfig();
+    }
+    await warmCertificatePdfFontAssets();
     if (!mounted) return;
     if (!context.mounted) return;
     final signatoryOptions = signatoryOptionsAll;
@@ -1595,7 +2178,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final phase = ValueNotifier<String>('Preparando…');
     final total = selectedDocs.length;
     final cur = ValueNotifier<int>(total > 0 ? 1 : 0);
-    final layoutBatch = _layoutForTemplate(template);
+    final layoutBatch = _layoutForTemplate(tpl(selectedDocs.first.id));
     final galaSingle = singlePdf && layoutBatch == _certPdfLayoutId;
     final prog01 = ValueNotifier<double>(total > 0 ? 0.04 : 0.02);
     final titleNv = ValueNotifier<String>(
@@ -1603,7 +2186,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           ? 'PDF único — $total página(s)'
           : 'Certificado ${cur.value}/$total',
     );
-    final batchAccent = _corForTemplate(template);
+    final batchAccent = _corForTemplate(tpl(selectedDocs.first.id));
 
     showDialog<void>(
       context: context,
@@ -1639,14 +2222,20 @@ class _CertificadosPageState extends State<CertificadosPage> {
         final sliceRows = <({String nome, String cpf, String texto})>[];
         for (var i = 0; i < selectedDocs.length; i++) {
           final doc = selectedDocs[i];
+          final t = tpl(doc.id);
           final data = doc.data();
           final nome =
               (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
           final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-          final textoModelo = _textoModeloForTemplate(template);
-          final textoComPlaceholders = textoModelo
-              .replaceAll('{NOME}', nome)
-              .replaceAll('{CPF}', _formatCpf(cpf));
+          final textoModelo = _textoModeloForTemplate(t);
+          final textoComPlaceholders = t.id == 'casamento'
+              ? textoModelo
+                  .replaceAll('{NOIVO}', nome)
+                  .replaceAll('{NOIVA}', nome)
+                  .replaceAll('{NOME}', nome)
+              : textoModelo
+                  .replaceAll('{NOME}', nome)
+                  .replaceAll('{CPF}', _formatCpf(cpf));
           final textoFinal = _resolveCertificateText(
             textoComPlaceholders,
             issuedDate: dataHoje,
@@ -1654,8 +2243,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
           snapshots.add(
             _certificateProtocolSnapshot(
               memberId: doc.id,
-              template: template,
+              template: t,
               nomeMembro: nome,
+              nomeMembroLinha2: t.id == 'casamento' ? nome : '',
               cpfFormatado: _formatCpf(cpf),
               textoCorpo: textoFinal,
               textoAdicional: '',
@@ -1663,9 +2253,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
               local: localTxt,
               visualTemplateId: visualLote,
               layoutId: layoutLote,
-              fontStyleId: _fontStyleForTemplate(template),
-              colorPrimaryArgb: _corForTemplate(template).toARGB32(),
-              colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+              fontStyleId: _fontStyleForTemplate(t),
+              colorPrimaryArgb: _corForTemplate(t).toARGB32(),
+              colorTextArgb: _corTextoForTemplate(t).toARGB32(),
               includeInstitutionalPastorSignature:
                   includeInstitutionalPastorSignature,
               useDigitalSignature: useDigital,
@@ -1694,6 +2284,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
               texto: sliceRows[i].texto,
               qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
                   protocolIds[i]),
+              titulo: _tituloForTemplate(tpl(selectedDocs[i].id)),
+              subtitulo: _subtituloForTemplate(tpl(selectedDocs[i].id)),
+              colorPrimaryArgb: _corForTemplate(tpl(selectedDocs[i].id))
+                  .toARGB32(),
+              colorTextArgb:
+                  _corTextoForTemplate(tpl(selectedDocs[i].id)).toARGB32(),
+              fontStyleId: _fontStyleForTemplate(tpl(selectedDocs[i].id)),
             ),
         ];
         phase.value = 'A gerar PDF único (${slices.length} páginas)…';
@@ -1712,13 +2309,14 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
             ),
         ];
+        final firstT = tpl(selectedDocs.first.id);
         final pdfBytes = await runCertificateGalaLuxoBatchPdfPipeline(
           shared: CertPdfPipelineParams(
             tenantId: widget.tenantId,
             logoFetchCandidates: _logoCertCandidateUrls,
             logoUrlFallback: _logoCert,
-            titulo: _tituloForTemplate(template),
-            subtitulo: _subtituloForTemplate(template),
+            titulo: _tituloForTemplate(firstT),
+            subtitulo: _subtituloForTemplate(firstT),
             texto: slices.first.texto,
             textoAdicional: '',
             visualTemplateId: visualLote,
@@ -1732,9 +2330,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
             local: localTxt,
             issuedDate: dataHoje,
             layoutId: layoutLote,
-            fontStyleId: _fontStyleForTemplate(template),
-            colorPrimaryArgb: _corForTemplate(template).toARGB32(),
-            colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+            fontStyleId: _fontStyleForTemplate(firstT),
+            colorPrimaryArgb: _corForTemplate(firstT).toARGB32(),
+            colorTextArgb: _corTextoForTemplate(firstT).toARGB32(),
             pastorManual: fallbackNome,
             cargoManual: fallbackCargo,
             useDigitalSignature: useDigital,
@@ -1780,6 +2378,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           imageCache.clear();
           setState(() {
             _batchMemberIds.clear();
+            _batchTemplateIdByMember.clear();
             _batchMode = false;
           });
         }
@@ -1797,7 +2396,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         if (v.isEmpty) return 'classico_dourado';
         return v;
       }();
-      final layoutLoteZip = _layoutForTemplate(template);
+      final layoutLoteZip = _layoutForTemplate(tpl(selectedDocs.first.id));
 
       final zipSnapshots = <Map<String, dynamic>>[];
       final zipRows = <
@@ -1809,14 +2408,20 @@ class _CertificadosPageState extends State<CertificadosPage> {
           })>[];
       for (var i = 0; i < selectedDocs.length; i++) {
         final doc = selectedDocs[i];
+        final tZip = tpl(doc.id);
         final data = doc.data();
         final nome =
             (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
         final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-        final textoModelo = _textoModeloForTemplate(template);
-        final textoComPlaceholders = textoModelo
-            .replaceAll('{NOME}', nome)
-            .replaceAll('{CPF}', _formatCpf(cpf));
+        final textoModelo = _textoModeloForTemplate(tZip);
+        final textoComPlaceholders = tZip.id == 'casamento'
+            ? textoModelo
+                .replaceAll('{NOIVO}', nome)
+                .replaceAll('{NOIVA}', nome)
+                .replaceAll('{NOME}', nome)
+            : textoModelo
+                .replaceAll('{NOME}', nome)
+                .replaceAll('{CPF}', _formatCpf(cpf));
         final textoFinal = _resolveCertificateText(
           textoComPlaceholders,
           issuedDate: dataHojeZip,
@@ -1824,18 +2429,19 @@ class _CertificadosPageState extends State<CertificadosPage> {
         zipSnapshots.add(
           _certificateProtocolSnapshot(
             memberId: doc.id,
-            template: template,
+            template: tZip,
             nomeMembro: nome,
+            nomeMembroLinha2: tZip.id == 'casamento' ? nome : '',
             cpfFormatado: _formatCpf(cpf),
             textoCorpo: textoFinal,
             textoAdicional: '',
             issuedDateStr: dataHojeZip,
             local: localTxtZip,
             visualTemplateId: visualLoteZip,
-            layoutId: layoutLoteZip,
-            fontStyleId: _fontStyleForTemplate(template),
-            colorPrimaryArgb: _corForTemplate(template).toARGB32(),
-            colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+            layoutId: _layoutForTemplate(tZip),
+            fontStyleId: _fontStyleForTemplate(tZip),
+            colorPrimaryArgb: _corForTemplate(tZip).toARGB32(),
+            colorTextArgb: _corTextoForTemplate(tZip).toARGB32(),
             includeInstitutionalPastorSignature:
                 includeInstitutionalPastorSignature,
             useDigitalSignature: useDigital,
@@ -1875,6 +2481,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       ];
 
       final firstRow = zipRows.first;
+      final firstTplZip = tpl(firstRow.docId);
       phase.value =
           'A preparar imagens e fontes (uma vez para $total certificados)…';
       final sharedZipResolved = await resolveCertificatePdfShared(
@@ -1882,8 +2489,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
           tenantId: widget.tenantId,
           logoFetchCandidates: _logoCertCandidateUrls,
           logoUrlFallback: _logoCert,
-          titulo: _tituloForTemplate(template),
-          subtitulo: _subtituloForTemplate(template),
+          titulo: _tituloForTemplate(firstTplZip),
+          subtitulo: _subtituloForTemplate(firstTplZip),
           texto: firstRow.textoFinal,
           textoAdicional: '',
           visualTemplateId: visualLoteZip,
@@ -1897,9 +2504,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
           local: localTxtZip,
           issuedDate: dataHojeZip,
           layoutId: layoutLoteZip,
-          fontStyleId: _fontStyleForTemplate(template),
-          colorPrimaryArgb: _corForTemplate(template).toARGB32(),
-          colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+          fontStyleId: _fontStyleForTemplate(firstTplZip),
+          colorPrimaryArgb: _corForTemplate(firstTplZip).toARGB32(),
+          colorTextArgb: _corTextoForTemplate(firstTplZip).toARGB32(),
           pastorManual: fallbackNome,
           cargoManual: fallbackCargo,
           useDigitalSignature: useDigital,
@@ -1917,6 +2524,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
       for (var i = 0; i < zipRows.length; i++) {
         final row = zipRows[i];
+        final tRow = tpl(row.docId);
+        final layRow = _layoutForTemplate(tRow);
         cur.value = i + 1;
         titleNv.value = 'Certificado ${i + 1}/$total';
         prog01.value = 0.45 + (i + 0.08) / total * 0.47;
@@ -1928,8 +2537,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
             tenantId: widget.tenantId,
             logoFetchCandidates: _logoCertCandidateUrls,
             logoUrlFallback: _logoCert,
-            titulo: _tituloForTemplate(template),
-            subtitulo: _subtituloForTemplate(template),
+            titulo: _tituloForTemplate(tRow),
+            subtitulo: _subtituloForTemplate(tRow),
             texto: row.textoFinal,
             textoAdicional: '',
             visualTemplateId: visualLoteZip,
@@ -1942,10 +2551,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
             nomeIgreja: _nomeIgreja,
             local: localTxtZip,
             issuedDate: dataHojeZip,
-            layoutId: layoutLoteZip,
-            fontStyleId: _fontStyleForTemplate(template),
-            colorPrimaryArgb: _corForTemplate(template).toARGB32(),
-            colorTextArgb: _corTextoForTemplate(template).toARGB32(),
+            layoutId: layRow,
+            fontStyleId: _fontStyleForTemplate(tRow),
+            colorPrimaryArgb: _corForTemplate(tRow).toARGB32(),
+            colorTextArgb: _corTextoForTemplate(tRow).toARGB32(),
             pastorManual: fallbackNome,
             cargoManual: fallbackCargo,
             useDigitalSignature: useDigital,
@@ -2002,6 +2611,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         imageCache.clear();
         setState(() {
           _batchMemberIds.clear();
+          _batchTemplateIdByMember.clear();
           _batchMode = false;
         });
       }
@@ -2017,9 +2627,6 @@ class _CertificadosPageState extends State<CertificadosPage> {
       cur.dispose();
       prog01.dispose();
       titleNv.dispose();
-      if (mounted) {
-        imageCache.clear();
-      }
     }
   }
 
@@ -2213,6 +2820,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                     t,
                                     memberDoc,
                                     signatoryOptions,
+                                    allMemberDocs: allMembers,
                                     initialVisualTemplateId: visualId,
                                   );
                                 },
@@ -2275,7 +2883,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
       _CertTemplate template,
       QueryDocumentSnapshot<Map<String, dynamic>> memberDoc,
       List<_SignatoryOption> signatoryOptions,
-      {String initialVisualTemplateId = 'classico_dourado'}) async {
+      {required List<QueryDocumentSnapshot<Map<String, dynamic>>> allMemberDocs,
+      String initialVisualTemplateId = 'classico_dourado'}) async {
     await _loadCertConfig();
     if (!mounted) return;
     if (!context.mounted) return;
@@ -2286,10 +2895,28 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final dataHoje = _formatDateBr(now);
 
     final textoModelo = _textoModeloForTemplate(template);
-    final textoFinal = textoModelo
-        .replaceAll('{NOME}', nome)
-        .replaceAll('{CPF}', _formatCpf(cpf))
-        .replaceAll('{DATA_CERTIFICADO}', '{DATA_CERTIFICADO}');
+    final textoFinal = template.id == 'casamento'
+        ? textoModelo
+            .replaceAll('{NOIVO}', nome)
+            .replaceAll('{NOIVA}', '—')
+            .replaceAll('{DATA_CERTIFICADO}', '{DATA_CERTIFICADO}')
+        : textoModelo
+            .replaceAll('{NOME}', nome)
+            .replaceAll('{CPF}', _formatCpf(cpf))
+            .replaceAll('{DATA_CERTIFICADO}', '{DATA_CERTIFICADO}');
+    final casamentoOpcoes = <_CasamentoMembroOpcao>[
+      for (final d in allMemberDocs)
+        if ((d.data()['NOME_COMPLETO'] ?? d.data()['nome'] ?? '')
+            .toString()
+            .trim()
+            .isNotEmpty)
+          _CasamentoMembroOpcao(
+            memberId: d.id,
+            nome: (d.data()['NOME_COMPLETO'] ?? d.data()['nome'] ?? '')
+                .toString()
+                .trim(),
+          ),
+    ]..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
 
     final tituloCtrl =
         TextEditingController(text: _tituloForTemplate(template));
@@ -2324,6 +2951,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
       MaterialPageRoute(
         builder: (_) => _CertEditorPage(
           tenantId: widget.tenantId,
+          onReemitir: (cid) =>
+              _reemitirCertificadoPorProtocolo(context, cid),
           memberFirestoreDocId: memberDoc.id,
           template: template,
           corOverride: _corForTemplate(template),
@@ -2344,10 +2973,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
           cargoCtrl: cargoCtrl,
           signatoryOptions: signatoryOptions,
           initialSelectedSignatoryIds: initialSelectedIds,
+          signatoryCargoOverrides: _signatoryCargoOverridesFromConfig(),
           initialLayoutId: _layoutForTemplate(template),
           initialFontStyleId: _fontStyleForTemplate(template),
           initialSignatureMode: initialSignatureMode,
           initialVisualTemplateId: initialVisualTemplateId,
+          casamentoMembrosOpcoes: casamentoOpcoes,
         ),
       ),
     );
@@ -2546,6 +3177,11 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   bool _saving = false;
   bool _uploadingLogo = false;
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocs = [];
+  bool _membersLoading = true;
+  late List<String?> _slotMemberIds;
+  late List<TextEditingController> _slotCargoCtrls;
+
   bool get _cadastroPodeTerLogo {
     if (widget.logoIgreja.isNotEmpty) return true;
     final d = widget.tenantData;
@@ -2553,6 +3189,81 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
     if (churchTenantLogoUrlCandidates(d).isNotEmpty) return true;
     final p = ChurchImageFields.logoStoragePath(d);
     return p != null && p.trim().isNotEmpty;
+  }
+
+  void _initSignatorySlotControllers() {
+    final slots = certSignatorySlotsFromConfig(widget.certConfig);
+    _slotMemberIds = List.generate(_kCertSignatorySlotCount, (i) {
+      if (i >= slots.length) return null;
+      final id = (slots[i]['memberId'] ?? '').trim();
+      return id.isEmpty ? null : id;
+    });
+    _slotCargoCtrls = List.generate(
+      _kCertSignatorySlotCount,
+      (i) => TextEditingController(
+        text: i < slots.length
+            ? (slots[i]['cargoExibicao'] ?? _kDefaultCertSlotCargos[i])
+            : _kDefaultCertSlotCargos[i],
+      ),
+    );
+  }
+
+  Future<void> _loadMembersForSignatoryPickers() async {
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('membros')
+          .limit(800)
+          .get();
+      if (!mounted) return;
+      final docs = q.docs.toList()
+        ..sort((a, b) {
+          final na =
+              (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '').toString();
+          final nb =
+              (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '').toString();
+          return na.toLowerCase().compareTo(nb.toLowerCase());
+        });
+      setState(() {
+        _memberDocs = docs;
+        _membersLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _membersLoading = false);
+    }
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _eligibleSignatoryDocs() {
+    final list = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final seenCpfs = <String>{};
+    for (final doc in _memberDocs) {
+      final d = doc.data();
+      if (!memberHasLeadershipForAssinatura(d)) continue;
+      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+      if (nome.isEmpty) continue;
+      final cpf =
+          (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+      if (cpf.length == 11) {
+        if (seenCpfs.contains(cpf)) continue;
+        seenCpfs.add(cpf);
+      }
+      list.add(doc);
+    }
+    return list;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _dropdownDocsForSlot(
+      int slotIndex) {
+    final eligible = _eligibleSignatoryDocs();
+    if (slotIndex < 0 || slotIndex >= _slotMemberIds.length) {
+      return eligible;
+    }
+    final id = _slotMemberIds[slotIndex];
+    if (id == null || id.isEmpty) return eligible;
+    if (eligible.any((d) => d.id == id)) return eligible;
+    final extra = _memberDocs.where((d) => d.id == id);
+    return [...eligible, ...extra];
   }
 
   /// Campo vazio → Firestore grava logoUrl null → certificados usam sempre a logo do cadastro.
@@ -2629,6 +3340,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   @override
   void initState() {
     super.initState();
+    _initSignatorySlotControllers();
+    _loadMembersForSignatoryPickers();
     final logo = (widget.certConfig?['logoUrl'] ?? '').toString().trim();
     _logoCtrl = TextEditingController(text: logo.isNotEmpty ? logo : '');
     for (final t in _templates) {
@@ -2677,6 +3390,9 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   @override
   void dispose() {
     _logoCtrl.dispose();
+    for (final c in _slotCargoCtrls) {
+      c.dispose();
+    }
     for (final c in _tituloByTemplate.values) c.dispose();
     for (final c in _subtituloByTemplate.values) c.dispose();
     for (final c in _textoByTemplate.values) c.dispose();
@@ -2717,6 +3433,20 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
         'logoVariants': FieldValue.delete(),
         'certLayoutId': _certPdfLayoutId,
         'templates': templates,
+        'certSignatorySlots': [
+          for (var i = 0; i < _kCertSignatorySlotCount; i++)
+            <String, dynamic>{
+              'memberId': (_slotMemberIds[i] ?? '').trim(),
+              'cargoExibicao': _slotCargoCtrls[i].text.trim().isEmpty
+                  ? _kDefaultCertSlotCargos[i]
+                  : _slotCargoCtrls[i].text.trim(),
+            },
+        ],
+        'defaultSignatoryMemberIds': [
+          for (var i = 0; i < _kCertSignatorySlotCount; i++)
+            if ((_slotMemberIds[i] ?? '').trim().isNotEmpty)
+              _slotMemberIds[i]!.trim(),
+        ],
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (mounted) {
@@ -2930,6 +3660,153 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                     child: Text(
                       '${_certLayoutOptions.first.nome} — ${_certLayoutOptions.first.descricao}',
                       style: TextStyle(fontSize: 13, height: 1.35, color: Colors.grey.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceMd),
+            Container(
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.draw_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Nomes e assinaturas no PDF',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Até 3 signatários (membros com cargo de liderança). '
+                    'O cargo abaixo é o texto exibido sob o nome no certificado.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  if (_membersLoading) ...[
+                    const SizedBox(height: 16),
+                    const Center(
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 14),
+                    for (var i = 0; i < _kCertSignatorySlotCount; i++) ...[
+                      if (i > 0) const SizedBox(height: 14),
+                      Text(
+                        'Assinatura ${i + 1} (sugestão: ${_kDefaultCertSlotCargos[i]})',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String?>(
+                        value: _slotMemberIds[i],
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: 'Membro',
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('— Nenhum —'),
+                          ),
+                          ..._dropdownDocsForSlot(i).map(
+                            (doc) {
+                              final nome = (doc.data()['NOME_COMPLETO'] ??
+                                      doc.data()['nome'] ??
+                                      '')
+                                  .toString()
+                                  .trim();
+                              return DropdownMenuItem<String?>(
+                                value: doc.id,
+                                child: Text(
+                                  nome.isEmpty ? doc.id : nome,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                        onChanged: (v) {
+                          setState(() => _slotMemberIds[i] = v);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _slotCargoCtrls[i],
+                        decoration: InputDecoration(
+                          labelText: 'Cargo exibido no certificado',
+                          hintText: _kDefaultCertSlotCargos[i],
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 10),
+                  Text(
+                    'Quem não tiver assinatura digital no cadastro do membro '
+                    'continua elegível; o PDF usa o fluxo já definido (manual ou digital). '
+                    'Toque em Salvar para aplicar.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Colors.grey.shade600,
                     ),
                   ),
                 ],
@@ -3430,12 +4307,18 @@ class _CertEditorPage extends StatefulWidget {
   final TextEditingController cargoCtrl;
   final List<_SignatoryOption> signatoryOptions;
   final List<String> initialSelectedSignatoryIds;
+  /// Cargos exibidos no PDF quando definidos em config (Pastor/Gestor/Secretário).
+  final Map<String, String> signatoryCargoOverrides;
   final String initialLayoutId;
   final String initialFontStyleId;
   final String initialSignatureMode;
   final String initialVisualTemplateId;
   /// ID do documento do membro no Firestore (QR Gala Luxo).
   final String memberFirestoreDocId;
+  /// Lista de membros para selecionar noivos no certificado de casamento.
+  final List<_CasamentoMembroOpcao> casamentoMembrosOpcoes;
+  /// Gera novamente o PDF do mesmo protocolo (histórico / última emissão).
+  final Future<void> Function(String certificadoId)? onReemitir;
 
   const _CertEditorPage({
     required this.tenantId,
@@ -3459,24 +4342,41 @@ class _CertEditorPage extends StatefulWidget {
     required this.cargoCtrl,
     required this.signatoryOptions,
     required this.initialSelectedSignatoryIds,
+    this.signatoryCargoOverrides = const {},
     required this.initialLayoutId,
     required this.initialFontStyleId,
     required this.initialSignatureMode,
     required this.initialVisualTemplateId,
+    this.casamentoMembrosOpcoes = const [],
+    this.onReemitir,
   });
 
   @override
   State<_CertEditorPage> createState() => _CertEditorPageState();
 }
 
+class _CasamentoMembroOpcao {
+  final String memberId;
+  final String nome;
+  const _CasamentoMembroOpcao({required this.memberId, required this.nome});
+}
+
 class _CertEditorPageState extends State<_CertEditorPage> {
   bool _generating = false;
+  String? _ultimoProtocoloEmitido;
   late List<String> _selectedSignatoryIds;
   final Map<String, String> _selectedCargoByMemberId = <String, String>{};
   String _fontStyleId = 'moderna';
   String _signatureMode = 'digital';
   late String _visualTemplateId;
   bool _includeInstitutionalPastorSignature = true;
+
+  /// Casamento: escolher fichas de membros ou digitar nomes completos.
+  bool _casamentoPorMembros = true;
+  String? _casamentoNoivoId;
+  String? _casamentoNoivaId;
+  late final TextEditingController _noivoManualCtrl;
+  late final TextEditingController _noivaManualCtrl;
 
   Future<String?>? _previewLogoResolvedFuture;
   String _previewLogoResolveSig = '';
@@ -3490,20 +4390,56 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     switch (_fontStyleId) {
       case 'classica':
         return GoogleFonts.greatVibes(
-          fontSize: 28,
+          fontSize: 30,
           color: _corTexto,
         );
       case 'gotica':
         return GoogleFonts.unifrakturMaguntia(
-          fontSize: 22,
+          fontSize: 24,
           color: _corTexto,
         );
       default:
         return GoogleFonts.pinyonScript(
-          fontSize: 22,
+          fontSize: 24,
           color: const Color(0xFF5C3D1E),
         );
     }
+  }
+
+  bool get _isCasamento => widget.template.id == 'casamento';
+
+  String _pdfNoivoNome() {
+    if (!_isCasamento) return widget.nomeMembro;
+    if (_casamentoPorMembros) {
+      final id = _casamentoNoivoId;
+      if (id != null) {
+        for (final o in widget.casamentoMembrosOpcoes) {
+          if (o.memberId == id) return o.nome;
+        }
+        final idT = id.trim();
+        for (final o in widget.casamentoMembrosOpcoes) {
+          if (o.memberId.trim() == idT) return o.nome;
+        }
+      }
+    }
+    return _noivoManualCtrl.text.trim();
+  }
+
+  String _pdfNoivaNome() {
+    if (!_isCasamento) return '';
+    if (_casamentoPorMembros) {
+      final id = _casamentoNoivaId;
+      if (id != null) {
+        for (final o in widget.casamentoMembrosOpcoes) {
+          if (o.memberId == id) return o.nome;
+        }
+        final idT = id.trim();
+        for (final o in widget.casamentoMembrosOpcoes) {
+          if (o.memberId.trim() == idT) return o.nome;
+        }
+      }
+    }
+    return _noivaManualCtrl.text.trim();
   }
 
   void _refreshTemplateBgFuture() {
@@ -3589,12 +4525,27 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   @override
   void initState() {
     super.initState();
+    _noivoManualCtrl = TextEditingController(
+        text: _isCasamento ? widget.nomeMembro : '');
+    _noivaManualCtrl = TextEditingController();
+    if (_isCasamento) {
+      _casamentoNoivoId = widget.memberFirestoreDocId;
+      _casamentoNoivaId = null;
+      if (widget.casamentoMembrosOpcoes.isEmpty) {
+        _casamentoPorMembros = false;
+      }
+    }
     _selectedSignatoryIds = List.from(widget.initialSelectedSignatoryIds);
     if (_selectedSignatoryIds.isEmpty && widget.signatoryOptions.isNotEmpty) {
       _selectedSignatoryIds = [widget.signatoryOptions.first.memberId];
     }
     for (final o in widget.signatoryOptions) {
       _selectedCargoByMemberId[o.memberId] = o.cargo;
+    }
+    for (final e in widget.signatoryCargoOverrides.entries) {
+      if (_selectedCargoByMemberId.containsKey(e.key)) {
+        _selectedCargoByMemberId[e.key] = e.value;
+      }
     }
     _fontStyleId =
         _certFontStyleOptions.any((e) => e.id == widget.initialFontStyleId)
@@ -3611,6 +4562,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 
   @override
   void dispose() {
+    if (_isCasamento) {
+      _noivoManualCtrl.dispose();
+      _noivaManualCtrl.dispose();
+    }
     widget.tituloCtrl.dispose();
     widget.subtituloCtrl.dispose();
     widget.textoCtrl.dispose();
@@ -3634,9 +4589,18 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   List<_SignatoryOption> get _selectedSignatories {
-    return widget.signatoryOptions
-        .where((o) => _selectedSignatoryIds.contains(o.memberId))
-        .toList();
+    final byId = {for (final o in widget.signatoryOptions) o.memberId: o};
+    final out = <_SignatoryOption>[];
+    final seen = <String>{};
+    for (final id in _selectedSignatoryIds) {
+      if (seen.contains(id)) continue;
+      final o = byId[id];
+      if (o != null) {
+        seen.add(id);
+        out.add(o);
+      }
+    }
+    return out;
   }
 
   List<_SignatoryOption> get _effectiveSignatories {
@@ -3691,24 +4655,26 @@ class _CertEditorPageState extends State<_CertEditorPage> {
             children: [
               // Preview card — Super Premium
               Container(
-                padding: const EdgeInsets.all(28),
+                padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      BorderRadius.circular(ThemeCleanPremium.radiusMd + 2),
                   boxShadow: [
                     BoxShadow(
-                        color: _cor.withOpacity(0.12),
-                        blurRadius: 24,
-                        offset: const Offset(0, 12)),
+                        color: _cor.withValues(alpha: 0.1),
+                        blurRadius: 28,
+                        offset: const Offset(0, 14),
+                        spreadRadius: -2),
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2)),
+                        color: Colors.black.withValues(alpha: 0.035),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3)),
                   ],
-                  border: Border.all(color: _cor.withOpacity(0.25), width: 2),
+                  border:
+                      Border.all(color: _cor.withValues(alpha: 0.22), width: 1.5),
                 ),
-                child: _buildGalaLuxoPreview(t),
+                child: _buildGalaLuxoPreview(),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               _SectionLabel(label: 'Título do Certificado'),
@@ -3725,6 +4691,110 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 hint: 'Deixe vazio para não exibir',
                 onChanged: () => setState(() {}),
               ),
+              if (_isCasamento) ...[
+                const SizedBox(height: ThemeCleanPremium.spaceMd),
+                _SectionLabel(
+                  label: 'Noivos — nomes no certificado',
+                  subtitle:
+                      'Escolha dois membros cadastrados ou digite os nomes completos (ex.: convidados ou outra igreja).',
+                ),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('Membros da igreja'),
+                      icon: Icon(Icons.people_rounded, size: 18),
+                    ),
+                    ButtonSegment<bool>(
+                      value: false,
+                      label: Text('Nomes digitados'),
+                      icon: Icon(Icons.edit_rounded, size: 18),
+                    ),
+                  ],
+                  selected: {_casamentoPorMembros},
+                  onSelectionChanged: (Set<bool> sel) {
+                    setState(() => _casamentoPorMembros = sel.first);
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (_casamentoPorMembros) ...[
+                  InputDecorator(
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      ),
+                      labelText: 'Primeiro noivo(ã) — membro',
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _casamentoNoivoId != null &&
+                                widget.casamentoMembrosOpcoes.any(
+                                    (e) => e.memberId == _casamentoNoivoId)
+                            ? _casamentoNoivoId
+                            : null,
+                        isExpanded: true,
+                        isDense: true,
+                        items: [
+                          for (final o in widget.casamentoMembrosOpcoes)
+                            DropdownMenuItem<String>(
+                              value: o.memberId,
+                              child: Text(o.nome),
+                            ),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _casamentoNoivoId = v),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  InputDecorator(
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      ),
+                      labelText: 'Segundo noivo(ã) — membro',
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _casamentoNoivaId != null &&
+                                widget.casamentoMembrosOpcoes.any(
+                                    (e) => e.memberId == _casamentoNoivaId)
+                            ? _casamentoNoivaId
+                            : null,
+                        isExpanded: true,
+                        isDense: true,
+                        items: [
+                          for (final o in widget.casamentoMembrosOpcoes)
+                            DropdownMenuItem<String>(
+                              value: o.memberId,
+                              child: Text(o.nome),
+                            ),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _casamentoNoivaId = v),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  _EditBox(
+                    controller: _noivoManualCtrl,
+                    hint: 'Nome completo do primeiro noivo(ã)',
+                    onChanged: () => setState(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  _EditBox(
+                    controller: _noivaManualCtrl,
+                    hint: 'Nome completo do segundo noivo(ã)',
+                    onChanged: () => setState(() {}),
+                  ),
+                ],
+              ],
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               _SectionLabel(label: 'Texto do Certificado'),
               _EditBox(
@@ -3930,16 +5000,47 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 _SectionLabel(label: 'Quem vai assinar (escolha um ou mais)'),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFFF8FAFC),
+                        _cor.withValues(alpha: 0.06),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    border: Border.all(color: Colors.grey.shade300),
+                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    border: Border.all(
+                      color: _cor.withValues(alpha: 0.22),
+                      width: 1.2,
+                    ),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (_selectedSignatoryIds.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            children: [
+                              Icon(Icons.verified_rounded,
+                                  size: 18, color: _cor),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${_selectedSignatoryIds.length} assinatura(s) no PDF',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12.5,
+                                  color: _cor,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Wrap(
                         spacing: 2,
                         crossAxisAlignment: WrapCrossAlignment.center,
@@ -4049,6 +5150,37 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
               ] else ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    border: Border.all(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.tips_and_updates_rounded,
+                          color: ThemeCleanPremium.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Não há líderes na lista automática. Preencha nome e cargo abaixo ou ajuste as fichas dos membros (CARGO/FUNÇÕES).',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 _SectionLabel(label: 'Assinatura — Nome'),
                 _EditBox(
                     controller: widget.pastorCtrl,
@@ -4094,6 +5226,31 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                               ThemeCleanPremium.radiusSm))),
                 ),
               ),
+              if (_ultimoProtocoloEmitido != null &&
+                  widget.onReemitir != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 48,
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _generating
+                        ? null
+                        : () => widget.onReemitir!(
+                            _ultimoProtocoloEmitido!),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text(
+                      'Reemitir (mesmo protocolo)',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.primary,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.primary.withOpacity(0.45),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 40),
             ],
           ),
@@ -4103,6 +5260,27 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   Future<void> _generatePdf() async {
+    if (_isCasamento) {
+      final a = _pdfNoivoNome().trim();
+      final b = _pdfNoivaNome().trim();
+      if (a.isEmpty || b.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Informe os nomes completos dos dois noivos (membros ou digitados).'),
+          ),
+        );
+        return;
+      }
+      if (a.toLowerCase() == b.toLowerCase()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Os dois noivos devem ter nomes distintos no certificado.'),
+          ),
+        );
+        return;
+      }
+    }
     if (widget.signatoryOptions.isNotEmpty && _selectedSignatories.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -4140,6 +5318,22 @@ class _CertEditorPageState extends State<_CertEditorPage> {
           .set({
         'defaultSignatoryMemberIds': _selectedSignatoryIds,
         'defaultSignaturesCount': _selectedSignatoryIds.length,
+        'certSignatorySlots': [
+          for (var i = 0; i < _kCertSignatorySlotCount; i++)
+            <String, dynamic>{
+              'memberId': i < _selectedSignatoryIds.length
+                  ? _selectedSignatoryIds[i]
+                  : '',
+              'cargoExibicao': () {
+                if (i >= _selectedSignatoryIds.length) {
+                  return _kDefaultCertSlotCargos[i];
+                }
+                final id = _selectedSignatoryIds[i];
+                final c = (_selectedCargoByMemberId[id] ?? '').trim();
+                return c.isEmpty ? _kDefaultCertSlotCargos[i] : c;
+              }(),
+            },
+        ],
         'certLayoutId': _certPdfLayoutId,
         'defaultFontStyleId': _fontStyleId,
         'defaultSignatureMode': _signatureMode,
@@ -4147,16 +5341,18 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         'includeInstitutionalPastorSignature':
             _includeInstitutionalPastorSignature,
       }, SetOptions(merge: true));
-      final bytes = Uint8List.fromList(await _buildCertPdf(
+      final built = await _buildCertPdf(
         PdfPageFormat.a4,
         onProgress: (m, p) {
           phase.value = m;
           pct.value = p;
         },
-      ));
+      );
+      final bytes = Uint8List.fromList(built.bytes);
       if (mounted) {
         await showPdfActions(context,
             bytes: bytes, filename: 'certificado.pdf');
+        setState(() => _ultimoProtocoloEmitido = built.protocolId);
       }
     } catch (e) {
       if (mounted) {
@@ -4173,7 +5369,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   /// Prévia aproximada do layout Gala Luxo (paisagem + QR de rascunho).
-  Widget _buildGalaLuxoPreview(_CertTemplate t) {
+  Widget _buildGalaLuxoPreview() {
     final previewQrUrl = CertificadoConsultaUrl.protocolValidationUrl(
       '00000000-0000-4000-8000-000000000001',
     );
@@ -4181,82 +5377,11 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     final bodyCore = _resolveCertificateText(
       widget.textoCtrl.text,
       issuedDate: widget.dataCertCtrl.text.trim(),
+      noivo: _pdfNoivoNome(),
+      noiva: _pdfNoivaNome(),
     );
     final bodyText =
         adicPreview.isEmpty ? bodyCore : '$bodyCore\n\n$adicPreview';
-    final pastorNome = _effectiveSignatories.isNotEmpty
-        ? _effectiveSignatories.first.nome
-        : widget.pastorCtrl.text.trim();
-    final pastorCargo = _effectiveSignatories.isNotEmpty
-        ? _effectiveSignatories.first.cargo
-        : widget.cargoCtrl.text.trim();
-
-    Widget miniLogo() {
-      const logoSz = 96.0;
-      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-      final cachePx = (logoSz * dpr).round().clamp(160, 512);
-      return FutureBuilder<String?>(
-        future: _previewLogoResolvedFuture,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            return SizedBox(
-              width: logoSz,
-              height: logoSz,
-              child: Center(
-                child: SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: _cor.withValues(alpha: 0.75),
-                  ),
-                ),
-              ),
-            );
-          }
-          final raw = snap.data;
-          final displayUrl =
-              raw != null && raw.isNotEmpty ? sanitizeImageUrl(raw) : '';
-          final hasUrl =
-              displayUrl.isNotEmpty && isValidImageUrl(displayUrl);
-          if (!hasUrl) {
-            return Icon(t.icon, size: 40, color: const Color(0xFFB8860B));
-          }
-          // URL já veio com token renovado de [AppStorageImageService] — evita segunda fila em [FreshFirebaseStorageImage] (web ficava no spinner).
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: logoSz,
-              height: logoSz,
-              child: SafeNetworkImage(
-                imageUrl: displayUrl,
-                fit: BoxFit.contain,
-                width: logoSz,
-                height: logoSz,
-                memCacheWidth: cachePx,
-                memCacheHeight: cachePx,
-                skipFreshDisplayUrl: true,
-                errorWidget: Icon(t.icon, size: 36),
-                placeholder: SizedBox(
-                  width: logoSz,
-                  height: logoSz,
-                  child: Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: _cor.withValues(alpha: 0.65),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      );
-    }
 
     return LayoutBuilder(
       builder: (context, c) {
@@ -4280,12 +5405,12 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                   ),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                padding: const EdgeInsets.all(5),
+                padding: const EdgeInsets.all(4),
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                        color: const Color(0xFFC9A227), width: 1.4),
+                        color: const Color(0xFFD4B84A), width: 1.15),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Stack(
@@ -4357,7 +5482,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                             if (!hasUrl) return const SizedBox();
                             return Center(
                               child: Opacity(
-                                opacity: 0.06,
+                                opacity: 0.075,
                                 child: SafeNetworkImage(
                                   imageUrl: displayUrl,
                                   fit: BoxFit.contain,
@@ -4375,40 +5500,34 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 12, 14, 62),
+                        padding: const EdgeInsets.fromLTRB(18, 16, 14, 62),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                miniLogo(),
-                                if (widget.nomeIgreja.trim().isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    widget.nomeIgreja.toUpperCase(),
-                                    style: GoogleFonts.libreBaskerville(
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: const Color(0xFF5C3D1E),
-                                      letterSpacing: 0.35,
-                                      height: 1.2,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 8),
+                            if (widget.nomeIgreja.trim().isNotEmpty) ...[
+                              Text(
+                                widget.nomeIgreja.toUpperCase(),
+                                style: GoogleFonts.libreBaskerville(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF5C3D1E),
+                                  letterSpacing: 0.4,
+                                  height: 1.22,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 8),
+                            ] else
+                              const SizedBox(height: 12),
                             Text(
                               widget.tituloCtrl.text.toUpperCase(),
                               style: GoogleFonts.cinzelDecorative(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w800,
                                 color: const Color(0xFF1E1E1E),
-                                letterSpacing: 0.6,
+                                letterSpacing: 0.65,
                               ),
                               textAlign: TextAlign.center,
                               maxLines: 2,
@@ -4431,18 +5550,60 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                               ),
                             ],
                             const SizedBox(height: 6),
-                            Text(
-                              widget.nomeMembro,
-                              style: _previewNomeMembroStyle().copyWith(
-                                color: const Color(0xFF5C3D1E),
-                                fontSize: _fontStyleId == 'moderna'
-                                    ? 14
-                                    : (_fontStyleId == 'gotica' ? 18.0 : 22.0),
+                            if (_isCasamento &&
+                                _pdfNoivaNome().trim().isNotEmpty) ...[
+                              Text(
+                                _pdfNoivoNome(),
+                                style: _previewNomeMembroStyle().copyWith(
+                                  color: const Color(0xFF5C3D1E),
+                                  fontSize: _fontStyleId == 'moderna'
+                                      ? 15
+                                      : (_fontStyleId == 'gotica'
+                                          ? 19.0
+                                          : 23.0),
+                                  letterSpacing: 0.4,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _pdfNoivaNome(),
+                                style: _previewNomeMembroStyle().copyWith(
+                                  color: const Color(0xFF5C3D1E),
+                                  fontSize: _fontStyleId == 'moderna'
+                                      ? 14.5
+                                      : (_fontStyleId == 'gotica'
+                                          ? 18.5
+                                          : 22.0),
+                                  letterSpacing: 0.35,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ] else
+                              Text(
+                                _isCasamento
+                                    ? _pdfNoivoNome()
+                                    : widget.nomeMembro,
+                                style: _previewNomeMembroStyle().copyWith(
+                                  color: const Color(0xFF5C3D1E),
+                                  fontSize: _fontStyleId == 'moderna'
+                                      ? 15
+                                      : (_fontStyleId == 'gotica'
+                                          ? 19.0
+                                          : 23.0),
+                                  letterSpacing: 0.4,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             Expanded(
                               child: Center(
                                 child: Text(
@@ -4460,39 +5621,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                             ),
                             const SizedBox(height: 6),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    height: 1,
-                                    width: 100,
-                                    color: const Color(0xFF5C3D1E),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    pastorNome,
-                                    style: GoogleFonts.libreBaskerville(
-                                      fontSize: 8.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: const Color(0xFF5C3D1E),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    pastorCargo,
-                                    style: GoogleFonts.libreBaskerville(
-                                      fontSize: 7.5,
-                                      color: const Color(0xFF8B6914),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: _buildGalaLuxoPreviewSignaturesStrip(),
                             ),
                           ],
                         ),
@@ -4561,17 +5691,130 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     );
   }
 
-  Future<List<int>> _buildCertPdf(
+  /// Pré-visualização: todas as assinaturas selecionadas (alinhado ao PDF).
+  Widget _buildGalaLuxoPreviewSignaturesStrip() {
+    final sigs = _effectiveSignatories;
+    final lineColor = const Color(0xFF5C3D1E);
+    final nomeStyle = GoogleFonts.libreBaskerville(
+      fontSize: 8.5,
+      fontWeight: FontWeight.w700,
+      color: lineColor,
+    );
+    final cargoStyle = GoogleFonts.libreBaskerville(
+      fontSize: 7.5,
+      color: const Color(0xFF8B6914),
+    );
+    if (sigs.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(height: 1, width: 100, color: lineColor),
+          const SizedBox(height: 4),
+          Text(
+            widget.pastorCtrl.text.trim(),
+            style: nomeStyle,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            widget.cargoCtrl.text.trim(),
+            style: cargoStyle,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      );
+    }
+    if (sigs.length == 1) {
+      final s = sigs.first;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(height: 1, width: 100, color: lineColor),
+          const SizedBox(height: 4),
+          Text(
+            s.nome,
+            style: nomeStyle,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            s.cargo,
+            style: cargoStyle,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      );
+    }
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        for (final s in sigs)
+          SizedBox(
+            width: 112,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(height: 1, width: 96, color: lineColor),
+                const SizedBox(height: 4),
+                Text(
+                  s.nome,
+                  style: nomeStyle,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  s.cargo,
+                  style: cargoStyle,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<({List<int> bytes, String protocolId})> _buildCertPdf(
     PdfPageFormat format, {
     void Function(String message, double progress01)? onProgress,
   }) async {
     final selectedForPdf = _effectiveSignatories;
     final useDigitalSignature = _signatureMode == 'digital';
     final issuedDate = widget.dataCertCtrl.text.trim();
-    final textoBase = _resolveCertificateText(
+    final noivo = _pdfNoivoNome();
+    var noiva = _pdfNoivaNome();
+    var textoBase = _resolveCertificateText(
       widget.textoCtrl.text,
       issuedDate: issuedDate,
+      noivo: noivo,
+      noiva: noiva,
     );
+    if (_isCasamento &&
+        noiva.trim().isEmpty &&
+        noivo.trim().isNotEmpty) {
+      final g =
+          segundoNomeCasamentoFallbackDoCorpo(textoBase, noivo.trim());
+      if (g.isNotEmpty) {
+        noiva = g;
+        textoBase = _resolveCertificateText(
+          widget.textoCtrl.text,
+          issuedDate: issuedDate,
+          noivo: noivo,
+          noiva: noiva,
+        );
+      }
+    }
     var institutionalNome =
         (widget.tenantData?['gestorNome'] ?? '').toString().trim();
     if (institutionalNome.isEmpty) {
@@ -4585,11 +5828,16 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     final protocolId = await CertificateEmitidoService.registerEmissao(
       tenantId: widget.tenantId,
       snapshot: <String, dynamic>{
-        'memberId': widget.memberFirestoreDocId,
+        'memberId': _isCasamento
+            ? (_casamentoPorMembros && _casamentoNoivoId != null
+                ? _casamentoNoivoId!
+                : widget.memberFirestoreDocId)
+            : widget.memberFirestoreDocId,
         'tipoCertificadoId': widget.template.id,
         'tipoCertificadoNome': widget.template.nome,
-        'nomeMembro': widget.nomeMembro,
-        'cpfFormatado': widget.cpfFormatado,
+        'nomeMembro': noivo,
+        'nomeMembroLinha2': _isCasamento ? noiva : '',
+        'cpfFormatado': _isCasamento ? '' : widget.cpfFormatado,
         'titulo': widget.tituloCtrl.text,
         'subtitulo': widget.subtituloCtrl.text.trim(),
         'textoCorpo': textoBase,
@@ -4635,8 +5883,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
             _includeInstitutionalPastorSignature,
         institutionalPastorNome: institutionalNome,
         institutionalPastorCargo: institutionalCargo,
-        nomeMembro: widget.nomeMembro,
-        cpfFormatado: widget.cpfFormatado,
+        nomeMembro: noivo,
+        nomeMembroLinha2: _isCasamento ? noiva : '',
+        cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
         nomeIgreja: widget.nomeIgreja,
         local: widget.localCtrl.text,
         issuedDate: issuedDate,
@@ -4661,7 +5910,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       ),
       onProgress: onProgress,
     );
-    return bytes.toList();
+    return (bytes: bytes.toList(), protocolId: protocolId);
   }
 }
 
@@ -4669,20 +5918,528 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 // Widgets auxiliares
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _CertificadosEmitidosHistoricoView extends StatelessWidget {
+DateTime? _certificadoEmissaoDiaCivil(Map<String, dynamic> d) {
+  final fromTs = emissionCalendarDateBr(d['dataEmissao']);
+  if (fromTs != null) return fromTs;
+  return _parseDateBr((d['issuedDateStr'] ?? '').toString());
+}
+
+String _historicoTipoKey(Map<String, dynamic> d) {
+  final id = (d['tipoCertificadoId'] ?? '').toString().trim();
+  if (id.isNotEmpty) return id;
+  final nome = (d['tipoCertificadoNome'] ?? d['titulo'] ?? '').toString().trim();
+  return nome.isEmpty ? '_' : nome;
+}
+
+String _historicoTipoLabel(Map<String, dynamic> d) {
+  final n = (d['tipoCertificadoNome'] ?? d['titulo'] ?? 'Certificado').toString().trim();
+  return n.isEmpty ? 'Certificado' : n;
+}
+
+class _CertificadosEmitidosHistoricoView extends StatefulWidget {
   final String tenantId;
   final void Function(String certificadoId) onReprint;
+  /// Gráficos do painel (aba «Painel de emissões»).
+  final bool showCharts;
+  /// Filtros + lista com Reemitir (aba «Histórico de emissão»).
+  final bool showList;
 
   const _CertificadosEmitidosHistoricoView({
     required this.tenantId,
     required this.onReprint,
+    this.showCharts = true,
+    this.showList = true,
   });
+
+  @override
+  State<_CertificadosEmitidosHistoricoView> createState() =>
+      _CertificadosEmitidosHistoricoViewState();
+}
+
+class _CertificadosEmitidosHistoricoViewState
+    extends State<_CertificadosEmitidosHistoricoView> {
+  final TextEditingController _nomeCtrl = TextEditingController();
+  String? _tipoFiltroKey;
+  int? _anoFiltro;
+  int? _mesFiltro;
+  DateTime? _diaFiltro;
+  DateTime? _periodoInicio;
+  DateTime? _periodoFim;
+
+  static const _chartPalette = [
+    Color(0xFF2563EB),
+    Color(0xFF16A34A),
+    Color(0xFFD97706),
+    Color(0xFFDB2777),
+    Color(0xFF7C3AED),
+    Color(0xFF0891B2),
+    Color(0xFF4338CA),
+    Color(0xFFCA8A04),
+  ];
+
+  @override
+  void dispose() {
+    _nomeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _limparFiltros() {
+    setState(() {
+      _nomeCtrl.clear();
+      _tipoFiltroKey = null;
+      _anoFiltro = null;
+      _mesFiltro = null;
+      _diaFiltro = null;
+      _periodoInicio = null;
+      _periodoFim = null;
+    });
+  }
+
+  bool _passaFiltros(Map<String, dynamic> d) {
+    final nome = (d['nomeMembro'] ?? '').toString().toLowerCase();
+    final q = _nomeCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty && !nome.contains(q)) return false;
+    if (_tipoFiltroKey != null && _historicoTipoKey(d) != _tipoFiltroKey) {
+      return false;
+    }
+    final dt = _certificadoEmissaoDiaCivil(d);
+    if (_periodoInicio != null && _periodoFim != null) {
+      if (dt == null) return false;
+      final di = DateTime(
+        _periodoInicio!.year,
+        _periodoInicio!.month,
+        _periodoInicio!.day,
+      );
+      final df = DateTime(
+        _periodoFim!.year,
+        _periodoFim!.month,
+        _periodoFim!.day,
+      );
+      final dc = DateTime(dt.year, dt.month, dt.day);
+      if (dc.isBefore(di) || dc.isAfter(df)) return false;
+      return true;
+    }
+    if (_diaFiltro != null) {
+      if (dt == null) return false;
+      return dt.year == _diaFiltro!.year &&
+          dt.month == _diaFiltro!.month &&
+          dt.day == _diaFiltro!.day;
+    }
+    if (dt == null) {
+      return _anoFiltro == null && _mesFiltro == null;
+    }
+    if (_anoFiltro != null && dt.year != _anoFiltro) return false;
+    if (_mesFiltro != null && dt.month != _mesFiltro) return false;
+    return true;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filtrar(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs.where((e) => _passaFiltros(e.data())).toList();
+  }
+
+  Map<String, int> _contagemPorTipo(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final m = <String, int>{};
+    for (final doc in docs) {
+      final d = doc.data();
+      final k = _historicoTipoKey(d);
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  }
+
+  Map<String, String> _rotulosTipo(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final m = <String, String>{};
+    for (final doc in docs) {
+      final d = doc.data();
+      final k = _historicoTipoKey(d);
+      m.putIfAbsent(k, () => _historicoTipoLabel(d));
+    }
+    return m;
+  }
+
+  /// Últimos 12 meses com dados (ordenados), para o gráfico de barras.
+  ({List<String> keys, List<int> counts, double maxY}) _serieMensal(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final map = <String, int>{};
+    for (final doc in docs) {
+      final dt = _certificadoEmissaoDiaCivil(doc.data());
+      if (dt == null) continue;
+      final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+      map[key] = (map[key] ?? 0) + 1;
+    }
+    final sorted = map.keys.toList()..sort();
+    final tail = sorted.length <= 12 ? sorted : sorted.sublist(sorted.length - 12);
+    final counts = [for (final k in tail) map[k] ?? 0];
+    final mx = counts.isEmpty
+        ? 4.0
+        : (counts.reduce((a, b) => a > b ? a : b)).toDouble() * 1.25 + 0.5;
+    return (keys: tail, counts: counts, maxY: mx < 4 ? 4.0 : mx);
+  }
+
+  Future<void> _pickDia(BuildContext context) async {
+    final now = DateTime.now();
+    final first = DateTime(now.year - 5);
+    final last = DateTime(now.year + 1, 12, 31);
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _diaFiltro ?? now,
+      firstDate: first,
+      lastDate: last,
+      locale: const Locale('pt', 'BR'),
+    );
+    if (d != null) {
+      setState(() {
+        _diaFiltro = DateTime(d.year, d.month, d.day);
+        _anoFiltro = null;
+        _mesFiltro = null;
+        _periodoInicio = null;
+        _periodoFim = null;
+      });
+    }
+  }
+
+  Future<void> _pickPeriodo(BuildContext context) async {
+    final now = DateTime.now();
+    final first = DateTime(now.year - 8);
+    final last = DateTime(now.year + 1, 12, 31);
+    final initialStart = _periodoInicio ?? now.subtract(const Duration(days: 30));
+    final initialEnd = _periodoFim ?? now;
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: first,
+      lastDate: last,
+      initialDateRange: DateTimeRange(
+        start: initialStart.isBefore(first) ? first : initialStart,
+        end: initialEnd.isAfter(last) ? last : initialEnd,
+      ),
+      locale: const Locale('pt', 'BR'),
+      helpText: 'Período de emissão',
+      cancelText: 'Cancelar',
+      confirmText: 'Aplicar',
+      builder: (ctx, child) {
+        return Theme(
+          data: Theme.of(ctx).copyWith(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: ThemeCleanPremium.primary,
+              brightness: Brightness.light,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+    if (range != null) {
+      setState(() {
+        _periodoInicio =
+            DateTime(range.start.year, range.start.month, range.start.day);
+        _periodoFim = DateTime(range.end.year, range.end.month, range.end.day);
+        _diaFiltro = null;
+        _anoFiltro = null;
+        _mesFiltro = null;
+      });
+    }
+  }
+
+  Widget _cardGraficoTitulo(String titulo, String subtitulo, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: ThemeCleanPremium.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+          ),
+          child: Icon(icon, color: ThemeCleanPremium.primary, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade900,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              Text(
+                subtitulo,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.3,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _graficoPizza(
+    BuildContext context,
+    Map<String, int> porTipo,
+    Map<String, String> rotulos,
+  ) {
+    final entries = porTipo.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (entries.isEmpty) {
+      return SizedBox(
+        height: 160,
+        child: Center(
+          child: Text(
+            'Sem dados para o período filtrado.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ),
+      );
+    }
+    final total = entries.fold<int>(0, (s, e) => s + e.value);
+    final sections = <PieChartSectionData>[];
+    for (var i = 0; i < entries.length; i++) {
+      final e = entries[i];
+      final label = rotulos[e.key] ?? e.key;
+      final pct = total > 0 ? (100 * e.value / total).round() : 0;
+      sections.add(
+        PieChartSectionData(
+          value: e.value.toDouble(),
+          color: _chartPalette[i % _chartPalette.length],
+          title: '${e.value}',
+          radius: 32,
+          titleStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+          badgeWidget: pct > 0 && label.length < 22
+              ? Text(
+                  '$pct%',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade800,
+                  ),
+                )
+              : null,
+          badgePositionPercentageOffset: 1.35,
+          showTitle: true,
+        ),
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 158,
+          height: 182,
+          child: PieChart(
+            PieChartData(
+              sectionsSpace: 1,
+              centerSpaceRadius: 28,
+              sections: sections,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 280),
+            child: ListView.separated(
+              primary: false,
+              physics: const ClampingScrollPhysics(),
+              itemCount: entries.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              itemBuilder: (context, i) {
+                final e = entries[i];
+                final label = rotulos[e.key] ?? e.key;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _chartPalette[i % _chartPalette.length],
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.25,
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${e.value}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _graficoBarras(
+    BuildContext context,
+    ({List<String> keys, List<int> counts, double maxY}) serie,
+  ) {
+    if (serie.keys.isEmpty) {
+      return SizedBox(
+        height: 180,
+        child: Center(
+          child: Text(
+            'Sem datas de emissão nos registros filtrados.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ),
+      );
+    }
+    final groups = <BarChartGroupData>[];
+    for (var i = 0; i < serie.keys.length; i++) {
+      groups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: serie.counts[i].toDouble(),
+              color: ThemeCleanPremium.primary,
+              width: 14,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(6),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final nBars = groups.length;
+    final barAlign = nBars <= 4
+        ? BarChartAlignment.center
+        : BarChartAlignment.spaceAround;
+    return SizedBox(
+      height: 220,
+      child: BarChart(
+        BarChartData(
+          alignment: barAlign,
+          groupsSpace: nBars <= 6 ? 18 : 10,
+          maxY: serie.maxY,
+          barTouchData: BarTouchData(
+            enabled: true,
+            touchTooltipData: BarTouchTooltipData(
+              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                final i = group.x.toInt();
+                if (i < 0 || i >= serie.keys.length) return null;
+                return BarTooltipItem(
+                  '${serie.counts[i]} em ${serie.keys[i]}',
+                  const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                );
+              },
+            ),
+          ),
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 32,
+                getTitlesWidget: (v, m) {
+                  final i = v.toInt();
+                  if (i < 0 || i >= serie.keys.length) {
+                    return const SizedBox();
+                  }
+                  final parts = serie.keys[i].split('-');
+                  if (parts.length != 2) return const SizedBox();
+                  final y = int.tryParse(parts[0]) ?? 0;
+                  final mo = int.tryParse(parts[1]) ?? 1;
+                  final short = DateFormat.MMM('pt_BR').format(DateTime(y, mo));
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      short,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 28,
+                interval: serie.maxY > 10 ? (serie.maxY / 4).ceilToDouble() : 1,
+                getTitlesWidget: (v, m) => Text(
+                  NumberFormat('#', 'pt_BR').format(v.round()),
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+                ),
+              ),
+            ),
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+          ),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: serie.maxY > 10 ? (serie.maxY / 4).ceilToDouble() : 1,
+            getDrawingHorizontalLine: (v) => FlLine(
+              color: const Color(0xFFE2E8F0),
+              strokeWidth: 1,
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: groups,
+        ),
+        swapAnimationDuration: const Duration(milliseconds: 450),
+        swapAnimationCurve: Curves.easeOutCubic,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final edge = ThemeCleanPremium.pagePadding(context);
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: CertificateEmitidoService.historicoQuery(tenantId).snapshots(),
+      stream: CertificateEmitidoService.historicoQuery(widget.tenantId)
+          .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Padding(
@@ -4703,62 +6460,761 @@ class _CertificadosEmitidosHistoricoView extends StatelessWidget {
           return Padding(
             padding: edge,
             child: Center(
-              child: Text(
-                'Ainda não há emissões registadas. Ao gerar certificados, '
-                'os protocolos aparecem aqui para consulta e reimpressão.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.insert_chart_outlined_rounded,
+                      size: 56, color: Colors.grey.shade400),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Ainda não há emissões registadas.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Ao gerar certificados, os protocolos aparecem aqui '
+                    'para consulta, gráficos e reimpressão.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  ),
+                ],
               ),
             ),
           );
         }
-        return ListView.builder(
-          padding: edge.copyWith(top: 12, bottom: 24),
-          itemCount: docs.length,
-          itemBuilder: (context, i) {
-            final doc = docs[i];
-            final d = doc.data();
-            final nome = (d['nomeMembro'] ?? '').toString();
-            final tipo =
-                (d['tipoCertificadoNome'] ?? d['titulo'] ?? '').toString();
-            final ts = d['dataEmissao'];
-            var dataTxt = '—';
-            if (ts is Timestamp) {
-              dataTxt = DateFormat('dd/MM/yyyy HH:mm', 'pt_BR')
-                  .format(ts.toDate());
-            }
-            final cid = (d['certificadoId'] ?? doc.id).toString();
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                border: Border.all(color: const Color(0xFFF1F5F9)),
+
+        final filtrados =
+            widget.showList ? _filtrar(docs) : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final docsGraf = widget.showCharts
+            ? (widget.showList ? filtrados : docs)
+            : docs;
+        final anosDisponiveis = <int>{};
+        for (final doc in docs) {
+          final dt = _certificadoEmissaoDiaCivil(doc.data());
+          if (dt != null) anosDisponiveis.add(dt.year);
+        }
+        final anosLista = anosDisponiveis.toList()..sort((a, b) => b.compareTo(a));
+        final tipoOpcoes = _rotulosTipo(docs);
+        final porTipo = _contagemPorTipo(docsGraf);
+        final rotulosGraf = _rotulosTipo(docsGraf);
+        final serie = _serieMensal(docsGraf);
+        final wide = MediaQuery.sizeOf(context).width >= 760;
+        final chipPainel = widget.showList
+            ? '${filtrados.length}/${docs.length}'
+            : '${docs.length}';
+
+        return CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: [
+            if (widget.showCharts)
+            SliverPadding(
+              padding: edge.copyWith(top: 12, bottom: 8),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            ThemeCleanPremium.primary.withOpacity(0.04),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        border: Border.all(color: const Color(0xFFE8EEF5)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.analytics_rounded,
+                                  color: ThemeCleanPremium.primary, size: 26),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Painel de emissões',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey.shade900,
+                                    letterSpacing: -0.4,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  chipPainel,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (wide)
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                      border: Border.all(
+                                          color: const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _cardGraficoTitulo(
+                                          'Por tipo de certificado',
+                                          widget.showList
+                                              ? 'Distribuição dos registros filtrados'
+                                              : 'Distribuição de todas as emissões',
+                                          Icons.pie_chart_outline_rounded,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _graficoPizza(
+                                            context, porTipo, rotulosGraf),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                      border: Border.all(
+                                          color: const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _cardGraficoTitulo(
+                                          'Volume mensal',
+                                          widget.showList
+                                              ? 'Últimos meses com emissões (filtrado)'
+                                              : 'Últimos meses com emissões',
+                                          Icons.bar_chart_rounded,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        _graficoBarras(context, serie),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else ...[
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm),
+                                border:
+                                    Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _cardGraficoTitulo(
+                                    'Por tipo de certificado',
+                                    widget.showList
+                                        ? 'Distribuição dos registros filtrados'
+                                        : 'Distribuição de todas as emissões',
+                                    Icons.pie_chart_outline_rounded,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _graficoPizza(
+                                      context, porTipo, rotulosGraf),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm),
+                                border:
+                                    Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _cardGraficoTitulo(
+                                    'Volume mensal',
+                                    widget.showList
+                                        ? 'Últimos meses com emissões (filtrado)'
+                                        : 'Últimos meses com emissões',
+                                    Icons.bar_chart_rounded,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _graficoBarras(context, serie),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              child: ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                title: Text(
-                  nome.isEmpty ? '—' : nome,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  '${tipo.isEmpty ? 'Certificado' : tipo} · $dataTxt',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-                trailing: IconButton(
-                  tooltip: 'Reimprimir PDF',
-                  icon: Icon(Icons.print_rounded,
-                      color: ThemeCleanPremium.primary),
-                  onPressed: () => onReprint(cid),
+            ),
+            if (widget.showList)
+              SliverPadding(
+                padding: edge.copyWith(
+                    top: widget.showCharts ? 0 : 12, bottom: 8),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          boxShadow: ThemeCleanPremium.softUiCardShadow,
+                          border: Border.all(color: const Color(0xFFE8EEF5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.filter_alt_rounded,
+                                    color: ThemeCleanPremium.primary, size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Filtros',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: _limparFiltros,
+                                icon: const Icon(Icons.restart_alt_rounded,
+                                    size: 18),
+                                label: const Text('Limpar'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _nomeCtrl,
+                            onChanged: (_) => setState(() {}),
+                            decoration: InputDecoration(
+                              labelText: 'Membro (nome)',
+                              hintText: 'Pesquisar por nome…',
+                              prefixIcon: const Icon(Icons.person_search_rounded),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm),
+                                borderSide:
+                                    BorderSide(color: Colors.grey.shade300),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          LayoutBuilder(
+                            builder: (context, c) {
+                              final twoCol = c.maxWidth > 520;
+                              final children = <Widget>[
+                                DropdownButtonFormField<String?>(
+                                  value: _tipoFiltroKey,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Tipo de certificado',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFC),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                      borderSide: BorderSide(
+                                          color: Colors.grey.shade300),
+                                    ),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<String?>(
+                                      value: null,
+                                      child: Text('Todos os tipos'),
+                                    ),
+                                    ...tipoOpcoes.entries.map(
+                                      (e) => DropdownMenuItem<String?>(
+                                        value: e.key,
+                                        child: Text(
+                                          e.value,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (v) =>
+                                      setState(() => _tipoFiltroKey = v),
+                                ),
+                                DropdownButtonFormField<int?>(
+                                  value: _anoFiltro,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Ano de emissão',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFC),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                      borderSide: BorderSide(
+                                          color: Colors.grey.shade300),
+                                    ),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<int?>(
+                                      value: null,
+                                      child: Text('Todos os anos'),
+                                    ),
+                                    ...anosLista.map(
+                                      (y) => DropdownMenuItem<int?>(
+                                        value: y,
+                                        child: Text('$y'),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (v) => setState(() {
+                                    _anoFiltro = v;
+                                    _periodoInicio = null;
+                                    _periodoFim = null;
+                                    _diaFiltro = null;
+                                  }),
+                                ),
+                                DropdownButtonFormField<int?>(
+                                  value: _mesFiltro,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Mês de emissão',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFC),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm),
+                                      borderSide: BorderSide(
+                                          color: Colors.grey.shade300),
+                                    ),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<int?>(
+                                      value: null,
+                                      child: Text('Todos os meses'),
+                                    ),
+                                    for (var m = 1; m <= 12; m++)
+                                      DropdownMenuItem<int?>(
+                                        value: m,
+                                        child: Text(
+                                          DateFormat.MMMM('pt_BR')
+                                              .format(DateTime(2024, m)),
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: (v) => setState(() {
+                                    _mesFiltro = v;
+                                    _periodoInicio = null;
+                                    _periodoFim = null;
+                                    _diaFiltro = null;
+                                  }),
+                                ),
+                              ];
+                              if (twoCol) {
+                                return Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(child: children[0]),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: children[1]),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () =>
+                                                _pickPeriodo(context),
+                                            icon: const Icon(
+                                                Icons.date_range_rounded,
+                                                size: 18),
+                                            label: Text(
+                                              _periodoInicio != null &&
+                                                      _periodoFim != null
+                                                  ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                                  : 'Período (de/até)',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor:
+                                                  ThemeCleanPremium.primary,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                vertical: 14,
+                                                horizontal: 12,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                  ThemeCleanPremium.radiusSm,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: children[2]),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () => _pickDia(context),
+                                            icon: const Icon(
+                                                Icons.calendar_today_rounded,
+                                                size: 18),
+                                            label: Text(
+                                              _diaFiltro == null
+                                                  ? 'Dia específico'
+                                                  : DateFormat.yMd('pt_BR')
+                                                      .format(_diaFiltro!),
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor:
+                                                  ThemeCleanPremium.primary,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                vertical: 14,
+                                                horizontal: 12,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                  ThemeCleanPremium.radiusSm,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed:
+                                                _periodoInicio != null &&
+                                                        _periodoFim != null
+                                                    ? () => setState(() {
+                                                          _periodoInicio = null;
+                                                          _periodoFim = null;
+                                                        })
+                                                    : null,
+                                            child: const Text('Limpar período'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                );
+                              }
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  children[0],
+                                  const SizedBox(height: 10),
+                                  children[1],
+                                  const SizedBox(height: 10),
+                                  children[2],
+                                  const SizedBox(height: 10),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _pickPeriodo(context),
+                                    icon: const Icon(Icons.date_range_rounded,
+                                        size: 18),
+                                    label: Text(
+                                      _periodoInicio != null &&
+                                              _periodoFim != null
+                                          ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                          : 'Período de emissão (de/até)',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor:
+                                          ThemeCleanPremium.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_periodoInicio != null &&
+                                      _periodoFim != null)
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: () => setState(() {
+                                          _periodoInicio = null;
+                                          _periodoFim = null;
+                                        }),
+                                        child: const Text('Limpar período'),
+                                      ),
+                                    ),
+                                  const SizedBox(height: 10),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _pickDia(context),
+                                    icon: const Icon(
+                                        Icons.calendar_today_rounded,
+                                        size: 18),
+                                    label: Text(
+                                      _diaFiltro == null
+                                          ? 'Dia específico (opcional)'
+                                          : DateFormat.yMd('pt_BR')
+                                              .format(_diaFiltro!),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor:
+                                          ThemeCleanPremium.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_diaFiltro != null)
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: () => setState(
+                                            () => _diaFiltro = null),
+                                        child: const Text('Remover data'),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                          if (MediaQuery.sizeOf(context).width >= 520)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _diaFiltro == null
+                                      ? null
+                                      : () => setState(() => _diaFiltro = null),
+                                  child: const Text('Remover filtro de dia'),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          },
+            ),
+            if (widget.showList && filtrados.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Padding(
+                  padding: edge,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.search_off_rounded,
+                            size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Nenhum registro com os filtros atuais.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _limparFiltros,
+                          child: const Text('Limpar filtros'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else if (widget.showList)
+              SliverPadding(
+                padding: edge.copyWith(top: 4, bottom: 28),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final doc = filtrados[i];
+                      final d = doc.data();
+                      final nome = (d['nomeMembro'] ?? '').toString();
+                      final tipo =
+                          (d['tipoCertificadoNome'] ?? d['titulo'] ?? '')
+                              .toString();
+                      final ts = d['dataEmissao'];
+                      final dataTxt = formatDataEmissaoAmericaSaoPaulo(ts);
+                      final cid = (d['certificadoId'] ?? doc.id).toString();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.white,
+                                  ThemeCleanPremium.primary.withOpacity(0.035),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd),
+                              boxShadow: ThemeCleanPremium.softUiCardShadow,
+                              border: Border.all(
+                                color: ThemeCleanPremium.primary
+                                    .withOpacity(0.11),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 10,
+                                  ),
+                                  leading: CircleAvatar(
+                                    backgroundColor: ThemeCleanPremium.primary
+                                        .withOpacity(0.12),
+                                    child: Icon(
+                                      Icons.workspace_premium_rounded,
+                                      color: ThemeCleanPremium.primary,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    nome.isEmpty ? '—' : nome,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      '${tipo.isEmpty ? 'Certificado' : tipo}\n$dataTxt · Brasília',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.35,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ),
+                                  isThreeLine: true,
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      18, 0, 18, 12),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: FilledButton.tonalIcon(
+                                      onPressed: () =>
+                                          widget.onReprint(cid),
+                                      icon: const Icon(
+                                          Icons.refresh_rounded,
+                                          size: 20),
+                                      label: const Text(
+                                        'Reemitir',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      style: FilledButton.styleFrom(
+                                        foregroundColor:
+                                            ThemeCleanPremium.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    childCount: filtrados.length,
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -4780,8 +7236,8 @@ class _SectionLabel extends StatelessWidget {
           Text(label,
               style: TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade700)),
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade800)),
           if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
@@ -4851,9 +7307,24 @@ DateTime? _parseDateBr(String raw) {
   return DateTime(y, mo, d);
 }
 
-String _resolveCertificateText(String text, {required String issuedDate}) {
-  if (issuedDate.trim().isEmpty) return text;
-  return text.replaceAll('{DATA_CERTIFICADO}', issuedDate.trim());
+String _resolveCertificateText(
+  String text, {
+  required String issuedDate,
+  String noivo = '',
+  String noiva = '',
+}) {
+  var t = text;
+  if (issuedDate.trim().isNotEmpty) {
+    t = t.replaceAll('{DATA_CERTIFICADO}', issuedDate.trim());
+  }
+  final nv = noivo.trim();
+  final na = noiva.trim();
+  if (nv.isNotEmpty) t = t.replaceAll('{NOIVO}', nv);
+  if (na.isNotEmpty) t = t.replaceAll('{NOIVA}', na);
+  if (nv.isNotEmpty && na.isNotEmpty && t.contains('{NOME}')) {
+    t = t.replaceAll('{NOME}', '$nv e $na');
+  }
+  return t;
 }
 
 /// Opção de signatário (membro elegível para assinar certificados).

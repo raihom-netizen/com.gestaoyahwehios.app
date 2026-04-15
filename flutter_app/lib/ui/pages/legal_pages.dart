@@ -1,231 +1,255 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Data de referência exibida nas páginas legais (atualizar quando o texto mudar).
+/// Data exibida no topo dos documentos (atualizar quando o texto mudar).
 const String kLegalDocumentsLastUpdated = 'Abril de 2026';
 
+/// Contato para dúvidas (termos, privacidade e suporte).
+const String kLegalSupportEmail = 'raihom@gmail.com';
+const String kLegalSupportWhatsAppDisplay = '(62) 9 9170-5247';
+
+/// Mesmo número que [kLegalSupportWhatsAppDisplay], para `wa.me/…` (E.164 BR).
+const String kLegalSupportWhatsAppWaMe = '5562991705247';
+
+/// Nome exibido no rodapé de divulgação / site público.
+const String kDeveloperPublicName = 'Raihom Barbosa';
+
+// --- Termos de Uso (estrutura inspirada no Controle Total, texto Gestão YAHWEH) ---
+
 class TermosDeUsoPage extends StatelessWidget {
-  const TermosDeUsoPage({super.key});
+  /// Quando [true], oculta AppBar/barra inferior para uso dentro de modal premium.
+  final bool embeddedInDialog;
+
+  const TermosDeUsoPage({super.key, this.embeddedInDialog = false});
 
   @override
   Widget build(BuildContext context) {
-    return const _LegalScaffold(
+    return _LegalDocumentScaffold(
+      embeddedInDialog: embeddedInDialog,
+      heroIcon: Icons.gavel_rounded,
+      heroSubtitle: 'Gestão YAHWEH — Última atualização: $kLegalDocumentsLastUpdated',
       title: 'Termos de Uso',
-      lastUpdated: kLegalDocumentsLastUpdated,
+      intro:
+          'Leia atentamente estes Termos de Uso antes de utilizar o Gestão YAHWEH. '
+          'Documento elaborado em observância à legislação brasileira aplicável, '
+          'incluindo a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), quando pertinente.',
       sections: [
         _LegalSection(
           title: '1. Aceitação',
           body:
-              'Ao utilizar o Gestão YAHWEH, a igreja (ou organização religiosa cadastrada) e seus usuários autorizados concordam com estes termos, com a Política de Privacidade disponível em https://gestaoyahweh.com.br/politica-de-privacidade e com a legislação brasileira aplicável.',
+              'Ao utilizar o Gestão YAHWEH (aplicativo, painel web e funcionalidades disponíveis), '
+              'você concorda com estes Termos de Uso e com a Política de Privacidade. '
+              'Se não concordar, não utilize o serviço.',
         ),
         _LegalSection(
-          title: '2. Natureza do serviço',
+          title: '2. Serviço',
           body:
-              'O Gestão YAHWEH é uma plataforma de gestão eclesiástica (membros, ministérios, comunicação, documentos, financeiro e patrimônio, conforme módulos contratados). A disponibilidade de funcionalidades depende do plano, da configuração da igreja e do perfil de cada usuário.',
+              'O Gestão YAHWEH oferece ferramentas para gestão eclesiástica e administrativa: '
+              'cadastro de membros e visitantes, departamentos, escalas e agendas, comunicação '
+              '(avisos, notificações, mural), documentos (certificados, carteirinhas), finanças, '
+              'patrimônio e demais módulos conforme o plano contratado. O acesso pode ser feito '
+              'por celular, tablet ou computador (incluindo versão web/PWA). '
+              'O ambiente é pensado para ser limpo e seguro, sem propagandas indesejadas no produto. '
+              'Funcionalidades e limites seguem o plano Premium ou equivalente contratado pela igreja.',
         ),
         _LegalSection(
-          title: '3. Responsabilidade da igreja',
+          title: '3. Conta e licença',
           body:
-              'A igreja é responsável pelos dados inseridos e pela legalidade do tratamento perante seus membros, visitantes e colaboradores: veracidade das informações, bases legais (incluindo consentimentos quando necessários), uso de imagens, dados de menores e cumprimento da LGPD no âmbito da sua atuação como controladora.',
+              'Você é responsável por manter a confidencialidade do login e pela atividade realizada '
+              'na sua conta. O acesso depende de licença ativa (período de teste, assinatura ou '
+              'condições comerciais vigentes). Licença vencida ou suspensa pode restringir o uso '
+              'conforme a política do serviço e o contrato com a igreja.',
         ),
         _LegalSection(
-          title: '4. Contas, acesso e conduta',
+          title: '4. Uso adequado',
           body:
-              'Credenciais são pessoais e intransferíveis. É proibido usar a plataforma para fins ilícitos, fraude, assédio, violação de direitos de terceiros, disseminação de malware ou qualquer atividade que comprometa a segurança ou o bom funcionamento do sistema.',
+              'Você se compromete a usar o app de forma lícita, sem prejudicar terceiros ou o serviço. '
+              'É proibido o uso para atividades ilegais, envio de conteúdo ofensivo, violação de '
+              'direitos de terceiros ou tentativas de acesso não autorizado.',
         ),
         _LegalSection(
-          title: '5. Assinatura, pagamentos e planos',
+          title: '5. Propriedade intelectual',
           body:
-              'Planos, limites e condições comerciais são informados no momento da contratação ou renovação. Pagamentos de assinatura podem ser processados por parceiros (ex.: gateways de pagamento); a fatura e os dados de cartão ou PIX seguem as regras do provedor de pagamento e desta política.',
+              'Todo o conteúdo e a tecnologia do Gestão YAHWEH são de propriedade do desenvolvedor '
+              'ou licenciados para uso no produto. Você tem direito de usar o serviço conforme '
+              'previsto nestes termos, sem copiar ou distribuir o software de forma indevida.',
         ),
         _LegalSection(
-          title: '6. Propriedade intelectual',
+          title: '6. Pagamentos',
           body:
-              'Marca, identidade visual, software e documentação do Gestão YAHWEH são protegidos por lei. É vedada cópia, engenharia reversa, sublicenciamento ou uso fora do escopo contratado, salvo autorização expressa.',
+              'Os planos pagos podem ser processados via Mercado Pago (PIX ou cartão, conforme '
+              'disponibilizado). As condições de reembolso seguem a política do Mercado Pago e '
+              'podem ser solicitadas diretamente à plataforma, quando aplicável.',
         ),
         _LegalSection(
-          title: '7. Disponibilidade, suporte e melhorias',
+          title: '7. Limitação de responsabilidade',
           body:
-              'Empregamos esforços razoáveis para manter a plataforma disponível. Podem ocorrer manutenções programadas ou corretivas. Funcionalidades podem evoluir; avisos relevantes serão dados por meios adequados (ex.: aplicativo, e-mail ou painel).',
+              'O app é fornecido “como está”, no limite da lei aplicável. Não nos responsabilizamos '
+              'por decisões pastorais, financeiras ou administrativas tomadas com base nos dados '
+              'ou relatórios gerados — recomenda-se validação por responsáveis competentes quando necessário.',
         ),
         _LegalSection(
-          title: '8. Limitação de responsabilidade',
+          title: '8. Alterações',
           body:
-              'Na extensão permitida pela lei, não nos responsabilizamos por danos indiretos, lucros cessantes ou perdas decorrentes de uso indevido pela igreja ou terceiros, indisponibilidade de internet, casos fortuitos ou força maior. A igreja deve manter cópias e controles internos compatíveis com a criticidade dos seus dados.',
+              'Podemos alterar estes termos. Alterações significativas serão comunicadas por meios '
+              'razoáveis (aplicativo, painel ou e-mail). O uso continuado após as alterações pode '
+              'indicar aceitação, sem prejuízo dos seus direitos legais.',
         ),
         _LegalSection(
-          title: '9. Encerramento',
+          title: '9. Contato',
           body:
-              'O acesso pode ser suspenso ou encerrado em caso de violação destes termos, inadimplência grave ou determinação legal. Após encerramento, a retenção e exclusão de dados observarão a Política de Privacidade e obrigações legais.',
-        ),
-        _LegalSection(
-          title: '10. Contato',
-          body:
-              'Dúvidas sobre estes termos: utilize os canais oficiais divulgados no site https://gestaoyahweh.com.br ou no aplicativo.',
+              'Dúvidas sobre estes Termos de Uso: $kLegalSupportEmail ou WhatsApp $kLegalSupportWhatsAppDisplay.',
         ),
       ],
     );
   }
 }
+
+// --- Política de Privacidade ---
 
 class PoliticaPrivacidadePage extends StatelessWidget {
-  const PoliticaPrivacidadePage({super.key});
+  final bool embeddedInDialog;
+
+  const PoliticaPrivacidadePage({super.key, this.embeddedInDialog = false});
 
   @override
   Widget build(BuildContext context) {
-    return const _LegalScaffold(
+    return _LegalDocumentScaffold(
+      embeddedInDialog: embeddedInDialog,
+      heroIcon: Icons.verified_user_rounded,
+      heroSubtitle: 'Gestão YAHWEH — Última atualização: $kLegalDocumentsLastUpdated',
       title: 'Política de Privacidade',
-      lastUpdated: kLegalDocumentsLastUpdated,
+      intro:
+          'O Gestão YAHWEH respeita a sua privacidade. Este documento descreve como tratamos '
+          'dados pessoais no contexto do aplicativo e do painel web, em linha com a LGPD '
+          '(Lei nº 13.709/2018) e demais normas aplicáveis.',
       sections: [
         _LegalSection(
-          title: '1. Introdução',
+          title: '1. Informações que coletamos',
           body:
-              'Esta Política de Privacidade descreve como o ecossistema Gestão YAHWEH trata dados pessoais no contexto de um sistema completo de gestão para igrejas e organizações religiosas: cadastro e pastoral de membros e visitantes, departamentos e escalas, comunicação (avisos, notificações), documentos (certificados, carteirinhas), finanças e patrimônio, conforme os módulos utilizados por cada igreja.\n\n'
-              'O uso do aplicativo, do painel web e dos formulários públicos vinculados à sua igreja implica ciência desta política. Recomendamos que pastores, secretarias e tesourarias a disponibilizem também aos membros quando aplicável.',
+              'Podem ser tratados, conforme os módulos utilizados: nome, e-mail, telefone, CPF '
+              '(quando informado), dados de cadastro pastoral e administrativo, departamentos, '
+              'escalas, finanças da igreja, ocorrências, preferências e configurações da conta. '
+              'O login pode ocorrer por CPF/e-mail, Google ou Apple, conforme disponível na versão. '
+              'Também podem ser tratados dados técnicos necessários ao funcionamento (tokens de '
+              'notificação, logs de segurança, identificadores de sessão).',
         ),
         _LegalSection(
-          title: '2. Quem é responsável pelos dados (LGPD)',
+          title: '2. Uso dos dados',
           body:
-              'Em regra, cada igreja ou entidade cadastrada atua como controladora dos dados pessoais que coleta de seus membros, visitantes, voluntários e usuários do painel — ou seja, define as finalidades e os meios de tratamento no seu contexto pastoral e administrativo.\n\n'
-              'A operação da plataforma (hospedagem, autenticação, backups técnicos, suporte e melhorias do produto) é realizada em nome das igrejas, em infraestrutura de nuvem, observando o papel de operador ou as cláusulas contratuais aplicáveis entre a igreja e o Gestão YAHWEH.\n\n'
-              'Quando você utiliza funcionalidades globais do serviço (ex.: conta de gestor master, suporte ou cobrança de assinatura), o responsável pelo tratamento desses dados de contrato e faturação é quem presta o serviço Gestão YAHWEH, conforme descrito nas seções abaixo.',
+              'Utilizamos os dados para prestar o serviço, personalizar a experiência no painel, '
+              'enviar comunicações relacionadas à conta e aos planos quando necessário, e '
+              'reforçar a segurança. O produto é voltado à gestão da igreja, sem exibir anúncios '
+              'de terceiros no aplicativo.',
         ),
         _LegalSection(
-          title: '3. Quais dados podemos tratar',
+          title: '3. Armazenamento e segurança',
           body:
-              'Dependendo do que a igreja configurar e dos módulos ativos, podem ser tratados, entre outros:\n\n'
-              '• Identificação e cadastro: nome, CPF ou documento, data de nascimento, estado civil, filiação, naturalidade, gênero, funções ministeriais, departamentos, cargos customizados, status de membro (ativo, pendente, visitante etc.).\n'
-              '• Contato: e-mail, telefone, endereço, CEP, cidade, estado, coordenadas geográficas quando informadas para localização em mapas.\n'
-              '• Imagem e documentos: fotografia de perfil, foto de capa, assinatura e imagem para carteirinha ou documentos, certificados emitidos pela igreja, anexos enviados pela secretaria.\n'
-              '• Dados religiosos e pastorais: batismo, consagração, participação em ministérios — podem ser considerados sensíveis na LGPD quando revelam convicção religiosa; o tratamento deve ocorrer com base legal adequada e, quando exigido, consentimento específico.\n'
-              '• Financeiro e patrimônio: registros de dízimos, ofertas, despesas, categorias, bens e inventário, conforme lançados por usuários autorizados.\n'
-              '• Presença e escalas: registros de cultos, eventos, escalas de voluntários.\n'
-              '• Comunicação: pedidos de oração, notícias, notificações push, tokens de dispositivo para envio de mensagens.\n'
-              '• Conta e segurança: identificador de usuário, logs de acesso, dados de autenticação (senha tratada com mecanismos seguros; biometria no aparelho quando você ativar login biométrico local — em geral processada só pelo sistema do celular).\n'
-              '• Dados técnicos: tipo de dispositivo, sistema operacional, idioma, endereço IP, identificadores de sessão e diagnósticos de falhas (ex.: relatórios de erro para estabilidade do app).\n\n'
-              'A igreja deve inserir apenas dados necessários e lícitos; o membro ou visitante deve informar dados verdadeiros quando preencher cadastro próprio.',
+              'Os dados são armazenados em infraestrutura segura (Firebase / Google Cloud). '
+              'Aplicamos medidas técnicas e administrativas para proteger suas informações contra '
+              'acesso não autorizado, em conformidade com o risco e com a LGPD.',
         ),
         _LegalSection(
-          title: '4. Finalidades e bases legais',
+          title: '4. Compartilhamento',
           body:
-              'Tratamos dados para: prestar o serviço contratado pela igreja; permitir cadastro, aprovação e gestão de membros; emitir documentos oficiais da igreja; operar financeiro e patrimônio; enviar comunicações autorizadas; cumprir obrigações legais e regulatórias; exercer direitos em processos; melhorar segurança, desempenho e experiência do usuário; e, quando aplicável, com base em consentimento (ex.: comunicações opcionais, certas imagens ou dados sensíveis).\n\n'
-              'As bases legais incluem, conforme o caso: execução de contrato ou procedimentos preliminares; legítimo interesse (com avaliação de balanceamento); cumprimento de obrigação legal ou regulatória; proteção da vida ou da incolumidade física; estudo por órgão de pesquisa; e consentimento do titular, quando exigido.',
+              'Não vendemos seus dados. Podemos compartilhar informações apenas quando exigido '
+              'por lei ou para processar pagamentos via Mercado Pago (ou outro meio contratado), '
+              'conforme políticas desses provedores. Dados entre usuários da mesma igreja seguem '
+              'as permissões definidas pela liderança.',
         ),
         _LegalSection(
-          title: '5. Menores de idade',
+          title: '5. Seus direitos',
           body:
-              'Dados de crianças e adolescentes devem ser tratados com base no consentimento de pelo menos um dos pais ou responsável legal, ou em outra hipótese prevista na LGPD. A igreja é responsável por obter e documentar essas autorizações no seu contexto. O sistema pode ser usado para cadastro de menores apenas quando a igreja tiver respaldo legal e pastoral adequados.',
+              'Nos termos da LGPD, você pode solicitar acesso, correção ou exclusão dos seus dados, '
+              'entre outros direitos previstos em lei. Para isso, entre em contato pelo e-mail ou '
+              'WhatsApp indicados abaixo ou pelos canais de suporte no aplicativo.',
         ),
         _LegalSection(
-          title: '6. Como armazenamos e protegemos',
+          title: '6. Atualizações',
           body:
-              'Os dados são armazenados em ambiente de nuvem (Google Firebase / Google Cloud), com controles de autenticação, regras de segurança por perfil, comunicação criptografada em trânsito (HTTPS) e práticas de segurança da informação compatíveis com o risco. Nenhum sistema é 100% invulnerável; em caso de incidente relevante, adotaremos medidas de contenção e notificação conforme a lei.',
+              'Esta política pode ser atualizada. Alterações significativas serão comunicadas no app '
+              'ou por e-mail, quando razoável. O uso continuado após alterações pode indicar ciência, '
+              'sem prejuízo dos direitos do titular.',
         ),
         _LegalSection(
-          title: '7. Compartilhamento e subprocessadores',
+          title: '7. Biometria e reconhecimento facial (Face ID)',
           body:
-              'Não vendemos dados pessoais de membros. O compartilhamento ocorre quando necessário à prestação do serviço ou à lei, incluindo:\n\n'
-              '• Provedores de infraestrutura e autenticação (Google Firebase, incluindo Firestore, Storage, Authentication, Cloud Functions, FCM para notificações).\n'
-              '• Meios de pagamento e assinatura (ex.: processadores de PIX, cartão ou boletos, quando a igreja contrata planos pagos).\n'
-              '• Ferramentas de diagnóstico de estabilidade (ex.: relatórios de falha do aplicativo), sem uso publicitário.\n\n'
-              'Usuários da mesma igreja enxergam dados conforme permissões definidas pela liderança (pastor, secretaria, tesouraria, etc.). Dados não são expostos publicamente salvo onde a igreja deliberadamente publicar (ex.: site institucional integrado) dentro das regras do produto.',
+              'O app não coleta, não armazena e não envia ao servidor imagens do rosto, mapas '
+              'faciais ou templates biométricos.\n\n'
+              'O uso de Face ID ou impressão digital é opcional e serve apenas para desbloquear '
+              'uma sessão já autenticada neste aparelho, por meio da API de autenticação local do '
+              'sistema operacional. O processamento biométrico ocorre no dispositivo; não recebemos '
+              'esses dados biométricos.\n\n'
+              'Não compartilhamos dados faciais com terceiros porque não temos acesso a eles. '
+              'Podemos guardar apenas uma preferência (por exemplo, se o desbloqueio por biometria '
+              'está ativado), sem dados biométricos.\n\n'
+              'Não há retenção de dados faciais pelo Gestão YAHWEH, pois esses dados não são '
+              'transmitidos aos nossos sistemas.',
         ),
         _LegalSection(
-          title: '8. Transferência internacional',
+          title: '8. Contato',
           body:
-              'Serviços de nuvem utilizados podem processar dados em servidores fora do Brasil. Nesses casos, adotamos instrumentos contratuais e medidas previstas na LGPD para garantir nível de proteção compatível.',
-        ),
-        _LegalSection(
-          title: '9. Cookies, armazenamento local e PWA',
-          body:
-              'Na versão web, podem ser usados cookies ou armazenamento local para manter sessão, preferências e funcionamento offline limitado (PWA). Você pode limpar dados do navegador; isso pode exigir novo login.',
-        ),
-        _LegalSection(
-          title: '10. Prazo de retenção',
-          body:
-              'Mantemos os dados pelo tempo necessário para cumprir as finalidades descritas, o contrato com a igreja e obrigações legais (ex.: fiscal ou trabalhista, quando houver). Após exclusão solicitada ou encerramento contratual, poderá haver retenção mínima em backups por período técnico seguro ou quando a lei exigir arquivo.',
-        ),
-        _LegalSection(
-          title: '11. Seus direitos (titular de dados)',
-          body:
-              'Nos termos da LGPD, você pode solicitar: confirmação de tratamento; acesso; correção; anonimização, bloqueio ou eliminação de dados desnecessários; portabilidade; informação sobre compartilhamentos; revogação de consentimento (quando a base for consentimento); oposição a tratamento fundado em legítimo interesse; e revisão de decisões automatizadas.\n\n'
-              'Para dados tratados pela sua igreja, o primeiro contato deve ser a liderança ou secretaria local. Para dados de assinatura, conta master ou operação da plataforma, utilize o canal oficial de privacidade indicado abaixo.',
-        ),
-        _LegalSection(
-          title: '12. Encarregado de dados e contato',
-          body:
-              'Para questões específicas sobre esta política, privacidade e exercício de direitos em relação ao operador da plataforma Gestão YAHWEH, utilize o e-mail privacidade@gestaoyahweh.com.br ou os canais oficiais indicados em https://gestaoyahweh.com.br.\n\n'
-              'Endereço público desta política: https://gestaoyahweh.com.br/politica-de-privacidade',
-        ),
-        _LegalSection(
-          title: '13. Alterações',
-          body:
-              'Podemos atualizar esta política para refletir mudanças legais ou no produto. A data de “Última atualização” no topo da página será revisada. Uso continuado após aviso razoável pode constituir ciência da nova versão, sem prejuízo de direitos do titular.',
-        ),
-        _LegalSection(
-          title: '14. Lei e foro',
-          body:
-              'Esta política é regida pelas leis da República Federativa do Brasil, em especial a Lei nº 13.709/2018 (LGPD). Fica eleito o foro da comarca de domicílio do consumidor ou, quando aplicável, o foro da capital do estado indicado em contrato, para dirimir controvérsias.',
+              'Dúvidas sobre privacidade: $kLegalSupportEmail ou WhatsApp $kLegalSupportWhatsAppDisplay.',
         ),
       ],
     );
   }
 }
 
-class _LegalScaffold extends StatelessWidget {
-  final String title;
-  final String lastUpdated;
-  final List<_LegalSection> sections;
+// --- Layout ultra premium ---
 
-  const _LegalScaffold({
-    required this.title,
-    required this.lastUpdated,
-    required this.sections,
-  });
+class _LegalAppBarBrand extends StatelessWidget {
+  final String pageTitle;
+
+  const _LegalAppBarBrand({required this.pageTitle});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 980),
-            child: ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Última atualização: $lastUpdated',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 20),
-                for (final section in sections) ...[
-                  Text(
-                    section.title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    section.body,
-                    style: const TextStyle(height: 1.5),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ],
-            ),
+    final narrow = MediaQuery.sizeOf(context).width < 520;
+    return Row(
+      children: [
+        Image.asset(
+          'assets/LOGO_GESTAO_YAHWEH.png',
+          height: narrow ? 24 : 28,
+          width: narrow ? 24 : 28,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, __, ___) => Icon(
+            Icons.church_rounded,
+            color: Colors.white,
+            size: narrow ? 24 : 28,
           ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Gestão YAHWEH',
+                style: TextStyle(
+                  fontSize: narrow ? 9.5 : 10.5,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white.withValues(alpha: 0.88),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                pageTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: narrow ? 13.5 : 15,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -238,4 +262,479 @@ class _LegalSection {
     required this.title,
     required this.body,
   });
+}
+
+class _LegalDocumentScaffold extends StatelessWidget {
+  final IconData heroIcon;
+  final String heroSubtitle;
+  final String title;
+  final String intro;
+  final List<_LegalSection> sections;
+  final bool embeddedInDialog;
+
+  const _LegalDocumentScaffold({
+    required this.heroIcon,
+    required this.heroSubtitle,
+    required this.title,
+    required this.intro,
+    required this.sections,
+    this.embeddedInDialog = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 720;
+    final bottomPad = embeddedInDialog ? 28.0 : 100.0;
+
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      extendBodyBehindAppBar: false,
+      appBar: embeddedInDialog
+          ? null
+          : AppBar(
+              toolbarHeight: 52,
+              title: _LegalAppBarBrand(pageTitle: title),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, size: 22),
+                tooltip: 'Voltar',
+                onPressed: () => Navigator.maybePop(context),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.maybePop(context),
+                  child: const Text(
+                    'Fechar',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 880),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  isNarrow ? 16 : 28,
+                  embeddedInDialog ? 12 : 20,
+                  isNarrow ? 16 : 28,
+                  bottomPad,
+                ),
+                children: [
+                  _PremiumHero(
+                    icon: heroIcon,
+                    subtitle: heroSubtitle,
+                    title: title,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    intro,
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.55,
+                      color: Colors.grey.shade800,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  for (final section in sections) ...[
+                    _PremiumSectionCard(section: section),
+                    const SizedBox(height: 14),
+                  ],
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text(
+                      'Gestão YAHWEH',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: embeddedInDialog
+          ? null
+          : Material(
+              elevation: 12,
+              shadowColor: Colors.black26,
+              color: Colors.white,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                          label: const Text('Voltar'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: ThemeCleanPremium.primary,
+                            side: BorderSide(
+                              color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: const Icon(Icons.check_rounded, size: 20),
+                          label: const Text('Entendi'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: ThemeCleanPremium.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+class _PremiumHero extends StatelessWidget {
+  final IconData icon;
+  final String subtitle;
+  final String title;
+
+  const _PremiumHero({
+    required this.icon,
+    required this.subtitle,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.primary,
+            Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.15)!,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                    color: Colors.white,
+                    height: 1.15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.4,
+              color: Colors.white.withValues(alpha: 0.92),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumSectionCard extends StatelessWidget {
+  final _LegalSection section;
+
+  const _PremiumSectionCard({
+    required this.section,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            section.title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+              color: ThemeCleanPremium.primary,
+              height: 1.25,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            section.body,
+            style: TextStyle(
+              fontSize: 14.5,
+              height: 1.55,
+              color: Colors.grey.shade800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Abre Termos ou Privacidade num painel premium (fade + scale), sem perder o contexto da página.
+Future<void> showGestaoYahwehLegalPreview(
+  BuildContext context, {
+  required bool isPoliticaPrivacidade,
+}) {
+  final theme = Theme.of(context);
+  final barrierLabel = MaterialLocalizations.of(context).modalBarrierDismissLabel;
+  final title =
+      isPoliticaPrivacidade ? 'Política de Privacidade' : 'Termos de Uso';
+  final icon =
+      isPoliticaPrivacidade ? Icons.verified_user_rounded : Icons.gavel_rounded;
+
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: barrierLabel,
+    barrierColor: Colors.black.withValues(alpha: 0.52),
+    useRootNavigator: true,
+    transitionDuration: const Duration(milliseconds: 320),
+    pageBuilder: (ctx, animation, secondaryAnimation) {
+      final h = MediaQuery.sizeOf(ctx).height;
+      final dialogH = (h * 0.9).clamp(420.0, h - 24);
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 760,
+                maxHeight: dialogH,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(26),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _LegalPreviewHeader(
+                        title: title,
+                        icon: icon,
+                        onClose: () => Navigator.of(ctx).pop(),
+                      ),
+                      Expanded(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                          ),
+                          child: isPoliticaPrivacidade
+                              ? const PoliticaPrivacidadePage(
+                                  embeddedInDialog: true,
+                                )
+                              : const TermosDeUsoPage(embeddedInDialog: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.93, end: 1.0).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+class _LegalPreviewHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final VoidCallback onClose;
+
+  const _LegalPreviewHeader({
+    required this.title,
+    required this.icon,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.primary,
+            Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.14)!,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 2),
+            child: Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.38),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 6, 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'GESTÃO YAHWEH',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white.withValues(alpha: 0.88),
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: -0.35,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Documento oficial — leitura integral',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withValues(alpha: 0.82),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Fechar',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 26),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

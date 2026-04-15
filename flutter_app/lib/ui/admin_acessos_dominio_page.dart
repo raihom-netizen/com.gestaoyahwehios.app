@@ -2,8 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-/// Gráficos de acessos ao domínio — exibe acessos/dia quando o backend grava em config/analytics ou analytics/daily_hits (estilo Controle Total).
+/// Gráficos de acessos ao domínio — dados em config/analytics e/ou analytics/domain/daily_hits.
 class AdminAcessosDominioPage extends StatefulWidget {
   const AdminAcessosDominioPage({super.key});
 
@@ -44,7 +45,6 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
       final Map<String, int> yearMap = {};
 
       void addCount({required String kind, required String key, required int value}) {
-        // key normalizado já deve ser lexicograficamente ordenável (ex.: YYYY-MM-DD / YYYY-MM / YYYY).
         if (value <= 0) return;
         if (kind == 'hour') {
           hourMap[key] = (hourMap[key] ?? 0) + value;
@@ -57,35 +57,38 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
         }
       }
 
-      DateTime? _tryParseKey(String raw) {
+      DateTime? tryParseKey(String raw) {
         final k = raw.trim();
         if (k.isEmpty) return null;
         final normalized = k.contains(' ') ? k.replaceFirst(' ', 'T') : k;
         return DateTime.tryParse(normalized);
       }
 
-      bool _looksLikeHourKey(String raw) {
+      bool looksLikeHourKey(String raw) {
         final k = raw.trim();
-        // YYYY-MM-DDTHH...
         return RegExp(r'^\d{4}-\d{2}-\d{2}[ T]\d{2}').hasMatch(k);
       }
 
-      bool _looksLikeDayKey(String raw) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw.trim());
-      bool _looksLikeMonthKey(String raw) => RegExp(r'^\d{4}-\d{2}$').hasMatch(raw.trim());
-      bool _looksLikeYearKey(String raw) => RegExp(r'^\d{4}$').hasMatch(raw.trim());
+      bool looksLikeDayKey(String raw) =>
+          RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw.trim());
+      bool looksLikeMonthKey(String raw) =>
+          RegExp(r'^\d{4}-\d{2}$').hasMatch(raw.trim());
+      bool looksLikeYearKey(String raw) =>
+          RegExp(r'^\d{4}$').hasMatch(raw.trim());
 
       void addFromAccessKey(String rawKey, int value) {
         final k = rawKey.trim();
         if (k.isEmpty) return;
 
-        // Caso o backend grave diretamente por hora/dia/mês/ano em `daily` (campo daily),
-        // a gente tenta classificar pela chave.
-        if (_looksLikeHourKey(k)) {
-          final dt = _tryParseKey(k);
+        if (looksLikeHourKey(k)) {
+          final dt = tryParseKey(k);
           if (dt != null) {
-            final hourKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}T${dt.hour.toString().padLeft(2, '0')}:00';
-            final dayKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-            final monthKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+            final hourKey =
+                '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}T${dt.hour.toString().padLeft(2, '0')}:00';
+            final dayKey =
+                '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+            final monthKey =
+                '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
             final yearKey = '${dt.year}';
             addCount(kind: 'hour', key: hourKey, value: value);
             addCount(kind: 'day', key: dayKey, value: value);
@@ -94,11 +97,12 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
           }
           return;
         }
-        if (_looksLikeDayKey(k)) {
-          final dt = _tryParseKey(k);
+        if (looksLikeDayKey(k)) {
+          final dt = tryParseKey(k);
           if (dt != null) {
             final dayKey = k;
-            final monthKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+            final monthKey =
+                '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
             final yearKey = '${dt.year}';
             addCount(kind: 'day', key: dayKey, value: value);
             addCount(kind: 'month', key: monthKey, value: value);
@@ -106,7 +110,7 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
           }
           return;
         }
-        if (_looksLikeMonthKey(k)) {
+        if (looksLikeMonthKey(k)) {
           final m = k.split('-');
           if (m.length == 2) {
             final year = int.tryParse(m[0]) ?? 0;
@@ -118,16 +122,17 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
           }
           return;
         }
-        if (_looksLikeYearKey(k)) {
+        if (looksLikeYearKey(k)) {
           addCount(kind: 'year', key: k, value: value);
           return;
         }
 
-        // Fallback: tenta parse de DateTime completo (se for datetime com hora)
-        final dt = _tryParseKey(k);
+        final dt = tryParseKey(k);
         if (dt != null) {
-          final dayKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-          final monthKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+          final dayKey =
+              '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+          final monthKey =
+              '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
           final yearKey = '${dt.year}';
           addCount(kind: 'day', key: dayKey, value: value);
           addCount(kind: 'month', key: monthKey, value: value);
@@ -135,26 +140,27 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
         }
       }
 
-      // 1) Tentar config/analytics com mapa daily: { "YYYY-MM-DD": count }.
       try {
-        final configSnap = await FirebaseFirestore.instance.doc('config/analytics').get();
+        final configSnap =
+            await FirebaseFirestore.instance.doc('config/analytics').get();
         if (configSnap.exists) {
           final data = configSnap.data();
-          final dynamic dailyObj = data?['daily'] ?? data?['daily_hits'] ?? data?['dailyHits'];
-          final daily = dailyObj is Map ? Map<String, dynamic>.from(dailyObj as Map) : null;
+          final dynamic dailyObj =
+              data?['daily'] ?? data?['daily_hits'] ?? data?['dailyHits'];
+          final daily = dailyObj is Map
+              ? Map<String, dynamic>.from(dailyObj)
+              : null;
           if (daily != null && daily.isNotEmpty) {
             for (final e in daily.entries) {
-              final v = (e.value is num) ? e.value.toInt() : int.tryParse(e.value.toString()) ?? 0;
+              final v = (e.value is num)
+                  ? e.value.toInt()
+                  : int.tryParse(e.value.toString()) ?? 0;
               addFromAccessKey(e.key, v);
             }
           }
         }
-      } catch (_) {
-        // permissão/erro: continua e tenta a collection
-      }
+      } catch (_) {}
 
-      // 2) Tentar collection analytics/domain/daily_hits (docs: date e hits).
-      // Se vierem com hora no campo date, o gráfico de hora também aparece.
       try {
         final colSnap = await FirebaseFirestore.instance
             .collection('analytics')
@@ -175,42 +181,36 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
             addFromAccessKey(date, hits);
           }
         }
-      } catch (_) {
-        // continua
-      }
+      } catch (_) {}
 
-      // Converter mapas → listas ordenadas
-      List<MapEntry<String, int>> _limitList(Map<String, int> map, int max) {
+      List<MapEntry<String, int>> limitSortedList(Map<String, int> map, int max) {
         final list = map.entries.map((e) => MapEntry(e.key, e.value)).toList()
           ..sort((a, b) => a.key.compareTo(b.key));
         if (list.length <= max) return list;
         return list.sublist(list.length - max);
       }
 
-      int _isoWeekNumber(DateTime date) {
-        // ISO week: semana começa na segunda e a semana 01 é a que contém a primeira quinta do ano.
+      int isoWeekNumber(DateTime date) {
         final thursday = date.add(Duration(days: 3 - date.weekday));
         final week1 = DateTime(thursday.year, 1, 4);
         return 1 + ((thursday.difference(week1).inDays) / 7).floor();
       }
 
-      // Agrega semanal a partir de `dayMap`.
       for (final e in dayMap.entries) {
-        final dt = _tryParseKey(e.key);
+        final dt = tryParseKey(e.key);
         if (dt == null) continue;
         final year = dt.year;
-        final week = _isoWeekNumber(dt);
-        final weekKey = '${year}-W${week.toString().padLeft(2, '0')}';
+        final week = isoWeekNumber(dt);
+        final weekKey = '$year-W${week.toString().padLeft(2, '0')}';
         weekMap[weekKey] = (weekMap[weekKey] ?? 0) + e.value;
       }
 
-      final hourly = _limitList(hourMap, 24);
-      final daily = _limitList(dayMap, 30);
-      final weekly = _limitList(weekMap, 12);
-      final monthly = _limitList(monthMap, 12);
-      final yearly = _limitList(yearMap, 6);
+      final hourly = limitSortedList(hourMap, 24);
+      final daily = limitSortedList(dayMap, 30);
+      final weekly = limitSortedList(weekMap, 12);
+      final monthly = limitSortedList(monthMap, 12);
+      final yearly = limitSortedList(yearMap, 6);
 
-      // Se a fonte foi só diário e não tinha horas, `_hourlyHits` vai ficar vazio, mas os outros devem aparecer.
       if (mounted) {
         setState(() {
           _hourlyHits = hourly;
@@ -222,205 +222,414 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString();
+        });
+      }
     }
   }
 
   bool get _isPermissionDenied =>
-      _error != null && (_error!.contains('permission-denied') || _error!.contains('PERMISSION_DENIED'));
+      _error != null &&
+      (_error!.contains('permission-denied') ||
+          _error!.contains('PERMISSION_DENIED'));
 
   @override
   Widget build(BuildContext context) {
     final padding = ThemeCleanPremium.pagePadding(context);
+
     return Scaffold(
       primary: false,
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       body: SafeArea(
         child: ListView(
-          padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
-          children: [
-            Text(
-              'Acessos ao domínio',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: ThemeCleanPremium.onSurface),
-            ),
-          const SizedBox(height: 8),
-          Text(
-            'Gráficos de acessos ao site/domínio (Hora, Dia, Semana, Mês e Ano). Os dados vêm do backend (config/analytics.daily e/ou analytics/domain/daily_hits).',
-            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+          padding: EdgeInsets.fromLTRB(
+            padding.left,
+            padding.top,
+            padding.right,
+            padding.bottom + ThemeCleanPremium.spaceXl,
           ),
-          const SizedBox(height: 24),
-          if (_loading)
-            const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
-          else if (_error != null)
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
-              child: Padding(
-                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline_rounded, size: 56, color: ThemeCleanPremium.error),
-                    const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    Text(
-                      _isPermissionDenied
-                          ? 'Sem permissão para acessar os dados de analytics.'
-                          : 'Erro ao carregar',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: ThemeCleanPremium.onSurface),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _isPermissionDenied
-                          ? 'Faça login como administrador (Painel Master) e publique as regras do Firestore que permitem leitura de config/analytics e da collection analytics para usuários ADM/MASTER.'
-                          : _error!,
-                      style: TextStyle(fontSize: 13, color: ThemeCleanPremium.onSurfaceVariant),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    FilledButton.icon(
-                      onPressed: _load,
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      label: const Text('Tentar novamente'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: ThemeCleanPremium.primary,
-                        padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceSm),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else if (_hourlyHits.isEmpty && _dailyHits.isEmpty && _weeklyHits.isEmpty && _monthlyHits.isEmpty && _yearlyHits.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Icon(Icons.show_chart_rounded, size: 56, color: Colors.grey.shade400),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Nenhum dado de acesso ainda.',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey.shade700),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Configure no backend o registro de acessos ao domínio (ex.: gravar em config/analytics com campo daily: { "YYYY-MM-DD": quantidade }) ou na collection analytics/domain/daily_hits (documentos com date e hits) para exibir o gráfico aqui.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton.icon(
-                      onPressed: _load,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Atualizar'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            DefaultTabController(
-              length: 5,
-              child: Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
+          children: [
+            _PageHeader(),
+            const SizedBox(height: 18),
+            if (_loading)
+              const Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Acessos', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                          TextButton.icon(
-                            onPressed: _load,
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            label: const Text('Atualizar'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      TabBar(
-                        isScrollable: true,
-                        indicator: BoxDecoration(
-                          color: ThemeCleanPremium.primary.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        tabs: const [
-                          Tab(text: 'Hora'),
-                          Tab(text: 'Dia'),
-                          Tab(text: 'Semana'),
-                          Tab(text: 'Mês'),
-                          Tab(text: 'Ano'),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        height: 320,
-                        child: TabBarView(
-                          children: [
-                            _DomainHitsChartCard(
-                              title: 'Acessos por hora',
-                              accent: ThemeCleanPremium.primary,
-                              data: _hourlyHits,
-                              emptyMessage: 'Sem dados por hora. O backend pode estar gravando apenas por dia.',
-                              labelFromKey: (k) {
-                                if (k.contains('T') && k.length >= 16) {
-                                  final day = k.substring(8, 10);
-                                  final month = k.substring(5, 7);
-                                  final hour = k.substring(11, 13);
-                                  return '$day/$month $hour:00';
-                                }
-                                return k;
-                              },
-                            ),
-                            _DomainHitsChartCard(
-                              title: 'Acessos por dia',
-                              accent: ThemeCleanPremium.primary,
-                              data: _dailyHits,
-                              emptyMessage: 'Sem dados por dia (ajuste o backend para preencher daily).',
-                              labelFromKey: (k) {
-                                if (k.length >= 10) return k.substring(5);
-                                return k;
-                              },
-                            ),
-                            _DomainHitsChartCard(
-                              title: 'Acessos por semana',
-                              accent: Colors.teal.shade600,
-                              data: _weeklyHits,
-                              emptyMessage: 'Sem dados por semana (agregação feita a partir do daily).',
-                              labelFromKey: (k) => k.replaceFirst('-W', ' W'),
-                            ),
-                            _DomainHitsChartCard(
-                              title: 'Acessos por mês',
-                              accent: Colors.teal.shade600,
-                              data: _monthlyHits,
-                              emptyMessage: 'Sem dados por mês.',
-                              labelFromKey: (k) {
-                                if (k.length >= 7) return k.substring(5);
-                                return k;
-                              },
-                            ),
-                            _DomainHitsChartCard(
-                              title: 'Acessos por ano',
-                              accent: Colors.indigo.shade600,
-                              data: _yearlyHits,
-                              emptyMessage: 'Sem dados por ano.',
-                              labelFromKey: (k) => k,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                  padding: EdgeInsets.all(40),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (_error != null)
+              _PremiumErrorCard(
+                isPermissionDenied: _isPermissionDenied,
+                message: _error!,
+                onRetry: _load,
+              )
+            else if (_hourlyHits.isEmpty &&
+                _dailyHits.isEmpty &&
+                _weeklyHits.isEmpty &&
+                _monthlyHits.isEmpty &&
+                _yearlyHits.isEmpty)
+              _EmptyStateCard(onRefresh: _load)
+            else
+              _AnalyticsTabPanel(
+                hourlyHits: _hourlyHits,
+                dailyHits: _dailyHits,
+                weeklyHits: _weeklyHits,
+                monthlyHits: _monthlyHits,
+                yearlyHits: _yearlyHits,
+                onRefresh: _load,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PageHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.primary,
+            ThemeCleanPremium.primary.withValues(alpha: 0.88),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.public_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Acessos ao domínio',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                    color: Colors.white,
+                    letterSpacing: -0.3,
                   ),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Visualize tráfego do site por hora, dia, semana, mês e ano. '
+            'Fontes: config/analytics (daily) e analytics/domain/daily_hits.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.92),
             ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _PremiumErrorCard extends StatelessWidget {
+  final bool isPermissionDenied;
+  final String message;
+  final VoidCallback onRetry;
+
+  const _PremiumErrorCard({
+    required this.isPermissionDenied,
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: ThemeCleanPremium.premiumSurfaceCard.copyWith(
+        color: ThemeCleanPremium.cardBackground,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_outline_rounded,
+              size: 52, color: ThemeCleanPremium.error),
+          const SizedBox(height: 14),
+          Text(
+            isPermissionDenied
+                ? 'Sem permissão para analytics'
+                : 'Erro ao carregar',
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+              color: ThemeCleanPremium.onSurface,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isPermissionDenied
+                ? 'Use conta MASTER/ADM e regras Firestore para config/analytics e analytics/domain.'
+                : message,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.4,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 20),
+            label: const Text('Tentar novamente'),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.primary,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 22,
+                vertical: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  final VoidCallback onRefresh;
+
+  const _EmptyStateCard({required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: ThemeCleanPremium.premiumSurfaceCard.copyWith(
+        color: ThemeCleanPremium.cardBackground,
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.analytics_outlined,
+              size: 56, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            'Nenhum dado de acesso ainda',
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+              color: ThemeCleanPremium.onSurface,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Os acessos são registrados quando alguém abre o site (web). '
+            'Após o primeiro visitante, toque em Atualizar.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Atualizar'),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnalyticsTabPanel extends StatelessWidget {
+  final List<MapEntry<String, int>> hourlyHits;
+  final List<MapEntry<String, int>> dailyHits;
+  final List<MapEntry<String, int>> weeklyHits;
+  final List<MapEntry<String, int>> monthlyHits;
+  final List<MapEntry<String, int>> yearlyHits;
+  final VoidCallback onRefresh;
+
+  const _AnalyticsTabPanel({
+    required this.hourlyHits,
+    required this.dailyHits,
+    required this.weeklyHits,
+    required this.monthlyHits,
+    required this.yearlyHits,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 5,
+      child: Container(
+        decoration: ThemeCleanPremium.premiumSurfaceCard.copyWith(
+          color: ThemeCleanPremium.cardBackground,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 12, 0),
+              child: Row(
+                children: [
+                  Icon(Icons.insights_rounded,
+                      color: ThemeCleanPremium.primary, size: 24),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Volume de acessos',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: onRefresh,
+                    icon: const Icon(Icons.refresh_rounded, size: 22),
+                    tooltip: 'Atualizar',
+                    style: IconButton.styleFrom(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      foregroundColor: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            TabBar(
+              isScrollable: true,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelColor: ThemeCleanPremium.primary,
+              unselectedLabelColor: const Color(0xFF64748B),
+              labelStyle: GoogleFonts.poppins(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+              unselectedLabelStyle: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+              indicator: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary.withValues(alpha: 0.18),
+                    ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              tabs: const [
+                Tab(text: 'Hora'),
+                Tab(text: 'Dia'),
+                Tab(text: 'Semana'),
+                Tab(text: 'Mês'),
+                Tab(text: 'Ano'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 380,
+              child: TabBarView(
+                children: [
+                  _DomainHitsChartCard(
+                    title: 'Acessos por hora',
+                    accent: ThemeCleanPremium.primary,
+                    data: hourlyHits,
+                    emptyMessage:
+                        'Sem dados por hora. O backend pode gravar só por dia.',
+                    labelFromKey: (k) {
+                      if (k.contains('T') && k.length >= 16) {
+                        final day = k.substring(8, 10);
+                        final month = k.substring(5, 7);
+                        final hour = k.substring(11, 13);
+                        return '$day/$month\n$hour h';
+                      }
+                      return k;
+                    },
+                  ),
+                  _DomainHitsChartCard(
+                    title: 'Acessos por dia',
+                    accent: const Color(0xFF0284C7),
+                    data: dailyHits,
+                    emptyMessage: 'Sem dados por dia.',
+                    labelFromKey: (k) {
+                      if (k.length >= 10) return k.substring(8);
+                      return k;
+                    },
+                  ),
+                  _DomainHitsChartCard(
+                    title: 'Acessos por semana',
+                    accent: const Color(0xFF0D9488),
+                    data: weeklyHits,
+                    emptyMessage: 'Sem dados por semana (derivado do daily).',
+                    labelFromKey: (k) => k.replaceFirst('-W', ' · S'),
+                  ),
+                  _DomainHitsChartCard(
+                    title: 'Acessos por mês',
+                    accent: const Color(0xFF7C3AED),
+                    data: monthlyHits,
+                    emptyMessage: 'Sem dados por mês.',
+                    labelFromKey: (k) {
+                      if (k.length >= 7) return k.substring(5);
+                      return k;
+                    },
+                  ),
+                  _DomainHitsChartCard(
+                    title: 'Acessos por ano',
+                    accent: const Color(0xFF4F46E5),
+                    data: yearlyHits,
+                    emptyMessage: 'Sem dados por ano.',
+                    labelFromKey: (k) => k,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
       ),
     );
@@ -445,96 +654,241 @@ class _DomainHitsChartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (data.isEmpty) {
-      return Card(
-        elevation: 0,
-        color: ThemeCleanPremium.cardBackground,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.show_chart_rounded, size: 56, color: accent.withOpacity(0.35)),
-              const SizedBox(height: 14),
-              Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: ThemeCleanPremium.onSurface)),
-              const SizedBox(height: 10),
-              Text(emptyMessage, style: TextStyle(fontSize: 12, color: Colors.grey.shade600), textAlign: TextAlign.center),
-            ],
-          ),
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.show_chart_rounded,
+                size: 48, color: accent.withValues(alpha: 0.4)),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                color: ThemeCleanPremium.onSurface,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              emptyMessage,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: ThemeCleanPremium.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       );
     }
 
-    final maxY = data.map((e) => e.value).reduce((a, b) => a > b ? a : b).toDouble();
+    final maxY =
+        data.map((e) => e.value).reduce((a, b) => a > b ? a : b).toDouble();
     final total = data.fold<int>(0, (a, e) => a + e.value);
+    final chartMaxY = maxY <= 0 ? 1.0 : (maxY * 1.18).ceilToDouble();
+    final gridInterval = chartMaxY <= 5
+        ? 1.0
+        : (chartMaxY / 5).clamp(1.0, double.infinity);
 
-    return Card(
-      elevation: 0,
-      color: ThemeCleanPremium.cardBackground,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: ThemeCleanPremium.onSurface)),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 220,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  maxY: (maxY * 1.2) + 1,
-                  barTouchData: BarTouchData(enabled: true),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 36)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (v, meta) {
-                          final i = v.toInt();
-                          if (i >= 0 && i < data.length) {
-                            final key = data[i].key;
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                labelFromKey(key),
-                                style: TextStyle(fontSize: 9, color: Colors.grey.shade700),
-                              ),
-                            );
-                          }
-                          return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: const Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Passe o mouse ou toque nas barras para ver o valor.',
+            style: TextStyle(
+              fontSize: 13,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return BarChart(
+                  BarChartData(
+                    minY: 0,
+                    maxY: chartMaxY,
+                    alignment: BarChartAlignment.spaceAround,
+                    barTouchData: BarTouchData(
+                      enabled: true,
+                      handleBuiltInTouches: true,
+                      touchTooltipData: BarTouchTooltipData(
+                        tooltipPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        tooltipMargin: 8,
+                        tooltipBgColor: const Color(0xFF1E293B),
+                        getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                          final i = group.x.toInt();
+                          if (i < 0 || i >= data.length) return null;
+                          final v = data[i].value;
+                          return BarTooltipItem(
+                            '$v acessos',
+                            GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          );
                         },
                       ),
                     ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    titlesData: FlTitlesData(
+                      show: true,
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 46,
+                          interval: gridInterval,
+                          getTitlesWidget: (value, meta) {
+                            if (value > chartMaxY + 0.01) {
+                              return const SizedBox.shrink();
+                            }
+                            if (value < 0) return const SizedBox.shrink();
+                            final v = value;
+                            if ((v - v.roundToDouble()).abs() > 0.01 &&
+                                chartMaxY > 10) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Text(
+                                v == v.roundToDouble()
+                                    ? v.toInt().toString()
+                                    : v.toStringAsFixed(0),
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF64748B),
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 48,
+                          getTitlesWidget: (v, meta) {
+                            final i = v.toInt();
+                            if (i < 0 || i >= data.length) {
+                              return const SizedBox.shrink();
+                            }
+                            final key = data[i].key;
+                            final label = labelFromKey(key);
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Text(
+                                label,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                  color: const Color(0xFF475569),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      horizontalInterval: gridInterval,
+                      getDrawingHorizontalLine: (value) => FlLine(
+                        color: const Color(0xFFE2E8F0),
+                        strokeWidth: 1,
+                      ),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    barGroups: [
+                      for (var i = 0; i < data.length; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barRods: [
+                            BarChartRodData(
+                              toY: data[i].value.toDouble(),
+                              width: data.length <= 4 ? 28 : 14,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(8),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  accent.withValues(alpha: 0.75),
+                                  accent,
+                                ],
+                              ),
+                              backDrawRodData: BackgroundBarChartRodData(
+                                show: true,
+                                toY: chartMaxY,
+                                color: const Color(0xFFF1F5F9),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
-                  gridData: FlGridData(show: true, drawVerticalLine: false),
-                  borderData: FlBorderData(show: false),
-                  barGroups: [
-                    for (var i = 0; i < data.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: data[i].value.toDouble(),
-                            color: accent,
-                            width: 12,
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                          ),
-                        ],
-                        showingTooltipIndicators: const [0],
-                      )
-                  ],
-                ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
               ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Total no período: $total acessos',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+            child: Row(
+              children: [
+                Icon(Icons.summarize_rounded,
+                    color: ThemeCleanPremium.primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Total no período: $total acessos',
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Configuração de versão mínima e forçar atualização (estilo Controle Total).
-/// Edita o documento Firestore config/appVersion.
+/// Versão mínima em `config/appVersion`: usuários desatualizados veem **aviso** com link da loja (app não bloqueia).
 class AdminForcarAtualizacaoPage extends StatefulWidget {
   const AdminForcarAtualizacaoPage({super.key});
 
@@ -19,8 +19,9 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
   final _messageCtrl = TextEditingController();
   final _storeAndroidCtrl = TextEditingController();
   final _storeIosCtrl = TextEditingController();
+  final _latestVersionCtrl = TextEditingController();
+  final _panelMessageCtrl = TextEditingController();
 
-  bool _forceUpdate = false;
   bool _webRefresh = true;
   bool _loading = true;
   bool _saving = false;
@@ -38,6 +39,8 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
     _messageCtrl.dispose();
     _storeAndroidCtrl.dispose();
     _storeIosCtrl.dispose();
+    _latestVersionCtrl.dispose();
+    _panelMessageCtrl.dispose();
     super.dispose();
   }
 
@@ -51,7 +54,8 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
         _messageCtrl.text = (data?['message'] ?? '').toString().trim();
         _storeAndroidCtrl.text = (data?['storeUrlAndroid'] ?? '').toString().trim();
         _storeIosCtrl.text = (data?['storeUrlIos'] ?? '').toString().trim();
-        _forceUpdate = data?['forceUpdate'] == true;
+        _latestVersionCtrl.text = (data?['latestVersion'] ?? '').toString().trim();
+        _panelMessageCtrl.text = (data?['panelUpdateMessage'] ?? '').toString().trim();
         _webRefresh = data?['webRefresh'] != false;
         setState(() => _loading = false);
       }
@@ -72,17 +76,21 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
     try {
       await FirebaseFirestore.instance.doc(_path).set({
         'minVersion': minVersion,
-        'forceUpdate': _forceUpdate,
+        'forceUpdate': false,
         'message': _messageCtrl.text.trim(),
         'webRefresh': _webRefresh,
         'storeUrlAndroid': _storeAndroidCtrl.text.trim(),
         'storeUrlIos': _storeIosCtrl.text.trim(),
+        'latestVersion': _latestVersionCtrl.text.trim(),
+        'panelUpdateMessage': _panelMessageCtrl.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Configuração salva. Usuários com versão anterior serão obrigados a atualizar.'),
+          ThemeCleanPremium.successSnackBar(
+            'Configuração salva. Quem estiver com versão antiga verá um aviso premium com link para a Play Store (sem bloquear o app).',
+          ),
         );
       }
     } catch (e) {
@@ -118,15 +126,16 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                     Icon(Icons.system_update_rounded, color: ThemeCleanPremium.primary, size: 28),
                     const SizedBox(width: 12),
                     Text(
-                      'Forçar atualização de versão',
+                      'Aviso de nova versão (Play Store)',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Igual ao Controle Total: define a versão mínima no Firestore (config/appVersion). '
-                  'Quem estiver abaixo verá tela de bloqueio até atualizar.',
+                  'Define a versão mínima em config/appVersion. Quem estiver abaixo vê um diálogo premium '
+                  'com mensagem e botão para a Play Store (Android: com.gestaoyahweh.app). '
+                  'O uso do app não é bloqueado — o usuário pode tocar em Depois.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 4),
@@ -161,22 +170,20 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
         const SizedBox(height: 16),
         TextField(
           controller: _messageCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Mensagem (opcional)',
-            hintText: 'Ex: Atualize para a versão mais recente para continuar.',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: 'Mensagem no aviso (opcional)',
+            hintText: kDefaultVersionUpdateMessage('11.3.0'),
+            border: const OutlineInputBorder(),
             alignLabelWithHint: true,
           ),
-          maxLines: 2,
+          maxLines: 3,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Se deixar em branco, o app usa a mensagem padrão “ultra premium” com convite à Play Store.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
         ),
         const SizedBox(height: 16),
-        SwitchListTile(
-          title: const Text('Forçar atualização (bloquear app até atualizar)'),
-          subtitle: const Text('Se ativo, usuários com versão antiga não conseguem usar o app.'),
-          value: _forceUpdate,
-          onChanged: (v) => setState(() => _forceUpdate = v),
-          activeColor: ThemeCleanPremium.primary,
-        ),
         SwitchListTile(
           title: const Text('Web: recarregar ao atualizar'),
           subtitle: const Text('Na web, ao clicar em Atualizar, recarrega a página.'),
@@ -186,11 +193,33 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
         ),
         const SizedBox(height: 16),
         TextField(
-          controller: _storeAndroidCtrl,
+          controller: _latestVersionCtrl,
           decoration: const InputDecoration(
-            labelText: 'URL Play Store (Android)',
-            hintText: 'https://play.google.com/store/apps/...',
+            labelText: 'Versão na loja (opcional — aviso no painel)',
+            hintText: 'ex: 11.3.0 — se maior que o app, mostra faixa no painel Android',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.new_releases_outlined),
+          ),
+          keyboardType: TextInputType.text,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _panelMessageCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Mensagem do aviso no painel (opcional)',
+            hintText: 'Sobrescreve a mensagem curta na faixa laranja do painel da igreja',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 2,
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _storeAndroidCtrl,
+          decoration: InputDecoration(
+            labelText: 'URL Play Store (Android)',
+            hintText: kDefaultPlayStoreUrl,
+            border: const OutlineInputBorder(),
           ),
           keyboardType: TextInputType.url,
         ),

@@ -18,7 +18,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop) ===" -ForegroundColor Cyan
 # FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).
 # HTML/DOM (alternativa): .\scripts\deploy_web_hosting_html_dom.ps1
-flutter build web --release --dart-define=FLUTTER_WEB_USE_SKIA=true
+# --no-tree-shake-icons: ícones só via IconData dinâmico (menu lateral) não viram quadrados vazios na web.
+flutter build web --release --no-tree-shake-icons --dart-define=FLUTTER_WEB_USE_SKIA=true
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Set-Location $RepoRoot

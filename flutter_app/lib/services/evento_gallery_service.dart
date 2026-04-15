@@ -27,7 +27,7 @@ class EventoGalleryService {
   static const int _photoMaxHeight = 1080;
 
   /// Adiciona mídia a um evento da coleção [eventos] (por eventoId).
-  /// Vídeo: verifica limite de 2 por evento, comprime (960×540, rápido), gera thumb, faz upload e salva URL + thumb.
+  /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 640×480, thumb, upload e salva URL + thumb.
   /// Foto: upload em alta resolução e salva URL (getDownloadURL).
   Future<void> adicionarMidiaAoEvento(String eventoId, File arquivo, bool isVideo) async {
     final eventoRef = _firestore.collection('eventos').doc(eventoId);
@@ -79,15 +79,28 @@ class EventoGalleryService {
     final fileName = '${DateTime.now().millisecondsSinceEpoch}';
 
     if (isVideo) {
-      final MediaInfo? info = await VideoCompress.compressVideo(
-        arquivo.path,
-        quality: VideoQuality.Res960x540Quality,
-        deleteOrigin: false,
-        includeAudio: true,
-      );
-      if (info == null || info.file == null) throw Exception('Falha ao comprimir o vídeo.');
+      final p = arquivo.path;
+      final lower = p.toLowerCase();
+      final byteLen = await arquivo.length();
+      const maxSkip = 26 * 1024 * 1024;
+      final useOriginal =
+          byteLen <= maxSkip && (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
-      final compressed = info.file!;
+      late final File compressed;
+      if (useOriginal) {
+        compressed = arquivo;
+      } else {
+        final MediaInfo? info = await VideoCompress.compressVideo(
+          p,
+          quality: VideoQuality.Res640x480Quality,
+          deleteOrigin: false,
+          includeAudio: true,
+        );
+        if (info == null || info.file == null) {
+          throw Exception('Falha ao comprimir o vídeo.');
+        }
+        compressed = info.file!;
+      }
       File? thumbFile;
       try {
         thumbFile = await VideoCompress.getFileThumbnail(compressed.path);

@@ -13,8 +13,8 @@ class ControleTotalCalendarTheme {
     required double cellFs,
     required Color primary,
     required Color onSurface,
-    /// Menor = quadrado do dia maior (Agenda alinhada ao Controle Total).
-    EdgeInsets cellMargin = const EdgeInsets.all(2.25),
+    /// Margem entre células — evita que marcadores “vazem” para o dia ao lado.
+    EdgeInsets cellMargin = const EdgeInsets.all(1.85),
   }) {
     final borderDefault = const Color(0xFFCBD5E1);
     final borderSoft = const Color(0xFFE2E8F0);
@@ -94,7 +94,7 @@ class ControleTotalCalendarTheme {
     required int moreCount,
     required bool isMobile,
   }) {
-    final sz = isMobile ? 10.5 : 9.5;
+    final sz = isMobile ? 11.5 : 10.5;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
@@ -106,15 +106,15 @@ class ControleTotalCalendarTheme {
             height: sz,
             decoration: BoxDecoration(
               color: c,
-              borderRadius: BorderRadius.circular(2.5),
+              borderRadius: BorderRadius.circular(3),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.95),
-                width: 1,
+                color: Colors.white,
+                width: 1.25,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: c.withValues(alpha: 0.38),
-                  blurRadius: 3,
+                  color: c.withValues(alpha: 0.45),
+                  blurRadius: 4,
                   offset: const Offset(0, 1),
                 ),
               ],

@@ -17,7 +17,7 @@ flutter pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ">>> flutter build web"
-flutter build web
+flutter build web --no-tree-shake-icons
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Set-Location $root

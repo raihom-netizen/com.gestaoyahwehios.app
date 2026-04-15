@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
@@ -42,7 +43,7 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show
         ChurchPublicConstrainedMedia,
         ChurchPublicFeedItemWidth,
-        ChurchPublicPremiumScheduleTile,
+        ChurchPublicPremiumScheduleEventCard,
         ChurchPublicPremiumSection,
         churchPublicCoverMemCache,
         churchPublicFeedMediaMaxHeight;
@@ -50,22 +51,45 @@ import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
+import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_donation_sheet.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_proximo_culto.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/ui/web/church_public_seo.dart';
 import 'package:gestao_yahweh/ui/web/open_external_url.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
-import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/event_template_schedule.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_social_portal.dart';
+import 'package:gestao_yahweh/ui/pages/legal_pages.dart'
+    show
+        showGestaoYahwehLegalPreview,
+        kLegalSupportEmail,
+        kLegalSupportWhatsAppDisplay,
+        kLegalSupportWhatsAppWaMe,
+        kDeveloperPublicName;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 /// Capa para site público — mesma lógica centralizada em [eventNoticiaFeedCoverHintUrl].
 String _churchPublicNoticiaCoverUrl(Map<String, dynamic> p) =>
     eventNoticiaFeedCoverHintUrl(p);
+
+bool _churchPublicDocIsAviso(
+  QueryDocumentSnapshot<Map<String, dynamic>> d,
+) =>
+    d.reference.path
+        .contains('/${ChurchTenantPostsCollections.avisos}/');
+
+bool _churchPublicDocIsNoticiaEvento(
+  QueryDocumentSnapshot<Map<String, dynamic>> d,
+) =>
+    d.reference.path
+        .contains('/${ChurchTenantPostsCollections.noticias}/');
 
 /// Site público: oculta após validade ou expiração de aviso (documento excluído some do stream).
 bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
@@ -169,7 +193,8 @@ class _ChurchPublicMuralStreamSliver extends StatefulWidget {
   final String igrejaId;
   final String slugClean;
   final Color accent;
-  final GlobalKey sectionMuralKey;
+  final GlobalKey sectionAvisosKey;
+  final GlobalKey sectionDestaquesKey;
   final Future<void> Function(BuildContext context, Map<String, dynamic> p)
       onOpenHostedVideoFromMap;
   final void Function(String action)? onChurchPublicAction;
@@ -178,7 +203,8 @@ class _ChurchPublicMuralStreamSliver extends StatefulWidget {
     required this.igrejaId,
     required this.slugClean,
     required this.accent,
-    required this.sectionMuralKey,
+    required this.sectionAvisosKey,
+    required this.sectionDestaquesKey,
     required this.onOpenHostedVideoFromMap,
     this.onChurchPublicAction,
   });
@@ -215,9 +241,13 @@ class _ChurchPublicMuralStreamSliverState
           _didWarmup = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            final ev = list.where(_churchPublicDocIsNoticiaEvento).take(8);
+            final warm = ev.isNotEmpty
+                ? ev.map((d) => d.data()).toList()
+                : list.take(8).map((d) => d.data()).toList();
             unawaited(scheduleFeedMediaWarmup(
               context,
-              list.take(8).map((d) => d.data()).toList(),
+              warm,
               maxDocs: 8,
             ));
           });
@@ -368,53 +398,90 @@ class _ChurchPublicMuralStreamSliverState
     final mem = churchPublicCoverMemCache(context);
     final memW = mem.$1;
     final memH = mem.$2;
+    final avisos = items.where(_churchPublicDocIsAviso).toList();
+    final eventos = items.where(_churchPublicDocIsNoticiaEvento).toList();
+    const avisosAccent = Color(0xFF7C3AED);
+
+    Widget feedTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+      return RepaintBoundary(
+        child: churchPublicSocialFeedTile(
+          context: context,
+          doc: doc,
+          igrejaId: widget.igrejaId,
+          churchSlug: widget.slugClean,
+          accent: widget.accent,
+          memCacheW: memW,
+          memCacheH: memH,
+          onOpenHostedVideo: (ctx, p, __) async {
+            await widget.onOpenHostedVideoFromMap(ctx, p);
+          },
+        ),
+      );
+    }
 
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           if (index == 0) {
             return KeyedSubtree(
-              key: widget.sectionMuralKey,
-              child: ChurchPublicFeedItemWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'Mural',
-                        style: GoogleFonts.inter(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF0F172A),
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                    ),
-                    _SitePublicoDestaqueCard(
-                      titulo:
-                          (items.first.data()['title'] ?? '').toString(),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+              key: widget.sectionAvisosKey,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 22),
+                child: ChurchPublicFeedItemWidth(
+                  child: ChurchPublicPremiumSection(
+                    kicker: 'Comunicação',
+                    title: 'Avisos',
+                    subtitle:
+                        'Comunicados oficiais da igreja. Conteúdo separado do mural de eventos com fotos e vídeos.',
+                    icon: Icons.campaign_rounded,
+                    accentColor: avisosAccent,
+                    child: avisos.isEmpty
+                        ? const _ChurchPublicEmptySubsection(
+                            icon: Icons.notifications_none_rounded,
+                            message:
+                                'Nenhum aviso público no momento. Volte em breve ou fale com a secretaria.',
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (var i = 0; i < avisos.length; i++) ...[
+                                if (i > 0) const SizedBox(height: 18),
+                                feedTile(avisos[i]),
+                              ],
+                            ],
+                          ),
+                  ),
                 ),
               ),
             );
           }
-          final docIndex = index - 1;
-          if (docIndex < items.length) {
-            return ChurchPublicFeedItemWidth(
-              child: churchPublicSocialFeedTile(
-                context: context,
-                doc: items[docIndex],
-                igrejaId: widget.igrejaId,
-                churchSlug: widget.slugClean,
-                accent: widget.accent,
-                memCacheW: memW,
-                memCacheH: memH,
-                onOpenHostedVideo: (ctx, p, __) async {
-                  await widget.onOpenHostedVideoFromMap(ctx, p);
-                },
+          if (index == 1) {
+            return KeyedSubtree(
+              key: widget.sectionDestaquesKey,
+              child: ChurchPublicFeedItemWidth(
+                child: ChurchPublicPremiumSection(
+                  kicker: 'Eventos',
+                  title: 'Fotos e vídeos',
+                  subtitle:
+                      'Mural com mídia: cultos especiais, confraternizações e campanhas. Separado dos avisos oficiais e da agenda de horários abaixo.',
+                  icon: Icons.photo_library_rounded,
+                  accentColor: widget.accent,
+                  child: eventos.isEmpty
+                      ? const _ChurchPublicEmptySubsection(
+                          icon: Icons.perm_media_outlined,
+                          message:
+                              'Nenhum evento com mídia público ainda. O gestor publica pelo painel em Mural de eventos.',
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var j = 0; j < eventos.length; j++) ...[
+                              if (j > 0) const SizedBox(height: 18),
+                              feedTile(eventos[j]),
+                            ],
+                          ],
+                        ),
+                ),
               ),
             );
           }
@@ -446,7 +513,49 @@ class _ChurchPublicMuralStreamSliverState
             ),
           );
         },
-        childCount: 1 + items.length + 1,
+        childCount: 3,
+      ),
+    );
+  }
+}
+
+/// Estado vazio dentro de uma subsecção do site público (avisos / destaques).
+class _ChurchPublicEmptySubsection extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _ChurchPublicEmptySubsection({
+    required this.icon,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.grey.shade500, size: 26),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade700,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -546,6 +655,7 @@ Future<void> _openPublicVideo(
   BuildContext context,
   String rawUrl, {
   String? thumbnailUrl,
+  String title = '',
 }) async {
   final cleaned = sanitizeImageUrl(rawUrl);
   if (cleaned.isEmpty) return;
@@ -559,10 +669,12 @@ Future<void> _openPublicVideo(
   if (Uri.tryParse(base) == null) return;
   if (!context.mounted) return;
   final thumb = sanitizeImageUrl(thumbnailUrl);
-  await openChurchHostedVideoImmersive(
+  await showChurchHostedVideoDialog(
     context,
     videoUrl: base,
     thumbnailUrl: isValidImageUrl(thumb) ? thumb : null,
+    autoPlay: true,
+    title: title,
   );
 }
 
@@ -580,7 +692,70 @@ Future<void> _churchPublicOpenNoticiaVideoFromMap(
   final td = sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(p) ?? '');
   final cv = sanitizeImageUrl(_churchPublicNoticiaCoverUrl(p));
   final thumb = isValidImageUrl(td) ? td : (isValidImageUrl(cv) ? cv : null);
-  await _openPublicVideo(context, raw, thumbnailUrl: thumb);
+  final t =
+      (p['titulo'] ?? p['titulo_evento'] ?? '').toString().trim();
+  await _openPublicVideo(context, raw, thumbnailUrl: thumb, title: t);
+}
+
+/// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
+class _ChurchPublicLogoWarmup extends StatefulWidget {
+  final String tenantId;
+  final Map<String, dynamic> churchData;
+  final Widget child;
+
+  const _ChurchPublicLogoWarmup({
+    required this.tenantId,
+    required this.churchData,
+    required this.child,
+  });
+
+  @override
+  State<_ChurchPublicLogoWarmup> createState() => _ChurchPublicLogoWarmupState();
+}
+
+class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
+  void _warm() {
+    final pref = churchTenantLogoUrl(widget.churchData);
+    final path = ChurchImageFields.logoStoragePath(widget.churchData);
+    unawaited(
+      AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+        tenantId: widget.tenantId,
+        tenantData: widget.churchData,
+        preferImageUrl: pref.isNotEmpty ? pref : null,
+        preferStoragePath: path,
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _warm();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChurchPublicLogoWarmup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId ||
+        _cacheSigFor(oldWidget) != _cacheSigFor(widget)) {
+      _warm();
+    }
+  }
+
+  String _cacheSigFor(_ChurchPublicLogoWarmup w) {
+    final pref = churchTenantLogoUrl(w.churchData);
+    final path = ChurchImageFields.logoStoragePath(w.churchData);
+    return AppStorageImageService.churchTenantLogoCacheKey(
+      tenantId: w.tenantId,
+      tenantData: w.churchData,
+      preferImageUrl: pref.isNotEmpty ? pref : null,
+      preferStoragePath: path,
+      preferGsUrl: null,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Dispara [PublicSiteAnalytics.logChurchPublicOpen] uma vez por igreja montada.
@@ -623,10 +798,12 @@ class _ChurchPublicPageInner extends StatelessWidget {
   /// Abre detalhe da publicação ao carregar (rota `/{slug}/{noticiaId}`).
   final String? openNoticiaId;
   final GlobalKey sectionInicioKey;
-  final GlobalKey sectionMuralKey;
+  final GlobalKey sectionAvisosKey;
+  final GlobalKey sectionDestaquesKey;
   final GlobalKey sectionEventosKey;
   final VoidCallback onScrollInicio;
-  final VoidCallback onScrollMural;
+  final VoidCallback onScrollAvisos;
+  final VoidCallback onScrollDestaques;
   final VoidCallback onScrollEventos;
 
   const _ChurchPublicPageInner({
@@ -634,10 +811,12 @@ class _ChurchPublicPageInner extends StatelessWidget {
     required this.slug,
     this.openNoticiaId,
     required this.sectionInicioKey,
-    required this.sectionMuralKey,
+    required this.sectionAvisosKey,
+    required this.sectionDestaquesKey,
     required this.sectionEventosKey,
     required this.onScrollInicio,
-    required this.onScrollMural,
+    required this.onScrollAvisos,
+    required this.onScrollDestaques,
     required this.onScrollEventos,
   });
 
@@ -692,15 +871,6 @@ class _ChurchPublicPageInner extends StatelessWidget {
     return Uri.parse('https://www.google.com/maps/search/?api=1&query=$q');
   }
 
-  /// WhatsApp com texto de pedido de oração (FAB do site público).
-  Uri _whatsAppPedidoOracao(String raw) {
-    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
-    final phone = digits.startsWith('55') ? digits : '55$digits';
-    return Uri.parse(
-      'https://wa.me/$phone?text=${Uri.encodeComponent('Olá! Gostaria de deixar um pedido de oração. (Site da igreja — Gestão YAHWEH)')}',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final slugClean = slug.trim().isEmpty ? 'minha-igreja' : slug.trim();
@@ -724,7 +894,51 @@ class _ChurchPublicPageInner extends StatelessWidget {
               );
             }
             if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return ChurchPublicSiteScaffoldBackground(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            'A carregar o site da igreja…',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _prettyName(slugClean),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
             }
             final docs = snap.data!.docs;
             if (docs.isEmpty) {
@@ -737,6 +951,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
             final docSnap = docs.first;
             final igrejaId = docSnap.id;
             final data = docSnap.data();
+            final churchDataWithId = Map<String, dynamic>.from(data)
+              ..['id'] = igrejaId;
             final subscriptionState = SubscriptionGuard.evaluate(church: data);
             if (subscriptionState.blocked) {
               return _ChurchPublicMaintenanceView(
@@ -756,9 +972,6 @@ class _ChurchPublicPageInner extends StatelessWidget {
                     data['telefone'] ??
                     data['phone'] ??
                     '')
-                .toString()
-                .trim();
-            final gestorNome = (data['gestorNome'] ?? data['gestor_nome'] ?? '')
                 .toString()
                 .trim();
             final gestorEmail = (data['gestorEmail'] ??
@@ -781,29 +994,17 @@ class _ChurchPublicPageInner extends StatelessWidget {
                 (data['linkGoogleMaps'] ?? data['googleMapsLink'] ?? '')
                     .toString()
                     .trim();
-            final instagramUrl = (data['instagram'] ??
-                    data['instagramUrl'] ??
-                    data['linkInstagram'] ??
-                    '')
-                .toString()
-                .trim();
-            final facebookUrl = (data['facebook'] ??
-                    data['facebookUrl'] ??
-                    data['linkFacebook'] ??
-                    '')
-                .toString()
-                .trim();
-            final youtubeUrl = (data['youtube'] ??
-                    data['youtubeUrl'] ??
-                    data['linkYoutube'] ??
-                    '')
-                .toString()
-                .trim();
-            final email = gestorEmail;
-            final enderecoRaw = (data['endereco'] ?? '').toString().trim();
-            final endereco = enderecoRaw.isNotEmpty
-                ? enderecoRaw
-                : churchPublicFormattedAddress(data);
+            final waLaunchUri = churchPublicWhatsappLaunchUri(
+              data,
+              fallbackPhoneRaw: whatsappContato,
+              churchName: nome,
+            );
+            final waPrayerUri = churchPublicWhatsappPrayerUri(
+              data,
+              churchPhoneRaw: whatsapp,
+              gestorPhoneRaw: gestorTelefone,
+            );
+            final endereco = churchPublicFormattedAddress(data);
             final lat = data['latitude'];
             final lng = data['longitude'];
             final latitude = lat is num
@@ -817,6 +1018,25 @@ class _ChurchPublicPageInner extends StatelessWidget {
                     .toString()
                     .trim();
             final logoUrl = sanitizeImageUrl(churchTenantLogoUrl(data));
+
+            final instagramUri = churchPublicSocialHttpUri(data, const [
+              'instagramUrl',
+              'instagram',
+              'linkInstagram',
+              'instagram_link',
+            ]);
+            final youtubeUri = churchPublicSocialHttpUri(data, const [
+              'youtubeUrl',
+              'youtube',
+              'linkYoutube',
+              'youtube_link',
+            ]);
+            final facebookUri = churchPublicSocialHttpUri(data, const [
+              'facebookUrl',
+              'facebook',
+              'linkFacebook',
+              'facebook_link',
+            ]);
 
             final accent = _churchAccentFromData(data);
             final baseTh = Theme.of(context);
@@ -870,7 +1090,10 @@ class _ChurchPublicPageInner extends StatelessWidget {
                             igrejaId: igrejaId,
                             openNoticiaId: openNoticiaId!.trim(),
                           ),
-                        CustomScrollView(
+                        _ChurchPublicLogoWarmup(
+                          tenantId: igrejaId,
+                          churchData: churchDataWithId,
+                          child: CustomScrollView(
                           key: ValueKey(igrejaId),
                           physics: const BouncingScrollPhysics(
                             parent: AlwaysScrollableScrollPhysics(),
@@ -879,22 +1102,126 @@ class _ChurchPublicPageInner extends StatelessWidget {
                             ChurchPublicSiteSliverAppBar(
                               nome: nome,
                               tenantId: igrejaId,
-                              churchData: data,
+                              churchData: churchDataWithId,
                               accentColor: accent,
                               onAcessar: () {
                                 logChurchPublic('app_bar_access_system');
                                 Navigator.pushNamed(context, '/igreja/login');
                               },
+                              onDoacao: () {
+                                logChurchPublic('app_bar_doacao');
+                                showChurchPublicDonationSheet(
+                                  context,
+                                  tenantId: igrejaId,
+                                  accentColor: accent,
+                                  slugClean: slugClean,
+                                );
+                              },
                             ),
                             ChurchPublicPortalNavSliver(
                               accent: accent,
                               onInicio: onScrollInicio,
-                              onMural: onScrollMural,
+                              onAvisos: onScrollAvisos,
+                              onDestaques: onScrollDestaques,
                               onEventos: onScrollEventos,
                               onAcessarSistema: () {
                                 logChurchPublic('nav_access_system');
                                 Navigator.pushNamed(context, '/igreja/login');
                               },
+                            ),
+                            SliverToBoxAdapter(
+                              child: ChurchPublicWelcomeStrip(
+                                churchName: nome,
+                                accentColor: accent,
+                              ),
+                            ),
+                            SliverToBoxAdapter(
+                              child: ChurchPublicFeedItemWidth(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                                  child: ChurchPublicContactBar(
+                                    accentColor: accent,
+                                    phoneLine: churchPublicFormattedPhone(data),
+                                    addressLine: endereco,
+                                    onWhatsApp: waLaunchUri == null
+                                        ? null
+                                        : () {
+                                            logChurchPublic(
+                                                'contact_bar_whatsapp');
+                                            _launchExternal(
+                                                context, waLaunchUri);
+                                          },
+                                    onMaps: (linkGoogleMaps.isNotEmpty ||
+                                            (latitude != null &&
+                                                longitude != null) ||
+                                            endereco.trim().isNotEmpty)
+                                        ? () {
+                                            logChurchPublic(
+                                                'contact_bar_maps');
+                                            _launchExternal(
+                                              context,
+                                              linkGoogleMaps.isNotEmpty
+                                                  ? (Uri.tryParse(
+                                                          linkGoogleMaps) ??
+                                                      _mapsUri(
+                                                        endereco,
+                                                        latitude: latitude,
+                                                        longitude: longitude,
+                                                      ))
+                                                  : _mapsUri(
+                                                      endereco,
+                                                      latitude: latitude,
+                                                      longitude: longitude,
+                                                    ),
+                                            );
+                                          }
+                                        : null,
+                                    onEmail: gestorEmail.isEmpty
+                                        ? null
+                                        : () {
+                                            logChurchPublic(
+                                                'contact_bar_email');
+                                            _launchExternal(
+                                              context,
+                                              Uri.parse(
+                                                'mailto:${gestorEmail.trim()}',
+                                              ),
+                                            );
+                                          },
+                                    onInstagram: instagramUri == null
+                                        ? null
+                                        : () {
+                                            logChurchPublic(
+                                                'contact_bar_instagram');
+                                            _launchExternal(
+                                                context,
+                                                instagramUri,
+                                              );
+                                          },
+                                    onYoutube: youtubeUri == null
+                                        ? null
+                                        : () {
+                                            logChurchPublic(
+                                                'contact_bar_youtube');
+                                            _launchExternal(
+                                                context,
+                                                youtubeUri,
+                                              );
+                                          },
+                                    onFacebook: facebookUri == null
+                                        ? null
+                                        : () {
+                                            logChurchPublic(
+                                                'contact_bar_facebook');
+                                            _launchExternal(
+                                                context,
+                                                facebookUri,
+                                              );
+                                          },
+                                  ),
+                                ),
+                              ),
                             ),
                             SliverPadding(
                               padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
@@ -924,17 +1251,14 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                 Navigator.pushNamed(
                                                     context, '/igreja/login');
                                               },
-                                              onTalkChurch: whatsappContato
-                                                      .isEmpty
+                                              onTalkChurch: waLaunchUri == null
                                                   ? null
                                                   : () {
                                                       logChurchPublic(
                                                           'hero_whatsapp');
                                                       _launchExternal(
                                                         context,
-                                                        _whatsAppUri(
-                                                            whatsappContato,
-                                                            churchName: nome),
+                                                        waLaunchUri,
                                                       );
                                                     },
                                               onOpenMaps: (linkGoogleMaps
@@ -1112,12 +1436,13 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               ),
                             ),
                             SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                               sliver: _ChurchPublicMuralStreamSliver(
                                 igrejaId: igrejaId,
                                 slugClean: slugClean,
                                 accent: accent,
-                                sectionMuralKey: sectionMuralKey,
+                                sectionAvisosKey: sectionAvisosKey,
+                                sectionDestaquesKey: sectionDestaquesKey,
                                 onOpenHostedVideoFromMap:
                                     _churchPublicOpenNoticiaVideoFromMap,
                                 onChurchPublicAction: logChurchPublic,
@@ -1137,60 +1462,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                         child: _PublicEventosSection(
                                           igrejaId: igrejaId,
                                           churchSlug: slugClean,
+                                          churchVenueAddress: endereco,
                                         ),
-                                      ),
-                                      const SizedBox(height: 24),
-                                      _ContatoEnderecoCard(
-                                        whatsappIgreja: whatsapp,
-                                        gestorNome: gestorNome,
-                                        gestorEmail: gestorEmail,
-                                        gestorTelefone: gestorTelefone,
-                                        endereco: endereco,
-                                        latitude: latitude,
-                                        longitude: longitude,
-                                        onWhatsAppIgreja: () {
-                                          logChurchPublic(
-                                              'contact_whatsapp_church');
-                                          _launchExternal(
-                                              context,
-                                              _whatsAppUri(whatsapp,
-                                                  churchName: nome));
-                                        },
-                                        onWhatsAppGestor: gestorTelefone.isEmpty
-                                            ? null
-                                            : () {
-                                                logChurchPublic(
-                                                    'contact_whatsapp_gestor');
-                                                _launchExternal(
-                                                    context,
-                                                    _whatsAppUri(
-                                                        gestorTelefone,
-                                                        churchName: nome));
-                                              },
-                                        onMaps: () {
-                                          logChurchPublic('contact_maps');
-                                          _launchExternal(
-                                              context,
-                                              linkGoogleMaps.isNotEmpty
-                                                  ? (Uri.tryParse(
-                                                          linkGoogleMaps) ??
-                                                      _mapsUri(endereco,
-                                                          latitude: latitude,
-                                                          longitude: longitude))
-                                                  : _mapsUri(endereco,
-                                                      latitude: latitude,
-                                                      longitude: longitude));
-                                        },
-                                        onEmail: gestorEmail.isEmpty
-                                            ? null
-                                            : () {
-                                                logChurchPublic(
-                                                    'contact_email_gestor');
-                                                _launchExternal(
-                                                    context,
-                                                    Uri.parse(
-                                                        'mailto:${gestorEmail.trim()}'));
-                                              },
                                       ),
                                       const SizedBox(height: 24),
                                       _HorariosCultoSection(
@@ -1227,43 +1500,35 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                     (data['driveFolderUrl'] ??
                                                             '')
                                                         .toString();
-                                                final androidUrl =
-                                                    (data['androidUrl'] ?? '')
-                                                        .toString();
-                                                final iosUrl =
-                                                    (data['iosUrl'] ?? '')
-                                                        .toString();
-                                                final downloadUrl =
-                                                    androidUrl.isNotEmpty
-                                                        ? androidUrl
-                                                        : (iosUrl.isNotEmpty
-                                                            ? iosUrl
-                                                            : folderUrl);
+                                                final androidEffective =
+                                                    AppConstants
+                                                        .effectiveAppDownloadsAndroidUrl(
+                                                            data);
+                                                final iosEffective = AppConstants
+                                                    .effectiveAppDownloadsIosUrl(
+                                                        data);
 
                                                 return Wrap(
                                                   spacing: 10,
                                                   runSpacing: 10,
                                                   children: [
                                                     FilledButton.icon(
-                                                      onPressed: downloadUrl
-                                                              .isEmpty
-                                                          ? null
-                                                          : () {
-                                                              logChurchPublic(
-                                                                  'download_android');
-                                                              _launchExternal(
-                                                                context,
-                                                                Uri.parse(
-                                                                    downloadUrl),
-                                                              );
-                                                            },
+                                                      onPressed: () {
+                                                        logChurchPublic(
+                                                            'download_android');
+                                                        _launchExternal(
+                                                          context,
+                                                          Uri.parse(
+                                                              androidEffective),
+                                                        );
+                                                      },
                                                       icon: const Icon(
                                                           Icons.android),
                                                       label:
                                                           const Text('Android'),
                                                     ),
                                                     FilledButton.tonalIcon(
-                                                      onPressed: downloadUrl
+                                                      onPressed: iosEffective
                                                               .isEmpty
                                                           ? null
                                                           : () {
@@ -1272,7 +1537,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                               _launchExternal(
                                                                 context,
                                                                 Uri.parse(
-                                                                    downloadUrl),
+                                                                    iosEffective,
+                                                                ),
                                                               );
                                                             },
                                                       icon: const Icon(
@@ -1306,39 +1572,32 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 36),
                                       _PublicFooter(
-                                        slugClean: slugClean,
-                                        churchName: nome,
-                                        addressLine: endereco,
-                                        onComoChegar: (linkGoogleMaps
-                                                    .isNotEmpty ||
-                                                (latitude != null &&
-                                                    longitude != null) ||
-                                                endereco.trim().isNotEmpty)
-                                            ? () {
-                                                logChurchPublic(
-                                                    'footer_como_chegar');
-                                                _launchExternal(
-                                                  context,
-                                                  linkGoogleMaps.isNotEmpty
-                                                      ? (Uri.tryParse(
-                                                              linkGoogleMaps) ??
-                                                          _mapsUri(
-                                                            endereco,
-                                                            latitude: latitude,
-                                                            longitude:
-                                                                longitude,
-                                                          ))
-                                                      : _mapsUri(
-                                                          endereco,
-                                                          latitude: latitude,
-                                                          longitude: longitude,
-                                                        ),
-                                                );
-                                              }
-                                            : null,
-                                        instagramUrl: instagramUrl,
-                                        facebookUrl: facebookUrl,
-                                        youtubeUrl: youtubeUrl,
+                                        onAdquirirSistema: () {
+                                          logChurchPublic(
+                                              'footer_adquirir_sistema');
+                                          Navigator.pushNamed(
+                                              context, '/planos');
+                                        },
+                                        onDeveloperWhatsApp: () {
+                                          logChurchPublic(
+                                              'footer_dev_whatsapp');
+                                          _launchExternal(
+                                            context,
+                                            Uri.parse(
+                                              'https://wa.me/$kLegalSupportWhatsAppWaMe?text=${Uri.encodeComponent('Olá! Vim pelo site público da igreja (Gestão YAHWEH).')}',
+                                            ),
+                                          );
+                                        },
+                                        onDeveloperEmail: () {
+                                          logChurchPublic(
+                                              'footer_dev_email');
+                                          _launchExternal(
+                                            context,
+                                            Uri.parse(
+                                              'mailto:$kLegalSupportEmail?subject=${Uri.encodeComponent('Gestão YAHWEH — site público')}',
+                                            ),
+                                          );
+                                        },
                                       ),
                                       // Espaço para não cobrir o rodapé com os FABs
                                       SizedBox(
@@ -1351,6 +1610,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               ),
                             ),
                           ],
+                        ),
                         ),
                         Positioned(
                           right: 12,
@@ -1379,28 +1639,15 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                     );
                                   }
                                 : null,
-                            onPrayer: whatsapp.trim().isNotEmpty
-                                ? () {
+                            onPrayer: waPrayerUri == null
+                                ? null
+                                : () {
                                     logChurchPublic('fab_bar_prayer_whatsapp');
-                                    _launchExternal(
-                                      context,
-                                      _whatsAppPedidoOracao(whatsapp),
-                                    );
-                                  }
-                                : (gestorTelefone.trim().isNotEmpty
-                                    ? () {
-                                        logChurchPublic(
-                                            'fab_bar_prayer_whatsapp_gestor');
-                                        _launchExternal(
-                                          context,
-                                          _whatsAppPedidoOracao(
-                                              gestorTelefone),
-                                        );
-                                      }
-                                    : null),
+                                    _launchExternal(context, waPrayerUri);
+                                  },
                           ),
                         ),
-                        if (whatsappContato.trim().isNotEmpty)
+                        if (waLaunchUri != null)
                           Positioned(
                             right: 16,
                             bottom: MediaQuery.paddingOf(context).bottom + 84,
@@ -1409,11 +1656,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               backgroundColor: const Color(0xFF16A34A),
                               onPressed: () {
                                 logChurchPublic('fab_whatsapp_chat');
-                                _launchExternal(
-                                  context,
-                                  _whatsAppUri(whatsappContato,
-                                      churchName: nome),
-                                );
+                                _launchExternal(context, waLaunchUri);
                               },
                               child: const Icon(Icons.chat_rounded,
                                   color: Colors.white),
@@ -1648,65 +1891,16 @@ const List<String> _weekdayNames = [
   'Dom'
 ];
 
-/// Faixa “última publicação” acima do feed (layout divulgação: fundo cinza-claro, título forte).
-class _SitePublicoDestaqueCard extends StatelessWidget {
-  final String titulo;
-
-  const _SitePublicoDestaqueCard({required this.titulo});
-
-  @override
-  Widget build(BuildContext context) {
-    final linkColor = Theme.of(context).colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.dynamic_feed_rounded,
-                size: 22, color: linkColor.withValues(alpha: 0.85)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    titulo.isEmpty ? 'Novidade da igreja' : titulo,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Publicações em lista, uma abaixo da outra.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.35,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+/// Nome completo (detalhe do evento no site público).
+const List<String> _weekdayNamesLong = [
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+  'Domingo',
+];
 
 /// Barra superior fina: logo da igreja (ou Gestão YAHWEH) + Acessar (visual premium).
 class _PublicTopBarSlim extends StatelessWidget {
@@ -1999,7 +2193,7 @@ class _PublicFeedTitleStrip extends StatelessWidget {
   }
 }
 
-/// Horários de culto: usa texto do doc ou do tenant; se vazio, monta a partir dos eventos fixos (event_templates).
+/// Horários de culto: usa texto do doc ou do tenant; se vazio, resumo semanal a partir dos eventos fixos ([event_templates]).
 class _HorariosCultoSection extends StatelessWidget {
   final String igrejaId;
   final String horariosIniciais;
@@ -2057,31 +2251,118 @@ class _HorariosCultoSection extends StatelessWidget {
                       fontSize: 14, height: 1.5, color: Colors.grey.shade700),
                 );
               }
-              const weekdays = [
-                'Seg',
-                'Ter',
-                'Qua',
-                'Qui',
-                'Sex',
-                'Sáb',
-                'Dom'
-              ];
-              final lines = docs.map((d) {
+              final weekly = <({int weekday, String title, String timeStr})>[];
+              for (final d in docs) {
                 final m = d.data();
-                final title = (m['title'] ?? 'Culto').toString();
-                final wd = (m['weekday'] is int) ? (m['weekday'] as int) : 1;
-                final time = (m['time'] ?? '').toString();
-                final day = wd >= 1 && wd <= 7 ? weekdays[wd - 1] : '?';
-                return '$day ${time.isNotEmpty ? time : "—"} — $title';
-              }).toList();
-              return Text(
-                lines.join('\n'),
-                style: TextStyle(
-                    fontSize: 15, height: 1.6, color: Colors.grey.shade800),
-              );
+                final title = (m['title'] ?? 'Culto').toString().trim();
+                if (title.isEmpty) continue;
+                final wd =
+                    (m['weekday'] is int) ? (m['weekday'] as int).clamp(1, 7) : 7;
+                final timeRaw = (m['time'] ?? '19:30').toString();
+                final tp = timeRaw.split(':');
+                final hh = int.tryParse(tp.isNotEmpty ? tp[0] : '') ?? 19;
+                final mm = int.tryParse(tp.length > 1 ? tp[1] : '') ?? 30;
+                final timeStr =
+                    '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
+                weekly.add((weekday: wd, title: title, timeStr: timeStr));
+              }
+              weekly.sort((a, b) {
+                final c = a.weekday.compareTo(b.weekday);
+                if (c != 0) return c;
+                final ct = a.timeStr.compareTo(b.timeStr);
+                if (ct != 0) return ct;
+                return a.title.compareTo(b.title);
+              });
+              if (weekly.isEmpty) {
+                return Text(
+                  'Não foi possível montar o resumo. Verifique os eventos fixos.',
+                  style: TextStyle(
+                      fontSize: 14, height: 1.5, color: Colors.grey.shade700),
+                );
+              }
+              return _HorariosCultoGrid(rows: weekly);
             },
           );
         },
+      ),
+    );
+  }
+}
+
+/// Resumo semanal a partir de [event_templates]: dia da semana → programação → hora (sem listar datas).
+class _HorariosCultoGrid extends StatelessWidget {
+  final List<({int weekday, String title, String timeStr})> rows;
+
+  const _HorariosCultoGrid({required this.rows});
+
+  static String _cap(String s) {
+    if (s.isEmpty) return s;
+    return '${s[0].toUpperCase()}${s.substring(1)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFF059669);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Table(
+          border: TableBorder.symmetric(
+            inside: BorderSide(color: Colors.grey.shade200),
+          ),
+          columnWidths: const {
+            0: FlexColumnWidth(1.2),
+            1: FlexColumnWidth(1.45),
+            2: FlexColumnWidth(0.7),
+          },
+          children: [
+            TableRow(
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.1),
+              ),
+              children: [
+                _horCell('Dia', header: true, accent: accent),
+                _horCell('Programação', header: true, accent: accent),
+                _horCell('Hora', header: true, accent: accent),
+              ],
+            ),
+            for (final r in rows)
+              TableRow(
+                children: [
+                  _horCell(
+                    _cap(weekdayLongNameFromIsoWeekday(r.weekday)),
+                    accent: accent,
+                  ),
+                  _horCell(r.title, accent: accent),
+                  _horCell(r.timeStr, accent: accent),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _horCell(String text, {required Color accent, bool header = false}) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: header ? 10 : 10,
+        vertical: header ? 11 : 12,
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontWeight: header ? FontWeight.w900 : FontWeight.w600,
+          fontSize: header ? 11.5 : 13.5,
+          height: 1.25,
+          color: header ? accent : const Color(0xFF0F172A),
+        ),
       ),
     );
   }
@@ -2091,10 +2372,13 @@ class _HorariosCultoSection extends StatelessWidget {
 class _PublicEventosSection extends StatefulWidget {
   final String igrejaId;
   final String churchSlug;
+  /// Endereço formatado do cadastro — para não repetir em cada card quando for o mesmo local.
+  final String churchVenueAddress;
 
   const _PublicEventosSection({
     required this.igrejaId,
     this.churchSlug = '',
+    this.churchVenueAddress = '',
   });
 
   @override
@@ -2125,8 +2409,9 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
         });
         return ChurchPublicPremiumSection(
           kicker: 'Programação',
-          title: 'Eventos e agenda',
-          subtitle: 'Selecione o período e toque para ver os detalhes.',
+          title: 'Agenda de cultos e reuniões',
+          subtitle:
+              'Próximas datas dos eventos cadastrados pela igreja (lista compacta; toque para ver detalhes).',
           icon: Icons.event_repeat_rounded,
           accentColor: accentEvento,
           child: Column(
@@ -2137,10 +2422,27 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                 runSpacing: 8,
                 children: [7, 15, 30].map((d) {
                   final selected = d == _selectedDays;
-                  return ChoiceChip(
+                  return FilterChip(
                     label: Text('$d dias'),
                     selected: selected,
                     onSelected: (_) => setState(() => _selectedDays = d),
+                    showCheckmark: false,
+                    selectedColor: accentEvento.withValues(alpha: 0.2),
+                    backgroundColor: Colors.white,
+                    side: BorderSide(
+                      color: selected
+                          ? accentEvento
+                          : const Color(0xFFE2E8F0),
+                      width: selected ? 1.5 : 1,
+                    ),
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color:
+                          selected ? accentEvento : Colors.grey.shade700,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 2),
                   );
                 }).toList(),
               ),
@@ -2151,61 +2453,57 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                 final body = (m['text'] ?? '').toString().trim();
                 final imageUrl = (m['imageUrl'] ?? '').toString().trim();
                 final videoUrl = (m['videoUrl'] ?? '').toString().trim();
+                final photoPath =
+                    (m['photoStoragePath'] ?? '').toString().trim();
                 DateTime? dt = m['startAt'] is Timestamp
                     ? (m['startAt'] as Timestamp).toDate()
                     : null;
                 final dayName = dt != null ? _weekdayNames[dt.weekday - 1] : '';
+                final dayNameLong = dt != null && dt.weekday >= 1 && dt.weekday <= 7
+                    ? _weekdayNamesLong[dt.weekday - 1]
+                    : '';
                 final time = dt != null
                     ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
                     : '';
-                final dateStr = dt != null
-                    ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}'
-                    : '';
+                final dateStr = dt != null ? formatPublicDatePt(dt) : '';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
+                  child: ChurchPublicPremiumScheduleEventCard(
+                    title: title,
+                    weekdayLabel: dayName,
+                    weekdayLongLabel: dayNameLong,
+                    dateShort: dateStr,
+                    timeLabel: time,
+                    location: loc,
+                    churchDefaultAddress: widget.churchVenueAddress,
+                    imageUrl: imageUrl,
+                    accent: accentEvento,
                     onTap: () {
+                      final hasSchedule = dayName.isNotEmpty ||
+                          dateStr.isNotEmpty ||
+                          time.isNotEmpty ||
+                          loc.isNotEmpty;
                       showModalBottomSheet<void>(
                         context: context,
                         isScrollControlled: true,
                         backgroundColor: Colors.transparent,
-                        builder: (_) => _PublicEventDetailSheet(
+                        builder: (_) => ChurchPublicEventDetailSheet(
                           title: title,
-                          subtitle:
-                              '$dayName, $dateStr ${time.isEmpty ? '' : 'às $time'}${loc.isEmpty ? '' : ' • $loc'}',
+                          subtitle: hasSchedule ? '' : '—',
+                          weekdayLabel:
+                              dayNameLong.isEmpty ? null : dayNameLong,
+                          dateLabel: dateStr.isEmpty ? null : dateStr,
+                          timeLabel: time.isEmpty ? null : time,
+                          locationLine: loc.isEmpty ? null : loc,
                           body: body,
                           imageUrl: imageUrl,
                           videoUrl: videoUrl,
+                          photoStoragePath:
+                              photoPath.isNotEmpty ? photoPath : null,
+                          accentColor: accentEvento,
                         ),
                       );
                     },
-                    child: ChurchPublicPremiumScheduleTile(
-                      accent: accentEvento,
-                      leading: Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              accentEvento.withValues(alpha: 0.18),
-                              accentEvento.withValues(alpha: 0.06),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: accentEvento.withValues(alpha: 0.15),
-                          ),
-                        ),
-                        child: Icon(Icons.event_rounded,
-                            size: 24, color: accentEvento),
-                      ),
-                      title: title,
-                      subtitle:
-                          '$dayName, $time${loc.isEmpty ? '' : ' • $loc'}',
-                    ),
                   ),
                 );
               }),
@@ -2215,6 +2513,19 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
       },
     );
   }
+}
+
+/// Capa do evento fixo (Eventos fixos no painel): `defaultImageUrl` / `imageUrl` / lista.
+String _publicEventTemplateCoverUrl(Map<String, dynamic> m) {
+  var u = (m['defaultImageUrl'] ?? m['imageUrl'] ?? '').toString().trim();
+  if (u.isEmpty && m['imageUrls'] is List) {
+    for (final e in m['imageUrls'] as List) {
+      u = e.toString().trim();
+      if (u.isNotEmpty) break;
+    }
+  }
+  if (u.isEmpty) return '';
+  return sanitizeImageUrl(u);
 }
 
 Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
@@ -2233,117 +2544,81 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
         .orderBy('startAt')
         .limit(60)
         .get();
-    final itens = eventosSnap.docs
-        .map((d) {
-          final data = d.data();
-          final photos = eventNoticiaPhotoUrls(data);
-          final videos = eventNoticiaVideosFromDoc(data);
-          return <String, dynamic>{
-            'id': d.id,
-            'title': (data['title'] ?? '').toString().trim(),
-            'text': (data['text'] ?? '').toString().trim(),
-            'location': (data['location'] ?? '').toString().trim(),
-            'startAt': data['startAt'],
-            'imageUrl': photos.isNotEmpty ? sanitizeImageUrl(photos.first) : '',
-            'videoUrl': videos.isNotEmpty ? videos.first : '',
-          };
-        })
-        .where((e) => (e['title'] ?? '').toString().isNotEmpty)
-        .toList();
-    if (itens.isNotEmpty) return itens;
-    final snap = await FirebaseFirestore.instance
+    final itens = <Map<String, dynamic>>[];
+    final seenTplDay = <String>{};
+    for (final d in eventosSnap.docs) {
+      final data = d.data();
+      final photos = eventNoticiaPhotoUrls(data);
+      final videos = eventNoticiaVideosFromDoc(data);
+      final path0 = eventNoticiaPhotoStoragePathAt(data, 0);
+      final title = (data['title'] ?? '').toString().trim();
+      if (title.isEmpty) continue;
+      final sa = data['startAt'];
+      if (sa is Timestamp) {
+        final dk = DateFormat('yyyy-MM-dd').format(sa.toDate());
+        final tpl = (data['templateId'] ?? '').toString();
+        if (tpl.isNotEmpty) {
+          seenTplDay.add('${tpl}_$dk');
+        }
+      }
+      itens.add(<String, dynamic>{
+        'id': d.id,
+        'title': title,
+        'text': (data['text'] ?? '').toString().trim(),
+        'location': (data['location'] ?? '').toString().trim(),
+        'startAt': data['startAt'],
+        'imageUrl': photos.isNotEmpty ? sanitizeImageUrl(photos.first) : '',
+        'videoUrl': videos.isNotEmpty ? videos.first : '',
+        'photoStoragePath': path0 != null && path0.isNotEmpty ? path0 : '',
+      });
+    }
+    final tplSnap = await FirebaseFirestore.instance
         .collection('igrejas')
         .doc(igrejaId)
         .collection('event_templates')
         .where('active', isEqualTo: true)
         .get();
-    return snap.docs
-        .map((d) {
-          final m = d.data();
-          return <String, dynamic>{
-            'id': d.id,
-            'title': (m['title'] ?? '').toString().trim(),
-            'location': (m['location'] ?? '').toString().trim(),
-            'text': '',
-            'startAt': null,
-            'imageUrl': '',
-            'videoUrl': '',
-          };
-        })
-        .where((e) => (e['title'] ?? '').toString().isNotEmpty)
-        .toList();
+    for (final d in tplSnap.docs) {
+      final m = d.data();
+      if (!eventTemplateIncludeInAgenda(m)) continue;
+      final title = (m['title'] ?? '').toString().trim();
+      if (title.isEmpty) continue;
+      final wd = (m['weekday'] is int) ? (m['weekday'] as int).clamp(1, 7) : 7;
+      final time = (m['time'] ?? '19:30').toString();
+      final rec = (m['recurrence'] ?? 'weekly').toString();
+      final dates = expandTemplateOccurrencesInRange(
+        weekday: wd,
+        timeHHmm: time,
+        recurrence: rec,
+        rangeStart: now,
+        rangeEnd: end,
+      );
+      for (final dt in dates) {
+        final dk = '${d.id}_${DateFormat('yyyy-MM-dd').format(dt)}';
+        if (seenTplDay.contains(dk)) continue;
+        seenTplDay.add(dk);
+        final img = _publicEventTemplateCoverUrl(m);
+        itens.add(<String, dynamic>{
+          'id': 'virt_${d.id}_${DateFormat('yyyy-MM-dd').format(dt)}',
+          'title': title,
+          'text': (m['description'] ?? '').toString(),
+          'location': (m['location'] ?? '').toString().trim(),
+          'startAt': Timestamp.fromDate(dt),
+          'imageUrl': img,
+          'videoUrl': '',
+          'photoStoragePath': '',
+        });
+      }
+    }
+    itens.sort((a, b) {
+      final ta = a['startAt'];
+      final tb = b['startAt'];
+      if (ta is! Timestamp || tb is! Timestamp) return 0;
+      return ta.compareTo(tb);
+    });
+    return itens;
   } catch (_) {
     return [];
-  }
-}
-
-class _PublicEventDetailSheet extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final String body;
-  final String imageUrl;
-  final String videoUrl;
-
-  const _PublicEventDetailSheet({
-    required this.title,
-    required this.subtitle,
-    required this.body,
-    required this.imageUrl,
-    required this.videoUrl,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final mediaUrl = imageUrl.isNotEmpty ? imageUrl : videoUrl;
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            Text(subtitle, style: TextStyle(color: Colors.grey.shade700)),
-            if (mediaUrl.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: FreshFirebaseStorageImage(
-                    imageUrl: mediaUrl,
-                    fit: BoxFit.cover,
-                    placeholder: YahwehPremiumFeedShimmer.mediaCover(),
-                    errorWidget: Container(color: const Color(0xFFF3F4F6)),
-                  ),
-                ),
-              ),
-            ],
-            if (body.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(body, style: const TextStyle(height: 1.4)),
-            ],
-            if (videoUrl.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => launchUrl(Uri.parse(videoUrl),
-                    mode: LaunchMode.externalApplication),
-                icon: const Icon(Icons.play_circle_fill_rounded),
-                label: const Text('Assistir vídeo'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -2504,167 +2779,225 @@ class _PublicTopBar extends StatelessWidget {
   }
 }
 
-/// Rodapé: igreja (endereço, mapas, redes) + marca Gestão YAHWEH.
+/// Rodapé do site público da igreja: marca Gestão YAHWEH, desenvolvedor e links legais.
 class _PublicFooter extends StatelessWidget {
-  final String slugClean;
-  final String churchName;
-  final String addressLine;
-  final VoidCallback? onComoChegar;
-  final String instagramUrl;
-  final String facebookUrl;
-  final String youtubeUrl;
+  final VoidCallback onAdquirirSistema;
+  final VoidCallback onDeveloperWhatsApp;
+  final VoidCallback onDeveloperEmail;
 
   const _PublicFooter({
-    required this.slugClean,
-    this.churchName = '',
-    this.addressLine = '',
-    this.onComoChegar,
-    this.instagramUrl = '',
-    this.facebookUrl = '',
-    this.youtubeUrl = '',
+    required this.onAdquirirSistema,
+    required this.onDeveloperWhatsApp,
+    required this.onDeveloperEmail,
   });
-
-  Future<void> _openSocial(BuildContext context, String raw) async {
-    final t = raw.trim();
-    if (t.isEmpty) return;
-    final uri = Uri.tryParse(t.startsWith('http') ? t : 'https://$t');
-    if (uri == null) return;
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível abrir o link: $e')),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final nome = churchName.trim();
-    final addr = addressLine.trim();
+    final isNarrow = MediaQuery.sizeOf(context).width < 520;
+    final deep = const Color(0xFF0F172A);
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        vertical: 28,
+        horizontal: isNarrow ? 16 : 24,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border(
-            top: BorderSide(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
-                width: 1)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFF8FAFC),
+            Color.lerp(
+                  ThemeCleanPremium.primary,
+                  Colors.white,
+                  0.92,
+                ) ??
+                const Color(0xFFEFF6FF),
+            Colors.white,
+          ],
+        ),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+          ...ThemeCleanPremium.softUiCardShadow,
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (nome.isNotEmpty)
-            Text(
-              nome,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0F172A)),
-            ),
-          if (addr.isNotEmpty) ...[
-            if (nome.isNotEmpty) const SizedBox(height: 10),
-            Text(
-              addr,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
-                  fontSize: 13, height: 1.4, color: Colors.grey.shade700),
-            ),
-          ],
-          if (onComoChegar != null) ...[
-            const SizedBox(height: 14),
-            Center(
-              child: FilledButton.tonalIcon(
-                onPressed: onComoChegar,
-                icon: const Icon(Icons.directions_rounded, size: 20),
-                label: const Text('Como chegar'),
-                style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (instagramUrl.isNotEmpty ||
-              facebookUrl.isNotEmpty ||
-              youtubeUrl.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (instagramUrl.isNotEmpty)
-                  IconButton.filledTonal(
-                    tooltip: 'Instagram',
-                    onPressed: () => _openSocial(context, instagramUrl),
-                    icon: const Icon(Icons.camera_alt_outlined),
-                  ),
-                if (facebookUrl.isNotEmpty)
-                  IconButton.filledTonal(
-                    tooltip: 'Facebook',
-                    onPressed: () => _openSocial(context, facebookUrl),
-                    icon: const Icon(Icons.facebook_rounded),
-                  ),
-                if (youtubeUrl.isNotEmpty)
-                  IconButton.filledTonal(
-                    tooltip: 'YouTube',
-                    onPressed: () => _openSocial(context, youtubeUrl),
-                    icon: const Icon(Icons.play_circle_outline_rounded),
-                  ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 22),
           Text(
             'Gestão YAHWEH',
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: ThemeCleanPremium.primary),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '"$kVersiculoRodape" — $kVersiculoRef',
             textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-                color: Colors.grey.shade700,
-                height: 1.4),
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
+              color: ThemeCleanPremium.primary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Plataforma para a sua igreja',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Desenvolvedor: $kDeveloperPublicName',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: deep,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                avatar: Icon(Icons.chat_rounded,
+                    size: 18, color: Colors.green.shade700),
+                label: Text(
+                  kLegalSupportWhatsAppDisplay,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                ),
+                onPressed: onDeveloperWhatsApp,
+                backgroundColor: const Color(0xFFECFDF5),
+                side: BorderSide(color: Colors.green.shade200),
+              ),
+              ActionChip(
+                avatar: Icon(Icons.email_outlined,
+                    size: 18, color: ThemeCleanPremium.primary),
+                label: Text(
+                  kLegalSupportEmail,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                ),
+                onPressed: onDeveloperEmail,
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text.rich(
+              TextSpan(
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: Colors.grey.shade700,
+                ),
+                children: [
+                  TextSpan(
+                    text: '"$kVersiculoRodape" ',
+                    style: const TextStyle(fontStyle: FontStyle.italic),
+                  ),
+                  TextSpan(
+                    text: '— $kVersiculoRef',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: ThemeCleanPremium.primary,
+                      fontStyle: FontStyle.normal,
+                    ),
+                  ),
+                ],
+              ),
+              textAlign: TextAlign.center,
+            ),
           ),
           const SizedBox(height: 20),
           Wrap(
             alignment: WrapAlignment.center,
-            spacing: 16,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: [
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/planos'),
-                child: const Text('Adquirir sistema'),
+              FilledButton.icon(
+                onPressed: onAdquirirSistema,
+                icon: const Icon(Icons.shopping_bag_outlined, size: 20),
+                label: const Text('Adquirir sistema'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
-              TextButton(
-                onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                    context, '/', (_) => false),
-                child: const Text('Conheça o sistema'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/igreja/login'),
-                child: const Text('Acessar Sistema'),
+              OutlinedButton.icon(
+                onPressed: onDeveloperWhatsApp,
+                icon: const Icon(Icons.code_rounded, size: 20),
+                label: Text('Desenvolvedor $kDeveloperPublicName'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: deep,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  side: BorderSide(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.4),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 18),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              TextButton(
+                onPressed: () => unawaited(showGestaoYahwehLegalPreview(
+                  context,
+                  isPoliticaPrivacidade: false,
+                )),
+                child: const Text('Termos de uso'),
+              ),
+              Text(
+                '·',
+                style: TextStyle(color: Colors.grey.shade400),
+              ),
+              TextButton(
+                onPressed: () => unawaited(showGestaoYahwehLegalPreview(
+                  context,
+                  isPoliticaPrivacidade: true,
+                )),
+                child: const Text('Privacidade'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Text(
             appVersionLabel.isNotEmpty ? appVersionLabel : 'v$appVersion',
+            textAlign: TextAlign.center,
             style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
           ),
         ],
@@ -2852,6 +3185,7 @@ class _Logo extends StatelessWidget {
         churchData: md,
         size: s,
         borderRadius: 20,
+        logoFit: BoxFit.contain,
       );
     }
 
@@ -2908,180 +3242,6 @@ class _Logo extends StatelessWidget {
       }
     }
     return y;
-  }
-}
-
-/// Card único com contato da igreja (WhatsApp), gestor (nome, e-mail, telefone) e endereço.
-class _ContatoEnderecoCard extends StatelessWidget {
-  final String whatsappIgreja;
-  final String gestorNome;
-  final String gestorEmail;
-  final String gestorTelefone;
-  final String endereco;
-  final double? latitude;
-  final double? longitude;
-  final VoidCallback? onWhatsAppIgreja;
-  final VoidCallback? onWhatsAppGestor;
-  final VoidCallback? onMaps;
-  final VoidCallback? onEmail;
-
-  const _ContatoEnderecoCard({
-    required this.whatsappIgreja,
-    required this.gestorNome,
-    required this.gestorEmail,
-    required this.gestorTelefone,
-    required this.endereco,
-    this.latitude,
-    this.longitude,
-    this.onWhatsAppIgreja,
-    this.onWhatsAppGestor,
-    this.onMaps,
-    this.onEmail,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const accentContato = Color(0xFF0D9488);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: accentContato.withOpacity(0.15)),
-        boxShadow: [
-          ...ThemeCleanPremium.softUiCardShadow,
-          BoxShadow(
-              color: accentContato.withOpacity(0.05),
-              blurRadius: 24,
-              offset: const Offset(0, 12)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                    color: accentContato.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.contact_phone_rounded,
-                    size: 22, color: accentContato),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Contato e endereço',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F766E)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          if (whatsappIgreja.isNotEmpty) ...[
-            _ContactRow(
-              icon: Icons.chat_rounded,
-              label: 'WhatsApp da igreja',
-              value: whatsappIgreja,
-              buttonLabel: 'WhatsApp',
-              onPressed: onWhatsAppIgreja,
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (gestorNome.isNotEmpty) ...[
-            _ContactRow(
-                icon: Icons.person_outline_rounded,
-                label: 'Gestor',
-                value: gestorNome),
-            const SizedBox(height: 12),
-          ],
-          if (gestorEmail.isNotEmpty) ...[
-            _ContactRow(
-              icon: Icons.email_outlined,
-              label: 'E-mail',
-              value: gestorEmail,
-              buttonLabel: 'Enviar e-mail',
-              onPressed: onEmail,
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (gestorTelefone.isNotEmpty) ...[
-            _ContactRow(
-              icon: Icons.phone_outlined,
-              label: 'Telefone / WhatsApp do gestor',
-              value: gestorTelefone,
-              buttonLabel: 'WhatsApp',
-              onPressed: onWhatsAppGestor,
-            ),
-            const SizedBox(height: 12),
-          ],
-          _ContactRow(
-            icon: Icons.location_on_outlined,
-            label: 'Endereço',
-            value: endereco.isEmpty
-                ? 'Informe o endereço no cadastro da igreja (painel admin).'
-                : endereco,
-            buttonLabel: endereco.isEmpty ? null : 'Ver no Maps',
-            onPressed: endereco.isEmpty ? null : onMaps,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ContactRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final String? buttonLabel;
-  final VoidCallback? onPressed;
-
-  const _ContactRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.buttonLabel,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: Colors.grey.shade600),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 2),
-              SelectableText(value,
-                  style: const TextStyle(fontSize: 14, height: 1.3)),
-              if (buttonLabel != null && onPressed != null) ...[
-                const SizedBox(height: 8),
-                _PublicPremiumActionButton(
-                  label: buttonLabel!,
-                  icon: icon,
-                  onPressed: onPressed,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -3223,13 +3383,33 @@ class _ChurchTenantFallback extends StatelessWidget {
         }
         final data = tenantDoc.data() ?? {};
         final igrejaId = tenantDoc.id;
+        void logChurchPublicLocal(String action) {
+          unawaited(PublicSiteAnalytics.logChurchPublicAction(
+            action,
+            slug: slugClean,
+            tenantId: igrejaId,
+          ));
+        }
+
+        Future<void> launchExternalLocal(BuildContext ctx, Uri uri) async {
+          try {
+            final ok = await openExternalApplicationUrl(uri);
+            if (!ok && ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                    content: Text('Não foi possível abrir: ${uri.toString()}')),
+              );
+            }
+          } catch (e) {
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(content: Text('Erro ao abrir link: $e')),
+              );
+            }
+          }
+        }
+
         final nome = (data['name'] ?? data['nome'] ?? prettyName).toString();
-        final whatsapp =
-            (data['whatsapp'] ?? data['telefone'] ?? data['phone'] ?? '')
-                .toString()
-                .trim();
-        final gestorNome =
-            (data['gestorNome'] ?? data['gestor_nome'] ?? '').toString().trim();
         final gestorEmail =
             (data['gestorEmail'] ?? data['gestor_email'] ?? data['email'] ?? '')
                 .toString()
@@ -3238,10 +3418,7 @@ class _ChurchTenantFallback extends StatelessWidget {
             (data['gestorTelefone'] ?? data['gestor_telefone'] ?? '')
                 .toString()
                 .trim();
-        final enderecoRaw = (data['endereco'] ?? '').toString().trim();
-        final endereco = enderecoRaw.isNotEmpty
-            ? enderecoRaw
-            : churchPublicFormattedAddress(data);
+        final endereco = churchPublicFormattedAddress(data);
         final lat = data['latitude'];
         final lng = data['longitude'];
         final latitude = lat is num
@@ -3252,31 +3429,124 @@ class _ChurchTenantFallback extends StatelessWidget {
             : (lng != null ? double.tryParse(lng.toString()) : null);
         final horariosFromIgreja =
             (data['horariosCulto'] ?? data['horarios'] ?? '').toString().trim();
+        final linkGoogleMapsFb =
+            (data['linkGoogleMaps'] ?? data['googleMapsLink'] ?? '')
+                .toString()
+                .trim();
+        final whatsappIgrejaLinha = (data['whatsappIgreja'] ??
+                data['whatsapp_igreja'] ??
+                data['whatsapp'] ??
+                data['telefoneIgreja'] ??
+                data['telefone'] ??
+                data['phone'] ??
+                '')
+            .toString()
+            .trim();
+        final whatsappContatoFallback = whatsappIgrejaLinha.isNotEmpty
+            ? whatsappIgrejaLinha
+            : gestorTelefone;
+        final waLaunchUri = churchPublicWhatsappLaunchUri(
+          data,
+          fallbackPhoneRaw: whatsappContatoFallback,
+          churchName: nome,
+        );
+        final instagramUriFb = churchPublicSocialHttpUri(data, const [
+          'instagramUrl',
+          'instagram',
+          'linkInstagram',
+          'instagram_link',
+        ]);
+        final youtubeUriFb = churchPublicSocialHttpUri(data, const [
+          'youtubeUrl',
+          'youtube',
+          'linkYoutube',
+          'youtube_link',
+        ]);
+        final facebookUriFb = churchPublicSocialHttpUri(data, const [
+          'facebookUrl',
+          'facebook',
+          'linkFacebook',
+          'facebook_link',
+        ]);
+        final accentFb = _churchAccentFromData(data);
 
         return ListView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           key: ValueKey(igrejaId),
           children: [
-            ChurchPublicSiteHero(
-              accentColor: _churchAccentFromData(data),
-              onMemberSignup: () =>
-                  Navigator.pushNamed(context, '/$slugClean/cadastro-membro'),
-              onMemberLogin: () =>
-                  Navigator.pushNamed(context, '/igreja/login'),
-              onTalkChurch: whatsapp.isEmpty
+            ChurchPublicWelcomeStrip(
+              churchName: nome,
+              accentColor: accentFb,
+            ),
+            const SizedBox(height: 8),
+            ChurchPublicContactBar(
+              accentColor: accentFb,
+              phoneLine: churchPublicFormattedPhone(data),
+              addressLine: endereco,
+              onWhatsApp: waLaunchUri == null
+                  ? null
+                  : () => launchExternalLocal(context, waLaunchUri),
+              onMaps: (linkGoogleMapsFb.isNotEmpty ||
+                      (latitude != null && longitude != null) ||
+                      endereco.trim().isNotEmpty)
+                  ? () async {
+                      final u = linkGoogleMapsFb.isNotEmpty
+                          ? (Uri.tryParse(linkGoogleMapsFb) ??
+                              Uri.parse(
+                                'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(endereco)}',
+                              ))
+                          : (latitude != null && longitude != null)
+                              ? Uri.parse(
+                                  'https://www.google.com/maps?q=$latitude,$longitude',
+                                )
+                              : Uri.parse(
+                                  'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(endereco)}',
+                                );
+                      try {
+                        await launchUrl(u,
+                            mode: LaunchMode.externalApplication);
+                      } catch (_) {}
+                    }
+                  : null,
+              onEmail: gestorEmail.isEmpty
                   ? null
                   : () async {
-                      final d = whatsapp.replaceAll(RegExp(r'[^0-9]'), '');
-                      final phone = d.startsWith('55') ? d : '55$d';
                       try {
                         await launchUrl(
-                          Uri.parse(
-                            'https://wa.me/$phone?text=${Uri.encodeComponent('Olá! Vim pelo site da igreja.')}',
-                          ),
+                          Uri.parse('mailto:${gestorEmail.trim()}'),
                           mode: LaunchMode.externalApplication,
                         );
                       } catch (_) {}
                     },
+              onInstagram: instagramUriFb == null
+                  ? null
+                  : () {
+                      logChurchPublicLocal('contact_bar_instagram');
+                      launchExternalLocal(context, instagramUriFb);
+                    },
+              onYoutube: youtubeUriFb == null
+                  ? null
+                  : () {
+                      logChurchPublicLocal('contact_bar_youtube');
+                      launchExternalLocal(context, youtubeUriFb);
+                    },
+              onFacebook: facebookUriFb == null
+                  ? null
+                  : () {
+                      logChurchPublicLocal('contact_bar_facebook');
+                      launchExternalLocal(context, facebookUriFb);
+                    },
+            ),
+            const SizedBox(height: 16),
+            ChurchPublicSiteHero(
+              accentColor: accentFb,
+              onMemberSignup: () =>
+                  Navigator.pushNamed(context, '/$slugClean/cadastro-membro'),
+              onMemberLogin: () =>
+                  Navigator.pushNamed(context, '/igreja/login'),
+              onTalkChurch: waLaunchUri == null
+                  ? null
+                  : () => launchExternalLocal(context, waLaunchUri),
               onOpenMaps: (latitude != null && longitude != null) ||
                       endereco.trim().isNotEmpty
                   ? () async {
@@ -3298,66 +3568,12 @@ class _ChurchTenantFallback extends StatelessWidget {
               igrejaId: igrejaId,
               churchName: nome,
               churchSlug: slugClean,
-              accentColor: _churchAccentFromData(data),
+              accentColor: accentFb,
               enderecoIgreja: endereco,
               latitude: latitude,
               longitude: longitude,
-              linkGoogleMaps: (data['linkGoogleMaps'] ?? data['googleMapsLink'] ?? '')
-                  .toString()
-                  .trim(),
+              linkGoogleMaps: linkGoogleMapsFb,
               horariosText: horariosFromIgreja,
-            ),
-            const SizedBox(height: 24),
-            _ContatoEnderecoCard(
-              whatsappIgreja: whatsapp,
-              gestorNome: gestorNome,
-              gestorEmail: gestorEmail,
-              gestorTelefone: gestorTelefone,
-              endereco: endereco,
-              latitude: latitude,
-              longitude: longitude,
-              onWhatsAppIgreja: () async {
-                final d = whatsapp.replaceAll(RegExp(r'[^0-9]'), '');
-                final phone = d.startsWith('55') ? d : '55$d';
-                try {
-                  await launchUrl(
-                      Uri.parse(
-                          'https://wa.me/$phone?text=${Uri.encodeComponent('Olá! Vim pelo site da igreja.')}'),
-                      mode: LaunchMode.externalApplication);
-                } catch (_) {}
-              },
-              onWhatsAppGestor: gestorTelefone.isEmpty
-                  ? null
-                  : () async {
-                      final d =
-                          gestorTelefone.replaceAll(RegExp(r'[^0-9]'), '');
-                      final phone = d.startsWith('55') ? d : '55$d';
-                      try {
-                        await launchUrl(
-                            Uri.parse(
-                                'https://wa.me/$phone?text=${Uri.encodeComponent('Olá!')}'),
-                            mode: LaunchMode.externalApplication);
-                      } catch (_) {}
-                    },
-              onMaps: () async {
-                final u = latitude != null && longitude != null
-                    ? Uri.parse(
-                        'https://www.google.com/maps?q=$latitude,$longitude')
-                    : Uri.parse(
-                        'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(endereco)}');
-                try {
-                  await launchUrl(u, mode: LaunchMode.externalApplication);
-                } catch (_) {}
-              },
-              onEmail: gestorEmail.isEmpty
-                  ? null
-                  : () async {
-                      try {
-                        await launchUrl(
-                            Uri.parse('mailto:${gestorEmail.trim()}'),
-                            mode: LaunchMode.externalApplication);
-                      } catch (_) {}
-                    },
             ),
             const SizedBox(height: 24),
             _HorariosCultoSection(
@@ -3370,24 +3586,45 @@ class _ChurchTenantFallback extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Android e iOS para os membros da igreja.',
+                  Text(
+                      'Android: Play Store (app Controle Total) por defeito; iOS e pasta em config/appDownloads.',
                       style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade700,
                           height: 1.4)),
                   const SizedBox(height: 16),
-                  Wrap(spacing: 10, runSpacing: 10, children: [
-                    FilledButton.icon(
-                        onPressed: () =>
-                            Navigator.pushNamed(context, '/planos'),
-                        icon: const Icon(Icons.android),
-                        label: const Text('Android')),
-                    OutlinedButton.icon(
-                        onPressed: () =>
-                            Navigator.pushNamed(context, '/planos'),
-                        icon: const Icon(Icons.apple),
-                        label: const Text('iOS')),
-                  ]),
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .doc('config/appDownloads')
+                        .snapshots(),
+                    builder: (context, dlSnap) {
+                      final data = dlSnap.data?.data() ?? {};
+                      final androidEff = AppConstants
+                          .effectiveAppDownloadsAndroidUrl(data);
+                      final iosEff =
+                          AppConstants.effectiveAppDownloadsIosUrl(data);
+                      return Wrap(spacing: 10, runSpacing: 10, children: [
+                        FilledButton.icon(
+                            onPressed: () {
+                              logChurchPublicLocal('download_android');
+                              launchExternalLocal(
+                                  context, Uri.parse(androidEff));
+                            },
+                            icon: const Icon(Icons.android),
+                            label: const Text('Android')),
+                        OutlinedButton.icon(
+                            onPressed: iosEff.isEmpty
+                                ? null
+                                : () {
+                                    logChurchPublicLocal('download_ios');
+                                    launchExternalLocal(
+                                        context, Uri.parse(iosEff));
+                                  },
+                            icon: const Icon(Icons.apple),
+                            label: const Text('iOS')),
+                      ]);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -3487,7 +3724,15 @@ class _ChurchTenantFallback extends StatelessWidget {
                       final thumb = isValidImageUrl(td)
                           ? td
                           : (isValidImageUrl(cv) ? cv : null);
-                      await _openPublicVideo(context, raw, thumbnailUrl: thumb);
+                      final t = (p['titulo'] ?? p['titulo_evento'] ?? '')
+                          .toString()
+                          .trim();
+                      await _openPublicVideo(
+                        context,
+                        raw,
+                        thumbnailUrl: thumb,
+                        title: t,
+                      );
                     }
 
                     if (photos.isNotEmpty) {
@@ -3517,9 +3762,10 @@ class _ChurchTenantFallback extends StatelessWidget {
                                           isValidImageUrl(u0) ? u0 : null,
                                       width: w,
                                       height: h,
-                                      fit: BoxFit.cover,
+                                      fit: BoxFit.contain,
                                       memCacheWidth: 900,
                                       memCacheHeight: 900,
+                                      skipFreshDisplayUrl: false,
                                       errorWidget: Container(
                                         color: const Color(0xFFEEF2FF),
                                         alignment: Alignment.center,
@@ -3743,6 +3989,10 @@ class _ChurchTenantFallback extends StatelessWidget {
                           child: ChurchPublicConstrainedMedia(
                             child: LayoutBuilder(
                               builder: (ctx, c) {
+                                final dpr = MediaQuery.devicePixelRatioOf(ctx)
+                                    .clamp(1.0, 3.0);
+                                final mw = (c.maxWidth * dpr).round().clamp(400, 1400);
+                                final mh = (c.maxHeight * dpr).round().clamp(400, 1400);
                                 return LazyViewportBuilder(
                                   visibilityKey:
                                       'church-pub-${d.id}-aviso-cover',
@@ -3756,9 +4006,10 @@ class _ChurchTenantFallback extends StatelessWidget {
                                         hint.isNotEmpty ? hint : null,
                                     width: c.maxWidth,
                                     height: c.maxHeight,
-                                    fit: BoxFit.cover,
-                                    memCacheWidth: 640,
-                                    memCacheHeight: 640,
+                                    fit: BoxFit.contain,
+                                    memCacheWidth: mw,
+                                    memCacheHeight: mh,
+                                    skipFreshDisplayUrl: false,
                                     errorWidget: Container(
                                       color: const Color(0xFFEEF2FF),
                                       alignment: Alignment.center,
@@ -3843,9 +4094,36 @@ class _ChurchTenantFallback extends StatelessWidget {
               },
             ),
             const SizedBox(height: 24),
-            _PublicEventosSection(igrejaId: igrejaId, churchSlug: slugClean),
+            _PublicEventosSection(
+              igrejaId: igrejaId,
+              churchSlug: slugClean,
+              churchVenueAddress: endereco,
+            ),
             const SizedBox(height: 32),
-            _PublicFooter(slugClean: slugClean),
+            _PublicFooter(
+              onAdquirirSistema: () {
+                logChurchPublicLocal('footer_adquirir_sistema');
+                Navigator.pushNamed(context, '/planos');
+              },
+              onDeveloperWhatsApp: () {
+                logChurchPublicLocal('footer_dev_whatsapp');
+                launchExternalLocal(
+                  context,
+                  Uri.parse(
+                    'https://wa.me/$kLegalSupportWhatsAppWaMe?text=${Uri.encodeComponent('Olá! Vim pelo site público da igreja (Gestão YAHWEH).')}',
+                  ),
+                );
+              },
+              onDeveloperEmail: () {
+                logChurchPublicLocal('footer_dev_email');
+                launchExternalLocal(
+                  context,
+                  Uri.parse(
+                    'mailto:$kLegalSupportEmail?subject=${Uri.encodeComponent('Gestão YAHWEH — site público')}',
+                  ),
+                );
+              },
+            ),
           ],
         );
       },
@@ -3896,7 +4174,8 @@ class ChurchPublicPage extends StatefulWidget {
 
 class _ChurchPublicPageState extends State<ChurchPublicPage> {
   final GlobalKey _sectionInicioKey = GlobalKey();
-  final GlobalKey _sectionMuralKey = GlobalKey();
+  final GlobalKey _sectionAvisosKey = GlobalKey();
+  final GlobalKey _sectionDestaquesKey = GlobalKey();
   final GlobalKey _sectionEventosKey = GlobalKey();
 
   void _scrollToSection(GlobalKey key) {
@@ -3917,9 +4196,7 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
   void initState() {
     super.initState();
     if (kIsWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
-      });
+      unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
     }
   }
 
@@ -3929,10 +4206,12 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
       slug: widget.slug,
       openNoticiaId: widget.openNoticiaId,
       sectionInicioKey: _sectionInicioKey,
-      sectionMuralKey: _sectionMuralKey,
+      sectionAvisosKey: _sectionAvisosKey,
+      sectionDestaquesKey: _sectionDestaquesKey,
       sectionEventosKey: _sectionEventosKey,
       onScrollInicio: () => _scrollToSection(_sectionInicioKey),
-      onScrollMural: () => _scrollToSection(_sectionMuralKey),
+      onScrollAvisos: () => _scrollToSection(_sectionAvisosKey),
+      onScrollDestaques: () => _scrollToSection(_sectionDestaquesKey),
       onScrollEventos: () => _scrollToSection(_sectionEventosKey),
     );
   }

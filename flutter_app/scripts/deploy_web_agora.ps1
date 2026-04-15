@@ -7,7 +7,7 @@ Set-Location $root
 
 Write-Host "=== Build web (release) ===" -ForegroundColor Cyan
 flutter pub get
-flutter build web --release
+flutter build web --release --no-tree-shake-icons
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "`n=== Deploy Firebase (hosting + firestore + storage) ===" -ForegroundColor Cyan

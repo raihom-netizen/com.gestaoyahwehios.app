@@ -39,6 +39,7 @@ import 'widgets/version_footer.dart';
 import 'widgets/global_announcement_overlay.dart';
 import 'widgets/connectivity_offline_strip.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/marketing_official_config.dart';
 
 part 'admin_igrejas_tab.dart';
 
@@ -88,7 +89,7 @@ String _masterMenuTitle(AdminMenuItem item) {
     case AdminMenuItem.sistemaAvisoGlobal:
       return 'Avisos e promoções';
     case AdminMenuItem.sistemaVersaoMinima:
-      return 'Forçar atualização';
+      return 'Aviso de nova versão';
     case AdminMenuItem.sistemaMigrarMembros:
       return 'Migrar membros';
     case AdminMenuItem.sistemaHome:
@@ -683,7 +684,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                       _drawerTile(
                           context,
                           Icons.system_update_rounded,
-                          'Forçar atualização',
+                          'Aviso de nova versão',
                           AdminMenuItem.sistemaVersaoMinima),
                     if (_canAccessMasterItem(
                         AdminMenuItem.sistemaMigrarMembros))
@@ -1025,14 +1026,30 @@ class _AdminHeader extends StatelessWidget {
     final shortName = fullName.contains(' ')
         ? fullName.split(RegExp(r'\s+')).first.trim()
         : fullName;
-    final hora = DateTime.now().hour;
-    final periodo = hora < 12
-        ? 'bom dia'
-        : hora < 18
-            ? 'boa tarde'
-            : 'boa noite';
 
-    return Container(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .doc(MarketingOfficialConfig.firestoreDocPath)
+          .snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final brand = MarketingOfficialConfig.effectiveContactName(data);
+        var greetName = shortName;
+        var tooltipName = fullName;
+        if (brand.isNotEmpty) {
+          tooltipName = brand;
+          greetName = brand.contains(RegExp(r'\s'))
+              ? brand.split(RegExp(r'\s+')).first.trim()
+              : brand.trim();
+        }
+        final hora = DateTime.now().hour;
+        final periodo = hora < 12
+            ? 'bom dia'
+            : hora < 18
+                ? 'boa tarde'
+                : 'boa noite';
+
+        return Container(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       decoration: BoxDecoration(
         color: ThemeCleanPremium.cardBackground,
@@ -1060,9 +1077,9 @@ class _AdminHeader extends StatelessWidget {
           const SizedBox(width: 4),
           Expanded(
             child: Tooltip(
-              message: fullName,
+              message: tooltipName,
               child: Text(
-                'Olá, $shortName — $periodo.',
+                'Olá, $greetName — $periodo.',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -1089,6 +1106,8 @@ class _AdminHeader extends StatelessWidget {
           const _AdminStatsCard(),
         ],
       ),
+    );
+      },
     );
   }
 }

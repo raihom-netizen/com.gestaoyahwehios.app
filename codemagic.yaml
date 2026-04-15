@@ -1,4 +1,7 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
+# Pipeline iOS alinhado ao padrão Controle Total App: keychain → PEM → Sign In with Apple (API) →
+# limpar perfis antigos → P12/perfil → CocoaPods → deployment 14 → Xcode profiles →
+# versão (app_version.dart) → build IPA → Storage/Firestore divulgação → App Distribution → ASC.
 #
 # Assinatura iOS: secrets no grupo appstore_credentials (evita "No matching profiles" da equipa).
 #   CM_CERTIFICATE          — Apple Distribution .p12 em Base64 (uma linha)
@@ -12,6 +15,10 @@
 #   APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER, ISSUER_ID
 #
 # ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
+# Firebase iOS (Console > definições do projeto > app iOS): FIREBASE_IOS_APP_ID deve coincidir
+#   (ex.: 1:157235497908:ios:5c2a89577e79e39b4ac8e1).
+# App Store Connect API (referência, secrets no grupo appstore_credentials): Key ID 899478F5TT |
+#   Issuer 77a1debb-f68b-418d-9fe3-af0f37b40585
 #
 # ExportOptions (CI): gerado em /tmp/ExportOptions.plist a partir do .mobileprovision (teamID + nome do perfil).
 #   Local: ajuste flutter_app/ios/ExportOptions.plist — o valor em provisioningProfiles deve ser o "Name" exacto
@@ -28,6 +35,9 @@
 # IMPORTANTE: no Codemagic, use "codemagic.yaml no repositório" (não duplicar estes passos no editor
 # da web); senão o CI corre scripts antigos e falha com "nenhum .ipa em flutter_app/build/ios/ipa".
 #
+# Builds automáticos (scheduled): desative em Codemagic → Application settings → Scheduled builds,
+# se não quiser que o pipeline arranque sozinho ao fazer push ou por cron.
+#
 # ─── Erro: exportArchive Provisioning profile "..." doesn't include signing certificate "Apple Distribution: ..." ───
 # Não é bug de versão Flutter: o .mobileprovision foi gerado sem o mesmo certificado "Apple Distribution"
 # que está no P12 (CM_CERTIFICATE), ou o P12 foi renovado e o perfil ficou antigo.
@@ -37,11 +47,17 @@
 #   2) Save → Download → novo ficheiro .mobileprovision.
 #   3) Codemagic → Secrets (appstore_credentials) → CM_PROVISIONING_PROFILE = Base64 do NOVO perfil (uma linha).
 # Se criou novo certificado Distribution: exporte novo .p12 e atualize CM_CERTIFICATE também.
-# Versão/build no IPA vêm do pubspec (passo "flutter build ipa" usa --build-name / --build-number).
+# Versão visível no IPA: lib/app_version.dart (build-name) + sufixo + do pubspec ou CM_BUILD_NUMBER.
+#
+# Sign In with Apple: o Runner.entitlements pode omitir o entitlement (padrão atual) para
+# o perfil App Store em Codemagic assinar sem capability. Para voltar a Apple Sign In no iOS,
+# veja IOS/CODEMAGIC_SIGN_IN_APPLE.txt — novo perfil + chave no entitlements; o script
+# codemagic_ios_verify_profile_matches_p12.sh só exige applesignin no perfil se o plist do
+# Runner pedir.
 
 workflows:
   ios-release:
-    name: iOS Release (TestFlight)
+    name: iOS Build — Gestão YAHWEH (TestFlight)
     max_build_duration: 120
     instance_type: mac_mini_m2
     # Pods + cache CocoaPods reduzem tempo entre builds (Dependency caching).
@@ -54,7 +70,7 @@ workflows:
         - appstore_credentials
       vars:
         APP_STORE_APPLE_ID: 6761656626
-        FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac0e1"
+        FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac8e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       flutter: stable
       xcode: latest
@@ -131,6 +147,40 @@ workflows:
             exit 1
           fi
           echo "OK: secrets P12 + provisioning decodificam (bytes prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin))."
+      # Padrão alinhado ao Controle Total App: keychain → PEM API → Sign In with Apple (API) → limpar perfis antigos → P12/perfil.
+      - name: Keychain para code signing
+        script: |
+          set -e
+          keychain initialize
+      - name: Preparar PEM App Store Connect (/tmp/_asc_ok.pem)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_prepare_api_pem.sh"
+      - name: Ativar Sign In with Apple no App ID (API Apple)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          python3 "$ROOT/scripts/codemagic_ios_enable_sign_in_with_apple.py"
+      - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_remove_old_appstore_profiles.sh"
+      - name: Buscar ou criar certificado e perfil (Apple) — instalar P12 + mobileprovision + ExportOptions
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_install_p12_profile_exportoptions.sh"
+      - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          if [ ! -f "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            echo "ERRO: falta $ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh (obrigatorio no CI)."
+            exit 1
+          fi
+          bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
       - name: CocoaPods
         script: |
           set -e
@@ -138,115 +188,12 @@ workflows:
           cd "$ROOT"
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app/ios ;; root) cd ios ;; *) echo "ERRO: layout"; exit 1 ;; esac
           pod install
-      - name: JWT App Store Connect + keychain P12 e perfil App Store
+      - name: Forçar iOS deployment target 14.0 (home_widget / Pods)
         script: |
           set -e
-          if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
-            export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
-          fi
-          echo "CM_IOS_SIGNING_REV=2026-04-no-export-pem-persist-end"
-          _secret_to_pem_file() {
-            local val="$1"
-            local out="$2"
-            printf '%b' "$val" | tr -d '\r' | perl -0777 -pe 's/^\xEF\xBB\xBF//; s/\A"(.*)"\z/$1/s; s/\A'\''(.*)'\''\z/$1/s' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$out"
-          }
-          _looks_like_pem_api() { grep -qE 'BEGIN (EC )?PRIVATE KEY|BEGIN PRIVATE KEY' "$1"; }
-          _norm_api() {
-            _secret_to_pem_file "${APP_STORE_CONNECT_PRIVATE_KEY}" /tmp/_asc_raw.pem
-            if [ ! -s /tmp/_asc_raw.pem ]; then
-              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY vazio ou sumiu ao gravar /tmp/_asc_raw.pem."
-              echo "  No Codemagic: grupo appstore_credentials, secret com o .p8 completo (BEGIN PRIVATE KEY ... END) ou Base64 desse PEM."
-              exit 1
-            fi
-            if _looks_like_pem_api /tmp/_asc_raw.pem; then
-              cat /tmp/_asc_raw.pem > /tmp/_asc_ok.pem
-            elif base64 -D < /tmp/_asc_raw.pem > /tmp/_asc_dec.pem 2>/tmp/_asc_b64.err && [ -s /tmp/_asc_dec.pem ] && _looks_like_pem_api /tmp/_asc_dec.pem; then
-              cat /tmp/_asc_dec.pem > /tmp/_asc_ok.pem
-            else
-              echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY nao e PEM .p8 valido nem Base64 de PEM."
-              [ -s /tmp/_asc_b64.err ] && cat /tmp/_asc_b64.err
-              exit 1
-            fi
-            # NUNCA exportar PEM multilinha neste passo: o Codemagic regrava o ambiente em CM_ENV e pode
-            # abrir APP_STORE_CONNECT_PRIVATE_KEY<<... sem fechar -> "not closed with delimiter".
-            unset APP_STORE_CONNECT_PRIVATE_KEY || true
-          }
-          _persist_asc_pem_to_cm_env() {
-            [ -n "${CM_ENV:-}" ] && [ -f /tmp/_asc_ok.pem ] || return 0
-            _ASC_DELIM="CMGYYWHASCPEM594E2F1END"
-            {
-              echo "APP_STORE_CONNECT_PRIVATE_KEY<<${_ASC_DELIM}"
-              cat /tmp/_asc_ok.pem
-              printf '\n%s\n' "${_ASC_DELIM}"
-            } >> "$CM_ENV"
-          }
-          _norm_api
-          keychain initialize
-          # Nao usar tr com espaco: se o secret tiver so espacos/newlines, base64 recebe vazio -> "(null): error decoding".
-          _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
-          if [ -z "${_CM_PROV_COMPACT}" ]; then
-            echo "ERRO: CM_PROVISIONING_PROFILE vazio apos normalizar."
-            echo "  Colar no Codemagic o .mobileprovision em UMA linha Base64: cat perfil.mobileprovision | base64 | pbcopy"
-            exit 1
-          fi
-          if ! printf '%s' "${_CM_PROV_COMPACT}" | base64 -D > /tmp/cm_raw.mobileprovision 2>/tmp/_prov_b64.err; then
-            echo "ERRO: CM_PROVISIONING_PROFILE nao decodifica em Base64 valido."
-            cat /tmp/_prov_b64.err 2>/dev/null || true
-            echo "  Regrave o secret no Codemagic (grupo appstore_credentials). Use Base64 do .mobileprovision binario, uma linha."
-            echo "  Mac: base64 -i perfil.mobileprovision | tr -d '\n' | pbcopy"
-            echo "  Win: [Convert]::ToBase64String([IO.File]::ReadAllBytes('...mobileprovision'))"
-            exit 1
-          fi
-          if [ ! -s /tmp/cm_raw.mobileprovision ]; then
-            echo "ERRO: perfil decodificado vazio (verifique o Base64 do .mobileprovision)."
-            exit 1
-          fi
-          security cms -D -i /tmp/cm_raw.mobileprovision > /tmp/cm_prov.plist
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /tmp/cm_prov.plist)
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' /tmp/cm_prov.plist)
-          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print TeamIdentifier:0' /tmp/cm_prov.plist)
-          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILES_HOME"
-          cp /tmp/cm_raw.mobileprovision "${PROFILES_HOME}/${PROFILE_UUID}.mobileprovision"
-          _CM_P12_COMPACT="$(printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r\t ')"
-          if [ -z "${_CM_P12_COMPACT}" ]; then
-            echo "ERRO: CM_CERTIFICATE vazio apos normalizar."
-            echo "  cat AppleDistribution.p12 | base64 | pbcopy  (uma linha, grupo appstore_credentials)"
-            exit 1
-          fi
-          if ! printf '%s' "${_CM_P12_COMPACT}" | base64 -D > /tmp/cm_distribution.p12 2>/tmp/_p12_b64.err; then
-            echo "ERRO: CM_CERTIFICATE (P12) nao decodifica em Base64 valido."
-            cat /tmp/_p12_b64.err 2>/dev/null || true
-            exit 1
-          fi
-          if [ ! -s /tmp/cm_distribution.p12 ]; then
-            echo "ERRO: P12 decodificado vazio."
-            exit 1
-          fi
-          if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
-            keychain add-certificates --certificate /tmp/cm_distribution.p12
-          else
-            keychain add-certificates --certificate /tmp/cm_distribution.p12 --certificate-password "$CM_CERTIFICATE_PASSWORD"
-          fi
-          export CM_EXPORT_PROFILE_NAME="$PROFILE_NAME"
-          export CM_EXPORT_TEAM_ID="$TEAM_ID"
-          python3 << 'PY'
-          import os, plistlib
-          team = os.environ["CM_EXPORT_TEAM_ID"]
-          name = os.environ["CM_EXPORT_PROFILE_NAME"]
-          data = {
-              "method": "app-store",
-              "signingStyle": "manual",
-              "teamID": team,
-              "uploadSymbols": True,
-              "provisioningProfiles": {"com.gestaoyahwehios.app": name},
-          }
-          with open("/tmp/ExportOptions.plist", "wb") as f:
-              plistlib.dump(data, f, fmt=plistlib.FMT_XML)
-          PY
-          echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
-          _persist_asc_pem_to_cm_env
-      - name: Code signing (Xcode)
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_bump_pods_deployment_to_14.sh"
+      - name: Aplicar perfis ao projeto Xcode
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -255,7 +202,12 @@ workflows:
           xcode-project use-profiles
           echo "--- Identidades de assinatura (esperado: Apple Distribution + perfil App Store) ---"
           security find-identity -v -p codesigning | head -40 || true
-      - name: Flutter build IPA
+      - name: Versão iOS = mesma base do iPhone/Web (app_version.dart) + build único
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_sync_version_from_app_version_dart.sh"
+      - name: Build iOS IPA (instalável)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -263,27 +215,62 @@ workflows:
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
           FLUTTER_PWD="$(pwd)"
           echo "Flutter project dir: $FLUTTER_PWD FLUTTER_BUILD_DIR=${FLUTTER_BUILD_DIR:-<default>}"
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
-          BUILD_NAME="${VERSION_LINE%%+*}"
-          if [ -z "$BUILD_NAME" ]; then
-            echo "ERRO: nao foi possivel ler version: do pubspec.yaml"
+          echo "--- Re-validar perfil .mobileprovision vs P12 (fail-fast antes de flutter build ipa) ---"
+          if [ ! -f "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
+            echo "ERRO: falta $ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
             exit 1
           fi
-          if [ -n "${CM_BUILD_NUMBER:-}" ]; then
-            BN="$CM_BUILD_NUMBER"
+          bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+          if [ -f /tmp/cm_ios_build_name ] && [ -f /tmp/cm_ios_build_number ]; then
+            BUILD_NAME="$(tr -d '\r\n' < /tmp/cm_ios_build_name)"
+            BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
           else
-            BN="${VERSION_LINE##*+}"
-            echo "AVISO: CM_BUILD_NUMBER vazio — a usar sufixo + do pubspec: $BN"
+            VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
+            BUILD_NAME="${VERSION_LINE%%+*}"
+            if [ -z "$BUILD_NAME" ]; then
+              echo "ERRO: nao foi possivel ler version: do pubspec.yaml"
+              exit 1
+            fi
+            if [ -n "${CM_BUILD_NUMBER:-}" ]; then
+              BN="$CM_BUILD_NUMBER"
+            else
+              BN="${VERSION_LINE##*+}"
+              echo "AVISO: CM_BUILD_NUMBER vazio — a usar sufixo + do pubspec: $BN"
+            fi
+            if [ -z "$BN" ]; then
+              BN="1"
+              echo "AVISO: build number vazio — a usar 1"
+            fi
           fi
-          if [ -z "$BN" ]; then
-            BN="1"
-            echo "AVISO: build number vazio — a usar 1"
-          fi
-          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN (evita Redundant Build no ASC)"
+          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN (app_version.dart + pubspec)"
+          set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \
             --build-number="$BN" \
-            --export-options-plist=/tmp/ExportOptions.plist
+            --export-options-plist=/tmp/ExportOptions.plist > /tmp/cm_flutter_ipa.log 2>&1
+          FLUTTER_IPA_EXIT=$?
+          set -e
+          echo "flutter build ipa exit code: $FLUTTER_IPA_EXIT"
+          if [ "$FLUTTER_IPA_EXIT" -ne 0 ]; then
+            echo "--- ultimas linhas do log (flutter build ipa) ---"
+            tail -120 /tmp/cm_flutter_ipa.log || true
+            if grep -q "doesn't include signing certificate" /tmp/cm_flutter_ipa.log 2>/dev/null; then
+              echo ""
+              echo "=== DICA exportArchive (perfil vs certificado) ==="
+              echo "O .mobileprovision no Codemagic (CM_PROVISIONING_PROFILE) foi gerado SEM o certificado"
+              echo "Apple Distribution que está no P12 (CM_CERTIFICATE). Corrija no Apple Developer:"
+              echo "  developer.apple.com → Profiles → App Store do bundle com.gestaoyahwehios.app → Edit"
+              echo "  → Certificates: marque o Apple Distribution: Raihom Barbosa (82RC6YL7KL)"
+              echo "  → Save → Download → novo Base64 em CM_PROVISIONING_PROFILE"
+            fi
+            if grep -qE "Sign In with Apple|applesignin" /tmp/cm_flutter_ipa.log 2>/dev/null; then
+              echo ""
+              echo "=== DICA Sign In with Apple (perfil sem capability) ==="
+              echo "Ative Sign In with Apple no App ID com.gestaoyahwehios.app, regenere o perfil App Store,"
+              echo "atualize CM_PROVISIONING_PROFILE no Codemagic. Ver: IOS/CODEMAGIC_SIGN_IN_APPLE.txt"
+            fi
+            exit "$FLUTTER_IPA_EXIT"
+          fi
           BD="${FLUTTER_BUILD_DIR:-build}"
           if [ "${BD#/}" != "$BD" ]; then
             IPA_DIR_BD="$BD/ios/ipa"
@@ -306,13 +293,41 @@ workflows:
             IPA_PATH=$(find "$ROOT" -type f -name "*.ipa" -not -path "*/.git/*" -not -path "*/.dart_tool/*" 2>/dev/null | head -n 1)
           fi
           if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            IPA_PATH=$(find "$FLUTTER_PWD" -type f -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            echo "AVISO: .ipa ainda nao encontrado — fallback xcodebuild -exportArchive (archive existe mas export Flutter falhou?)..."
+            ARCH="$(find "$FLUTTER_PWD/build/ios" -name "Runner.xcarchive" -type d 2>/dev/null | head -n 1)"
+            if [ -z "$ARCH" ]; then
+              ARCH="$(find "$ROOT" -path "*/build/ios/archive/Runner.xcarchive" -type d 2>/dev/null | head -n 1)"
+            fi
+            if [ -n "$ARCH" ] && [ -d "$ARCH" ]; then
+              mkdir -p "$FLUTTER_PWD/build/ios/ipa"
+              set +e
+              xcodebuild -exportArchive \
+                -archivePath "$ARCH" \
+                -exportPath "$FLUTTER_PWD/build/ios/ipa" \
+                -exportOptionsPlist /tmp/ExportOptions.plist
+              XB_EXIT=$?
+              set -e
+              echo "xcodebuild -exportArchive exit=$XB_EXIT archive=$ARCH"
+              IPA_PATH=$(find "$FLUTTER_PWD/build/ios/ipa" -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
+            else
+              echo "Nenhum Runner.xcarchive encontrado para export manual."
+            fi
+          fi
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
             echo "ERRO: flutter build ipa terminou sem .ipa (export falhou ou caminho de saida mudou)."
             echo "--- candidatos ---"
             for trydir in "$IPA_DIR_BD" "$FLUTTER_PWD/build/ios/ipa" "$ROOT/build/ios/ipa"; do
               echo "dir=$trydir"; ls -la "$trydir" 2>/dev/null || true
             done
+            echo "--- list build/ios (flutter_app) ---"
+            ls -laR "$FLUTTER_PWD/build/ios" 2>/dev/null | head -80 || true
             echo "--- find *.ipa sob $ROOT (max 40) ---"
             find "$ROOT" -name "*.ipa" -type f 2>/dev/null | head -40 || true
+            echo "--- tail flutter log ---"
+            tail -80 /tmp/cm_flutter_ipa.log || true
             exit 1
           fi
           ABS_IPA="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
@@ -407,6 +422,35 @@ workflows:
             echo "Copia para raiz do workspace ($ROOT):"
             ls -la "$ROOT"/*.ipa 2>/dev/null || true
           fi
+      - name: Subir IPA para o site (Firebase Storage) e atualizar link na divulgação
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON vazio — a saltar upload IPA (Storage + app_public/ios_build)."
+            exit 0
+          fi
+          IPA=""
+          for cand in build/ios/ipa/*.ipa flutter_app/build/ios/ipa/*.ipa; do
+            if [ -f "$cand" ]; then IPA="$cand"; break; fi
+          done
+          if [ -z "$IPA" ]; then
+            IPA=$(find "$ROOT" -name "*.ipa" -type f -not -path "*/.git/*" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$IPA" ] || [ ! -f "$IPA" ]; then
+            echo "ERRO: nenhum .ipa para upload Firebase."
+            exit 1
+          fi
+          cd "$ROOT/functions"
+          if [ -f package-lock.json ]; then
+            npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+          else
+            npm install --omit=dev
+          fi
+          cd "$ROOT"
+          export CM_BUILD_DIR="$ROOT"
+          node "$ROOT/scripts/codemagic_publish_ipa_to_firebase.js" "$IPA"
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
           if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then

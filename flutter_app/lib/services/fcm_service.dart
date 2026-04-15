@@ -3,11 +3,20 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'church_panel_navigation_bridge.dart';
+
 class FcmService {
   FcmService._();
   static final FcmService instance = FcmService._();
 
   bool _configured = false;
+
+  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|fornecedor_agenda}`).
+  static String fcmTenantSafe(String tenantId) =>
+      tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~%]'), '_');
+
+  static String topicPushNovo(String tenantId, String kind) =>
+      'gypush_${fcmTenantSafe(tenantId)}_$kind';
 
   Future<void> configure({
     required String uid,
@@ -105,6 +114,11 @@ class FcmService {
         roleNorm == 'tesoureiro';
     if (isAdmin) {
       await messaging.subscribeToTopic('admin');
+      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+    } else {
+      try {
+        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+      } catch (_) {}
     }
 
     FirebaseMessaging.onMessage.listen((message) {
@@ -113,7 +127,82 @@ class FcmService {
       }
     });
 
+    FirebaseMessaging.onMessageOpenedApp.listen(_routeEscalaNotificationIfAny);
+    final initialOpen = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialOpen != null) {
+      _routeEscalaNotificationIfAny(initialOpen);
+    }
+
     await prefs.setStringList('church_fcm_topics', nextTopics);
+
+    await syncPreferencePushTopics(uid: uid, tenantId: tid);
+  }
+
+  /// Inscreve nos tópicos de novidade (avisos / eventos / escalas) conforme
+  /// [users/{uid}.pushAvisos], [pushEventos], [pushEscalas] (padrão true).
+  /// Também chamado a partir de Configurações ao alterar os interruptores.
+  Future<void> syncPreferencePushTopics({
+    required String uid,
+    required String tenantId,
+  }) async {
+    if (kIsWeb) return;
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+
+    final messaging = FirebaseMessaging.instance;
+    final topics = <String>[
+      topicPushNovo(tid, 'aviso'),
+      topicPushNovo(tid, 'evento'),
+      topicPushNovo(tid, 'escala'),
+    ];
+
+    var pushAvisos = true;
+    var pushEventos = true;
+    var pushEscalas = true;
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final d = doc.data();
+      if (d != null) {
+        if (d['pushAvisos'] is bool) pushAvisos = d['pushAvisos'] as bool;
+        if (d['pushEventos'] is bool) pushEventos = d['pushEventos'] as bool;
+        if (d['pushEscalas'] is bool) pushEscalas = d['pushEscalas'] as bool;
+      }
+    } catch (_) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        pushAvisos = prefs.getBool('notif_avisos') ?? true;
+        pushEventos = prefs.getBool('notif_eventos') ?? true;
+        pushEscalas = prefs.getBool('notif_escalas') ?? true;
+      } catch (_) {}
+    }
+
+    final flags = [pushAvisos, pushEventos, pushEscalas];
+    for (var i = 0; i < topics.length; i++) {
+      final t = topics[i];
+      if (flags[i]) {
+        await messaging.subscribeToTopic(t);
+      } else {
+        await messaging.unsubscribeFromTopic(t);
+      }
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        'church_fcm_pref_topics',
+        [for (var j = 0; j < topics.length; j++) if (flags[j]) topics[j]],
+      );
+    } catch (_) {}
+  }
+
+  void _routeEscalaNotificationIfAny(RemoteMessage message) {
+    final raw = message.data['type'];
+    final type = raw is String ? raw : raw?.toString();
+    final idx = ChurchPanelNavigationBridge.shellIndexForNotificationType(type);
+    if (idx != null) {
+      ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(idx);
+    }
   }
 
   /// Alinhado ao slug em Cloud Functions (`pastoralComms.slugTopicPart`).

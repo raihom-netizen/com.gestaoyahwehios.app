@@ -10,12 +10,16 @@ import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 
-/// Mobile (IO): compressão rápida para feed (960×540), thumb do MP4 comprimido, uploads em paralelo.
+/// Mobile (IO): MP4 pequeno envia direto (sem re-encoding); caso contrário 640×480 (mais rápido que 960).
+/// Thumb + uploads em paralelo; progresso de rede opcional.
 class VideoHandlerService implements IVideoHandlerService {
   VideoHandlerService._();
   static final VideoHandlerService instance = VideoHandlerService._();
 
   final ImagePicker _picker = ImagePicker();
+
+  /// Acima disto o cliente re-encode para reduzir tempo de upload (HEVC/MOV grandes).
+  static const int _maxBytesSkipTranscode = 26 * 1024 * 1024;
 
   @override
   Future<VideoUploadResult?> pickCompressAndUpload({
@@ -23,6 +27,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required String eventPostDocId,
     required int videoSlotIndex,
     Duration maxDuration = const Duration(seconds: 60),
+    void Function(double uploadProgress01)? onUploadProgress,
   }) async {
     final xfile = await _picker.pickVideo(
       source: ImageSource.gallery,
@@ -34,18 +39,27 @@ class VideoHandlerService implements IVideoHandlerService {
     if (!File(path).existsSync()) return null;
 
     try {
-      // 1. Compressão — 960×540: bem mais rápido que Medium/720p e suficiente para vídeos até 60s no mural.
-      final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
-        path,
-        quality: VideoQuality.Res960x540Quality,
-        deleteOrigin: false,
-        includeAudio: true,
-      );
-      if (mediaInfo == null || mediaInfo.file == null) return null;
+      final lower = path.toLowerCase();
+      final byteLen = await File(path).length();
+      final useOriginal = byteLen <= _maxBytesSkipTranscode &&
+          (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
-      final compressed = mediaInfo.file!;
+      late final File compressed;
+      if (useOriginal) {
+        // Evita minutos de CPU em telemóveis: envia o ficheiro já em H.264/AAC típico da galeria.
+        compressed = File(path);
+      } else {
+        // 640×480: transcodifica mais depressa e gera ficheiro menor (menos tempo na rede) que 960×540.
+        final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
+          path,
+          quality: VideoQuality.Res640x480Quality,
+          deleteOrigin: false,
+          includeAudio: true,
+        );
+        if (mediaInfo == null || mediaInfo.file == null) return null;
+        compressed = mediaInfo.file!;
+      }
 
-      // 2. Thumbnail a partir do MP4 já comprimido (ficheiro menor → extração mais leve).
       File? thumbFile;
       try {
         thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
@@ -64,11 +78,12 @@ class VideoHandlerService implements IVideoHandlerService {
       final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
           tenantId, eventPostDocId, slot);
 
-      // 3. Upload vídeo + miniatura em paralelo (menos tempo total na rede).
+      onUploadProgress?.call(0.0);
       final videoFuture = MediaUploadService.uploadFileWithRetry(
         storagePath: videoPath,
         file: compressed,
         contentType: 'video/mp4',
+        onProgress: onUploadProgress,
       );
       final thumbFuture = (thumbFile != null && thumbFile.existsSync())
           ? MediaUploadService.uploadFileWithRetry(
@@ -83,7 +98,6 @@ class VideoHandlerService implements IVideoHandlerService {
 
       return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
     } finally {
-      // Evita ocupar armazenamento local após compressões sucessivas.
       await VideoCompress.deleteAllCache();
     }
   }

@@ -38,9 +38,8 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         postFeedCarouselAspectRatioForIndex,
         youtubeThumbnailUrlForVideoUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show
-        buildNoticiaInviteShareMessage,
-        resolveNoticiaShareSheetMedia;
+    show buildNoticiaInviteShareMessage;
+import 'package:gestao_yahweh/utils/share_text_polish.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -61,7 +60,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         firebaseStorageMediaUrlLooksLike;
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
-    show ChurchPublicConstrainedMedia;
+    show ChurchPublicConstrainedMedia, churchMuralCarouselClipHeight;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show
         YahwehInstagramHoverCard,
@@ -161,6 +160,9 @@ class _InstagramMuralState extends State<InstagramMural> {
   int _feedQueryLimit = _feedPageSize;
   bool _loadingMoreFeed = false;
   int _lastRawDocsCount = 0;
+  /// Busca local (título/texto) — produtividade sem novo índice Firestore.
+  String _feedSearchQuery = '';
+  static const double _kMuralWideColumnsBreakpoint = 960;
 
   User? get _user => FirebaseAuth.instance.currentUser;
   String get uid => _user?.uid ?? '';
@@ -293,6 +295,14 @@ class _InstagramMuralState extends State<InstagramMural> {
         .snapshots();
   }
 
+  bool _docMatchesFeedSearch(Map<String, dynamic> data) {
+    final q = _feedSearchQuery.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final title = (data['title'] ?? '').toString().toLowerCase();
+    final text = (data['text'] ?? data['body'] ?? '').toString().toLowerCase();
+    return title.contains(q) || text.contains(q);
+  }
+
   void _maybeLoadMoreFromScroll(ScrollMetrics metrics) {
     if (_loadingMoreFeed) return;
     if (_lastRawDocsCount < _feedQueryLimit) return;
@@ -346,6 +356,45 @@ class _InstagramMuralState extends State<InstagramMural> {
                 final isNarrow =
                     constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
                 final pad = isNarrow ? ThemeCleanPremium.spaceSm : 24.0;
+                final searchField = TextField(
+                  onChanged: (v) => setState(() => _feedSearchQuery = v),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Buscar avisos por título ou texto…',
+                    prefixIcon: Icon(Icons.search_rounded,
+                        color: Colors.grey.shade600, size: 22),
+                    suffixIcon: _feedSearchQuery.isNotEmpty
+                        ? IconButton(
+                            tooltip: 'Limpar',
+                            onPressed: () =>
+                                setState(() => _feedSearchQuery = ''),
+                            icon: Icon(Icons.close_rounded,
+                                color: Colors.grey.shade600),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderSide: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderSide: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderSide: BorderSide(
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+                          width: 1.5),
+                    ),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  ),
+                );
                 return Container(
                   padding: EdgeInsets.fromLTRB(pad, 20, pad, 20),
                   decoration: BoxDecoration(
@@ -361,48 +410,104 @@ class _InstagramMuralState extends State<InstagramMural> {
                         bottom: BorderSide(
                             color: Colors.grey.shade200.withValues(alpha: 0.8))),
                   ),
-                  child: Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                      ),
-                      child: Icon(Icons.campaign_rounded,
-                          color: ThemeCleanPremium.primary, size: 24),
-                    ),
-                    const SizedBox(width: 16),
-                    const Expanded(
-                      child: Text(
-                        'Mural de Avisos',
-                        style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E293B),
-                            letterSpacing: -0.3),
-                      ),
-                    ),
-                    if (_canEdit)
-                      FilledButton.icon(
-                        onPressed: () => _openEditor(type: 'aviso'),
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('Novo'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: ThemeCleanPremium.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 12),
-                          minimumSize: const Size(
-                              ThemeCleanPremium.minTouchTarget,
-                              ThemeCleanPremium.minTouchTarget),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          elevation: 0,
+                  child: isNarrow
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                ),
+                                child: Icon(Icons.campaign_rounded,
+                                    color: ThemeCleanPremium.primary, size: 24),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Mural de Avisos',
+                                  style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF1E293B),
+                                      letterSpacing: -0.3),
+                                ),
+                              ),
+                              if (_canEdit)
+                                FilledButton.icon(
+                                  onPressed: () => _openEditor(type: 'aviso'),
+                                  icon: const Icon(Icons.add_rounded, size: 18),
+                                  label: const Text('Novo'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: ThemeCleanPremium.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 10),
+                                    minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm)),
+                                    elevation: 0,
+                                  ),
+                                ),
+                            ]),
+                            const SizedBox(height: 12),
+                            searchField,
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm),
+                              ),
+                              child: Icon(Icons.campaign_rounded,
+                                  color: ThemeCleanPremium.primary, size: 24),
+                            ),
+                            const SizedBox(width: 14),
+                            const Text(
+                              'Mural de Avisos',
+                              style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF1E293B),
+                                  letterSpacing: -0.3),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(child: searchField),
+                            const SizedBox(width: 12),
+                            if (_canEdit)
+                              FilledButton.icon(
+                                onPressed: () => _openEditor(type: 'aviso'),
+                                icon: const Icon(Icons.add_rounded, size: 18),
+                                label: const Text('Novo aviso'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: ThemeCleanPremium.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 18, vertical: 12),
+                                  minimumSize: const Size(
+                                      ThemeCleanPremium.minTouchTarget,
+                                      ThemeCleanPremium.minTouchTarget),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm)),
+                                  elevation: 0,
+                                ),
+                              ),
+                          ],
                         ),
-                      ),
-                  ]),
                 );
               },
             ),
@@ -446,13 +551,16 @@ class _InstagramMuralState extends State<InstagramMural> {
                         return YahwehPremiumFeedShimmer.muralFeedSkeleton();
                       }
                       const type = 'aviso';
-                      final docs = snap.data?.docs ?? [];
-                      if (docs.isNotEmpty) {
+                      final rawDocs = snap.data?.docs ?? [];
+                      final docs = rawDocs
+                          .where((d) => _docMatchesFeedSearch(d.data()))
+                          .toList();
+                      if (rawDocs.isNotEmpty) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (!context.mounted) return;
                           unawaited(scheduleFeedMediaWarmup(
                             context,
-                            docs.map((d) => d.data()).toList(),
+                            rawDocs.map((d) => d.data()).toList(),
                           ));
                         });
                       }
@@ -467,99 +575,151 @@ class _InstagramMuralState extends State<InstagramMural> {
                                     size: 56, color: Colors.grey.shade300),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'Nenhum aviso publicado',
+                                  rawDocs.isEmpty
+                                      ? 'Nenhum aviso publicado'
+                                      : 'Nenhum resultado na busca',
                                   style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
                                       color: Colors.grey.shade500),
                                 ),
                                 const SizedBox(height: 4),
-                                Text('Toque em "Novo" para criar',
+                                Text(
+                                    rawDocs.isEmpty
+                                        ? 'Toque em "Novo" para criar'
+                                        : 'Ajuste os termos ou limpe a busca',
                                     style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey.shade400)),
                               ])),
                         );
                       }
-                      return ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        cacheExtent: 1600,
-                        itemCount: docs.length,
-                        itemBuilder: (context, i) {
-                          final doc = docs[i];
-                          return YahwehInstagramHoverCard(
-                            child: _PostCard(
-                              doc: doc,
-                              feedIndex: i,
-                              feedDocs: docs,
-                              nomeIgreja: _nomeIgreja,
-                              logoUrl: _logoUrl,
-                              tenantData: _tenantData,
-                              churchSlug: widget.churchSlug,
-                              canEdit: _canEditDoc(doc),
-                              onEdit: () =>
-                                  _openEditor(doc: doc, type: type),
-                              onDelete: () => _deletePost(doc),
-                              onShare: (Rect? shareOrigin) async {
-                                final d = doc.data();
-                                DateTime? sdt;
-                                try {
-                                  sdt = (d['startAt'] as Timestamp).toDate();
-                                } catch (_) {}
-                                final lat = d['locationLat'];
-                                final lng = d['locationLng'];
-                                final shareMedia =
-                                    await resolveNoticiaShareSheetMedia(d);
-                                final texto = (d['text'] ?? d['body'] ?? '')
-                                    .toString();
-                                final slug = widget.churchSlug.trim();
-                                final inviteCardUrl = slug.isNotEmpty
-                                    ? AppConstants.shareNoticiaIgrejaEventoUrl(
-                                        widget.churchSlug, doc.id)
-                                    : AppConstants.shareNoticiaCardUrl(
-                                        widget.tenantId, doc.id);
-                                final publicSite =
-                                    AppConstants.publicSiteShortUrl(slug);
-                                final churchName = _nomeIgreja
-                                        .trim()
-                                        .isNotEmpty
-                                    ? _nomeIgreja.trim()
-                                    : 'Nossa igreja';
-                                final msg = buildNoticiaInviteShareMessage(
-                                  churchName: churchName,
-                                  noticiaKind: 'aviso',
-                                  title: (d['title'] ?? '').toString(),
-                                  bodyText: texto,
-                                  startAt: sdt,
-                                  location: (d['location'] ?? '').toString(),
-                                  locationLat: lat is num
-                                      ? lat.toDouble()
-                                      : (lat != null
-                                          ? double.tryParse(lat.toString())
-                                          : null),
-                                  locationLng: lng is num
-                                      ? lng.toDouble()
-                                      : (lng != null
-                                          ? double.tryParse(lng.toString())
-                                          : null),
-                                  publicSiteUrl: publicSite,
-                                  inviteCardUrl: inviteCardUrl,
-                                );
-                                if (!context.mounted) return;
-                                await showChurchNoticiaShareSheet(
-                                  context,
-                                  shareLink: inviteCardUrl,
-                                  shareMessage: msg,
-                                  shareSubject: 'Convite — $churchName',
-                                  previewImageUrl: shareMedia.previewImageUrl,
-                                  videoPlayUrl: shareMedia.videoPlayUrl,
-                                  sharePositionOrigin: shareOrigin,
-                                );
-                              },
-                              timeAgo: _timeAgo,
-                              tenantId: widget.tenantId,
-                            ),
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Largura real da área do feed (não a do ecrã inteiro), para não forçar 2 colunas numa faixa estreita.
+                          final wideCols = constraints.maxWidth >=
+                              _kMuralWideColumnsBreakpoint;
+                          Widget postAt(int i) {
+                            final doc = docs[i];
+                            return RepaintBoundary(
+                              child: YahwehInstagramHoverCard(
+                                child: _PostCard(
+                                  doc: doc,
+                                  feedIndex: i,
+                                  feedDocs: docs,
+                                  nomeIgreja: _nomeIgreja,
+                                  logoUrl: _logoUrl,
+                                  tenantData: _tenantData,
+                                  churchSlug: widget.churchSlug,
+                                  canEdit: _canEditDoc(doc),
+                                  onEdit: () =>
+                                      _openEditor(doc: doc, type: type),
+                                  onDelete: () => _deletePost(doc),
+                                  onShare: (Rect? shareOrigin) async {
+                                    final d = doc.data();
+                                    DateTime? sdt;
+                                    try {
+                                      sdt =
+                                          (d['startAt'] as Timestamp).toDate();
+                                    } catch (_) {}
+                                    final lat = d['locationLat'];
+                                    final lng = d['locationLng'];
+                                    final texto =
+                                        (d['text'] ?? d['body'] ?? '')
+                                            .toString();
+                                    final slug = widget.churchSlug.trim();
+                                    final inviteCardUrl = slug.isNotEmpty
+                                        ? AppConstants
+                                            .shareNoticiaIgrejaEventoUrl(
+                                                widget.churchSlug, doc.id)
+                                        : AppConstants.shareNoticiaCardUrl(
+                                            widget.tenantId, doc.id);
+                                    final publicSite =
+                                        AppConstants.publicSiteShortUrl(slug);
+                                    final churchName = _nomeIgreja
+                                            .trim()
+                                            .isNotEmpty
+                                        ? _nomeIgreja.trim()
+                                        : 'Nossa igreja';
+                                    final msg = buildNoticiaInviteShareMessage(
+                                      churchName: churchName,
+                                      noticiaKind: 'aviso',
+                                      title: (d['title'] ?? '').toString(),
+                                      bodyText: texto,
+                                      startAt: sdt,
+                                      location:
+                                          (d['location'] ?? '').toString(),
+                                      locationLat: lat is num
+                                          ? lat.toDouble()
+                                          : (lat != null
+                                              ? double.tryParse(lat.toString())
+                                              : null),
+                                      locationLng: lng is num
+                                          ? lng.toDouble()
+                                          : (lng != null
+                                              ? double.tryParse(lng.toString())
+                                              : null),
+                                      publicSiteUrl: publicSite,
+                                      inviteCardUrl: inviteCardUrl,
+                                    );
+                                    if (!context.mounted) return;
+                                    await showChurchNoticiaShareSheet(
+                                      context,
+                                      shareLink: inviteCardUrl,
+                                      shareMessage: msg,
+                                      shareSubject: churchName,
+                                      previewImageUrl: null,
+                                      videoPlayUrl: null,
+                                      noticiaDataForLazyMedia: d,
+                                      sharePositionOrigin: shareOrigin,
+                                    );
+                                  },
+                                  timeAgo: _timeAgo,
+                                  tenantId: widget.tenantId,
+                                ),
+                              ),
+                            );
+                          }
+
+                          if (!wideCols) {
+                            return ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              cacheExtent: 1600,
+                              itemCount: docs.length,
+                              itemBuilder: (context, i) => postAt(i),
+                            );
+                          }
+                          final left = <Widget>[];
+                          final right = <Widget>[];
+                          for (var i = 0; i < docs.length; i++) {
+                            if (i.isEven) {
+                              left.add(postAt(i));
+                            } else {
+                              right.add(postAt(i));
+                            }
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.only(right: 8),
+                                  children: left,
+                                ),
+                              ),
+                              Expanded(
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  physics:
+                                      const NeverScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.only(left: 8),
+                                  children: right,
+                                ),
+                              ),
+                            ],
                           );
                         },
                       );
@@ -1394,15 +1554,22 @@ class _PostCardState extends State<_PostCard>
                   alignment: Alignment.bottomCenter,
                   clipBehavior: Clip.hardEdge,
                   children: [
-                    AspectRatio(
-                      aspectRatio: postFeedCarouselAspectRatioForIndex(
-                        data,
-                        _carouselIndex,
-                        photoCount,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: PageView.builder(
+                    LayoutBuilder(
+                      builder: (context, lc) {
+                        final cw = lc.maxWidth;
+                        final ar = postFeedCarouselAspectRatioForIndex(
+                          data,
+                          _carouselIndex,
+                          photoCount,
+                        );
+                        final clipH =
+                            churchMuralCarouselClipHeight(context, cw, ar);
+                        return SizedBox(
+                          width: cw,
+                          height: clipH,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: PageView.builder(
                               itemCount: carouselLen,
                               onPageChanged: (p) =>
                                   setState(() => _carouselIndex = p),
@@ -1421,13 +1588,15 @@ class _PostCardState extends State<_PostCard>
                                     photoRefRaw: refStr,
                                     pathFromFirestore: pathCombined,
                                   );
-                                  return LayoutBuilder(
+                                      return LayoutBuilder(
                                     builder: (ctx, c) {
                                       final w = c.maxWidth;
                                       final h = c.maxHeight;
                                       final dpr =
                                           MediaQuery.devicePixelRatioOf(ctx);
-                                      return LazyViewportBuilder(
+                                      return ColoredBox(
+                                        color: const Color(0xFFF1F5F9),
+                                        child: LazyViewportBuilder(
                                         visibilityKey:
                                             'mural-${widget.doc.id}-slide-$idx',
                                         placeholder: SizedBox.expand(
@@ -1440,13 +1609,15 @@ class _PostCardState extends State<_PostCard>
                                           gsUrl: ps.gsUrl,
                                           width: w,
                                           height: h,
-                                          fit: BoxFit.cover,
+                                          // contain: mantém proporção do flyer/foto (cover numa caixa “achatada” cortava mal).
+                                          fit: BoxFit.contain,
                                           memCacheWidth: (w * dpr)
                                               .round()
-                                              .clamp(64, 2048),
+                                              .clamp(64, 1600),
                                           memCacheHeight: (h * dpr)
                                               .round()
-                                              .clamp(64, 2048),
+                                              .clamp(64, 1600),
+                                          skipFreshDisplayUrl: false,
                                           placeholder:
                                               YahwehPremiumFeedShimmer
                                                   .mediaCover(),
@@ -1457,6 +1628,7 @@ class _PostCardState extends State<_PostCard>
                                                   isEvento),
                                           onLoadError: _muralImageLoadError,
                                         ),
+                                      ),
                                       );
                                     },
                                   );
@@ -1476,7 +1648,9 @@ class _PostCardState extends State<_PostCard>
                                 );
                               },
                             ),
-                      ),
+                          ),
+                        );
+                      },
                     ),
                     Positioned.fill(
                       child: IgnorePointer(
@@ -1808,6 +1982,7 @@ class _PostCardState extends State<_PostCard>
                                             memCacheHeight: (h * dpr)
                                                 .round()
                                                 .clamp(64, 1440),
+                                            skipFreshDisplayUrl: false,
                                             placeholder:
                                                 YahwehPremiumFeedShimmer
                                                     .mediaCover(),
@@ -1938,11 +2113,15 @@ class _PostCardState extends State<_PostCard>
         openUrl.contains('.firebasestorage.app');
     if (isHosted) {
       if (!context.mounted) return;
+      final d = widget.doc.data();
+      final postTitle =
+          (d['titulo'] ?? d['titulo_evento'] ?? '').toString().trim();
       await showChurchHostedVideoDialog(
         context,
         videoUrl: openUrl,
         thumbnailUrl: hasThumb ? thumb : null,
         autoPlay: true,
+        title: postTitle,
       );
       return;
     }
@@ -2023,6 +2202,7 @@ class _PostCardState extends State<_PostCard>
           videoUrl: openUrl,
           thumbnailUrl: hasThumb ? thumb : null,
           autoPlay: true,
+          title: title,
         );
         return;
       }
@@ -3460,6 +3640,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                     children: [
                       TextField(
                           controller: _title,
+                          autocorrect: true,
+                          enableSuggestions: true,
+                          textCapitalization: TextCapitalization.sentences,
                           decoration: const InputDecoration(
                               labelText: 'Título *',
                               prefixIcon: Icon(Icons.title_rounded))),
@@ -3467,11 +3650,39 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       TextField(
                           controller: _text,
                           maxLines: 4,
+                          autocorrect: true,
+                          enableSuggestions: true,
+                          textCapitalization: TextCapitalization.sentences,
                           decoration: const InputDecoration(
                               labelText: 'Texto / Descrição',
                               prefixIcon: Icon(Icons.notes_rounded),
                               alignLabelWithHint: true)),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _title.text = modernizeShareText(_title.text);
+                              _text.text = modernizeShareText(_text.text);
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              ThemeCleanPremium.successSnackBar(
+                                  'Texto ajustado para compartilhar.'),
+                            );
+                          },
+                          icon: Icon(Icons.auto_fix_high_rounded,
+                              size: 18, color: ThemeCleanPremium.primary),
+                          label: Text(
+                            'Corrigir e modernizar texto',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
                           Icon(Icons.place_rounded,

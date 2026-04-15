@@ -44,6 +44,7 @@ class PublicCertificadoValidacaoPage extends StatelessWidget {
                   }
                   final d = doc.data()!;
                   final nome = (d['nomeMembro'] ?? '').toString().trim();
+                  final nome2 = (d['nomeMembroLinha2'] ?? '').toString().trim();
                   final evento = (d['tipoCertificadoNome'] ?? d['titulo'] ?? '')
                       .toString()
                       .trim();
@@ -100,7 +101,13 @@ class PublicCertificadoValidacaoPage extends StatelessWidget {
                                   textAlign: TextAlign.center,
                                 ),
                                 const SizedBox(height: 24),
-                                _certificadoValRow('Nome', nome.isEmpty ? '—' : nome),
+                                _certificadoValRow(
+                                    'Nome(s)',
+                                    nome.isEmpty
+                                        ? '—'
+                                        : (nome2.isEmpty
+                                            ? nome
+                                            : '$nome e $nome2')),
                                 _certificadoValRow(
                                     'Evento / tipo', evento.isEmpty ? '—' : evento),
                                 _certificadoValRow('Data de emissão', dataTxt),

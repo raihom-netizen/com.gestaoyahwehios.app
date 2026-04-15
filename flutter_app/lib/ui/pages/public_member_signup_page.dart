@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
@@ -17,13 +18,18 @@ import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
+    show StableChurchLogo;
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
+import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
-        FreshFirebaseStorageImage,
         isValidImageUrl,
         memCacheExtentForLogicalSize,
+        ResilientNetworkImage,
         sanitizeImageUrl;
 import 'package:image_picker/image_picker.dart';
 import 'package:lottie/lottie.dart';
@@ -57,6 +63,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   final _estadoCtrl = TextEditingController();
   final _estadoCivilCtrl = TextEditingController();
   final _escolaridadeCtrl = TextEditingController();
+  final _profissaoCtrl = TextEditingController();
   final _conjugeCtrl = TextEditingController();
   final _filiacaoPaiCtrl = TextEditingController();
   final _filiacaoMaeCtrl = TextEditingController();
@@ -66,6 +73,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   String? _tenantLogoUrl;
   /// Snapshot do doc `igrejas/{id}` para resolver logo via path/Storage (igual ao site público).
   Map<String, dynamic>? _tenantChurchData;
+  /// URL já resolvida em [_loadTenant] — evita segundo [resolveChurchTenantLogoUrl] no [StableChurchLogo].
+  String? _resolvedChurchLogoUrl;
   String _tenantEndereco = '';
 
   /// Alias e slug da igreja para amarrar o membro ao tenant (segurança: outra igreja não vê esses membros).
@@ -73,6 +82,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   String _tenantSlug = '';
 
   DateTime? _birthDate;
+  final _birthDateCtrl = TextEditingController();
   String _sexo = 'Masculino';
 
   XFile? _photoFile;
@@ -91,38 +101,6 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   /// Wizard: 0 dados pessoais, 1 endereço, 2 família/foto/envio.
   int _signupStep = 0;
-
-  /// Altura da logo no topo do formulário (cadastro público).
-  static const double _kPublicSignupLogoHeight = 80;
-
-  InputDecoration _modernInput({
-    required String label,
-    String? hint,
-    IconData? icon,
-    Widget? suffixIcon,
-    String? counterText,
-  }) {
-    const border = OutlineInputBorder(
-      borderRadius: BorderRadius.all(Radius.circular(14)),
-      borderSide: BorderSide(color: Color(0xFFE2E8F0)),
-    );
-    return InputDecoration(
-      labelText: label,
-      hintText: hint,
-      prefixIcon: icon == null ? null : Icon(icon),
-      suffixIcon: suffixIcon,
-      counterText: counterText,
-      filled: true,
-      fillColor: const Color(0xFFF8FAFC),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-      border: border,
-      enabledBorder: border,
-      focusedBorder: border.copyWith(
-        borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.6),
-      ),
-    );
-  }
 
   /// UFs do Brasil para seleção manual (quando não sabe o CEP).
   static const List<String> _ufs = [
@@ -154,25 +132,18 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     'SE',
     'TO',
   ];
-  static const List<String> _escolaridadeOptions = [
-    'Ensino Fundamental',
-    'Ensino Médio',
-    'Superior',
-  ];
-
-  static const List<String> _estadoCivilOptions = [
-    'casado (a)',
-    'solteiro (a)',
-    'viúvo (a)',
-  ];
-
   @override
   void initState() {
     super.initState();
+    _bootstrap();
+  }
+
+  /// Na web, auth anónima antes do Firestore/Storage evita falha ao resolver a logo em alta resolução.
+  Future<void> _bootstrap() async {
     if (kIsWeb) {
-      PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     }
-    _loadTenant();
+    await _loadTenant();
   }
 
   @override
@@ -189,58 +160,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     _estadoCtrl.dispose();
     _estadoCivilCtrl.dispose();
     _escolaridadeCtrl.dispose();
+    _profissaoCtrl.dispose();
+    _birthDateCtrl.dispose();
     _conjugeCtrl.dispose();
     _filiacaoPaiCtrl.dispose();
     _filiacaoMaeCtrl.dispose();
     super.dispose();
   }
 
-  String _onlyDigits(String v) => v.replaceAll(RegExp(r'[^0-9]'), '');
-
-  String _formatCpfMask(String raw) {
-    final d = _onlyDigits(raw);
-    final p1 = d.length > 3 ? d.substring(0, 3) : d;
-    final p2 =
-        d.length > 6 ? d.substring(3, 6) : (d.length > 3 ? d.substring(3) : '');
-    final p3 =
-        d.length > 9 ? d.substring(6, 9) : (d.length > 6 ? d.substring(6) : '');
-    final p4 = d.length > 11
-        ? d.substring(9, 11)
-        : (d.length > 9 ? d.substring(9) : '');
-    final b = StringBuffer()..write(p1);
-    if (p2.isNotEmpty)
-      b
-        ..write('.')
-        ..write(p2);
-    if (p3.isNotEmpty)
-      b
-        ..write('.')
-        ..write(p3);
-    if (p4.isNotEmpty)
-      b
-        ..write('-')
-        ..write(p4);
-    return b.toString();
-  }
-
-  String _formatPhoneMask(String raw) {
-    final d = _onlyDigits(raw);
-    if (d.isEmpty) return '';
-    final ddd = d.length >= 2 ? d.substring(0, 2) : d;
-    final rest = d.length > 2 ? d.substring(2) : '';
-    final b = StringBuffer()
-      ..write('(')
-      ..write(ddd);
-    if (d.length >= 2) b.write(')');
-    if (rest.isEmpty) return b.toString();
-    if (rest.length <= 4) return '${b.toString()} $rest';
-    if (rest.length <= 8) {
-      return '${b.toString()} ${rest.substring(0, rest.length - 4)}-${rest.substring(rest.length - 4)}';
-    }
-    final prefix = rest.substring(0, 5);
-    final suffix = rest.substring(5, rest.length > 9 ? 9 : rest.length);
-    return '${b.toString()} $prefix-$suffix';
-  }
+  String _onlyDigits(String v) => memberSignupOnlyDigits(v);
 
   static String _buildFiliacaoLegado(String pai, String mae) {
     if (pai.isEmpty && mae.isEmpty) return '';
@@ -290,106 +218,81 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     );
   }
 
-  /// Mesmo pipeline do site público: `logoPath` + URL HTTPS renovada para visitante anônimo na web.
+  /// Mesmo pipeline do site público ([StableChurchLogo]): token Storage na web + path legado.
   Widget _publicSignupChurchLogo({
+    required double maxWidth,
     required double maxHeight,
-    double? width,
-    BoxFit fit = BoxFit.contain,
   }) {
     final tid = _tenantId?.trim();
     final tenantMap = _tenantChurchData;
     final fallback = _fallbackGestaoYahwehLogo(maxHeight);
     if (tid == null || tid.isEmpty) return fallback;
 
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+    final cacheW =
+        memCacheExtentForLogicalSize(maxWidth, dpr, maxPx: 512);
+    final cacheH =
+        memCacheExtentForLogicalSize(maxHeight, dpr, maxPx: 512);
+
+    final pre = _resolvedChurchLogoUrl?.trim();
+    if (pre != null && pre.isNotEmpty) {
+      final clean = sanitizeImageUrl(pre);
+      if (isValidImageUrl(clean)) {
+        final ph = SizedBox(
+          width: maxWidth,
+          height: maxHeight,
+          child: Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
+        );
+        return SizedBox(
+          width: maxWidth,
+          height: maxHeight,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: ResilientNetworkImage(
+              key: ValueKey<String>('pubmemlogo_direct_$tid'),
+              imageUrl: clean,
+              width: maxWidth,
+              height: maxHeight,
+              fit: BoxFit.contain,
+              memCacheWidth: cacheW,
+              memCacheHeight: cacheH,
+              placeholder: ph,
+              errorWidget: fallback,
+            ),
+          ),
+        );
+      }
+    }
+
     final preferRaw = _tenantLogoUrl?.trim();
     final prefer =
         (preferRaw != null && preferRaw.isNotEmpty) ? preferRaw : null;
     final sp = ChurchImageFields.logoStoragePath(tenantMap);
 
-    Widget loadingBox() {
-      if (width != null) {
-        return SizedBox(
-          width: width,
-          height: maxHeight,
-          child: ColoredBox(
-            color: Colors.white,
-            child: Center(
-              child: SizedBox(
-                width: 26,
-                height: 26,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.blue.shade200,
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-      return SizedBox(
-        height: maxHeight,
-        width: double.infinity,
-        child: ColoredBox(
-          color: Colors.white,
-          child: Center(
-            child: SizedBox(
-              width: 26,
-              height: 26,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.blue.shade200,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return FutureBuilder<String?>(
-      key: ValueKey<String>(
-          'pubmemlogo_${tid}_${prefer}_${sp}_${maxHeight}_${width}_$fit'),
-      future: AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+    return SizedBox(
+      width: maxWidth,
+      height: maxHeight,
+      child: StableChurchLogo(
+        key: ValueKey<String>('pubmemlogo_${tid}_${prefer ?? ''}_${sp ?? ''}'),
         tenantId: tid,
         tenantData: tenantMap,
-        preferImageUrl: prefer,
-        preferStoragePath: sp,
+        imageUrl: prefer,
+        storagePath: sp,
+        width: maxWidth,
+        height: maxHeight,
+        fit: BoxFit.contain,
+        memCacheWidth: cacheW,
+        memCacheHeight: cacheH,
       ),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting &&
-            snap.data == null &&
-            !snap.hasError) {
-          return loadingBox();
-        }
-        var clean = (!snap.hasError && snap.data != null)
-            ? sanitizeImageUrl(snap.data!)
-            : '';
-        if (clean.isEmpty || !isValidImageUrl(clean)) {
-          if (prefer != null) {
-            final z = sanitizeImageUrl(prefer);
-            if (isValidImageUrl(z)) clean = z;
-          }
-        }
-        if (clean.isEmpty || !isValidImageUrl(clean)) return fallback;
-
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        final cachePx =
-            memCacheExtentForLogicalSize(maxHeight, dpr, maxPx: 512);
-
-        return SizedBox(
-          width: width ?? double.infinity,
-          height: maxHeight,
-          child: FreshFirebaseStorageImage(
-            imageUrl: clean,
-            fit: fit,
-            width: width,
-            height: maxHeight,
-            memCacheWidth: cachePx,
-            memCacheHeight: cachePx,
-            placeholder: loadingBox(),
-            errorWidget: fallback,
-          ),
-        );
-      },
     );
   }
 
@@ -399,6 +302,22 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     if (u.isEmpty) return null;
     final s = sanitizeImageUrl(u);
     return isValidImageUrl(s) ? s : null;
+  }
+
+  Future<String?> _prefetchChurchLogoUrl({
+    required String tenantDocId,
+    required Map<String, dynamic> churchWithId,
+  }) async {
+    try {
+      return await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+        tenantId: tenantDocId,
+        tenantData: churchWithId,
+        preferImageUrl: _logoUrlFromChurchDoc(churchWithId),
+        preferStoragePath: ChurchImageFields.logoStoragePath(churchWithId),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Busca CEP via ViaCEP e preenche endereço, bairro, cidade e estado automaticamente.
@@ -483,6 +402,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             .get();
         if (d.exists) {
           final data = d.data() ?? {};
+          final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
+          final resolvedLogo =
+              await _prefetchChurchLogoUrl(
+                  tenantDocId: d.id, churchWithId: churchWithId);
+          if (!mounted) return;
           final endereco = (data['endereco'] ?? '').toString().trim();
           final rua = (data['rua'] ?? '').toString().trim();
           final bairro = (data['bairro'] ?? '').toString().trim();
@@ -499,10 +423,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                   cep: cep);
           setState(() {
             _tenantId = d.id;
-            _tenantChurchData = data;
+            _tenantChurchData = churchWithId;
             _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
             _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
             _tenantLogoUrl = _logoUrlFromChurchDoc(data);
+            _resolvedChurchLogoUrl = resolvedLogo;
             _tenantEndereco = enderecoCompleto;
             _tenantAlias =
                 (data['alias'] ?? data['slug'] ?? d.id).toString().trim();
@@ -533,6 +458,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         if (q.docs.isNotEmpty) {
           final d = q.docs.first;
           final data = d.data();
+          final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
+          final resolvedLogo =
+              await _prefetchChurchLogoUrl(
+                  tenantDocId: d.id, churchWithId: churchWithId);
+          if (!mounted) return;
           final endereco = (data['endereco'] ?? '').toString().trim();
           final rua = (data['rua'] ?? '').toString().trim();
           final bairro = (data['bairro'] ?? '').toString().trim();
@@ -549,10 +479,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                   cep: cep);
           setState(() {
             _tenantId = d.id;
-            _tenantChurchData = data;
+            _tenantChurchData = churchWithId;
             _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
             _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
             _tenantLogoUrl = _logoUrlFromChurchDoc(data);
+            _resolvedChurchLogoUrl = resolvedLogo;
             _tenantEndereco = enderecoCompleto;
             _tenantAlias =
                 (data['alias'] ?? data['slug'] ?? d.id).toString().trim();
@@ -565,9 +496,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           return;
         }
       }
-      setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _resolvedChurchLogoUrl = null;
+      });
     } catch (_) {
-      setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _resolvedChurchLogoUrl = null;
+      });
     }
   }
 
@@ -596,11 +535,6 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     return null;
   }
 
-  String _formatDate(DateTime d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(d.day)}/${two(d.month)}/${d.year}';
-  }
-
   String _statusTrackPath(String protocol) {
     final slug = _tenantSlug.trim().isNotEmpty
         ? _tenantSlug.trim()
@@ -608,201 +542,359 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     return '/igreja/$slug/acompanhar-cadastro?protocolo=$protocol';
   }
 
+  /// URL completa para copiar/partilhar (respeita domínio público da igreja quando configurado).
+  String _fullTrackingUrl(String protocol) {
+    final path = _statusTrackPath(protocol);
+    final base =
+        AppConstants.publicWebBaseUrlForChurch(_tenantChurchData).trim();
+    if (path.startsWith('http')) return path;
+    return '$base$path';
+  }
+
+  static const double _kSuccessLogoHeight = 152;
+
   Widget _buildSuccessScreen() {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  height: 150,
-                  child: Lottie.network(
-                    'https://assets3.lottiefiles.com/packages/lf20_at6mub9m.json',
-                    repeat: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.white,
-                  child: ClipOval(
-                    child: SizedBox(
-                      width: 72,
-                      height: 72,
-                      child: _publicSignupChurchLogo(
-                        maxHeight: 72,
-                        width: 72,
-                        fit: BoxFit.cover,
+      backgroundColor: Colors.transparent,
+      body: ChurchPublicSiteScaffoldBackground(
+        child: SafeArea(
+          bottom: true,
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                sliver: SliverToBoxAdapter(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 500),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LayoutBuilder(
+                            builder: (context, c) {
+                              final w = c.maxWidth;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                  horizontal: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius:
+                                      BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                  boxShadow: [
+                                    ...ThemeCleanPremium.softUiCardShadow,
+                                    BoxShadow(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.06),
+                                      blurRadius: 28,
+                                      offset: const Offset(0, 12),
+                                      spreadRadius: -4,
+                                    ),
+                                  ],
+                                ),
+                                child: _publicSignupChurchLogo(
+                                  maxWidth: w,
+                                  maxHeight: _kSuccessLogoHeight,
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            height: 96,
+                            child: Lottie.network(
+                              'https://assets3.lottiefiles.com/packages/lf20_at6mub9m.json',
+                              repeat: true,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Bem-vindo à família!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                              color: Colors.green.shade800,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Bem-vindo à $_tenantName!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            '${_submittedMemberName.trim().isEmpty ? 'Seu cadastro' : '${_submittedMemberName.trim()}, seu cadastro'} foi enviado para aprovação da liderança.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              height: 1.45,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Quando o gestor aprovar, sua conta de acesso será criada automaticamente com senha inicial 123456 (você poderá trocar depois ou usar “Esqueci a senha”).',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                              height: 1.4,
+                            ),
+                          ),
+                          if (_emailCtrl.text.trim().isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFF86EFAC).withValues(alpha: 0.7),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.mark_email_read_outlined,
+                                      size: 22, color: Colors.green.shade700),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Enviamos um e-mail para ${_emailCtrl.text.trim()} com o link para acompanhar a aprovação (verifique também o spam). Se não receber em alguns minutos, use o protocolo abaixo.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if ((_lastSubmittedDocId ?? '').isNotEmpty) ...[
+                            const SizedBox(height: 18),
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusLg),
+                                border: Border.all(
+                                  color: const Color(0xFFBFDBFE),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF2563EB)
+                                        .withValues(alpha: 0.08),
+                                    blurRadius: 24,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.track_changes_rounded,
+                                          color: Colors.blue.shade700, size: 22),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Acompanhamento do cadastro',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SelectableText(
+                                    'Protocolo: ${_lastSubmittedDocId!}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1E40AF),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Wrap(
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 18,
+                                            vertical: 14,
+                                          ),
+                                        ),
+                                        onPressed: () {
+                                          final protocol =
+                                              _lastSubmittedDocId!;
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  PublicSignupStatusPage(
+                                                slug: _tenantSlug.isNotEmpty
+                                                    ? _tenantSlug
+                                                    : (_tenantId ?? ''),
+                                                protocolo: protocol,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        icon: const Icon(
+                                            Icons.visibility_rounded,
+                                            size: 20),
+                                        label: const Text('Acompanhar agora'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 18,
+                                            vertical: 14,
+                                          ),
+                                        ),
+                                        onPressed: () async {
+                                          final protocol =
+                                              _lastSubmittedDocId!;
+                                          final full =
+                                              _fullTrackingUrl(protocol);
+                                          await Clipboard.setData(
+                                            ClipboardData(text: full),
+                                          );
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Link completo copiado.',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        icon: const Icon(Icons.copy_rounded,
+                                            size: 20),
+                                        label: const Text('Copiar link'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 28),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _submittedSuccess = false;
+                                    _lastSubmittedDocId = null;
+                                    _editModeAfterSubmit = false;
+                                    _nameCtrl.clear();
+                                    _emailCtrl.clear();
+                                    _phoneCtrl.clear();
+                                    _cpfCtrl.clear();
+                                    _cepCtrl.clear();
+                                    _cityCtrl.clear();
+                                    _bairroCtrl.clear();
+                                    _enderecoCtrl.clear();
+                                    _quadraLoteNumeroCtrl.clear();
+                                    _estadoCtrl.clear();
+                                    _estadoCivilCtrl.clear();
+                                    _escolaridadeCtrl.clear();
+                                    _profissaoCtrl.clear();
+                                    _conjugeCtrl.clear();
+                                    _filiacaoPaiCtrl.clear();
+                                    _filiacaoMaeCtrl.clear();
+                                    _birthDate = null;
+                                    _birthDateCtrl.clear();
+                                    _photoFile = null;
+                                    _photoBytes = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.person_add_rounded,
+                                    size: 20),
+                                label: const Text('Voltar ao início'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  if (kIsWeb) {
+                                    VersionService.reloadWeb();
+                                  } else {
+                                    Navigator.maybePop(context);
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh_rounded,
+                                    size: 20),
+                                label: const Text('Recarregar'),
+                              ),
+                              FilledButton.tonalIcon(
+                                onPressed: () =>
+                                    Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  '/igreja/login',
+                                  (_) => false,
+                                ),
+                                icon: const Icon(Icons.login_rounded, size: 20),
+                                label: const Text('Ir para login da igreja'),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-                Text(
-                  'Bem-vindo à família!',
-                  style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.green.shade800),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Bem-vindo à $_tenantName!',
-                  style: TextStyle(fontSize: 16, color: Colors.grey.shade700),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '${_submittedMemberName.trim().isEmpty ? 'Seu cadastro' : '${_submittedMemberName.trim()}, seu cadastro'} foi enviado para aprovação da liderança.',
-                  style: TextStyle(
-                      fontSize: 14, color: Colors.grey.shade600, height: 1.4),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Quando o gestor aprovar, sua conta de acesso será criada automaticamente com senha inicial 123456 (você poderá trocar depois ou usar “Esqueci a senha”).',
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.grey.shade600, height: 1.35),
-                  textAlign: TextAlign.center,
-                ),
-                if ((_lastSubmittedDocId ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFBFDBFE)),
-                    ),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Acompanhamento do cadastro',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Protocolo: ${_lastSubmittedDocId!}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF1E40AF),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          alignment: WrapAlignment.center,
-                          children: [
-                            FilledButton.tonalIcon(
-                              onPressed: () {
-                                final protocol = _lastSubmittedDocId!;
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => PublicSignupStatusPage(
-                                      slug: _tenantSlug.isNotEmpty
-                                          ? _tenantSlug
-                                          : (_tenantId ?? ''),
-                                      protocolo: protocol,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.visibility_rounded,
-                                  size: 18),
-                              label: const Text('Acompanhar agora'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final protocol = _lastSubmittedDocId!;
-                                final path = _statusTrackPath(protocol);
-                                await Clipboard.setData(
-                                    ClipboardData(text: path));
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Link de acompanhamento copiado.',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.copy_rounded, size: 18),
-                              label: const Text('Copiar link'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 32),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _submittedSuccess = false;
-                          _lastSubmittedDocId = null;
-                          _editModeAfterSubmit = false;
-                          _nameCtrl.clear();
-                          _emailCtrl.clear();
-                          _phoneCtrl.clear();
-                          _cpfCtrl.clear();
-                          _cepCtrl.clear();
-                          _cityCtrl.clear();
-                          _bairroCtrl.clear();
-                          _enderecoCtrl.clear();
-                          _quadraLoteNumeroCtrl.clear();
-                          _estadoCtrl.clear();
-                          _estadoCivilCtrl.clear();
-                          _escolaridadeCtrl.clear();
-                          _conjugeCtrl.clear();
-                          _filiacaoPaiCtrl.clear();
-                          _filiacaoMaeCtrl.clear();
-                          _birthDate = null;
-                          _photoFile = null;
-                          _photoBytes = null;
-                        });
-                      },
-                      icon: const Icon(Icons.person_add_rounded, size: 20),
-                      label: const Text('Voltar ao início'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        if (kIsWeb) {
-                          VersionService.reloadWeb();
-                        } else {
-                          Navigator.maybePop(context);
-                        }
-                      },
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      label: const Text('Recarregar'),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                          context, '/igreja/login', (_) => false),
-                      icon: const Icon(Icons.login_rounded, size: 20),
-                      label: const Text('Ir para login da igreja'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _pickBirthDate() async {
+    final initial = _birthDate ??
+        memberSignupParseBirthDateBr(_birthDateCtrl.text.trim()) ??
+        DateTime(2000, 1, 1);
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(DateTime.now().year - 100),
+      lastDate: DateTime(DateTime.now().year),
+      initialDate: initial,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _birthDate = picked;
+        _birthDateCtrl.text = memberSignupFormatBirthDateBr(picked);
+      });
+    }
   }
 
   Future<void> _pickPhoto({bool fromCamera = false}) async {
@@ -861,9 +953,19 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   Future<void> _submit() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
-    if (_birthDate == null) {
+    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    if (birthParsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe a data de nascimento.')),
+        const SnackBar(
+            content: Text('Informe a data de nascimento (DD/MM/AAAA).')),
+      );
+      return;
+    }
+    final today = DateTime.now();
+    if (birthParsed
+        .isAfter(DateTime(today.year, today.month, today.day))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Data de nascimento inválida.')),
       );
       return;
     }
@@ -996,7 +1098,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         photoStoragePathField = ChurchStorageLayout.memberCanonicalProfilePhotoPath(
             _tenantId!, ref.id);
       }
-      final age = _calcAge(_birthDate) ?? 0;
+      final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
 
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : _tenantId;
@@ -1011,7 +1113,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'tenantId': _tenantId,
         'NOME_COMPLETO': _nameCtrl.text.trim(),
         'EMAIL': _emailCtrl.text.trim(),
-        'DATA_NASCIMENTO': Timestamp.fromDate(_birthDate!),
+        'DATA_NASCIMENTO': Timestamp.fromDate(birthParsed),
         'TELEFONES': _phoneCtrl.text.trim(),
         'SEXO': _sexo,
         'FAIXA_ETARIA': ageRange,
@@ -1025,6 +1127,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'CPF': cpfDigits,
         'ESTADO_CIVIL': _estadoCivilCtrl.text.trim(),
         'ESCOLARIDADE': _escolaridadeCtrl.text.trim(),
+        'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
         'foto_url': photoUrl,
@@ -1090,10 +1193,18 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       _snackWizard('CPF deve ter 11 dígitos.');
       return false;
     }
-    if (_birthDate == null) {
-      _snackWizard('Selecione a data de nascimento.');
+    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    if (birthParsed == null) {
+      _snackWizard('Informe a data de nascimento (DD/MM/AAAA).');
       return false;
     }
+    final today = DateTime.now();
+    if (birthParsed
+        .isAfter(DateTime(today.year, today.month, today.day))) {
+      _snackWizard('Data de nascimento inválida.');
+      return false;
+    }
+    _birthDate = birthParsed;
     final p = _req(_phoneCtrl.text);
     if (p != null) {
       _snackWizard(p);
@@ -1138,61 +1249,32 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     setState(() => _signupStep = (_signupStep + 1).clamp(0, 2));
   }
 
-  Widget _signupWizardHeader() {
-    const labels = ['Seus dados', 'Endereço', 'Família e foto'];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Passo ${_signupStep + 1} de 3',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 13,
-            color: Colors.grey.shade800,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: List.generate(3, (i) {
-            final active = i == _signupStep;
-            final done = i < _signupStep;
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Column(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: done || active
-                            ? const Color(0xFF2563EB)
-                            : Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      labels[i],
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                        color: active
-                            ? const Color(0xFF1D4ED8)
-                            : Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
+  /// Faixa superior compacta: logo à esquerda, nome e formulário discretos.
+  Widget _buildPublicChurchHeader({
+    required bool loading,
+    bool churchNotFound = false,
+  }) {
+    final Widget logoSlot = loading
+        ? Skeletonizer(
+            enabled: true,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(8),
               ),
-            );
-          }),
-        ),
-      ],
+            ),
+          )
+        : churchNotFound
+            ? Icon(Icons.church_rounded,
+                size: 30, color: Colors.grey.shade400)
+            : _publicSignupChurchLogo(maxWidth: 40, maxHeight: 40);
+    return PublicMemberSignupCompactHeader(
+      loading: loading,
+      churchNotFound: churchNotFound,
+      tenantName: _tenantName,
+      formSubtitle: 'Formulário de cadastro',
+      endereco: _tenantEndereco,
+      logoSlot: logoSlot,
     );
   }
 
@@ -1200,85 +1282,97 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   Widget build(BuildContext context) {
     if (_loading) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF7F8FA),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [const Color(0xFFDBEAFE), Colors.white],
-            ),
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
-              child: Skeletonizer(
-                enabled: true,
-                child: Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
-                        blurRadius: 24,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 110,
-                        height: 110,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color(0xFFE2E8F0),
+        backgroundColor: Colors.transparent,
+        body: ChurchPublicSiteScaffoldBackground(
+          child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildPublicChurchHeader(loading: true),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Skeletonizer(
+                      enabled: true,
+                      child: Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                          boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              height: 14,
+                              width: 180,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                            const SizedBox(height: 16),
+                            Container(
+                              height: 48,
+                              width: double.infinity,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              height: 48,
+                              width: double.infinity,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              height: 48,
+                              width: double.infinity,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      Container(
-                          height: 14,
-                          width: 220,
-                          color: const Color(0xFFE2E8F0)),
-                      const SizedBox(height: 14),
-                      Container(
-                          height: 52,
-                          width: double.infinity,
-                          color: const Color(0xFFE2E8F0)),
-                      const SizedBox(height: 10),
-                      Container(
-                          height: 52,
-                          width: double.infinity,
-                          color: const Color(0xFFE2E8F0)),
-                      const SizedBox(height: 10),
-                      Container(
-                          height: 52,
-                          width: double.infinity,
-                          color: const Color(0xFFE2E8F0)),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
+        ),
         ),
       );
     }
 
     if (_tenantId == null) {
       return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-              icon: const Icon(Icons.arrow_back_rounded),
-              onPressed: () => Navigator.maybePop(context),
-              tooltip: 'Voltar'),
-          title: const Text('Cadastro de membro'),
+        backgroundColor: Colors.transparent,
+        body: ChurchPublicSiteScaffoldBackground(
+          child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildPublicChurchHeader(
+              loading: false,
+              churchNotFound: true,
+            ),
+            const Expanded(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Verifique o link ou fale com a igreja.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-        body: const Center(child: Text('Igreja nao encontrada.')),
+        ),
       );
     }
 
@@ -1287,121 +1381,23 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
-      appBar: AppBar(
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.maybePop(context),
-            tooltip: 'Voltar'),
-        title: Text(
-          'Cadastro de membro — $_tenantName',
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFFDBEAFE),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  children: [
-                    // Topo: dados da igreja — logo, nome e localização
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
-                            blurRadius: 28,
-                            offset: const Offset(0, 12),
-                          ),
-                        ],
-                      ),
-                      margin: const EdgeInsets.only(bottom: 20),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          children: [
-                            Center(
-                              child: Container(
-                                width: double.infinity,
-                                constraints: const BoxConstraints(
-                                    maxHeight: _kPublicSignupLogoHeight + 24),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black
-                                          .withValues(alpha: 0.06),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
-                                child: _publicSignupChurchLogo(
-                                  maxHeight: _kPublicSignupLogoHeight,
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            Text(
-                              _tenantName,
-                              textAlign: TextAlign.center,
-                              maxLines: 5,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF1a1a2e),
-                                height: 1.25,
-                              ),
-                            ),
-                            if (_tenantEndereco.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.location_on_outlined,
-                                      size: 18, color: Colors.grey.shade600),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      _tenantEndereco,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.grey.shade700,
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                    _signupWizardHeader(),
+      backgroundColor: Colors.transparent,
+      body: ChurchPublicSiteScaffoldBackground(
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildPublicChurchHeader(loading: false),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: Form(
+                    key: _formKey,
+                    child: ListView(
+                      children: [
+                    MemberSignupWizardProgress(step: _signupStep),
                     const SizedBox(height: 18),
                     if (_signupStep == 0) ...[
                     const Text(
@@ -1409,25 +1405,25 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       style: TextStyle(color: Colors.black54),
                     ),
                     const SizedBox(height: 16),
-                    _Section(title: 'Dados pessoais'),
+                    MemberSignupSectionTitle(title: 'Dados pessoais'),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Nome completo', icon: Icons.person_rounded),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoMaeCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Filiação (mãe)',
                           icon: Icons.family_restroom_rounded),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoPaiCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Filiação (pai)',
                           icon: Icons.family_restroom_rounded),
                     ),
@@ -1443,7 +1439,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               LengthLimitingTextInputFormatter(11),
                               TextInputFormatter.withFunction(
                                   (oldValue, newValue) {
-                                final masked = _formatCpfMask(newValue.text);
+                                final masked = memberSignupFormatCpfMask(newValue.text);
                                 return TextEditingValue(
                                   text: masked,
                                   selection: TextSelection.collapsed(
@@ -1451,7 +1447,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 );
                               }),
                             ],
-                            decoration: _modernInput(
+                            decoration: memberSignupInputDecoration(
                                 label: 'CPF', icon: Icons.badge_rounded),
                             validator: (v) {
                               final msg = _req(v);
@@ -1465,27 +1461,41 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
-                            readOnly: true,
-                            decoration: _modernInput(
-                              label: 'Data nascimento',
-                              icon: Icons.event_rounded,
-                              hint: _birthDate == null
-                                  ? 'Selecione'
-                                  : _formatDate(_birthDate!),
+                            controller: _birthDateCtrl,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              MemberSignupBirthDateInputFormatter(),
+                              LengthLimitingTextInputFormatter(10),
+                            ],
+                            decoration: memberSignupInputDecoration(
+                              label: 'Data de nascimento',
+                              icon: Icons.cake_rounded,
+                              hint: 'DD/MM/AAAA',
+                              suffixIcon: IconButton(
+                                icon: Icon(Icons.calendar_month_rounded,
+                                    color: ThemeCleanPremium.primary),
+                                tooltip: 'Calendário',
+                                onPressed: _pickBirthDate,
+                              ),
                             ),
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(DateTime.now().year - 100),
-                                lastDate: DateTime(DateTime.now().year),
-                                initialDate: _birthDate ?? DateTime(2000, 1, 1),
-                              );
-                              if (picked != null) {
-                                setState(() => _birthDate = picked);
+                            validator: (v) {
+                              final t = (v ?? '').trim();
+                              if (t.isEmpty) return 'Campo obrigatório';
+                              final p = memberSignupParseBirthDateBr(t);
+                              if (p == null) return 'Use DD/MM/AAAA';
+                              final now = DateTime.now();
+                              if (p.isAfter(
+                                  DateTime(now.year, now.month, now.day))) {
+                                return 'Data inválida';
+                              }
+                              return null;
+                            },
+                            onChanged: (v) {
+                              final p = memberSignupParseBirthDateBr(v);
+                              if (p != null) {
+                                setState(() => _birthDate = p);
                               }
                             },
-                            validator: (_) =>
-                                _birthDate == null ? 'Campo obrigatorio' : null,
                           ),
                         ),
                       ],
@@ -1496,7 +1506,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _sexo,
-                            decoration: _modernInput(
+                            decoration: memberSignupInputDecoration(
                                 label: 'Sexo', icon: Icons.wc_rounded),
                             items: const [
                               DropdownMenuItem(
@@ -1520,7 +1530,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               LengthLimitingTextInputFormatter(11),
                               TextInputFormatter.withFunction(
                                   (oldValue, newValue) {
-                                final masked = _formatPhoneMask(newValue.text);
+                                final masked = memberSignupFormatPhoneMask(newValue.text);
                                 return TextEditingValue(
                                   text: masked,
                                   selection: TextSelection.collapsed(
@@ -1528,7 +1538,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 );
                               }),
                             ],
-                            decoration: _modernInput(
+                            decoration: memberSignupInputDecoration(
                                 label: 'Telefone', icon: Icons.phone_rounded),
                             validator: _req,
                           ),
@@ -1539,13 +1549,38 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Email', icon: Icons.alternate_email_rounded),
                       validator: _req,
                     ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: MemberSignupPremiumUi.escolaridadeOptions
+                              .contains(_escolaridadeCtrl.text.trim())
+                          ? _escolaridadeCtrl.text.trim()
+                          : null,
+                      decoration: memberSignupInputDecoration(
+                          label: 'Escolaridade',
+                          icon: Icons.school_rounded),
+                      hint: const Text('Opcional'),
+                      isExpanded: true,
+                      items: MemberSignupPremiumUi.escolaridadeOptions
+                          .map((e) => DropdownMenuItem<String>(
+                              value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (v) => setState(
+                          () => _escolaridadeCtrl.text = (v ?? '').trim()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _profissaoCtrl,
+                      decoration: memberSignupInputDecoration(
+                          label: 'Profissão',
+                          icon: Icons.work_outline_rounded),
+                    ),
                     ],
                     if (_signupStep == 1) ...[
-                    _Section(title: 'Endereço'),
+                    MemberSignupSectionTitle(title: 'Endereço'),
                     const SizedBox(height: 10),
                     Text(
                       'Digite o CEP e saia do campo para preencher os dados automaticamente.',
@@ -1557,7 +1592,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       controller: _cepCtrl,
                       keyboardType: TextInputType.number,
                       maxLength: 9,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                         label: 'CEP',
                         icon: Icons.pin_drop_rounded,
                         hint: '00000-000',
@@ -1582,7 +1617,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _enderecoCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                         label: 'Logradouro (rua, avenida)',
                         icon: Icons.home_rounded,
                         hint: 'Rua, avenida, alameda',
@@ -1592,7 +1627,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _quadraLoteNumeroCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                         label: 'Quadra, Lote e Número',
                         icon: Icons.tag_rounded,
                         hint: 'Qd 1, Lt 5, Nº 123',
@@ -1601,45 +1636,36 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _bairroCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Bairro', icon: Icons.location_city_rounded),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cityCtrl,
-                            decoration: _modernInput(
-                                label: 'Cidade', icon: Icons.apartment_rounded),
-                            onChanged: _searchCitySuggestions,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 100,
-                          child: DropdownButtonFormField<String>(
-                            value: _ufs.contains(_estadoCtrl.text.trim())
-                                ? _estadoCtrl.text.trim()
-                                : null,
-                            decoration: _modernInput(
-                                label: 'Estado', icon: Icons.map_rounded),
-                            isExpanded: true,
-                            items: _ufs
-                                .map((uf) => DropdownMenuItem(
-                                    value: uf, child: Text(uf)))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) _estadoCtrl.text = v;
-                              setState(() {});
-                            },
-                            onSaved: (v) {
-                              if (v != null) _estadoCtrl.text = v;
-                            },
-                          ),
-                        ),
-                      ],
+                    TextFormField(
+                      controller: _cityCtrl,
+                      decoration: memberSignupInputDecoration(
+                          label: 'Cidade', icon: Icons.apartment_rounded),
+                      onChanged: _searchCitySuggestions,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _ufs.contains(_estadoCtrl.text.trim())
+                          ? _estadoCtrl.text.trim()
+                          : null,
+                      decoration: memberSignupInputDecoration(
+                          label: 'Estado (UF)', icon: Icons.map_rounded),
+                      isExpanded: true,
+                      items: _ufs
+                          .map((uf) => DropdownMenuItem(
+                              value: uf, child: Text(uf)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) _estadoCtrl.text = v;
+                        setState(() {});
+                      },
+                      onSaved: (v) {
+                        if (v != null) _estadoCtrl.text = v;
+                      },
                     ),
                     if (_loadingCitySuggestions ||
                         _citySuggestions.isNotEmpty) ...[
@@ -1689,18 +1715,19 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ],
                     if (_signupStep == 2) ...[
                     const SizedBox(height: 16),
-                    _Section(title: 'Familia e escolaridade'),
+                    MemberSignupSectionTitle(title: 'Família'),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: _estadoCivilOptions
+                      value: MemberSignupPremiumUi.estadoCivilOptions
                               .contains(_estadoCivilCtrl.text.trim())
                           ? _estadoCivilCtrl.text.trim()
                           : null,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Estado civil',
                           icon: Icons.favorite_outline_rounded),
                       hint: const Text('Opcional'),
-                      items: _estadoCivilOptions
+                      isExpanded: true,
+                      items: MemberSignupPremiumUi.estadoCivilOptions
                           .map((e) => DropdownMenuItem<String>(
                               value: e, child: Text(e)))
                           .toList(),
@@ -1708,30 +1735,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           () => _estadoCivilCtrl.text = (v ?? '').trim()),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: _escolaridadeOptions
-                              .contains(_escolaridadeCtrl.text.trim())
-                          ? _escolaridadeCtrl.text.trim()
-                          : null,
-                      decoration: _modernInput(
-                          label: 'Escolaridade', icon: Icons.school_rounded),
-                      hint: const Text('Opcional'),
-                      items: _escolaridadeOptions
-                          .map((e) => DropdownMenuItem<String>(
-                              value: e, child: Text(e)))
-                          .toList(),
-                      onChanged: (v) => setState(
-                          () => _escolaridadeCtrl.text = (v ?? '').trim()),
-                    ),
-                    const SizedBox(height: 12),
                     TextFormField(
                       controller: _conjugeCtrl,
-                      decoration: _modernInput(
+                      decoration: memberSignupInputDecoration(
                           label: 'Nome conjuge',
                           icon: Icons.people_alt_rounded),
                     ),
                     const SizedBox(height: 16),
-                    _Section(title: 'Foto do membro'),
+                    MemberSignupSectionTitle(title: 'Foto do membro'),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -1790,7 +1801,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                             height: 56,
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
+                                backgroundColor: ThemeCleanPremium.primary,
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -1861,19 +1872,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  final String title;
-  const _Section({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        ],
+        ),
+      ),
     );
   }
 }
@@ -1957,13 +1958,27 @@ class PublicSignupStatusPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Acompanhar cadastro'),
-        backgroundColor: const Color(0xFF2563EB),
-        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        surfaceTintColor: Colors.transparent,
+        title: const Text(
+          'Acompanhar cadastro',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            height: 1,
+            color: const Color(0xFFE2E8F0),
+          ),
+        ),
       ),
-      body: FutureBuilder<
+      body: ChurchPublicSiteScaffoldBackground(
+        child: FutureBuilder<
           ({
             String churchName,
             Map<String, dynamic>? memberData,
@@ -1998,9 +2013,14 @@ class PublicSignupStatusPage extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 560),
               child: Card(
                 margin: const EdgeInsets.all(16),
+                elevation: 0,
+                surfaceTintColor: Colors.transparent,
+                color: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(22),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
                 ),
+                shadowColor: Colors.transparent,
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: Column(
@@ -2064,6 +2084,7 @@ class PublicSignupStatusPage extends StatelessWidget {
             ),
           );
         },
+      ),
       ),
     );
   }

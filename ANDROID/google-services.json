@@ -14,11 +14,19 @@
       },
       "oauth_client": [
         {
-          "client_id": "157235497908-ebbdpol1a7lrc4s27mouo937rpshijr7.apps.googleusercontent.com",
+          "client_id": "157235497908-5p6m4fv5208cva0ufevgm3i0htt72qip.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.gestaoyahweh.app",
-            "certificate_hash": "6d8177c8a21753fbe143c582fb14529404f70178"
+            "certificate_hash": "9f08b5182a33892b7a25d60ef455ea081427cbd8"
+          }
+        },
+        {
+          "client_id": "157235497908-a3l3rbim39cedu9eag8qqm991rf5rlrj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gestaoyahweh.app",
+            "certificate_hash": "a031a3abf7a9e9ab19b6806fc471fc1119965f25"
           }
         },
         {

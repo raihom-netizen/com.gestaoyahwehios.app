@@ -1,5 +1,5 @@
 rules_version = '2';
-// Deploy web 11.0.284 — membros: leitura só na própria igreja (+ master); CPF público via Cloud Function.
+// Deploy — membros: indisponibilidade escala por e-mail (campos dedicados) + leitura só na própria igreja (+ master); CPF público via Cloud Function.
 // Master: CPF 94536368191, Raihom Severino Barbosa, raihom@gmail.com — acesso a tudo.
 // Também gestor da igreja Brasil para Cristo. Nenhuma igreja vê dados da outra; só o master vê todas.
 service cloud.firestore {
@@ -80,6 +80,15 @@ service cloud.firestore {
     function canAccessTenant(tenantId) {
       return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId);
     }
+    /// Lançamento em `finance` cujo `memberDocId` aponta para o doc em `membros` do usuário logado (authUid).
+    function financeDocReadBySubjectMember(tenantId) {
+      return isSignedIn()
+        && resource.data.keys().hasAll(['memberDocId'])
+        && resource.data.memberDocId is string
+        && resource.data.memberDocId.size() > 0
+        && exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId))
+        && get(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId)).data.get('authUid', '') == request.auth.uid;
+    }
     function hasTenantModulePermission(tenantId, moduleKey) {
       let tenantUserPath = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
       let rootUserPath = /databases/$(database)/documents/users/$(request.auth.uid);
@@ -93,6 +102,14 @@ service cloud.firestore {
     function canWriteTenant(tenantId) {
       return canAccessTenant(tenantId) && (canManageChurch() || emailMatchesTenant(tenantId));
     }
+    /// Portaria / coleta: papel membro ou visitante (app) na própria igreja pode gravar só em `visitantes`.
+    function isMembroPortariaRole() {
+      let r = role();
+      return r != null && (
+        r == 'membro' || r == 'MEMBRO' || r == 'Membro' ||
+        r == 'visitante' || r == 'VISITANTE' || r == 'Visitante'
+      );
+    }
     // Pastoral/secretariado na própria igreja — alinhado ao app (AppRoles.canAccessEditDepartments).
     // Sem isto, pastor/secretário/presbítero não passavam em canWriteTenant e o bootstrap dos presets falhava (lista vazia).
     function isPastoralOrSecretariatRole() {
@@ -104,10 +121,35 @@ service cloud.firestore {
         r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera' || r == 'Presbitero' || r == 'Presbitera'
       );
     }
-    /// Mural: eventos (noticias) e avisos — alinhar a departamentos (pastor/secretário/presbítero na igreja).
+    /// Emissão / histórico de certificados (protocolo + índice QR) — alinhado a [AppPermissions.canAccessCertificados]:
+    /// gestor/e-mail da igreja, pastoral/secretariado, tesouraria ou permissão granular `certificados`.
+    function canWriteCertificadosPainel(tenantId) {
+      return canAccessTenant(tenantId) && (
+        canWriteTenant(tenantId)
+        || isPastoralOrSecretariatRole()
+        || isTreasurer()
+        || hasTenantModulePermission(tenantId, 'certificados')
+      );
+    }
+    /// Diácono, evangelista, líder, tesouraria — mesmo critério do app ([EventsManagerPage] `_canWrite`).
+    function isEventosMuralEditorRole() {
+      let r = role();
+      return r != null && (
+        r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO' ||
+        r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
+        r == 'evangelista' || r == 'EVANGELISTA' || r == 'Evangelista' ||
+        r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
+        r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
+      );
+    }
+    /// Mural: eventos (noticias) e avisos — pastoral + permissão granular `eventos` + papéis de edição no app.
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
-        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole());
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'eventos'))
+        || (canAccessTenant(tenantId) && isEventosMuralEditorRole());
     }
     // Fallback: usuário autenticado pode ler/gravar (evita permission-denied em Departamentos, Presença, etc.)
     function canWriteTenantIfSignedIn(tenantId) {
@@ -134,6 +176,20 @@ service cloud.firestore {
     function avisoDocPublicSiteReadable() {
       return resource.data.publicSite == true
         || !('publicSite' in resource.data);
+    }
+
+    // Indisponibilidade para escalas: só estes campos em `membros/{id}` (evita permission-denied quando authUid ainda não foi gravado).
+    function memberEmailMatchesAuth() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && (
+          ('EMAIL' in resource.data && resource.data.EMAIL == request.auth.token.email)
+          || ('email' in resource.data && resource.data.email == request.auth.token.email)
+        );
+    }
+    function escalaIndisponibilidadeUpdateOnly() {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(['escalaIndisponivelYmds', 'escalaIndisponivelUpdatedAt']);
     }
 
     // Membros da igreja podem atualizar só campos sociais no post (curtida/RSVP/contagem)
@@ -193,6 +249,7 @@ service cloud.firestore {
               || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros'))
               || (canAccessTenant(id) && resource.data.authUid == request.auth.uid)
               || (canAccessTenant(id) && memberId == request.auth.uid)
+              || (canAccessTenant(id) && escalaIndisponibilidadeUpdateOnly() && memberEmailMatchesAuth())
             ));
         allow delete: if request.auth != null
           && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
@@ -213,8 +270,27 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id);
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
+      // Credenciais MP por igreja (Access Token) — só servidor
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+      match /finance_mp_notifications/{docId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow write: if false;
+      }
+      // Histórico leve de dízimos/ofertas (MP) — retenção ~5 meses; escrita só servidor (webhook / prune).
+      match /contribuicoes_dizimo_historico/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if false;
+      }
       // Histórico legado (reimpressão) — novos protocolos vão só em certificados_emitidos.
       match /certificados_historico/{certId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Cartas (apresentação / transferência) — histórico de emissões no painel da igreja.
+      match /cartas_historico/{hid} {
         allow read: if isMaster() || canAccessTenant(id);
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
       }
@@ -228,12 +304,10 @@ service cloud.firestore {
           && request.resource.data.memberId is string
           && request.resource.data.nomeMembro is string
           && request.resource.data.emitidoPorUid is string
-          && canAccessTenant(id)
-          && canWriteTenant(id);
+          && canWriteCertificadosPainel(id);
         allow update, delete: if isSignedIn()
           && resource.data.tenantId == id
-          && canAccessTenant(id)
-          && canWriteTenant(id);
+          && canWriteCertificadosPainel(id);
       }
       // Frota Jim Sabores — dados por igreja; escrita autenticada (alinhado a fleet_* legado).
       match /abastecimentos/{docId} {
@@ -251,8 +325,39 @@ service cloud.firestore {
       match /patrimonio/{docId} {
         allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        // Subcoleções do bem (manutenções, transferências) — mesmas permissões do documento pai.
+        match /manutencoes/{mid} {
+          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        }
+        match /transferencias/{tid} {
+          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        }
+      }
+      // Sessões de inventário finalizadas (aba Inventário — histórico auditável).
+      match /patrimonio_inventario_historico/{hid} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
       }
       match /finance/{docId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))
+          || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+      }
+      // Auditoria: exclusões e ações (somente append; sem edição pelo cliente).
+      match /finance_logs/{logId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow create: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+        allow update, delete: if false;
+      }
+      match /fornecedores/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores')));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores');
+      }
+      match /fornecedor_compromissos/{docId} {
         allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
         allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
       }
@@ -269,6 +374,10 @@ service cloud.firestore {
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
       match /despesas_fixas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /receitas_recorrentes/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
@@ -310,10 +419,16 @@ service cloud.firestore {
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
       // Horários/capas de cultos fixos no site público (visitante sem login).
+      // Escrita: mesmo critério do mural (`canWriteMuralFeed`) — permissão `eventos` + papéis, não só gestor.
       match /event_templates/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
           || !resource.data.keys().hasAll(['active']) || resource.data.active == true;
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow write: if canWriteMuralFeed(id);
+      }
+      // Categorias do mural de eventos (cor, nome) — painel e app.
+      match /event_categories/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteMuralFeed(id);
       }
       match /noticias/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
@@ -380,9 +495,10 @@ service cloud.firestore {
           allow update: if false;
         }
       }
+      // Eventos (subcoleção legada/alternativa ao feed) — alinhado ao mural de eventos.
       match /eventos/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow write: if canWriteMuralFeed(id);
       }
       match /cultos/{cultoId} {
         allow read: if isMaster() || canAccessTenant(id);
@@ -394,11 +510,33 @@ service cloud.firestore {
       }
       match /visitantes/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id)
+          || (canAccessTenant(id) && isMembroPortariaRole());
         match /followups/{followupId} {
           allow read: if isMaster() || canAccessTenant(id);
-          allow write: if isAdminPanel() || canWriteTenant(id);
+          allow write: if isAdminPanel() || canWriteTenant(id)
+            || (canAccessTenant(id) && isMembroPortariaRole());
         }
+      }
+      // Mensagens pastorais (push) — leitura para membros da igreja; escrita só Cloud Functions / callables.
+      match /pastoral_mensagens/{msgId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if false;
+        match /leituras/{uid} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow create, update: if isSignedIn() && canAccessTenant(id) && request.auth.uid == uid
+            && (
+              (request.resource.data.keys().hasOnly(['readAt']))
+              || (request.resource.data.keys().hasOnly(['readAt', 'reply'])
+                  && request.resource.data.reply is string
+                  && request.resource.data.reply.size() <= 2000)
+            );
+        }
+      }
+      // Histórico de envios do devocional automático — escrita só Cloud Functions; leitura no painel.
+      match /devocional_envios/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if false;
       }
       match /pedidosOracao/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
@@ -411,20 +549,53 @@ service cloud.firestore {
       // Membro na escala pode atualizar só confirmação / indisponibilidade (próprio CPF no users).
       function userScheduleCpfDigits() {
         let p = /databases/$(database)/documents/users/$(request.auth.uid);
-        return exists(p)
+        let fromDoc = exists(p)
           ? (get(p).data.cpf is string
               ? get(p).data.cpf
               : (get(p).data.CPF is string ? get(p).data.CPF : ''))
           : '';
+        let fromClaim = request.auth.token.cpf is string ? request.auth.token.cpf : '';
+        return fromDoc.size() == 11 && fromDoc.matches('^[0-9]{11}$')
+          ? fromDoc
+          : (fromClaim.size() == 11 && fromClaim.matches('^[0-9]{11}$') ? fromClaim : '');
+      }
+      /// CPF da escala pode estar só com pontuação em memberCpfs; ficha em membros/{uid} ou users bate com 11 dígitos.
+      // Não exigir cpf em users antes de checar membros/{authUid}: muitos perfis só têm CPF na ficha.
+      function scheduleMemberOnEscalaList(tenantId, memberCpfsList, cpfDigits) {
+        return memberCpfsList is list
+          && (
+            (cpfDigits.size() == 11 && cpfDigits in memberCpfsList)
+            || scheduleMembroCpfFieldsInMemberCpfsList(tenantId, memberCpfsList)
+          );
+      }
+      function scheduleMembroCpfFieldsInMemberCpfsListViaCpf(tenantId, memberCpfsList) {
+        let cp = userScheduleCpfDigits();
+        let pC = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cp);
+        return cp.size() == 11
+          && cp.matches('^[0-9]{11}$')
+          && exists(pC)
+          && (
+            (get(pC).data.authUid == request.auth.uid)
+            || (get(pC).data.firebaseUid == request.auth.uid)
+          )
+          && cp in memberCpfsList;
+      }
+      function scheduleMembroCpfFieldsInMemberCpfsList(tenantId, memberCpfsList) {
+        let pU = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        return exists(pU)
+          ? (
+              (get(pU).data.CPF is string && get(pU).data.CPF in memberCpfsList)
+              || (get(pU).data.cpf is string && get(pU).data.cpf in memberCpfsList)
+            )
+          : scheduleMembroCpfFieldsInMemberCpfsListViaCpf(tenantId, memberCpfsList);
       }
       function scheduleMemberSelfConfirmOnly(tenantId) {
         let cpf = userScheduleCpfDigits();
         return isSignedIn()
           && canAccessTenant(tenantId)
           && !canWriteTenant(tenantId)
-          && cpf.size() == 11
           && resource.data.memberCpfs is list
-          && cpf in resource.data.memberCpfs
+          && scheduleMemberOnEscalaList(tenantId, resource.data.memberCpfs, cpf)
           && request.resource.data.diff(resource.data).changedKeys()
             .hasOnly(['confirmations', 'unavailabilityReasons']);
       }
@@ -457,14 +628,58 @@ service cloud.firestore {
           && request.resource.data.solicitanteCpf is string
           && request.resource.data.alvoCpf is string
           && (request.resource.data.status == 'pendente' || request.resource.data.status == 'pendente_alvo')
-          && request.resource.data.solicitanteCpf == userScheduleCpfDigits()
+          && scheduleTrocaSolicitanteMatches(id, request.resource.data.solicitanteCpf)
           && request.resource.data.solicitanteCpf != request.resource.data.alvoCpf;
         allow update, delete: if isAdminPanel() || canWriteTenant(id);
       }
+      function scheduleTrocaSolicitanteMatches(tenantId, solCpf) {
+        return solCpf is string
+          && solCpf.size() == 11
+          && solCpf.matches('^[0-9]{11}$')
+          && (
+            solCpf == userScheduleCpfDigits()
+            || scheduleTrocaSolicitanteViaMembroDoc(tenantId, solCpf)
+            || scheduleTrocaSolicitanteViaMembroDocIdCpf(tenantId, solCpf)
+          );
+      }
+      /// Ficha em `membros/{authUid}` com CPF igual ao solicitante.
+      function scheduleTrocaSolicitanteViaMembroDoc(tenantId, solCpf) {
+        let pU = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        return exists(pU)
+          && (
+            (get(pU).data.CPF is string && get(pU).data.CPF == solCpf)
+            || (get(pU).data.cpf is string && get(pU).data.cpf == solCpf)
+          );
+      }
+      /// Ficha em `membros/{cpf11}` (ID = CPF) com vínculo ao login — caso mais comum nas igrejas.
+      function scheduleTrocaSolicitanteViaMembroDocIdCpf(tenantId, solCpf) {
+        let pC = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(solCpf);
+        return exists(pC)
+          && (
+            get(pC).data.authUid == request.auth.uid
+            || get(pC).data.firebaseUid == request.auth.uid
+          );
+      }
       // Agenda inteligente (calendário interno — startTime / endTime / category).
+      // Escrita: permissão granular `eventos` + papéis do mural (não só gestor — igual `noticias`).
       match /agenda/{eventId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow write: if canWriteMuralFeed(id);
+      }
+
+      // Pontes Mercado Pago (webhook — só Admin SDK / Functions).
+      match /mp_payment_bridge/{bridgeId} {
+        allow read, write: if false;
+      }
+      match /mp_preference_bridge/{bridgeId} {
+        allow read, write: if false;
+      }
+      // Índice mínimo UUID → validação pública do QR (dados em certificados_emitidos).
+      match /certificados_protocol_index/{certId} {
+        allow get: if true;
+        allow list: if false;
+        allow create: if isSignedIn() && canWriteCertificadosPainel(id);
+        allow update, delete: if false;
       }
     }
 
@@ -535,6 +750,14 @@ service cloud.firestore {
       allow write: if isMaster();
     }
 
+    // Links oficiais Instagram / YouTube / WhatsApp + nome de exibição (site divulgação + login)
+    match /config/marketing_official {
+      allow read: if true;
+      allow write: if isAdminPanel()
+        || (isSignedIn() && request.auth.token.role != null
+            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+    }
+
     match /config/memberCard {
       allow read: if isSignedIn();
       allow write: if isMaster();
@@ -583,6 +806,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Ponte MP igreja → webhook (somente Cloud Functions / Admin SDK)
+    match /church_mp_payments/{id} {
+      allow read, write: if false;
+    }
+
     match /licenses/{id} {
       allow read: if isAdminPanel();
       allow create, update: if isAdminPanel();
@@ -605,9 +833,10 @@ service cloud.firestore {
       allow read, write: if isAdminPanel();
     }
 
-    // Customização do sistema (título, boas-vindas, tema) — painel master
+    // Customização do sistema (título, boas-vindas, tema) — escrita: master; leitura: logados (modal boas-vindas gestor)
     match /config/sistema {
-      allow read, write: if isAdminPanel();
+      allow read: if isSignedIn();
+      allow write: if isAdminPanel();
     }
 
     match /planos/{id} {
@@ -698,7 +927,7 @@ service cloud.firestore {
         && canWriteTenant(resource.data.tenantId);
     }
 
-    // Índice mínimo UUID → tenantId (validação pública do QR sem expor listagem).
+    // Legado: índice UUID → tenantId na raiz (migração para igrejas/{id}/certificados_protocol_index).
     match /certificados_protocol_index/{certId} {
       allow get: if true;
       allow list: if false;

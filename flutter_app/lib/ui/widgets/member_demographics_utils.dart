@@ -56,15 +56,23 @@ DateTime? birthDateFromMemberData(Map<String, dynamic>? data) {
   return null;
 }
 
+/// Idade em anos completos na data de referência (calendário local).
+/// Só incrementa após passar o dia/mês de aniversário no ano de [reference].
+int ageInYearsAt(DateTime birth, DateTime reference) {
+  var age = reference.year - birth.year;
+  if (reference.month < birth.month ||
+      (reference.month == birth.month && reference.day < birth.day)) {
+    age--;
+  }
+  return age;
+}
+
 /// Idade em anos; usa data de nascimento ou campos IDADE/idade/age.
 int? ageFromMemberData(Map<String, dynamic>? data) {
   if (data == null) return null;
   final dt = birthDateFromMemberData(data);
   if (dt != null) {
-    final now = DateTime.now();
-    var age = now.year - dt.year;
-    if (now.month < dt.month || (now.month == dt.month && now.day < dt.day)) age--;
-    return age;
+    return ageInYearsAt(dt, DateTime.now());
   }
   for (final k in ['IDADE', 'idade', 'age']) {
     final v = data[k];

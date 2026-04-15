@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
+import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
 
 /// Evita maps read-only do snapshot e falhas de interop na web ao gravar `items`.
 List<Map<String, dynamic>> _cloneGalleryItemMaps(List<Map<String, dynamic>> items) {
@@ -938,6 +939,8 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+            const AdminMarketingCanaisMasterCard(),
+            const SizedBox(height: 20),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(18),

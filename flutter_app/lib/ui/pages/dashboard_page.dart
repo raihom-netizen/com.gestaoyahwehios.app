@@ -78,16 +78,6 @@ class DashboardPage extends StatelessWidget {
     return '${d.day} $m';
   }
 
-  int? _calcAge(DateTime? birth) {
-    if (birth == null) return null;
-    final now = DateTime.now();
-    int age = now.year - birth.year;
-    final hasHadBirthday = (now.month > birth.month) ||
-        (now.month == birth.month && now.day >= birth.day);
-    if (!hasHadBirthday) age -= 1;
-    return age;
-  }
-
   String _normStatus(dynamic raw) {
     final s = (raw ?? '').toString().trim().toLowerCase();
     if (s.isEmpty) return 'ativo';
@@ -106,7 +96,6 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final cs = Theme.of(context).colorScheme;
     final nowBuild = DateTime.now();
     final roleKey = role.toLowerCase();
     final isAdmin = roleKey == 'adm' || roleKey == 'admin' || roleKey == 'gestor' || roleKey == 'master';
@@ -118,10 +107,6 @@ class DashboardPage extends StatelessWidget {
         .doc(tenantId)
         .collection('membros');
 
-    final departmentsCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
-        .collection('departamentos');
     final visitantesMesQuery = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId)
@@ -1128,9 +1113,9 @@ class _LicenseActiveBadge extends StatelessWidget {
           final raw = billing?['nextChargeAt'];
           if (raw is Timestamp) vencimento = raw.toDate();
         }
-        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
           future: planId.isEmpty
-              ? Future.value(null)
+              ? Future<DocumentSnapshot<Map<String, dynamic>>?>.value(null)
               : FirebaseFirestore.instance
                   .collection('config')
                   .doc('plans')

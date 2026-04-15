@@ -6,6 +6,98 @@ import 'package:pdf/widgets.dart' as pw;
 
 part 'certificate_pdf_gala_append.part.dart';
 
+String _normCasamentoNomeChave(String s) =>
+    s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+bool _casamentoNomeCorresponde(String candidato, String primeiroNorm) {
+  final c = _normCasamentoNomeChave(candidato);
+  if (c.isEmpty || primeiroNorm.isEmpty) return false;
+  if (c == primeiroNorm) return true;
+  // Um nome pode vir abreviado no dropdown em relação ao corpo (ou vice-versa).
+  if (c.startsWith(primeiroNorm) &&
+      (c.length == primeiroNorm.length || c[primeiroNorm.length] == ' ')) {
+    return true;
+  }
+  if (primeiroNorm.startsWith(c) &&
+      (primeiroNorm.length == c.length || primeiroNorm[c.length] == ' ')) {
+    return true;
+  }
+  return false;
+}
+
+/// Remove `**` e normaliza espaços — o texto do editor pode incluir markdown e
+/// quebrar o reconhecimento de «certificamos que A e B contraiu…».
+String _stripMarkdownParaRegexCertificado(String s) {
+  return s.replaceAll('**', '').replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+/// Quando o segundo nome não chega ao pipeline, extrai do corpo já resolvido:
+/// "Certificamos que A e B contraiu/contrataram/…", inclusive se A e B estiverem
+/// em ordem invertida em relação a [primeiroNome].
+String segundoNomeCasamentoFallbackDoCorpo(String corpo, String primeiroNome) {
+  final p = primeiroNome.trim();
+  if (p.isEmpty) return '';
+  final flat = _stripMarkdownParaRegexCertificado(corpo);
+  final pn = _normCasamentoNomeChave(p);
+
+  // Frase fixa "certificamos … que" e variante com texto entre vírgulas antes de "que".
+  final pairPatterns = <RegExp>[
+    RegExp(
+      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)\s+'
+      r'(?:contraiu|contraíram|contrataram|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos[^.!?]{0,160}?que\s+(.+?)\s+e\s+(.+?)\s+'
+      r'(?:contraiu|contraíram|contrataram|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se)\b',
+      caseSensitive: false,
+    ),
+  ];
+  for (final pairVerb in pairPatterns) {
+    for (final m in pairVerb.allMatches(flat)) {
+      final a = (m.group(1) ?? '').trim();
+      final b = (m.group(2) ?? '').trim();
+      if (a.isEmpty || b.isEmpty) continue;
+      if (_casamentoNomeCorresponde(a, pn)) return b;
+      if (_casamentoNomeCorresponde(b, pn)) return a;
+    }
+  }
+
+  final esc = RegExp.escape(p);
+  final patterns = <RegExp>[
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contraiu\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contraíram\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contrataram\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+celebraram\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contra\b',
+      caseSensitive: false,
+    ),
+  ];
+  for (final re in patterns) {
+    final m = re.firstMatch(flat);
+    if (m != null) {
+      final s = m.group(1)?.trim() ?? '';
+      if (s.isNotEmpty) return s;
+    }
+  }
+  return '';
+}
+
 /// Dados de um signatário já resolvidos (bytes opcionais da imagem da assinatura).
 class CertSignatoryPdfData {
   final String nome;
@@ -26,6 +118,8 @@ class CertificatePdfInput {
   final String subtitulo;
   final String texto;
   final String nomeMembro;
+  /// Segunda linha do nome no PDF (ex.: segundo cônjuge no casamento).
+  final String nomeMembroLinha2;
   /// CPF formatado como aparece em [texto] (para negrito no corpo).
   final String cpfFormatado;
   final String nomeIgreja;
@@ -64,6 +158,7 @@ class CertificatePdfInput {
     this.subtitulo = '',
     required this.texto,
     required this.nomeMembro,
+    this.nomeMembroLinha2 = '',
     this.cpfFormatado = '',
     required this.nomeIgreja,
     required this.local,
@@ -103,10 +198,77 @@ abstract final class _CertPdfLayoutHeights {
   static const double footerBlock = 96;
 }
 
-/// Corpo do certificado com nome e CPF em negrito (trechos iguais ao texto final).
+String _nomeCasamentoLinha2EfetivaParaDestaque(CertificatePdfInput input) {
+  final n1 = input.nomeMembro.trim();
+  final t = input.nomeMembroLinha2.trim();
+  if (t.isNotEmpty && t != n1) return t;
+  return segundoNomeCasamentoFallbackDoCorpo(input.texto, n1);
+}
+
+double _alturaBlocoNomeDecorativo(CertificatePdfInput input) {
+  final n1 = input.nomeMembro.trim();
+  final n2 = _nomeCasamentoLinha2EfetivaParaDestaque(input);
+  if (n2.isEmpty || n2 == n1) return _CertPdfLayoutHeights.nameBlock;
+  return 78;
+}
+
+double _alturaBlocoNomeDecorativoTradicional(CertificatePdfInput input) {
+  final n1 = input.nomeMembro.trim();
+  final n2 = _nomeCasamentoLinha2EfetivaParaDestaque(input);
+  if (n2.isEmpty || n2 == n1) {
+    return _CertPdfLayoutHeights.nameBlock + 4;
+  }
+  return 82;
+}
+
+/// Nome(s) em caligráfico no topo — casamento com duas linhas (igual ao corpo / layout gala).
+pw.Widget _pwDecorativeCertificateNames({
+  required CertificatePdfInput input,
+  required double fontSize,
+  required pw.FontWeight wDisplay,
+  required PdfColor color,
+  required pw.Font? font,
+}) {
+  final n1 = input.nomeMembro.trim();
+  final n2Raw = _nomeCasamentoLinha2EfetivaParaDestaque(input);
+  final n2 = (n2Raw.isNotEmpty && n2Raw != n1) ? n2Raw : '';
+  final style = pw.TextStyle(
+    fontSize: fontSize,
+    fontWeight: wDisplay,
+    color: color,
+    font: font,
+  );
+  if (n2.isEmpty) {
+    return pw.Text(
+      n1,
+      style: style,
+      textAlign: pw.TextAlign.center,
+      maxLines: 2,
+    );
+  }
+  final fs2 = fontSize * 0.92;
+  final style2 = pw.TextStyle(
+    fontSize: fs2,
+    fontWeight: wDisplay,
+    color: color,
+    font: font,
+  );
+  return pw.Column(
+    mainAxisSize: pw.MainAxisSize.min,
+    crossAxisAlignment: pw.CrossAxisAlignment.center,
+    children: [
+      pw.Text(n1, style: style, textAlign: pw.TextAlign.center, maxLines: 2),
+      pw.SizedBox(height: 3),
+      pw.Text(n2, style: style2, textAlign: pw.TextAlign.center, maxLines: 2),
+    ],
+  );
+}
+
+/// Corpo do certificado com nome(s) e CPF em negrito (trechos iguais ao texto final).
 pw.Widget _certificateBodyRich({
   required String texto,
   required String nome,
+  required String nomeLinha2,
   required String cpfFormatado,
   required double fontSize,
   required PdfColor color,
@@ -116,7 +278,13 @@ pw.Widget _certificateBodyRich({
   required bool useSyntheticBoldForHighlights,
 }) {
   final nomeT = nome.trim();
+  final nome2T = nomeLinha2.trim();
   final cpfT = cpfFormatado.trim();
+  final tokens = <String>[];
+  if (nomeT.isNotEmpty) tokens.add(nomeT);
+  if (nome2T.isNotEmpty) tokens.add(nome2T);
+  if (cpfT.isNotEmpty) tokens.add(cpfT);
+  tokens.sort((a, b) => b.length.compareTo(a.length));
   final normal = pw.TextStyle(
     fontSize: fontSize,
     color: color,
@@ -133,7 +301,7 @@ pw.Widget _certificateBodyRich({
     font: fontBold ?? font,
   );
   if (texto.isEmpty) return pw.SizedBox();
-  if (nomeT.isEmpty && cpfT.isEmpty) {
+  if (tokens.isEmpty) {
     return pw.Text(
       texto,
       style: normal,
@@ -143,26 +311,32 @@ pw.Widget _certificateBodyRich({
   final children = <pw.InlineSpan>[];
   var remaining = texto;
   while (remaining.isNotEmpty) {
-    final iNome = nomeT.isNotEmpty ? remaining.indexOf(nomeT) : -1;
-    final iCpf = cpfT.isNotEmpty ? remaining.indexOf(cpfT) : -1;
-    var next = -1;
-    String? token;
-    if (iNome >= 0 && (iCpf < 0 || iNome <= iCpf)) {
-      next = iNome;
-      token = nomeT;
-    } else if (iCpf >= 0) {
-      next = iCpf;
-      token = cpfT;
+    int bestPos = -1;
+    String? bestToken;
+    for (final tok in tokens) {
+      if (tok.isEmpty) continue;
+      // Busca case-insensitive para não perder destaque quando o corpo vier
+      // em caixa diferente (ex.: "JOÃO" no texto e "João" no cadastro).
+      final i = remaining.toLowerCase().indexOf(tok.toLowerCase());
+      if (i < 0) continue;
+      if (bestPos < 0 ||
+          i < bestPos ||
+          (i == bestPos && tok.length > (bestToken?.length ?? 0))) {
+        bestPos = i;
+        bestToken = tok;
+      }
     }
-    if (next < 0 || token == null) {
+    if (bestPos < 0 || bestToken == null) {
       children.add(pw.TextSpan(text: remaining, style: normal));
       break;
     }
-    if (next > 0) {
-      children.add(pw.TextSpan(text: remaining.substring(0, next), style: normal));
+    if (bestPos > 0) {
+      children.add(
+          pw.TextSpan(text: remaining.substring(0, bestPos), style: normal));
     }
-    children.add(pw.TextSpan(text: token, style: bold));
-    remaining = remaining.substring(next + token.length);
+    final matched = remaining.substring(bestPos, bestPos + bestToken.length);
+    children.add(pw.TextSpan(text: matched, style: bold));
+    remaining = remaining.substring(bestPos + matched.length);
   }
   return pw.RichText(
     textAlign: pw.TextAlign.center,
@@ -244,7 +418,6 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           : null,
   ];
 
-  const signatoryGap = 56.0;
   const signatoryBlockWidth = 140.0;
 
   pw.Widget buildSignatoryBlock(int i, PdfColor accent, PdfColor accentClaro) {
@@ -307,10 +480,9 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           children: [blocks[0]],
         );
       }
-      return pw.Wrap(
-        alignment: pw.WrapAlignment.center,
-        spacing: signatoryGap,
-        runSpacing: 16,
+      return pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: blocks,
       );
     }
@@ -346,6 +518,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
   final pw.FontWeight wDisplay =
       decorative ? pw.FontWeight.normal : pw.FontWeight.bold;
   final useSyntheticBoldInBody = !decorative;
+  final nomeLinha2Corpo = _nomeCasamentoLinha2EfetivaParaDestaque(input);
 
   pw.Font? montserrat;
   pw.Font? greatVibes;
@@ -428,7 +601,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                     if (logoImage != null)
                       pw.Center(
                         child: pw.Opacity(
-                          opacity: 0.06,
+                          opacity: 0.085,
                           child: pw.Container(
                             width: 300,
                             height: 300,
@@ -440,22 +613,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
-                          pw.SizedBox(
-                            height: logoImage != null
-                                ? 8
-                                : _CertPdfLayoutHeights.logoTop,
-                          ),
-                          if (logoImage != null)
-                            pw.Center(
-                              child: pw.Container(
-                                width: 136,
-                                height: 136,
-                                alignment: pw.Alignment.center,
-                                child: pw.Image(logoImage,
-                                    fit: pw.BoxFit.contain),
-                              ),
-                            ),
-                          if (logoImage != null) pw.SizedBox(height: 8),
+                          pw.SizedBox(height: logoImage != null ? 22 : 28),
                           if (input.nomeIgreja.trim().isNotEmpty) ...[
                             pw.Padding(
                               padding:
@@ -475,7 +633,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                             pw.SizedBox(height: 6),
                           ],
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.titleBlock - 28,
+                            height: _CertPdfLayoutHeights.titleBlock,
                             child: pw.Column(
                               mainAxisAlignment: pw.MainAxisAlignment.start,
                               crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -513,18 +671,14 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                             ),
                           ),
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.nameBlock,
+                            height: _alturaBlocoNomeDecorativo(input),
                             child: pw.Center(
-                              child: pw.Text(
-                                input.nomeMembro,
-                                style: pw.TextStyle(
-                                  fontSize: nameSize(22),
-                                  fontWeight: wDisplay,
-                                  color: pdfCor,
-                                  font: fontForName(),
-                                ),
-                                textAlign: pw.TextAlign.center,
-                                maxLines: 2,
+                              child: _pwDecorativeCertificateNames(
+                                input: input,
+                                fontSize: nameSize(22),
+                                wDisplay: wDisplay,
+                                color: pdfCor,
+                                font: fontForName(),
                               ),
                             ),
                           ),
@@ -537,6 +691,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                                 child: _certificateBodyRich(
                                   texto: input.texto,
                                   nome: input.nomeMembro,
+                                  nomeLinha2: nomeLinha2Corpo,
                                   cpfFormatado: input.cpfFormatado,
                                   fontSize: 12,
                                   color: pdfTextCor,
@@ -599,126 +754,123 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                   border: pw.Border.all(
                       color: PdfColor.fromHex('E5C77A'), width: 1.2),
                 ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                child: pw.Stack(
                   children: [
-                    pw.Row(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Container(
-                          width: 104,
-                          height: 104,
-                          alignment: pw.Alignment.topLeft,
-                          child: logoImage != null
-                              ? pw.Image(logoImage, fit: pw.BoxFit.contain)
-                              : pw.SizedBox(),
+                    if (logoImage != null)
+                      pw.Center(
+                        child: pw.Opacity(
+                          opacity: 0.075,
+                          child: pw.Container(
+                            width: 280,
+                            height: 280,
+                            child:
+                                pw.Image(logoImage, fit: pw.BoxFit.contain),
+                          ),
                         ),
-                        pw.Expanded(
-                          child: pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.center,
-                            children: [
+                      ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                      children: [
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
+                            pw.Text(
+                              input.titulo.toUpperCase(),
+                              style: pw.TextStyle(
+                                fontSize: 20,
+                                fontWeight: wDisplay,
+                                color: pdfTextCor,
+                                letterSpacing: 1.0,
+                                font: fontForTitle(),
+                              ),
+                              textAlign: pw.TextAlign.center,
+                            ),
+                            if (input.nomeIgreja.trim().isNotEmpty) ...[
+                              pw.SizedBox(height: 6),
                               pw.Text(
-                                input.titulo.toUpperCase(),
+                                input.nomeIgreja.toUpperCase(),
                                 style: pw.TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: wDisplay,
-                                  color: pdfTextCor,
-                                  letterSpacing: 1.0,
-                                  font: fontForTitle(),
+                                  fontSize: 10,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: pdfCor,
+                                  font: fontForBody(),
+                                  letterSpacing: 0.35,
                                 ),
                                 textAlign: pw.TextAlign.center,
                               ),
-                              if (input.nomeIgreja.trim().isNotEmpty) ...[
-                                pw.SizedBox(height: 6),
-                                pw.Text(
-                                  input.nomeIgreja.toUpperCase(),
-                                  style: pw.TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: pw.FontWeight.bold,
-                                    color: pdfCor,
-                                    font: fontForBody(),
-                                    letterSpacing: 0.35,
-                                  ),
-                                  textAlign: pw.TextAlign.center,
+                            ],
+                            if (input.subtitulo.trim().isNotEmpty) ...[
+                              pw.SizedBox(height: 6),
+                              pw.Text(
+                                input.subtitulo.trim(),
+                                style: pw.TextStyle(
+                                  fontSize: 13,
+                                  fontStyle: pw.FontStyle.italic,
+                                  color: pdfTextCor,
+                                  font: fontForBody(),
                                 ),
-                              ],
-                              if (input.subtitulo.trim().isNotEmpty) ...[
-                                pw.SizedBox(height: 6),
-                                pw.Text(
-                                  input.subtitulo.trim(),
-                                  style: pw.TextStyle(
+                                textAlign: pw.TextAlign.center,
+                              ),
+                            ],
+                          ],
+                        ),
+                        pw.SizedBox(height: 8),
+                        pw.SizedBox(
+                          height: _alturaBlocoNomeDecorativoTradicional(input),
+                          child: pw.Center(
+                            child: _pwDecorativeCertificateNames(
+                              input: input,
+                              fontSize: nameSize(20),
+                              wDisplay: wDisplay,
+                              color: pdfCor,
+                              font: fontForName(),
+                            ),
+                          ),
+                        ),
+                        pw.SizedBox(
+                          height: _CertPdfLayoutHeights.bodyBlock + 24,
+                          child: pw.Center(
+                            child: pw.Container(
+                              constraints:
+                                  const pw.BoxConstraints(maxWidth: 480),
+                              child: pw.Column(
+                                mainAxisAlignment: pw.MainAxisAlignment.center,
+                                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                                children: [
+                                  _certificateBodyRich(
+                                    texto: input.texto,
+                                    nome: input.nomeMembro,
+                                    nomeLinha2: nomeLinha2Corpo,
+                                    cpfFormatado: input.cpfFormatado,
                                     fontSize: 13,
-                                    fontStyle: pw.FontStyle.italic,
                                     color: pdfTextCor,
                                     font: fontForBody(),
+                                    fontBold: fontForBodyBold(),
+                                    useSyntheticBoldForHighlights:
+                                        useSyntheticBoldInBody,
                                   ),
-                                  textAlign: pw.TextAlign.center,
-                                ),
-                              ],
-                            ],
+                                  if (issueLine().isNotEmpty) ...[
+                                    pw.SizedBox(height: 12),
+                                    pw.Text(
+                                      issueLine(),
+                                      style: pw.TextStyle(
+                                        fontSize: 11,
+                                        color: pdfCorClaro,
+                                        font: fontForBody(),
+                                      ),
+                                      textAlign: pw.TextAlign.center,
+                                      maxLines: 2,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                        pw.SizedBox(width: 104),
+                        pw.SizedBox(height: 12),
+                        buildFooterSignatures(pdfCor, pdfCorClaro),
                       ],
                     ),
-                    pw.SizedBox(height: 8),
-                    pw.SizedBox(
-                      height: _CertPdfLayoutHeights.nameBlock + 4,
-                      child: pw.Center(
-                        child: pw.Text(
-                          input.nomeMembro,
-                          style: pw.TextStyle(
-                            fontSize: nameSize(20),
-                            fontWeight: wDisplay,
-                            color: pdfCor,
-                            font: fontForName(),
-                          ),
-                          textAlign: pw.TextAlign.center,
-                          maxLines: 2,
-                        ),
-                      ),
-                    ),
-                    pw.SizedBox(
-                      height: _CertPdfLayoutHeights.bodyBlock + 24,
-                      child: pw.Center(
-                        child: pw.Container(
-                          constraints:
-                              const pw.BoxConstraints(maxWidth: 480),
-                          child: pw.Column(
-                            mainAxisAlignment: pw.MainAxisAlignment.center,
-                            crossAxisAlignment: pw.CrossAxisAlignment.center,
-                            children: [
-                              _certificateBodyRich(
-                                texto: input.texto,
-                                nome: input.nomeMembro,
-                                cpfFormatado: input.cpfFormatado,
-                                fontSize: 13,
-                                color: pdfTextCor,
-                                font: fontForBody(),
-                                fontBold: fontForBodyBold(),
-                                useSyntheticBoldForHighlights:
-                                    useSyntheticBoldInBody,
-                              ),
-                              if (issueLine().isNotEmpty) ...[
-                                pw.SizedBox(height: 12),
-                                pw.Text(
-                                  issueLine(),
-                                  style: pw.TextStyle(
-                                    fontSize: 11,
-                                    color: pdfCorClaro,
-                                    font: fontForBody(),
-                                  ),
-                                  textAlign: pw.TextAlign.center,
-                                  maxLines: 2,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    pw.SizedBox(height: 12),
-                    buildFooterSignatures(pdfCor, pdfCorClaro),
                   ],
                 ),
               ),
@@ -751,107 +903,101 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                 pw.Expanded(
                   child: pw.Padding(
                     padding: const pw.EdgeInsets.fromLTRB(28, 20, 28, 16),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    child: pw.Stack(
                       children: [
+                        if (logoImage != null)
+                          pw.Center(
+                            child: pw.Opacity(
+                              opacity: 0.07,
+                              child: pw.Container(
+                                width: 300,
+                                height: 300,
+                                child: pw.Image(logoImage,
+                                    fit: pw.BoxFit.contain),
+                              ),
+                            ),
+                          ),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.center,
+                          children: [
                         pw.SizedBox(
                           height: _CertPdfLayoutHeights.logoTop +
                               _CertPdfLayoutHeights.titleBlock +
                               8,
-                          child: pw.Row(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          child: pw.Column(
+                            mainAxisAlignment:
+                                pw.MainAxisAlignment.start,
+                            crossAxisAlignment:
+                                pw.CrossAxisAlignment.center,
                             children: [
-                              pw.Container(
-                                width: logoImage != null ? 104 : 0.0,
-                                height: logoImage != null ? 104 : 0.0,
-                                alignment: pw.Alignment.topLeft,
-                                child: logoImage != null
-                                    ? pw.Image(logoImage,
-                                        fit: pw.BoxFit.contain)
-                                    : pw.SizedBox(),
-                              ),
-                              pw.Expanded(
-                                child: pw.Column(
-                                  mainAxisAlignment:
-                                      pw.MainAxisAlignment.start,
-                                  crossAxisAlignment:
-                                      pw.CrossAxisAlignment.center,
-                                  children: [
-                                    pw.Text(
-                                      input.titulo,
-                                      style: pw.TextStyle(
-                                        fontSize:
-                                            isMinimalista ? 26 : 24,
-                                        fontWeight: wDisplay,
-                                        color: pdfCor,
-                                        font: fontForTitle(),
-                                      ),
-                                      textAlign: pw.TextAlign.center,
-                                    ),
-                                    if (input.subtitulo
-                                        .trim()
-                                        .isNotEmpty) ...[
-                                      pw.SizedBox(height: 8),
-                                      pw.Padding(
-                                        padding: const pw
-                                            .EdgeInsets.symmetric(
-                                            horizontal: 12),
-                                        child: pw.Text(
-                                          input.subtitulo.trim(),
-                                          style: pw.TextStyle(
-                                            fontSize: 12,
-                                            fontStyle:
-                                                pw.FontStyle.italic,
-                                            color: pdfTextCor,
-                                            font: fontForBody(),
-                                          ),
-                                          textAlign: pw.TextAlign.center,
-                                          maxLines: 3,
-                                        ),
-                                      ),
-                                    ],
-                                    if (input.nomeIgreja
-                                        .trim()
-                                        .isNotEmpty) ...[
-                                      pw.SizedBox(height: 8),
-                                      pw.Padding(
-                                        padding: const pw
-                                            .EdgeInsets.symmetric(
-                                            horizontal: 16),
-                                        child: pw.Text(
-                                          input.nomeIgreja
-                                              .toUpperCase(),
-                                          style: pw.TextStyle(
-                                            fontSize: 11,
-                                            color: pdfCor,
-                                            fontWeight:
-                                                pw.FontWeight.bold,
-                                            font: fontForBody(),
-                                            letterSpacing: 0.35,
-                                          ),
-                                          textAlign: pw.TextAlign.center,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
+                              pw.Text(
+                                input.titulo,
+                                style: pw.TextStyle(
+                                  fontSize:
+                                      isMinimalista ? 26 : 24,
+                                  fontWeight: wDisplay,
+                                  color: pdfCor,
+                                  font: fontForTitle(),
                                 ),
+                                textAlign: pw.TextAlign.center,
                               ),
+                              if (input.subtitulo
+                                  .trim()
+                                  .isNotEmpty) ...[
+                                pw.SizedBox(height: 8),
+                                pw.Padding(
+                                  padding: const pw
+                                      .EdgeInsets.symmetric(
+                                      horizontal: 12),
+                                  child: pw.Text(
+                                    input.subtitulo.trim(),
+                                    style: pw.TextStyle(
+                                      fontSize: 12,
+                                      fontStyle:
+                                          pw.FontStyle.italic,
+                                      color: pdfTextCor,
+                                      font: fontForBody(),
+                                    ),
+                                    textAlign: pw.TextAlign.center,
+                                    maxLines: 3,
+                                  ),
+                                ),
+                              ],
+                              if (input.nomeIgreja
+                                  .trim()
+                                  .isNotEmpty) ...[
+                                pw.SizedBox(height: 8),
+                                pw.Padding(
+                                  padding: const pw
+                                      .EdgeInsets.symmetric(
+                                      horizontal: 16),
+                                  child: pw.Text(
+                                    input.nomeIgreja
+                                        .toUpperCase(),
+                                    style: pw.TextStyle(
+                                      fontSize: 11,
+                                      color: pdfCor,
+                                      fontWeight:
+                                          pw.FontWeight.bold,
+                                      font: fontForBody(),
+                                      letterSpacing: 0.35,
+                                    ),
+                                    textAlign: pw.TextAlign.center,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
                         pw.SizedBox(
-                          height: _CertPdfLayoutHeights.nameBlock,
+                          height: _alturaBlocoNomeDecorativo(input),
                           child: pw.Center(
-                            child: pw.Text(
-                              input.nomeMembro,
-                              style: pw.TextStyle(
-                                fontSize: nameSize(22),
-                                fontWeight: wDisplay,
-                                color: pdfTextCor,
-                                font: fontForName(),
-                              ),
-                              textAlign: pw.TextAlign.center,
-                              maxLines: 2,
+                            child: _pwDecorativeCertificateNames(
+                              input: input,
+                              fontSize: nameSize(22),
+                              wDisplay: wDisplay,
+                              color: pdfTextCor,
+                              font: fontForName(),
                             ),
                           ),
                         ),
@@ -868,6 +1014,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                                   _certificateBodyRich(
                                     texto: input.texto,
                                     nome: input.nomeMembro,
+                                    nomeLinha2: nomeLinha2Corpo,
                                     cpfFormatado: input.cpfFormatado,
                                     fontSize: 12,
                                     color: pdfTextCor,
@@ -896,6 +1043,8 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                         ),
                       ],
                     ),
+                  ],
+                ),
                   ),
                 ),
                 pw.Padding(

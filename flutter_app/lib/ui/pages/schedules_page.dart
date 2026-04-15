@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
@@ -27,9 +29,14 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
         dedupeChurchDepartmentDocuments,
         prettifyChurchDepartmentDisplayName;
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/utils/schedule_escala_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+
+const bool kScheduleAutoGenerationEnabled = false;
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -48,11 +55,144 @@ Map<String, dynamic> _remapScheduleCpfKeyedMap(
   return out;
 }
 
+/// Data `dd/MM/aaaa` no diálogo «Gerar escalas».
+DateTime? _parseBrDateDdMmYyyy(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return null;
+  try {
+    final d = DateFormat('dd/MM/yyyy').parseStrict(s);
+    return DateTime(d.year, d.month, d.day);
+  } catch (_) {
+    return null;
+  }
+}
+
+int _scheduleLastDayOfMonth(int year, int month) =>
+    DateTime(year, month + 1, 0).day;
+
+DateTime _scheduleAddMonthsClamped(DateTime dt, int monthsToAdd) {
+  var y = dt.year;
+  var m = dt.month + monthsToAdd;
+  while (m > 12) {
+    m -= 12;
+    y++;
+  }
+  while (m < 1) {
+    m += 12;
+    y--;
+  }
+  final last = _scheduleLastDayOfMonth(y, m);
+  final d = math.min(dt.day, last);
+  return DateTime(y, m, d);
+}
+
+/// Ocorrências do modelo entre [rangeStart] e [rangeEnd] (inclusive, só calendário).
+List<DateTime> scheduleTemplateOccurrencesInRange({
+  required String recurrence,
+  required int? weekday,
+  required DateTime rangeStart,
+  required DateTime rangeEnd,
+  required int hour,
+  required int minute,
+  int maxOccurrences = 400,
+}) {
+  final start = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
+  final end = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
+  if (end.isBefore(start)) return [];
+  final rec = recurrence.toLowerCase().trim();
+  final out = <DateTime>[];
+  void push(DateTime dayOnly) {
+    if (out.length >= maxOccurrences) return;
+    out.add(DateTime(dayOnly.year, dayOnly.month, dayOnly.day, hour, minute));
+  }
+
+  if (rec == 'daily') {
+    var c = start;
+    while (!c.isAfter(end)) {
+      push(c);
+      c = c.add(const Duration(days: 1));
+    }
+    return out;
+  }
+
+  if (rec == 'monthly') {
+    var c = DateTime(
+      start.year,
+      start.month,
+      math.min(start.day, _scheduleLastDayOfMonth(start.year, start.month)),
+    );
+    while (c.isBefore(start)) {
+      c = _scheduleAddMonthsClamped(c, 1);
+    }
+    while (!c.isAfter(end)) {
+      if (!c.isBefore(start)) push(c);
+      if (out.length >= maxOccurrences) break;
+      c = _scheduleAddMonthsClamped(c, 1);
+    }
+    return out;
+  }
+
+  if (rec == 'yearly') {
+    var c = DateTime(
+      start.year,
+      start.month,
+      math.min(start.day, _scheduleLastDayOfMonth(start.year, start.month)),
+    );
+    while (c.isBefore(start)) {
+      final ny = c.year + 1;
+      c = DateTime(
+        ny,
+        c.month,
+        math.min(c.day, _scheduleLastDayOfMonth(ny, c.month)),
+      );
+    }
+    while (!c.isAfter(end)) {
+      if (!c.isBefore(start)) push(c);
+      if (out.length >= maxOccurrences) break;
+      final ny = c.year + 1;
+      c = DateTime(
+        ny,
+        c.month,
+        math.min(c.day, _scheduleLastDayOfMonth(ny, c.month)),
+      );
+    }
+    return out;
+  }
+
+  // weekly (default)
+  var w = start;
+  if (weekday != null) {
+    while (w.weekday != weekday && !w.isAfter(end)) {
+      w = w.add(const Duration(days: 1));
+    }
+    while (!w.isAfter(end)) {
+      push(w);
+      if (out.length >= maxOccurrences) break;
+      w = w.add(const Duration(days: 7));
+    }
+  } else {
+    while (!w.isAfter(end)) {
+      push(w);
+      if (out.length >= maxOccurrences) break;
+      w = w.add(const Duration(days: 7));
+    }
+  }
+  return out;
+}
+
 class SchedulesPage extends StatefulWidget {
   final String tenantId;
   final String role;
   final String cpf;
-  const SchedulesPage({super.key, required this.tenantId, required this.role, required this.cpf});
+  /// Dentro de [IgrejaCleanShell]: abas “pill” coladas ao cartão do módulo + [SafeArea] ajustado.
+  final bool embeddedInShell;
+  const SchedulesPage({
+    super.key,
+    required this.tenantId,
+    required this.role,
+    required this.cpf,
+    this.embeddedInShell = false,
+  });
 
   @override
   State<SchedulesPage> createState() => _SchedulesPageState();
@@ -68,13 +208,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   late Future<DocumentSnapshot<Map<String, dynamic>>> _tenantFuture;
   String _filterDeptId = '';
   String _reportDeptId = ''; // filtro de departamento no relatório
-  String _periodFilter = 'mes_atual'; // diario, semanal, mes_anterior, mes_atual, anual, periodo
+  /// `todos` = sem filtro de data nas escalas já carregadas (até 500) — padrão para não “sumir” escalas geradas noutro mês.
+  String _periodFilter = 'todos'; // todos, diario, semanal, mes_anterior, mes_atual, anual, periodo
   DateTime? _periodStart;
   DateTime? _periodEnd;
   /// Lista (0) ou calendário interativo (1) na aba “Escalas Geradas”.
   int _instancesViewSegment = 0;
   DateTime _schedCalFocused = DateTime.now();
   DateTime? _schedCalSelected;
+
+  /// Seleção na lista para exclusão em lote.
+  bool _escalaSelectionMode = false;
+  final Set<String> _selectedEscalaIds = {};
+
+  /// Filtros da aba Escalas geradas — recolhido por defeito para ganhar área útil.
+  bool _escalaFiltersExpanded = false;
 
   /// Pastoral / gestão / papel global com escala geral.
   bool get _canWriteFull => AppPermissions.canEditSchedules(widget.role);
@@ -148,6 +296,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     bool inRange(DateTime? dt) {
       if (dt == null) return false;
       switch (_periodFilter) {
+        case 'todos':
+          return true;
         case 'diario':
           final today = _startOfDay(now);
           return !dt.isBefore(today) && !dt.isAfter(_endOfDay(now));
@@ -177,6 +327,75 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }).toList();
   }
 
+  /// Pool só com filtro de departamento (ignora chips de período) — exclusão por mês/ano.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _deptOnlyPool(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  ) {
+    var deptFiltered = _filterDeptId.isEmpty
+        ? allDocs
+        : allDocs
+            .where((d) =>
+                (d.data()['departmentId'] ?? '').toString() == _filterDeptId)
+            .toList();
+    if (_scopedDeptLeader) {
+      deptFiltered = deptFiltered
+          .where((d) => _managedDeptIds
+              .contains((d.data()['departmentId'] ?? '').toString()))
+          .toList();
+    }
+    return deptFiltered;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _visibleInstancesFromAll(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  ) {
+    var deptFiltered = _filterDeptId.isEmpty
+        ? allDocs
+        : allDocs
+            .where((d) =>
+                (d.data()['departmentId'] ?? '').toString() == _filterDeptId)
+            .toList();
+    if (_scopedDeptLeader) {
+      deptFiltered = deptFiltered
+          .where((d) => _managedDeptIds
+              .contains((d.data()['departmentId'] ?? '').toString()))
+          .toList();
+    }
+    return _filterInstancesByPeriod(deptFiltered);
+  }
+
+  bool _canDeleteInstance(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final deptIdInst = (doc.data()['departmentId'] ?? '').toString();
+    return _canWriteFull || _managedDeptIds.contains(deptIdInst);
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docsForMonthYear(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> pool,
+    int year,
+    int month,
+  ) {
+    return pool.where((d) {
+      DateTime? dt;
+      try {
+        dt = (d.data()['date'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      return dt != null && dt.year == year && dt.month == month;
+    }).toList();
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docsForYear(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> pool,
+    int year,
+  ) {
+    return pool.where((d) {
+      DateTime? dt;
+      try {
+        dt = (d.data()['date'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      return dt != null && dt.year == year;
+    }).toList();
+  }
+
   void _refreshTemplates() {
     setState(() {
       _templatesFuture = _effectiveTidFuture.then((tid) => _templatesCol(tid).orderBy('title').get());
@@ -189,6 +408,47 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     });
   }
 
+  Future<void> _exportEscalaInstancePdf(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    final path = doc.reference.path.split('/');
+    if (path.length < 2 || path[0] != 'igrejas') return;
+    final tid = path[1];
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gerando PDF…'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      final branding = await loadReportPdfBranding(tid);
+      final tenantSnap =
+          await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final t = tenantSnap.data() ?? {};
+      final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
+      final phone =
+          (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final bytes = await buildScheduleEscalaPdf(
+        escalaData: doc.data() ?? {},
+        branding: branding,
+        churchAddress: address,
+        churchPhone: phone,
+      );
+      if (!mounted) return;
+      await showPdfActions(
+        context,
+        bytes: bytes,
+        filename: 'escala_${doc.id}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível gerar o PDF: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _notifySchedulePublished(String scheduleId) async {
     try {
       final tid = await _effectiveTidFuture;
@@ -198,13 +458,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'tenantId': tid,
         'scheduleId': scheduleId,
       });
-      final n = (res.data is Map && (res.data as Map)['count'] != null)
-          ? (res.data as Map)['count']
-          : 0;
+      final map = res.data is Map ? (res.data as Map) : <String, dynamic>{};
+      final n = map['count'] ?? 0;
+      final emails = map['emailsSent'];
       if (mounted) {
+        final extra = emails is int && emails > 0 ? ' + $emails e-mail(s).' : '';
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'Notificações enviadas ($n envio(s) FCM).',
+            'Notificações enviadas ($n envio(s) FCM$extra',
           ),
         );
       }
@@ -362,6 +623,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   String get _periodLabelUppercase {
     switch (_periodFilter) {
+      case 'todos': return 'TODAS (CARREGADAS)';
       case 'diario': return 'DIÁRIO';
       case 'semanal': return 'SEMANAL';
       case 'mes_anterior': return 'MÊS ANTERIOR';
@@ -432,8 +694,423 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
   }
 
-  // ── Gerar escalas futuras com rodízio inteligente ──────────────────────────
+  /// Diálogo premium: período explícito (início/fim) — evita “próximos 30 dias” ou mês inteiro sem controlo.
+  Future<({DateTime start, DateTime end, int members})?> _showPremiumGenerateScheduleDialog() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var rangeStart = today;
+    var rangeEnd = today.add(const Duration(days: 13));
+    final membersCtrl = TextEditingController(text: '5');
+    final startCtrl = TextEditingController(
+      text: DateFormat('dd/MM/yyyy').format(rangeStart),
+    );
+    final endCtrl = TextEditingController(
+      text: DateFormat('dd/MM/yyyy').format(rangeEnd),
+    );
+    String? errText;
+
+    final result = await showDialog<({DateTime start, DateTime end, int members})?>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            Future<void> pickStart() async {
+              final d = await showDatePicker(
+                context: ctx,
+                initialDate: rangeStart,
+                firstDate: DateTime(today.year - 1, 1, 1),
+                lastDate: DateTime(today.year + 2, 12, 31),
+                locale: const Locale('pt', 'BR'),
+                helpText: 'Data inicial',
+                cancelText: 'Cancelar',
+                confirmText: 'Definir',
+                builder: (c, child) => Theme(
+                  data: Theme.of(c).copyWith(
+                    colorScheme: Theme.of(c).colorScheme.copyWith(
+                          primary: ThemeCleanPremium.primary,
+                        ),
+                  ),
+                  child: child!,
+                ),
+              );
+              if (d != null) {
+                setS(() {
+                  rangeStart = DateTime(d.year, d.month, d.day);
+                  startCtrl.text = DateFormat('dd/MM/yyyy').format(rangeStart);
+                  errText = null;
+                });
+              }
+            }
+
+            Future<void> pickEnd() async {
+              final d = await showDatePicker(
+                context: ctx,
+                initialDate: rangeEnd,
+                firstDate: DateTime(today.year - 1, 1, 1),
+                lastDate: DateTime(today.year + 2, 12, 31),
+                locale: const Locale('pt', 'BR'),
+                helpText: 'Data final',
+                cancelText: 'Cancelar',
+                confirmText: 'Definir',
+                builder: (c, child) => Theme(
+                  data: Theme.of(c).copyWith(
+                    colorScheme: Theme.of(c).colorScheme.copyWith(
+                          primary: ThemeCleanPremium.primary,
+                        ),
+                  ),
+                  child: child!,
+                ),
+              );
+              if (d != null) {
+                setS(() {
+                  rangeEnd = DateTime(d.year, d.month, d.day);
+                  endCtrl.text = DateFormat('dd/MM/yyyy').format(rangeEnd);
+                  errText = null;
+                });
+              }
+            }
+
+            final parsedStart = _parseBrDateDdMmYyyy(startCtrl.text);
+            final parsedEnd = _parseBrDateDdMmYyyy(endCtrl.text);
+            final span = (parsedStart != null &&
+                    parsedEnd != null &&
+                    !parsedEnd.isBefore(parsedStart))
+                ? parsedEnd.difference(parsedStart).inDays + 1
+                : 0;
+            final border = OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              borderSide: BorderSide(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
+              ),
+            );
+            final focusedBorder = OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              borderSide: BorderSide(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
+                width: 1.5,
+              ),
+            );
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+              ),
+              backgroundColor: ThemeCleanPremium.cardBackground,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            IconButton(
+                              tooltip: 'Voltar',
+                              onPressed: () => Navigator.pop(ctx, null),
+                              icon: Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: ThemeCleanPremium.onSurface,
+                                size: 20,
+                              ),
+                              style: IconButton.styleFrom(
+                                padding: const EdgeInsets.all(8),
+                                minimumSize: const Size(40, 40),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    ThemeCleanPremium.primary.withValues(alpha: 0.14),
+                                    ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.22),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                              ),
+                              child: Icon(Icons.event_available_rounded,
+                                  color: ThemeCleanPremium.primary, size: 26),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Gerar escalas',
+                                    style: TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.4,
+                                      color: ThemeCleanPremium.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Escolha só o intervalo desejado. Nada é criado fora dessas datas.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.4,
+                                      fontWeight: FontWeight.w500,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Período (inicial e final)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: startCtrl,
+                          keyboardType: TextInputType.text,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Data inicial',
+                            hintText: 'dd/MM/aaaa',
+                            suffixIcon: IconButton(
+                              tooltip: 'Calendário',
+                              icon: Icon(Icons.calendar_month_rounded,
+                                  color: ThemeCleanPremium.primary),
+                              onPressed: pickStart,
+                            ),
+                            filled: true,
+                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
+                            border: border,
+                            enabledBorder: border,
+                            focusedBorder: focusedBorder,
+                          ),
+                          onChanged: (_) => setS(() => errText = null),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: endCtrl,
+                          keyboardType: TextInputType.text,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Data final',
+                            hintText: 'dd/MM/aaaa',
+                            suffixIcon: IconButton(
+                              tooltip: 'Calendário',
+                              icon: Icon(Icons.calendar_month_rounded,
+                                  color: ThemeCleanPremium.primary),
+                              onPressed: pickEnd,
+                            ),
+                            filled: true,
+                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
+                            border: border,
+                            enabledBorder: border,
+                            focusedBorder: focusedBorder,
+                          ),
+                          onChanged: (_) => setS(() => errText = null),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          parsedStart != null &&
+                                  parsedEnd != null &&
+                                  parsedEnd.isBefore(parsedStart)
+                              ? 'A data final não pode ser anterior à inicial.'
+                              : span >= 1
+                                  ? '$span dia(s) no período'
+                                  : 'Informe datas válidas (dd/MM/aaaa)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: parsedStart != null &&
+                                    parsedEnd != null &&
+                                    parsedEnd.isBefore(parsedStart)
+                                ? ThemeCleanPremium.error
+                                : ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: membersCtrl,
+                          keyboardType: TextInputType.number,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Membros por escala',
+                            prefixIcon:
+                                Icon(Icons.groups_rounded, color: ThemeCleanPremium.primary),
+                            filled: true,
+                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
+                            border: border,
+                            enabledBorder: border,
+                            focusedBorder: focusedBorder,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                            gradient: LinearGradient(
+                              colors: [
+                                ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                                ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.12),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            border: Border.all(
+                              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.auto_awesome_rounded,
+                                  color: ThemeCleanPremium.primary, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Rodízio: quem serviu menos entra primeiro. '
+                                  'A periodicidade do modelo (diária, semanal, mensal ou anual) aplica-se apenas dentro do período escolhido.',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.4,
+                                    fontWeight: FontWeight.w600,
+                                    color: ThemeCleanPremium.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (errText != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            errText!,
+                            style: TextStyle(
+                              color: ThemeCleanPremium.error,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(ctx, null),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  foregroundColor: ThemeCleanPremium.onSurface,
+                                  side: BorderSide(
+                                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: const Text('Cancelar'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: FilledButton(
+                                onPressed: () {
+                                  final n = int.tryParse(membersCtrl.text.trim()) ?? 5;
+                                  final pS = _parseBrDateDdMmYyyy(startCtrl.text);
+                                  final pE = _parseBrDateDdMmYyyy(endCtrl.text);
+                                  if (pS == null) {
+                                    setS(() => errText =
+                                        'Data inicial inválida. Use dd/MM/aaaa.');
+                                    return;
+                                  }
+                                  if (pE == null) {
+                                    setS(() => errText =
+                                        'Data final inválida. Use dd/MM/aaaa.');
+                                    return;
+                                  }
+                                  if (pE.isBefore(pS)) {
+                                    setS(() => errText =
+                                        'A data final não pode ser anterior à inicial.');
+                                    return;
+                                  }
+                                  final spanDays = pE.difference(pS).inDays + 1;
+                                  if (spanDays > 731) {
+                                    setS(() => errText =
+                                        'Período máximo: 731 dias (2 anos). Reduza o intervalo.');
+                                    return;
+                                  }
+                                  if (n < 1) {
+                                    setS(() =>
+                                        errText = 'Informe ao menos 1 membro por escala.');
+                                    return;
+                                  }
+                                  Navigator.pop(
+                                    ctx,
+                                    (
+                                      start: pS,
+                                      end: pE,
+                                      members: n.clamp(1, 999),
+                                    ),
+                                  );
+                                },
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: ThemeCleanPremium.primary,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                ),
+                                child: const Text('Gerar neste período'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    membersCtrl.dispose();
+    startCtrl.dispose();
+    endCtrl.dispose();
+    return result;
+  }
+
+  // ── Gerar escalas no período escolhido (rodízio + conflitos) ───────────────
   Future<void> _generate(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!kScheduleAutoGenerationEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'A geração automática de escala está desativada no momento.',
+          ),
+        );
+      }
+      return;
+    }
     if (!_canWrite) return;
     final tplDept = (doc.data()?['departmentId'] ?? '').toString();
     if (!_canWriteFull &&
@@ -447,84 +1124,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
       return;
     }
-    final daysCtrl = TextEditingController(text: '30');
-    final membersPerDay = TextEditingController(text: '5');
-    var replicateMonth = false;
-    var monthOffset = 0; // 0 = mês atual, 1 = próximo mês
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-          title: const Text('Gerar escalas futuras', style: TextStyle(fontWeight: FontWeight.w800)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Repetir no mês inteiro'),
-                  subtitle: const Text('Gera todas as ocorrências do mesmo dia da semana (ex.: todos os domingos). Exige dia da semana no modelo.'),
-                  value: replicateMonth,
-                  onChanged: (v) => setD(() => replicateMonth = v),
-                ),
-                if (replicateMonth) ...[
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<int>(
-                    value: monthOffset,
-                    decoration: const InputDecoration(
-                      labelText: 'Mês alvo',
-                      prefixIcon: Icon(Icons.calendar_month_rounded),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 0, child: Text('Mês atual')),
-                      DropdownMenuItem(value: 1, child: Text('Próximo mês')),
-                    ],
-                    onChanged: (v) => setD(() => monthOffset = v ?? 0),
-                  ),
-                ] else ...[
-                  TextField(
-                      controller: daysCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                          labelText: 'Próximos X dias',
-                          prefixIcon: Icon(Icons.date_range_rounded))),
-                ],
-                const SizedBox(height: 12),
-                TextField(
-                    controller: membersPerDay,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                        labelText: 'Membros por escala',
-                        prefixIcon: Icon(Icons.people_rounded))),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.amber.shade200)),
-                  child: Row(children: [
-                    Icon(Icons.auto_awesome_rounded, color: Colors.amber.shade700, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text(
-                            'Rodízio: quem serviu menos vezes entra primeiro. Periodicidade do modelo: diária, semanal ou mensal.',
-                            style: TextStyle(fontSize: 12, color: Colors.amber.shade900))),
-                  ]),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Gerar')),
-          ],
-        ),
-      ),
-    );
-    if (ok != true) return;
+
+    final pick = await _showPremiumGenerateScheduleDialog();
+    if (pick == null) return;
 
     final tid = await _effectiveTidFuture;
     final instances = _instancesCol(tid);
@@ -538,11 +1140,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final deptName = (tplData['departmentName'] ?? '').toString();
     final allCpfs = ((tplData['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
     final allNames = ((tplData['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
-    final perDay = int.tryParse(membersPerDay.text.trim()) ?? allCpfs.length;
 
-    final daysAhead = int.tryParse(daysCtrl.text.trim()) ?? 30;
-    final now = DateTime.now();
-    final until = now.add(Duration(days: daysAhead));
+    if (allCpfs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Modelo sem membros — edite o modelo antes de gerar.',
+          ),
+        );
+      }
+      return;
+    }
+
+    final perDay = pick.members.clamp(1, allCpfs.length);
+
     final tp = time.split(':');
     final hh = int.tryParse(tp.isNotEmpty ? tp[0] : '') ?? 19;
     final mm = int.tryParse(tp.length > 1 ? tp[1] : '') ?? 0;
@@ -557,9 +1168,27 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     if (dlow.contains('sáb') || dlow.contains('sab')) weekday = 6;
     if (dlow.contains('dom')) weekday = 7;
 
-    DateTime cursor = DateTime(now.year, now.month, now.day);
-    if (weekday != null) {
-      while (cursor.weekday != weekday) cursor = cursor.add(const Duration(days: 1));
+    const kMaxOcc = 400;
+    final dates = scheduleTemplateOccurrencesInRange(
+      recurrence: rec,
+      weekday: weekday,
+      rangeStart: pick.start,
+      rangeEnd: pick.end,
+      hour: hh,
+      minute: mm,
+      maxOccurrences: kMaxOcc,
+    );
+
+    if (dates.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Nenhuma ocorrência no período para esta periodicidade. '
+            'Verifique o intervalo ou o dia da semana no modelo (ex.: Domingo).',
+          ),
+        );
+      }
+      return;
     }
 
     // Rodízio: busca frequência recente por CPF (filtro por departamento em memória para evitar índice composto)
@@ -569,51 +1198,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if ((esc.data()['departmentId'] ?? '').toString() != deptId) continue;
       final cpfs = ((esc.data()['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
       for (final c in cpfs) freq[c] = (freq[c] ?? 0) + 1;
-    }
-
-    final dates = <DateTime>[];
-    if (replicateMonth) {
-      if (weekday == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Defina o dia da semana no modelo (ex.: Domingo) para repetir no mês.'),
-            ),
-          );
-        }
-        return;
-      }
-      final targetMonth = DateTime(now.year, now.month + monthOffset, 1);
-      final monthEnd = DateTime(targetMonth.year, targetMonth.month + 1, 0);
-      var c = DateTime(targetMonth.year, targetMonth.month, 1);
-      while (c.weekday != weekday && c.month == targetMonth.month) {
-        c = c.add(const Duration(days: 1));
-      }
-      if (c.month != targetMonth.month) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Não foi possível localizar o dia da semana no mês escolhido.')),
-          );
-        }
-        return;
-      }
-      while (!c.isAfter(monthEnd)) {
-        dates.add(DateTime(c.year, c.month, c.day, hh, mm));
-        c = c.add(const Duration(days: 7));
-      }
-    } else {
-      while (cursor.isBefore(until) || cursor.isAtSameMomentAs(until)) {
-        dates.add(DateTime(cursor.year, cursor.month, cursor.day, hh, mm));
-        if (rec == 'daily') {
-          cursor = cursor.add(const Duration(days: 1));
-        } else if (rec == 'monthly') {
-          cursor = DateTime(cursor.year, cursor.month + 1, cursor.day);
-        } else if (rec == 'yearly') {
-          cursor = DateTime(cursor.year + 1, cursor.month, cursor.day);
-        } else {
-          cursor = cursor.add(const Duration(days: 7));
-        }
-      }
     }
 
     final membersForYmds = await _membersCol(tid).get();
@@ -697,11 +1281,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
     await batch.commit();
     if (mounted) {
+      setState(() => _periodFilter = 'todos');
       _refreshInstances();
       final genCount = dates.length - skippedNoEligible;
       var msg = '$genCount escala(s) gerada(s) com rodízio e checagem de conflito/ausência.';
       if (skippedNoEligible > 0) {
         msg += ' $skippedNoEligible data(s) ignorada(s): nenhum voluntário elegível (ausência ou outro ministério no mesmo horário).';
+      }
+      if (dates.length >= kMaxOcc) {
+        msg += ' Limite de $kMaxOcc ocorrências por geração — reduza o período ou gere em etapas se precisar de mais.';
       }
       ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(msg));
     }
@@ -710,48 +1298,81 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
+    final narrowTabs = MediaQuery.sizeOf(context).width < 420;
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: isMobile ? null : AppBar(
-        title: const Text('Escalas'),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        title: const Text(
+          'Escalas',
+          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
+        ),
         bottom: TabBar(
           controller: _tab,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 14),
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           indicatorColor: ThemeCleanPremium.navSidebarAccent,
-          tabs: const [Tab(text: 'Modelos'), Tab(text: 'Escalas Geradas'), Tab(text: 'Relatórios')],
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          tabs: const [
+            Tab(text: 'Modelos'),
+            Tab(text: 'Escalas geradas'),
+            Tab(text: 'Relatórios'),
+          ],
         ),
         actions: [
           if (_canWrite)
             IconButton(
               tooltip: 'Nova escala',
               onPressed: () => _editTemplate(),
-              icon: const Icon(Icons.add_circle_outline),
-              style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
+              icon: const Icon(Icons.add_circle_outline_rounded),
+              style: IconButton.styleFrom(
+                foregroundColor: Colors.white,
+                minimumSize: const Size(
+                  ThemeCleanPremium.minTouchTarget,
+                  ThemeCleanPremium.minTouchTarget,
+                ),
+              ),
             ),
         ],
       ),
       floatingActionButton: _canWrite
           ? FloatingActionButton.extended(
+              elevation: 8,
+              shape: RoundedRectangleBorder(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              ),
               onPressed: () => _editTemplate(),
               icon: const Icon(Icons.add_rounded),
-              label: const Text('Nova Escala'),
+              label: const Text(
+                'Nova Escala',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
               backgroundColor: ThemeCleanPremium.primary,
               foregroundColor: Colors.white,
             )
           : null,
       body: SafeArea(
+        top: !widget.embeddedInShell,
         child: Column(
           children: [
             if (isMobile)
-              Material(
+              Container(
                 color: ThemeCleanPremium.primary,
-                child: TabBar(
+                child: ChurchPanelPillTabBar(
                   controller: _tab,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: ThemeCleanPremium.navSidebarAccent,
-                  tabs: const [Tab(text: 'Modelos'), Tab(text: 'Escalas Geradas'), Tab(text: 'Relatórios')],
+                  tabs: [
+                    const Tab(text: 'Modelos'),
+                    Tab(text: narrowTabs ? 'Geradas' : 'Escalas geradas'),
+                    const Tab(text: 'Relatórios'),
+                  ],
                 ),
               ),
             Expanded(
@@ -831,6 +1452,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     doc: docs[i],
                     deptColor: _colorForDept(allDepts.indexWhere((d) => d.id == (docs[i].data()['departmentId'] ?? '')).clamp(0, 99)),
                     canWrite: canTpl,
+                    canGenerate: kScheduleAutoGenerationEnabled,
                     onEdit: () => _editTemplate(doc: docs[i]),
                     onGenerate: () => _generate(docs[i]),
                     onDelete: () async {
@@ -860,203 +1482,1004 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
   }
 
+  String _instancesFilterSummaryLine(List<_DeptItem> allDepts) {
+    String period;
+    switch (_periodFilter) {
+      case 'todos':
+        period = 'Todas as datas';
+        break;
+      case 'diario':
+        period = 'Diário';
+        break;
+      case 'semanal':
+        period = 'Semanal';
+        break;
+      case 'mes_anterior':
+        period = 'Mês anterior';
+        break;
+      case 'mes_atual':
+        period = 'Mês atual';
+        break;
+      case 'anual':
+        period = 'Anual';
+        break;
+      case 'periodo':
+        if (_periodStart != null && _periodEnd != null) {
+          period =
+              '${_periodStart!.day}/${_periodStart!.month}–${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}';
+        } else {
+          period = 'Período custom.';
+        }
+        break;
+      default:
+        period = '';
+    }
+    var dept = 'Todos os deptos';
+    if (_filterDeptId.isNotEmpty) {
+      final m =
+          allDepts.where((d) => d.id == _filterDeptId).toList();
+      if (m.isNotEmpty) {
+        dept = m.first.name;
+      }
+    }
+    return '$period · $dept';
+  }
+
+  /// Colunas da grelha de filtros (relatórios / escalas geradas) — menos altura que Wrap.
+  int _escalaFilterCrossAxisCount(double w) {
+    if (w >= 1200) return 6;
+    if (w >= 900) return 5;
+    if (w >= 640) return 4;
+    if (w >= 420) return 3;
+    return 2;
+  }
+
+  Widget _buildEscalaFilterGrid({required List<Widget> children}) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final cols = _escalaFilterCrossAxisCount(c.maxWidth);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            mainAxisExtent: 44,
+          ),
+          itemCount: children.length,
+          itemBuilder: (_, i) => children[i],
+        );
+      },
+    );
+  }
+
+  Widget _buildEscalaFilterSectionHeader({required IconData icon, required String title}) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: ThemeCleanPremium.primary.withOpacity(0.09),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.12)),
+          ),
+          child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+              color: ThemeCleanPremium.onSurface,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Cartão único “Ultra Premium” para filtros (depto + período + ações PDF).
+  Widget _buildEscalaInstancesFilterCard(List<_DeptItem> allDepts) {
+    final periodChips = <Widget>[
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Todas',
+          selected: _periodFilter == 'todos',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'todos'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Diário',
+          selected: _periodFilter == 'diario',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'diario'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Semanal',
+          selected: _periodFilter == 'semanal',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'semanal'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Mês ant.',
+          selected: _periodFilter == 'mes_anterior',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'mes_anterior'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Mês atual',
+          selected: _periodFilter == 'mes_atual',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'mes_atual'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Anual',
+          selected: _periodFilter == 'anual',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'anual'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Período',
+          selected: _periodFilter == 'periodo',
+          compact: true,
+          onTap: () async {
+            final start = await showDatePicker(
+              context: context,
+              initialDate: DateTime.now(),
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (start == null || !mounted) return;
+            final end = await showDatePicker(
+              context: context,
+              initialDate: start,
+              firstDate: start,
+              lastDate: DateTime(2030),
+            );
+            if (mounted && end != null) {
+              setState(() {
+                _periodFilter = 'periodo';
+                _periodStart = start;
+                _periodEnd = end;
+              });
+            }
+          },
+        ),
+      ),
+    ];
+
+    final deptChips = <Widget>[
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Todos',
+          selected: _filterDeptId.isEmpty,
+          compact: true,
+          onTap: () => setState(() {
+            _filterDeptId = '';
+            _instancesFuture = _fetchInstancesForEffectiveTenant();
+          }),
+        ),
+      ),
+      for (var i = 0; i < allDepts.length; i++)
+        SizedBox(
+          width: double.infinity,
+          child: _FilterChipDept(
+            label: allDepts[i].name,
+            selected: _filterDeptId == allDepts[i].id,
+            color: _colorForDept(i),
+            compact: true,
+            onTap: () => setState(() {
+              _filterDeptId =
+                  _filterDeptId == allDepts[i].id ? '' : allDepts[i].id;
+              _instancesFuture = _fetchInstancesForEffectiveTenant();
+            }),
+          ),
+        ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: ThemeCleanPremium.primary.withOpacity(0.06),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+            ...ThemeCleanPremium.softUiCardShadow,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(
+                  () => _escalaFiltersExpanded = !_escalaFiltersExpanded,
+                ),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.tune_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'Filtros',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.3,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _escalaFiltersExpanded
+                                      ? 'Toque para recolher'
+                                      : 'Toque para expandir',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (!_escalaFiltersExpanded) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                _instancesFilterSummaryLine(allDepts),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  height: 1.25,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        _escalaFiltersExpanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color: ThemeCleanPremium.primary,
+                        size: 26,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (_escalaFiltersExpanded) ...[
+              const SizedBox(height: 12),
+              if (allDepts.isNotEmpty) ...[
+                _buildEscalaFilterSectionHeader(
+                    icon: Icons.groups_rounded, title: 'Departamento'),
+                const SizedBox(height: 10),
+                _buildEscalaFilterGrid(children: deptChips),
+                const SizedBox(height: 18),
+              ],
+              _buildEscalaFilterSectionHeader(
+                  icon: Icons.event_repeat_rounded, title: 'Período'),
+              const SizedBox(height: 10),
+              _buildEscalaFilterGrid(children: periodChips),
+              if (_canWrite) ...[
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      IconButton(
+                        tooltip: 'PDF período atual',
+                        onPressed: () => _exportEscalasPdf(allDepts),
+                        icon: const Icon(Icons.picture_as_pdf_rounded),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(
+                            ThemeCleanPremium.minTouchTarget,
+                            ThemeCleanPremium.minTouchTarget,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip:
+                            'PDF semanal geral (todos os deptos)',
+                        onPressed: () => _exportWeeklyChurchPdf(allDepts),
+                        icon: const Icon(Icons.calendar_view_week_rounded),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(
+                            ThemeCleanPremium.minTouchTarget,
+                            ThemeCleanPremium.minTouchTarget,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Filtros do relatório (grelha — menos altura que Wrap).
+  Widget _buildReportsFiltersCard(List<_DeptItem> depts) {
+    final periodChips = <Widget>[
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Todas',
+          selected: _periodFilter == 'todos',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'todos'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Diário',
+          selected: _periodFilter == 'diario',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'diario'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Semanal',
+          selected: _periodFilter == 'semanal',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'semanal'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Mês ant.',
+          selected: _periodFilter == 'mes_anterior',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'mes_anterior'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Mês atual',
+          selected: _periodFilter == 'mes_atual',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'mes_atual'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Anual',
+          selected: _periodFilter == 'anual',
+          compact: true,
+          onTap: () => setState(() => _periodFilter = 'anual'),
+        ),
+      ),
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Período',
+          selected: _periodFilter == 'periodo',
+          compact: true,
+          onTap: () async {
+            final start = await showDatePicker(
+              context: context,
+              initialDate: DateTime.now(),
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (start == null || !mounted) return;
+            final end = await showDatePicker(
+              context: context,
+              initialDate: start,
+              firstDate: start,
+              lastDate: DateTime(2030),
+            );
+            if (mounted && end != null) {
+              setState(() {
+                _periodFilter = 'periodo';
+                _periodStart = start;
+                _periodEnd = end;
+              });
+            }
+          },
+        ),
+      ),
+    ];
+    final deptChips = <Widget>[
+      SizedBox(
+        width: double.infinity,
+        child: _FilterChipDept(
+          label: 'Todos',
+          selected: _reportDeptId.isEmpty,
+          compact: true,
+          onTap: () => setState(() => _reportDeptId = ''),
+        ),
+      ),
+      ...depts.map(
+        (e) => SizedBox(
+          width: double.infinity,
+          child: _FilterChipDept(
+            label: e.name,
+            selected: _reportDeptId == e.id,
+            compact: true,
+            onTap: () => setState(() => _reportDeptId = e.id),
+          ),
+        ),
+      ),
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+          ...ThemeCleanPremium.softUiCardShadow,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.filter_alt_outlined, color: ThemeCleanPremium.primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Filtros do relatório',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildEscalaFilterSectionHeader(icon: Icons.event_repeat_rounded, title: 'Período'),
+          const SizedBox(height: 10),
+          _buildEscalaFilterGrid(children: periodChips),
+          const SizedBox(height: 18),
+          _buildEscalaFilterSectionHeader(icon: Icons.groups_rounded, title: 'Departamento'),
+          const SizedBox(height: 10),
+          _buildEscalaFilterGrid(children: deptChips),
+        ],
+      ),
+    );
+  }
+
+  /// Cabeçalho da aba Escalas geradas (hero + filtros + ações + segmento) — entra no scroll único.
+  Widget _buildInstancesTabHeader(List<_DeptItem> allDepts) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future: _tenantFuture,
+          builder: (context, tenSnap) {
+            final td = tenSnap.data?.data();
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      ThemeCleanPremium.primary.withOpacity(0.08),
+                      Colors.white,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withOpacity(0.16),
+                  ),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                ),
+                child: Row(
+                  children: [
+                    StableChurchLogo(
+                      tenantId: widget.tenantId,
+                      tenantData: td,
+                      width: 50,
+                      height: 50,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Escala geral',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: ThemeCleanPremium.primary,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Gere escalas, acompanhe confirmações e relatórios',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.25,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        _buildEscalaInstancesFilterCard(allDepts),
+        if (_canWrite)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final snap = await _instancesFuture;
+                      if (!mounted) return;
+                      await _showExclusaoPeriodoDialog(snap.docs);
+                    },
+                    icon: Icon(Icons.delete_sweep_rounded,
+                        color: ThemeCleanPremium.error),
+                    label: const Text('Excluir por período'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.error,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.error.withOpacity(0.45),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => setState(() {
+                      _escalaSelectionMode = !_escalaSelectionMode;
+                      if (!_escalaSelectionMode) {
+                        _selectedEscalaIds.clear();
+                      }
+                    }),
+                    icon: Icon(
+                      _escalaSelectionMode
+                          ? Icons.close_rounded
+                          : Icons.checklist_rounded,
+                    ),
+                    label: Text(
+                      _escalaSelectionMode
+                          ? 'Cancelar seleção'
+                          : 'Selecionar escalas',
+                    ),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: _escalaSelectionMode
+                          ? ThemeCleanPremium.error.withOpacity(0.12)
+                          : ThemeCleanPremium.primary.withOpacity(0.12),
+                      foregroundColor: ThemeCleanPremium.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (_periodFilter == 'periodo' &&
+            (_periodStart != null || _periodEnd != null))
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              _periodStart != null && _periodEnd != null
+                  ? '${_periodStart!.day}/${_periodStart!.month}/${_periodStart!.year} a ${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}'
+                  : 'Selecione início e fim',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(
+                    value: 0,
+                    label: Text('Lista'),
+                    icon: Icon(Icons.view_list_rounded, size: 18)),
+                ButtonSegment(
+                    value: 1,
+                    label: Text('Calendário'),
+                    icon: Icon(Icons.calendar_month_rounded, size: 18)),
+              ],
+              selected: {_instancesViewSegment},
+              onSelectionChanged: (s) => setState(() {
+                _instancesViewSegment = s.first;
+                if (_instancesViewSegment == 1) {
+                  _escalaSelectionMode = false;
+                  _selectedEscalaIds.clear();
+                }
+                if (_schedCalSelected == null) {
+                  _schedCalSelected = DateTime.now();
+                }
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ── Tab: Escalas Geradas ───────────────────────────────────────────────────
   Widget _buildInstancesTab() {
     return FutureBuilder<List<_DeptItem>>(
       future: _deptsFuture,
       builder: (context, deptSnap) {
         final allDepts = deptSnap.data ?? [];
-        return Column(
-          children: [
-            if (allDepts.isNotEmpty)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Row(children: [
-                  _FilterChipDept(label: 'Todos', selected: _filterDeptId.isEmpty, onTap: () => setState(() { _filterDeptId = ''; _instancesFuture = _fetchInstancesForEffectiveTenant(); })),
-                  for (var i = 0; i < allDepts.length; i++) ...[
-                    const SizedBox(width: 8),
-                    _FilterChipDept(
-                      label: allDepts[i].name,
-                      selected: _filterDeptId == allDepts[i].id,
-                      color: _colorForDept(i),
-                      onTap: () => setState(() { _filterDeptId = _filterDeptId == allDepts[i].id ? '' : allDepts[i].id; _instancesFuture = _fetchInstancesForEffectiveTenant(); }),
+        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          future: _instancesFuture,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: ChurchPanelErrorBody(
+                  title: 'Não foi possível carregar as escalas',
+                  error: snap.error,
+                  onRetry: _refreshInstances,
+                ),
+              );
+            }
+            if (snap.connectionState == ConnectionState.waiting ||
+                !snap.hasData) {
+              return RefreshIndicator(
+                onRefresh: () async => _refreshInstances(),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(child: ChurchPanelLoadingBody()),
                     ),
                   ],
-                ]),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  Text('Período:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          _FilterChipDept(label: 'Diário', selected: _periodFilter == 'diario', onTap: () => setState(() => _periodFilter = 'diario')),
-                          const SizedBox(width: 6),
-                          _FilterChipDept(label: 'Semanal', selected: _periodFilter == 'semanal', onTap: () => setState(() => _periodFilter = 'semanal')),
-                          const SizedBox(width: 6),
-                          _FilterChipDept(label: 'Mês ant.', selected: _periodFilter == 'mes_anterior', onTap: () => setState(() => _periodFilter = 'mes_anterior')),
-                          const SizedBox(width: 6),
-                          _FilterChipDept(label: 'Mês atual', selected: _periodFilter == 'mes_atual', onTap: () => setState(() => _periodFilter = 'mes_atual')),
-                          const SizedBox(width: 6),
-                          _FilterChipDept(label: 'Anual', selected: _periodFilter == 'anual', onTap: () => setState(() => _periodFilter = 'anual')),
-                          const SizedBox(width: 6),
-                          _FilterChipDept(label: 'Período', selected: _periodFilter == 'periodo', onTap: () async {
-                            final start = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2030));
-                            if (start == null || !mounted) return;
-                            final end = await showDatePicker(context: context, initialDate: start, firstDate: start, lastDate: DateTime(2030));
-                            if (mounted && end != null) setState(() { _periodFilter = 'periodo'; _periodStart = start; _periodEnd = end; });
+                ),
+              );
+            }
+            final allDocs = snap.data?.docs ?? [];
+            var deptFiltered = _filterDeptId.isEmpty
+                ? allDocs
+                : allDocs
+                    .where((d) =>
+                        (d.data()['departmentId'] ?? '').toString() ==
+                        _filterDeptId)
+                    .toList();
+            if (_scopedDeptLeader) {
+              deptFiltered = deptFiltered
+                  .where((d) => _managedDeptIds
+                      .contains((d.data()['departmentId'] ?? '').toString()))
+                  .toList();
+            }
+            final docs = _filterInstancesByPeriod(deptFiltered);
+            final showSelBar = _escalaSelectionMode &&
+                _canWrite &&
+                docs.isNotEmpty &&
+                _instancesViewSegment == 0;
+            final bottomPad = showSelBar ? 88.0 : 80.0;
+
+            if (docs.isEmpty) {
+              return RefreshIndicator(
+                onRefresh: () async => _refreshInstances(),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.calendar_today_rounded,
+                                size: 56, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Nenhuma escala no período.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Toque em «Todas» no filtro de período para ver todas as escalas carregadas, ou escolha «Mês atual» / «Anual» conforme as datas geradas.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                height: 1.35,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            if (_instancesViewSegment == 1) {
+              return RefreshIndicator(
+                onRefresh: () async => _refreshInstances(),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: bottomPad),
+                        child: _SchedulesCalendarPanel(
+                          docs: docs,
+                          allDepts: allDepts,
+                          focusedDay: _schedCalFocused,
+                          selectedDay: _schedCalSelected ?? _schedCalFocused,
+                          colorForDept: _colorForDept,
+                          currentCpf:
+                              widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
+                          canWriteFull: _canWriteFull,
+                          managedDeptIds: _managedDeptIds,
+                          onDaySelected: (d, f) => setState(() {
+                            _schedCalSelected = d;
+                            _schedCalFocused = f;
                           }),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_canWrite) ...[
-                    IconButton(
-                      tooltip: 'PDF período atual',
-                      onPressed: () => _exportEscalasPdf(allDepts),
-                      icon: const Icon(Icons.picture_as_pdf_rounded),
-                      style: IconButton.styleFrom(
-                        minimumSize: const Size(
-                          ThemeCleanPremium.minTouchTarget,
-                          ThemeCleanPremium.minTouchTarget,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'PDF semanal geral (todos os deptos)',
-                      onPressed: () => _exportWeeklyChurchPdf(allDepts),
-                      icon: const Icon(Icons.calendar_view_week_rounded),
-                      style: IconButton.styleFrom(
-                        minimumSize: const Size(
-                          ThemeCleanPremium.minTouchTarget,
-                          ThemeCleanPremium.minTouchTarget,
+                          onCalendarPageChanged: (f) =>
+                              setState(() => _schedCalFocused = f),
+                          onOpenDetail: (d, color) =>
+                              _showInstanceDetail(d, color),
+                          onEdit: _editInstance,
+                          onDelete: _deleteInstance,
                         ),
                       ),
                     ),
                   ],
-                ],
-              ),
-            ),
-            if (_periodFilter == 'periodo' && (_periodStart != null || _periodEnd != null))
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Text(
-                  _periodStart != null && _periodEnd != null
-                      ? '${_periodStart!.day}/${_periodStart!.month}/${_periodStart!.year} a ${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}'
-                      : 'Selecione início e fim',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment(value: 0, label: Text('Lista'), icon: Icon(Icons.view_list_rounded, size: 18)),
-                    ButtonSegment(value: 1, label: Text('Calendário'), icon: Icon(Icons.calendar_month_rounded, size: 18)),
-                  ],
-                  selected: {_instancesViewSegment},
-                  onSelectionChanged: (s) => setState(() {
-                    _instancesViewSegment = s.first;
-                    if (_schedCalSelected == null) _schedCalSelected = DateTime.now();
-                  }),
-                ),
-              ),
-            ),
-            Expanded(
-              child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                future: _instancesFuture,
-            builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ChurchPanelErrorBody(
-                        title: 'Não foi possível carregar as escalas',
-                        error: snap.error,
-                        onRetry: _refreshInstances,
+              );
+            }
+
+            return Stack(
+              fit: StackFit.expand,
+              clipBehavior: Clip.none,
+              children: [
+                RefreshIndicator(
+                  onRefresh: () async => _refreshInstances(),
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(
+                          child: _buildInstancesTabHeader(allDepts)),
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPad),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, i) {
+                              final deptIdx = allDepts.indexWhere((d) =>
+                                  d.id ==
+                                  (docs[i].data()['departmentId'] ?? ''));
+                              final deptIdInst =
+                                  (docs[i].data()['departmentId'] ?? '')
+                                      .toString();
+                              final canMutate = _canWriteFull ||
+                                  _managedDeptIds.contains(deptIdInst);
+                              final selMode = _escalaSelectionMode &&
+                                  _instancesViewSegment == 0;
+                              final id = docs[i].id;
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                    bottom: i < docs.length - 1 ? 10 : 0),
+                                child: _InstanceCard(
+                                  doc: docs[i],
+                                  deptColor:
+                                      _colorForDept(deptIdx.clamp(0, 99)),
+                                  currentCpf: widget.cpf
+                                      .replaceAll(RegExp(r'[^0-9]'), ''),
+                                  canWrite: canMutate,
+                                  selectionMode: selMode,
+                                  selected: _selectedEscalaIds.contains(id),
+                                  onSelectionChanged: selMode && canMutate
+                                      ? (v) => setState(() {
+                                            if (v) {
+                                              _selectedEscalaIds.add(id);
+                                            } else {
+                                              _selectedEscalaIds.remove(id);
+                                            }
+                                          })
+                                      : null,
+                                  onTap: () => _showInstanceDetail(
+                                    docs[i],
+                                    _colorForDept(deptIdx.clamp(0, 99)),
+                                  ),
+                                  onEdit: canMutate
+                                      ? () => _editInstance(docs[i])
+                                      : null,
+                                  onDelete: canMutate
+                                      ? () => _deleteInstance(docs[i])
+                                      : null,
+                                ),
+                              );
+                            },
+                            childCount: docs.length,
+                          ),
+                        ),
                       ),
-                    );
-                  }
-                  if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
-                    return const ChurchPanelLoadingBody();
-                  }
-                  final allDocs = snap.data?.docs ?? [];
-                  var deptFiltered = _filterDeptId.isEmpty
-                      ? allDocs
-                      : allDocs.where((d) => (d.data()['departmentId'] ?? '').toString() == _filterDeptId).toList();
-                  if (_scopedDeptLeader) {
-                    deptFiltered = deptFiltered
-                        .where((d) => _managedDeptIds
-                            .contains((d.data()['departmentId'] ?? '').toString()))
-                        .toList();
-                  }
-                  final docs = _filterInstancesByPeriod(deptFiltered);
-                  if (docs.isEmpty) {
-                    return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.calendar_today_rounded, size: 56, color: Colors.grey.shade400),
-                      const SizedBox(height: 12),
-                      Text('Nenhuma escala no período.', style: TextStyle(color: Colors.grey.shade600)),
-                    ]));
-                  }
-                  if (_instancesViewSegment == 1) {
-                    return RefreshIndicator(
-                      onRefresh: () async => _refreshInstances(),
-                      child: _SchedulesCalendarPanel(
-                        docs: docs,
-                        allDepts: allDepts,
-                        focusedDay: _schedCalFocused,
-                        selectedDay: _schedCalSelected ?? _schedCalFocused,
-                        colorForDept: _colorForDept,
-                        currentCpf: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
-                        canWriteFull: _canWriteFull,
-                        managedDeptIds: _managedDeptIds,
-                        onDaySelected: (d, f) => setState(() {
-                          _schedCalSelected = d;
-                          _schedCalFocused = f;
-                        }),
-                        onCalendarPageChanged: (f) =>
-                            setState(() => _schedCalFocused = f),
-                        onOpenDetail: (d, color) => _showInstanceDetail(d, color),
-                        onEdit: _editInstance,
-                        onDelete: _deleteInstance,
-                      ),
-                    );
-                  }
-                  return RefreshIndicator(
-                    onRefresh: () async => _refreshInstances(),
-                    child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (_, i) {
-                      final deptIdx = allDepts.indexWhere((d) => d.id == (docs[i].data()['departmentId'] ?? ''));
-                      final deptIdInst =
-                          (docs[i].data()['departmentId'] ?? '').toString();
-                      final canMutate =
-                          _canWriteFull || _managedDeptIds.contains(deptIdInst);
-                      return _InstanceCard(
-                        doc: docs[i],
-                        deptColor: _colorForDept(deptIdx.clamp(0, 99)),
-                        currentCpf: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
-                        canWrite: canMutate,
-                        onTap: () => _showInstanceDetail(docs[i], _colorForDept(deptIdx.clamp(0, 99))),
-                        onEdit: canMutate ? () => _editInstance(docs[i]) : null,
-                        onDelete: canMutate ? () => _deleteInstance(docs[i]) : null,
-                      );
-                    },
+                    ],
                   ),
-                );
-                },
-              ),
-            ),
-          ],
+                ),
+                if (showSelBar)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Material(
+                      elevation: 14,
+                      color: Colors.white,
+                      child: SafeArea(
+                        top: false,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              top: BorderSide(color: Colors.grey.shade200),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.07),
+                                blurRadius: 16,
+                                offset: const Offset(0, -4),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              TextButton(
+                                onPressed: () => setState(
+                                  () => _selectedEscalaIds.clear(),
+                                ),
+                                child: const Text('Limpar'),
+                              ),
+                              TextButton(
+                                onPressed: () => setState(() {
+                                  _selectedEscalaIds
+                                    ..clear()
+                                    ..addAll(
+                                      docs
+                                          .where(_canDeleteInstance)
+                                          .map((d) => d.id),
+                                    );
+                                }),
+                                child: const Text('Todas elegíveis'),
+                              ),
+                              const Spacer(),
+                              FilledButton.icon(
+                                onPressed: _selectedEscalaIds.isEmpty
+                                    ? null
+                                    : () async {
+                                        final sel = docs
+                                            .where((d) =>
+                                                _selectedEscalaIds
+                                                    .contains(d.id))
+                                            .toList();
+                                        await _deleteManyInstances(sel);
+                                      },
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                ),
+                                label: Text(
+                                  'Excluir (${_selectedEscalaIds.length})',
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: ThemeCleanPremium.error,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         );
       },
     );
@@ -1085,6 +2508,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         final memberStats = <String, _MemberScaleStats>{};
         final whoMissed = <String, int>{}; // nome -> qtd faltas
         final whoAttended = <String, int>{}; // nome -> qtd presenças
+        final realizadasDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final pendentesDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         for (final d in docs) {
           final m = d.data();
           final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
@@ -1111,11 +2536,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               }
             }
           }
-          if (allConfirmed && cpfs.isNotEmpty) escalasRealizadas++;
+          if (allConfirmed && cpfs.isNotEmpty) {
+            escalasRealizadas++;
+            realizadasDocs.add(d);
+          } else {
+            pendentesDocs.add(d);
+          }
         }
         final escalasGeradas = docs.length;
         final escalasPendentes = escalasGeradas - escalasRealizadas;
         final list = memberStats.values.toList()..sort((a, b) => b.escalas.compareTo(a.escalas));
+
+        final chartMetrics = [escalasGeradas, escalasRealizadas, escalasPendentes, totalPresencas, totalFaltas];
+        final chartRawMax = chartMetrics.reduce((a, b) => a > b ? a : b);
+        final chartMaxY = chartRawMax > 0 ? math.max(4.0, (chartRawMax * 1.22).ceilToDouble()) : 4.0;
+        final chartGridInterval = chartMaxY <= 6 ? 1.0 : (chartMaxY / 6).ceilToDouble();
 
         final nomeIgreja = (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
         final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
@@ -1196,23 +2631,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   ),
                 ),
                 const SizedBox(height: 24),
-                // ── Filtros ──
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    Text('Período:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.grey.shade700)),
-                    _FilterChipDept(label: 'Diário', selected: _periodFilter == 'diario', onTap: () => setState(() => _periodFilter = 'diario')),
-                    _FilterChipDept(label: 'Semanal', selected: _periodFilter == 'semanal', onTap: () => setState(() => _periodFilter = 'semanal')),
-                    _FilterChipDept(label: 'Mês ant.', selected: _periodFilter == 'mes_anterior', onTap: () => setState(() => _periodFilter = 'mes_anterior')),
-                    _FilterChipDept(label: 'Mês atual', selected: _periodFilter == 'mes_atual', onTap: () => setState(() => _periodFilter = 'mes_atual')),
-                    _FilterChipDept(label: 'Anual', selected: _periodFilter == 'anual', onTap: () => setState(() => _periodFilter = 'anual')),
-                    const SizedBox(width: 16),
-                    Text('Depto:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.grey.shade700)),
-                    _FilterChipDept(label: 'Todos', selected: _reportDeptId.isEmpty, onTap: () => setState(() => _reportDeptId = '')),
-                    ...depts.map((e) => _FilterChipDept(label: e.name, selected: _reportDeptId == e.id, onTap: () => setState(() => _reportDeptId = e.id))),
-                  ],
-                ),
+                // ── Filtros (grelha ultra premium) ──
+                _buildReportsFiltersCard(depts),
+                if (_periodFilter == 'periodo' && (_periodStart != null || _periodEnd != null))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _periodStart != null && _periodEnd != null
+                            ? 'Intervalo: ${_periodStart!.day}/${_periodStart!.month}/${_periodStart!.year} a ${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}'
+                            : 'Selecione início e fim',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 24),
                 // ── Gráfico de barras: métricas ──
                 _ReportChartCard(
@@ -1222,16 +2655,74 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     child: BarChart(
                       BarChartData(
                         alignment: BarChartAlignment.spaceAround,
-                        maxY: (([escalasGeradas, escalasRealizadas, escalasPendentes, totalPresencas, totalFaltas].reduce((a, b) => a > b ? a : b)).toDouble() * 1.2).clamp(4.0, double.infinity),
-                        barTouchData: BarTouchData(enabled: false),
+                        minY: 0,
+                        maxY: chartMaxY,
+                        barTouchData: BarTouchData(
+                          enabled: true,
+                          touchTooltipData: BarTouchTooltipData(
+                            tooltipBgColor: Colors.white,
+                            tooltipRoundedRadius: 12,
+                            tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            tooltipMargin: 8,
+                            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                              final i = group.x.toInt();
+                              final label = _barLabel(i);
+                              final c = rod.gradient?.colors.first ?? rod.color ?? ThemeCleanPremium.primary;
+                              return BarTooltipItem(
+                                '$label\n',
+                                TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600, fontSize: 11, height: 1.35),
+                                children: [
+                                  TextSpan(
+                                    text: '${rod.toY.round()}',
+                                    style: TextStyle(color: c, fontWeight: FontWeight.w800, fontSize: 15),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
                         titlesData: FlTitlesData(
                           show: true,
-                          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, meta) => Text(_barLabel(v.toInt()), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade700)))),
-                          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28, getTitlesWidget: (v, meta) => Text('${v.toInt()}', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)))),
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 30,
+                              getTitlesWidget: (v, meta) => Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  _barLabel(v.toInt()),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                                ),
+                              ),
+                            ),
+                          ),
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 34,
+                              interval: chartGridInterval,
+                              getTitlesWidget: (v, meta) {
+                                if (v < 0 || v > meta.max + 0.001) return const SizedBox.shrink();
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Text(
+                                    v == v.roundToDouble() ? '${v.toInt()}' : v.toStringAsFixed(1),
+                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         ),
-                        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: false,
+                          horizontalInterval: chartGridInterval,
+                          getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                        ),
                         borderData: FlBorderData(show: false),
                         barGroups: [
                           _barGroup(0, escalasGeradas.toDouble(), ThemeCleanPremium.primary),
@@ -1246,14 +2737,53 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   ),
                 ),
                 const SizedBox(height: 12),
-                // ── Cards clicáveis: drill-down ──
+                // ── Cards clicáveis: lista detalhada ──
                 Row(
                   children: [
-                    Expanded(child: _ReportMetricCard(label: 'Escalas geradas', value: '$escalasGeradas', icon: Icons.calendar_month_rounded, color: ThemeCleanPremium.primary)),
+                    Expanded(
+                      child: _ReportMetricCard(
+                        label: 'Escalas geradas',
+                        value: '$escalasGeradas',
+                        icon: Icons.calendar_month_rounded,
+                        color: ThemeCleanPremium.primary,
+                        onTap: () => _showDrillDown(
+                          context,
+                          'Todas as escalas (${docs.length})',
+                          ThemeCleanPremium.primary,
+                          escalaDocs: docs,
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: _ReportMetricCard(label: 'Realizadas', value: '$escalasRealizadas', icon: Icons.check_circle_rounded, color: ThemeCleanPremium.success)),
+                    Expanded(
+                      child: _ReportMetricCard(
+                        label: 'Realizadas',
+                        value: '$escalasRealizadas',
+                        icon: Icons.check_circle_rounded,
+                        color: ThemeCleanPremium.success,
+                        onTap: () => _showDrillDown(
+                          context,
+                          'Escalas com todos confirmados (${realizadasDocs.length})',
+                          ThemeCleanPremium.success,
+                          escalaDocs: realizadasDocs,
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: _ReportMetricCard(label: 'Pendentes', value: '$escalasPendentes', icon: Icons.schedule_rounded, color: Colors.amber.shade700)),
+                    Expanded(
+                      child: _ReportMetricCard(
+                        label: 'Pendentes',
+                        value: '$escalasPendentes',
+                        icon: Icons.schedule_rounded,
+                        color: Colors.amber.shade700,
+                        onTap: () => _showDrillDown(
+                          context,
+                          'Escalas pendentes de confirmação (${pendentesDocs.length})',
+                          Colors.amber.shade800,
+                          escalaDocs: pendentesDocs,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -1265,7 +2795,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$totalPresencas',
                         icon: Icons.person_rounded,
                         color: ThemeCleanPremium.success,
-                        onTap: () => _showDrillDown(context, 'Quem cumpriu escala (presenças)', whoAttended.entries.map((e) => '${e.key}: ${e.value}').toList(), ThemeCleanPremium.success),
+                        onTap: () => _showDrillDown(
+                          context,
+                          'Presenças (${whoAttended.length} pessoas)',
+                          ThemeCleanPremium.success,
+                          lines: whoAttended.entries.map((e) => '${e.key} — ${e.value} confirmação(ões)').toList()..sort(),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -1275,7 +2810,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$totalFaltas',
                         icon: Icons.cancel_rounded,
                         color: ThemeCleanPremium.error,
-                        onTap: () => _showDrillDown(context, 'Quem faltou', whoMissed.entries.map((e) => '${e.key}: ${e.value}').toList(), ThemeCleanPremium.error),
+                        onTap: () => _showDrillDown(
+                          context,
+                          'Faltas / indisponível (${whoMissed.length} pessoas)',
+                          ThemeCleanPremium.error,
+                          lines: whoMissed.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
+                        ),
                       ),
                     ),
                   ],
@@ -1312,11 +2852,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       elevation: 2,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        onTap: () => _showDrillDown(context, st.name.isNotEmpty ? st.name : st.cpf, [
-                          'Escalas: ${st.escalas}',
-                          'Presenças: ${st.presencas}',
-                          'Faltas: ${st.faltas}',
-                        ], ThemeCleanPremium.primary),
+                        onTap: () => _showDrillDown(
+                          context,
+                          st.name.isNotEmpty ? st.name : st.cpf,
+                          ThemeCleanPremium.primary,
+                          lines: [
+                            'Escalas: ${st.escalas}',
+                            'Presenças: ${st.presencas}',
+                            'Faltas: ${st.faltas}',
+                          ],
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Row(
@@ -1369,22 +2914,148 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
   }
 
-  void _showDrillDown(BuildContext context, String title, List<String> lines, Color accent) {
-    showModalBottomSheet(
+  void _showDrillDown(
+    BuildContext context,
+    String title,
+    Color accent, {
+    List<String>? lines,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? escalaDocs,
+  }) {
+    assert(lines != null || escalaDocs != null, 'Informe lines ou escalaDocs');
+    assert(lines == null || escalaDocs == null, 'Use apenas lines ou escalaDocs');
+    final maxH = MediaQuery.sizeOf(context).height * 0.78;
+    final useEscalas = escalaDocs != null;
+    final listLines = lines ?? const <String>[];
+    final docs = escalaDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+    showModalBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 16),
-            Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: accent)),
-            const SizedBox(height: 16),
-            if (lines.isEmpty) Text('Nenhum registro.', style: TextStyle(color: Colors.grey.shade600)) else ...lines.map((line) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(line, style: const TextStyle(fontSize: 14)))),
-          ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              constraints: BoxConstraints(maxHeight: maxH + 56),
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 28, offset: const Offset(0, -8)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      margin: const EdgeInsets.only(top: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [accent, Color.lerp(accent, Colors.white, 0.22) ?? accent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      boxShadow: [
+                        BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 16, offset: const Offset(0, 6)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            useEscalas ? Icons.event_note_rounded : Icons.insights_rounded,
+                            color: Colors.white,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              height: 1.25,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (useEscalas && docs.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
+                      child: Column(
+                        children: [
+                          Icon(Icons.inbox_rounded, size: 52, color: Colors.grey.shade400),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Nenhum registro no período.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 15, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (!useEscalas && listLines.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
+                      child: Column(
+                        children: [
+                          Icon(Icons.inbox_rounded, size: 52, color: Colors.grey.shade400),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Nenhum registro no período.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 15, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: maxH),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                        itemCount: useEscalas ? docs.length : listLines.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) {
+                          if (useEscalas) {
+                            return _EscalaDrillCard(doc: docs[i], accent: accent);
+                          }
+                          return _PremiumDrillLineTile(line: listLines[i], accent: accent);
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -1404,7 +3075,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
       final periodLabel = _periodLabelUppercase;
 
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       final rows = docs.map((d) {
         final m = d.data();
         DateTime? dt;
@@ -1488,7 +3159,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
       final endereco =
           (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
-      final pdf = pw.Document();
+      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       String deptKey(Map<String, dynamic> m) =>
           (m['departmentName'] ?? m['departmentId'] ?? '').toString();
       final byDept = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
@@ -1632,6 +3303,238 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
     }
+  }
+
+  Future<void> _deleteManyInstances(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    final toDelete = docs.where(_canDeleteInstance).toList();
+    if (toDelete.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nenhuma escala elegível para exclusão neste conjunto.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Confirmar exclusão em lote'),
+        content: Text(
+          'Serão excluídas ${toDelete.length} escala(s) gerada(s). '
+          'Os modelos de escala não são afetados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      var ops = 0;
+      for (final d in toDelete) {
+        batch.delete(d.reference);
+        ops++;
+        if (ops >= 450) {
+          await batch.commit();
+          batch = FirebaseFirestore.instance.batch();
+          ops = 0;
+        }
+      }
+      if (ops > 0) await batch.commit();
+      if (mounted) {
+        _refreshInstances();
+        setState(() {
+          _escalaSelectionMode = false;
+          _selectedEscalaIds.clear();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            '${toDelete.length} escala(s) excluída(s).',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao excluir em lote: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showExclusaoPeriodoDialog(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocsRaw,
+  ) async {
+    final visivel = _visibleInstancesFromAll(allDocsRaw);
+    final poolDept = _deptOnlyPool(allDocsRaw);
+    final elegiveisVisivel = visivel.where(_canDeleteInstance).length;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ThemeCleanPremium.radiusLg),
+        ),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Excluir por período',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Só entram escalas que você pode gerir. '
+                  'A lista carrega até 500 escalas recentes.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.filter_alt_rounded,
+                      color: ThemeCleanPremium.primary),
+                  title: const Text('Todas do filtro atual na lista'),
+                  subtitle: Text(
+                    '$elegiveisVisivel escala(s) elegível(is) no período/departamento selecionados',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _deleteManyInstances(visivel);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.calendar_month_rounded,
+                      color: ThemeCleanPremium.primary),
+                  title: const Text('Por mês (calendário)…'),
+                  subtitle: const Text(
+                    'Escolha um dia do mês desejado; todas as escalas daquele mês no departamento filtrado',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2035),
+                      helpText: 'Escolha um dia do mês',
+                    );
+                    if (picked == null || !mounted) return;
+                    final monthDocs = _docsForMonthYear(
+                      poolDept,
+                      picked.year,
+                      picked.month,
+                    );
+                    await _deleteManyInstances(monthDocs);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.date_range_rounded,
+                      color: ThemeCleanPremium.primary),
+                  title: const Text('Por ano…'),
+                  subtitle: const Text(
+                    'Todas as escalas daquele ano (departamento filtrado)',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    var sel = DateTime.now().year;
+                    final y = await showDialog<int>(
+                      context: context,
+                      builder: (dctx) {
+                        return StatefulBuilder(
+                          builder: (context, setSt) {
+                            return AlertDialog(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusLg),
+                              ),
+                              title: const Text('Excluir escalas do ano'),
+                              content: DropdownButtonFormField<int>(
+                                value: sel,
+                                decoration: const InputDecoration(
+                                  labelText: 'Ano',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: [
+                                  for (var i = 2020; i <= 2035; i++)
+                                    DropdownMenuItem(
+                                      value: i,
+                                      child: Text('$i'),
+                                    ),
+                                ],
+                                onChanged: (v) => setSt(() => sel = v ?? sel),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dctx),
+                                  child: const Text('Cancelar'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(dctx, sel),
+                                  child: const Text('Continuar'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                    );
+                    if (y == null || !mounted) return;
+                    final yearDocs = _docsForYear(poolDept, y);
+                    await _deleteManyInstances(yearDocs);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   static String? _reasonForCpf(Map<String, dynamic> unavailabilityReasons, String cpf) {
@@ -1897,12 +3800,25 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     ),
                   ],
                   const SizedBox(height: 20),
-                  if (_canWrite) ...[
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      alignment: WrapAlignment.start,
-                      children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.start,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () async {
+                          await _exportEscalaInstancePdf(doc);
+                        },
+                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                        label: const Text('Imprimir PDF'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          minimumSize: Size(0, ThemeCleanPremium.minTouchTarget),
+                        ),
+                      ),
+                      if (_canWrite) ...[
                         FilledButton.tonalIcon(
                           onPressed: () async {
                             Navigator.pop(ctx);
@@ -1941,9 +3857,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   if (_canWrite) ...[
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: () {
@@ -2193,14 +4109,152 @@ class _SchedulesCalendarPanel extends StatelessWidget {
     return out;
   }
 
+  void _onCalendarDayPicked(BuildContext context, DateTime selected, DateTime focused) {
+    onDaySelected(selected, focused);
+    final ev = _eventsForDay(selected);
+    if (ev.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      if (ev.length == 1) {
+        final esc = ev.first;
+        final deptIdx = allDepts.indexWhere(
+          (x) => x.id == (esc.data()['departmentId'] ?? '').toString(),
+        );
+        onOpenDetail(esc, colorForDept(deptIdx.clamp(0, 99)));
+        return;
+      }
+      _showMultiEscalaDaySheet(context, selected, ev);
+    });
+  }
+
+  void _showMultiEscalaDaySheet(
+    BuildContext context,
+    DateTime day,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> events,
+  ) {
+    final title = toBeginningOfSentenceCase(
+      DateFormat("EEEE, d 'de' MMMM 'de' y", 'pt_BR').format(day),
+    );
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ThemeCleanPremium.radiusLg),
+        ),
+      ),
+      builder: (ctx) {
+        final maxH = MediaQuery.sizeOf(ctx).height * 0.72;
+        return SizedBox(
+          height: maxH,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: 'Fechar',
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${events.length} escalas neste dia',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                  itemCount: events.length,
+                  itemBuilder: (_, i) {
+                    final esc = events[i];
+                    final deptIdx = allDepts.indexWhere(
+                      (x) => x.id == (esc.data()['departmentId'] ?? '').toString(),
+                    );
+                    final deptIdInst =
+                        (esc.data()['departmentId'] ?? '').toString();
+                    final canMutate =
+                        canWriteFull || managedDeptIds.contains(deptIdInst);
+                    final col = colorForDept(deptIdx.clamp(0, 99));
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _InstanceCard(
+                        doc: esc,
+                        deptColor: col,
+                        currentCpf: currentCpf,
+                        canWrite: canMutate,
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          onOpenDetail(esc, col);
+                        },
+                        onEdit: canMutate
+                            ? () async {
+                                Navigator.of(ctx).pop();
+                                await onEdit(esc);
+                              }
+                            : null,
+                        onDelete: canMutate
+                            ? () async {
+                                Navigator.of(ctx).pop();
+                                await onDelete(esc);
+                              }
+                            : null,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dayEvents = _eventsForDay(selectedDay);
     final isMobile = MediaQuery.sizeOf(context).width < 600;
     final cellFs = isMobile ? 15.0 : 14.0;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 88),
-      children: [
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -2263,7 +4317,8 @@ class _SchedulesCalendarPanel extends StatelessWidget {
                   );
                 },
               ),
-              onDaySelected: onDaySelected,
+              onDaySelected: (selected, focused) =>
+                  _onCalendarDayPicked(context, selected, focused),
               onPageChanged: onCalendarPageChanged,
             ),
           ),
@@ -2309,6 +4364,7 @@ class _SchedulesCalendarPanel extends StatelessWidget {
             );
           }),
       ],
+      ),
     );
   }
 }
@@ -2321,10 +4377,11 @@ class _TemplateCard extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
   final Color deptColor;
   final bool canWrite;
+  final bool canGenerate;
   final VoidCallback onEdit;
   final VoidCallback onGenerate;
   final VoidCallback onDelete;
-  const _TemplateCard({required this.doc, required this.deptColor, required this.canWrite, required this.onEdit, required this.onGenerate, required this.onDelete});
+  const _TemplateCard({required this.doc, required this.deptColor, required this.canWrite, required this.canGenerate, required this.onEdit, required this.onGenerate, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -2340,9 +4397,14 @@ class _TemplateCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [Colors.white, deptColor.withOpacity(0.04)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFE8EEF5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2394,7 +4456,7 @@ class _TemplateCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (canWrite)
+                    if (canWrite && canGenerate)
                       FilledButton.tonalIcon(
                         onPressed: onGenerate,
                         icon: const Icon(Icons.auto_awesome_rounded, size: 16),
@@ -2424,7 +4486,21 @@ class _InstanceCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
-  const _InstanceCard({required this.doc, required this.deptColor, required this.currentCpf, required this.canWrite, required this.onTap, this.onEdit, this.onDelete});
+  final bool selectionMode;
+  final bool selected;
+  final ValueChanged<bool>? onSelectionChanged;
+  const _InstanceCard({
+    required this.doc,
+    required this.deptColor,
+    required this.currentCpf,
+    required this.canWrite,
+    required this.onTap,
+    this.onEdit,
+    this.onDelete,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2455,24 +4531,79 @@ class _InstanceCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        onTap: () {
+          if (selectionMode && canWrite && onSelectionChanged != null) {
+            onSelectionChanged!(!selected);
+          } else {
+            onTap();
+          }
+        },
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         child: Container(
           decoration: BoxDecoration(
-            color: isPast ? Colors.grey.shade50 : Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            gradient: selectionMode && selected
+                ? LinearGradient(
+                    colors: [
+                      ThemeCleanPremium.primary.withOpacity(0.07),
+                      Colors.white,
+                    ],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  )
+                : (!isPast
+                    ? LinearGradient(
+                        colors: [
+                          Colors.white,
+                          deptColor.withOpacity(0.04),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null),
+            color: selectionMode && selected
+                ? null
+                : (isPast ? Colors.grey.shade50 : null),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            boxShadow: [
+              BoxShadow(
+                color: deptColor.withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+              ...ThemeCleanPremium.softUiCardShadow,
+            ],
+            border: selectionMode && selected
+                ? Border.all(
+                    color: ThemeCleanPremium.primary.withOpacity(0.4),
+                    width: 1.5,
+                  )
+                : Border.all(color: const Color(0xFFE2E8F0)),
           ),
           child: Row(
             children: [
               Container(
-                width: 5,
-                height: 90,
+                width: 6,
+                height: 92,
                 decoration: BoxDecoration(
-                  color: deptColor,
-                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [deptColor, deptColor.withOpacity(0.75)],
+                  ),
+                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(ThemeCleanPremium.radiusLg)),
+                  boxShadow: [
+                    BoxShadow(color: deptColor.withOpacity(0.35), blurRadius: 8, offset: const Offset(2, 0)),
+                  ],
                 ),
               ),
+              if (selectionMode && canWrite)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: (v) => onSelectionChanged?.call(v ?? false),
+                  ),
+                ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -2481,7 +4612,7 @@ class _InstanceCard extends StatelessWidget {
                     children: [
                       Row(children: [
                         Expanded(child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: isPast ? Colors.grey.shade500 : ThemeCleanPremium.onSurface))),
-                        if (canWrite && (onEdit != null || onDelete != null))
+                        if (canWrite && !selectionMode && (onEdit != null || onDelete != null))
                           PopupMenuButton<String>(
                             onSelected: (v) {
                               if (v == 'edit') onEdit?.call();
@@ -4070,6 +6201,424 @@ class _ReportSummaryCard extends StatelessWidget {
   }
 }
 
+/// Card premium para detalhe de uma escala no drill-down de relatórios.
+class _EscalaDrillCard extends StatelessWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final Color accent;
+
+  const _EscalaDrillCard({required this.doc, required this.accent});
+
+  static String _statusLabel(String s) {
+    switch (s) {
+      case 'confirmado':
+        return 'Confirmado';
+      case 'indisponivel':
+        return 'Indisponível';
+      case 'falta_nao_justificada':
+        return 'Falta';
+      default:
+        return 'Pendente';
+    }
+  }
+
+  static Color _statusColor(String s) {
+    switch (s) {
+      case 'confirmado':
+        return ThemeCleanPremium.success;
+      case 'indisponivel':
+      case 'falta_nao_justificada':
+        return ThemeCleanPremium.error;
+      default:
+        return Colors.amber.shade800;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = doc.data();
+    DateTime? dt;
+    try {
+      dt = (m['date'] as Timestamp?)?.toDate();
+    } catch (_) {}
+    final title = (m['title'] ?? 'Escala').toString().trim();
+    final dept = (m['departmentName'] ?? '').toString().trim();
+    final timeStr = (m['time'] ?? '').toString().trim();
+    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString().trim()).toList();
+    final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
+
+    var nConf = 0;
+    var nNeg = 0;
+    var nPend = 0;
+    for (final cpf in cpfs) {
+      final s = (confirmations[cpf] ?? '').toString();
+      if (s == 'confirmado') {
+        nConf++;
+      } else if (s == 'indisponivel' || s == 'falta_nao_justificada') {
+        nNeg++;
+      } else {
+        nPend++;
+      }
+    }
+    final total = cpfs.length;
+    final ratio = total > 0 ? nConf / total : 0.0;
+
+    final dayStr = dt != null ? DateFormat('dd').format(dt) : '—';
+    final monStr = dt != null ? DateFormat('MMM', 'pt_BR').format(dt) : '';
+    final yearStr = dt != null ? DateFormat('yyyy').format(dt) : '';
+    final weekdayStr = dt != null ? DateFormat('EEEE', 'pt_BR').format(dt) : '';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [accent.withValues(alpha: 0.11), accent.withValues(alpha: 0.03)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 56,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [accent, Color.lerp(accent, Colors.white, 0.15) ?? accent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3))],
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          dayStr,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, height: 1),
+                        ),
+                        if (monStr.isNotEmpty)
+                          Text(
+                            monStr,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white.withValues(alpha: 0.92)),
+                          ),
+                        if (yearStr.isNotEmpty)
+                          Text(
+                            yearStr,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.85)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (weekdayStr.isNotEmpty)
+                          Text(
+                            weekdayStr,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: accent.withValues(alpha: 0.85)),
+                          ),
+                        if (weekdayStr.isNotEmpty) const SizedBox(height: 4),
+                        Text(
+                          title,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface, height: 1.2),
+                        ),
+                        if (dept.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              Icon(Icons.groups_2_rounded, size: 15, color: Colors.grey.shade600),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Text(dept, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (timeStr.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(Icons.schedule_rounded, size: 15, color: Colors.grey.shade600),
+                              const SizedBox(width: 4),
+                              Text(timeStr, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.pie_chart_outline_rounded, size: 16, color: accent),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Confirmações',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '$nConf / $total',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: accent),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: total > 0 ? ratio : 0,
+                      minHeight: 7,
+                      backgroundColor: Colors.grey.shade200,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _miniStatChip('Confirmados', nConf, ThemeCleanPremium.success),
+                      _miniStatChip('Pendentes', nPend, Colors.amber.shade800),
+                      _miniStatChip('Indisp./falta', nNeg, ThemeCleanPremium.error),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (total > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.people_outline_rounded, size: 16, color: Colors.grey.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Membros ($total)',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ...List.generate(total, (i) {
+                      final cpf = i < cpfs.length ? cpfs[i] : '';
+                      final name = i < names.length && names[i].isNotEmpty ? names[i] : (cpf.isNotEmpty ? cpf : '—');
+                      final st = (confirmations[cpf] ?? '').toString();
+                      final col = _statusColor(st);
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: i == total - 1 ? 0 : 8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE8EDF4)),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: col.withValues(alpha: 0.15),
+                                child: Text(
+                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: col),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.2),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: col.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: col.withValues(alpha: 0.35)),
+                                ),
+                                child: Text(
+                                  _statusLabel(st),
+                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: col),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _miniStatChip(String label, int v, Color c) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$v', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: c)),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Linha premium para listas de texto (presenças, faltas, resumo por membro).
+class _PremiumDrillLineTile extends StatelessWidget {
+  final String line;
+  final Color accent;
+
+  const _PremiumDrillLineTile({required this.line, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final emParts = line.split(' — ');
+    if (emParts.length == 2) {
+      final left = emParts[0].trim();
+      final right = emParts[1].trim();
+      final initial = left.isNotEmpty ? left[0].toUpperCase() : '?';
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: accent.withValues(alpha: 0.14),
+              child: Text(initial, style: TextStyle(fontWeight: FontWeight.w900, color: accent, fontSize: 15)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(left, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, height: 1.2)),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: accent.withValues(alpha: 0.18)),
+                    ),
+                    child: Text(right, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.grey.shade800, height: 1.25)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final colonIdx = line.indexOf(':');
+    if (colonIdx > 0 && colonIdx < line.length - 1) {
+      final k = line.substring(0, colonIdx).trim();
+      final v = line.substring(colonIdx + 1).trim();
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [accent.withValues(alpha: 0.08), accent.withValues(alpha: 0.02)],
+          ),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          border: Border.all(color: accent.withValues(alpha: 0.2)),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.analytics_outlined, size: 20, color: accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(k, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.grey.shade800)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Text(v, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: accent)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Text(line, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, height: 1.35, color: Colors.grey.shade800)),
+    );
+  }
+}
+
 class _ReportChartCard extends StatelessWidget {
   final String title;
   final Widget child;
@@ -4109,7 +6658,7 @@ class _ReportMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
@@ -4117,17 +6666,34 @@ class _ReportMetricCard extends StatelessWidget {
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 26, color: color),
-          const SizedBox(height: 6),
-          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: color)),
-          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
-          if (onTap != null) ...[const SizedBox(height: 4), Icon(Icons.touch_app_rounded, size: 14, color: color.withOpacity(0.7))],
+          Icon(icon, size: 22, color: color),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(height: 4),
+            Icon(Icons.open_in_new_rounded, size: 12, color: color.withOpacity(0.65)),
+          ],
         ],
       ),
     );
     if (onTap != null) {
-      return Material(color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd), onTap: onTap, child: content));
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          onTap: onTap,
+          child: content,
+        ),
+      );
     }
     return content;
   }
@@ -4201,29 +6767,77 @@ class _FilterChipDept extends StatelessWidget {
   final String label;
   final bool selected;
   final Color? color;
+  final bool compact;
   final VoidCallback onTap;
-  const _FilterChipDept({required this.label, required this.selected, this.color, required this.onTap});
+  const _FilterChipDept({
+    required this.label,
+    required this.selected,
+    this.color,
+    this.compact = false,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = color ?? ThemeCleanPremium.primary;
+    final padH = compact ? 8.0 : 14.0;
+    final padV = compact ? 7.0 : 9.0;
+    final fs = compact ? 11.0 : 12.0;
+    final r = compact ? 14.0 : 22.0;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(r),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
           decoration: BoxDecoration(
-            color: selected ? c : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: selected ? c : Colors.grey.shade300),
-            boxShadow: selected ? [BoxShadow(color: c.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))] : [],
+            gradient: selected
+                ? LinearGradient(
+                    colors: [c, c.withOpacity(0.88)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: selected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(r),
+            border: Border.all(
+              color: selected ? c : Colors.grey.shade300,
+              width: selected ? 0 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: c.withOpacity(0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
           ),
-          child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? Colors.white : Colors.grey.shade700)),
+          child: Center(
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: fs,
+                height: 1.15,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : Colors.grey.shade700,
+              ),
+            ),
+          ),
         ),
-        ),
+      ),
     );
   }
 }

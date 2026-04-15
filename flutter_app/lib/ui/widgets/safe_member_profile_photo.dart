@@ -405,7 +405,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
     }
 
     try {
-      return await inner().timeout(const Duration(seconds: 12),
+      return await inner().timeout(const Duration(seconds: 22),
           onTimeout: () => null);
     } catch (_) {
       return null;

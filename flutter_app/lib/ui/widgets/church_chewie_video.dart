@@ -7,37 +7,61 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
-/// Abre vídeo hospedado (Firebase Storage / MP4) com miniatura durante o buffer e
-/// [Chewie] no Android/iOS/desktop; na **web** usa o player HTML já usado no projeto
-/// (evita CORS/CanvasKit com `VideoPlayer` nativo).
-///
-/// A URL é sempre renovada com [resolveFirebaseStorageVideoPlayUrl] antes do play.
+/// Enquadramento do painel “teatro” para Shorts / vídeo vertical (9:16), reduzindo barras vs. 16:9.
+const double kChurchVideoTheaterAspect = 9 / 16;
+
+/// 1.º passo (estilo YouTube): painel “teatro” deslizante; depois o utilizador pode ir a **tela cheia**.
+Future<void> showChurchHostedVideoTheater(
+  BuildContext context, {
+  required String videoUrl,
+  String? thumbnailUrl,
+  bool autoPlay = true,
+  String title = '',
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black54,
+    builder: (sheetCtx) => _ChurchHostedVideoTheaterSheet(
+      videoUrl: videoUrl,
+      thumbnailUrl: thumbnailUrl,
+      autoPlay: autoPlay,
+      title: title,
+      parentContext: context,
+    ),
+  );
+}
+
+/// Igual ao fluxo YouTube: primeiro [showChurchHostedVideoTheater], depois tela cheia opcional.
 Future<void> showChurchHostedVideoDialog(
   BuildContext context, {
   required String videoUrl,
   String? thumbnailUrl,
   bool autoPlay = true,
+  String title = '',
 }) async {
-  await showDialog<void>(
-    context: context,
-    barrierColor: Colors.black87,
-    builder: (ctx) => _ChurchHostedVideoDialog(
-      videoUrl: videoUrl,
-      thumbnailUrl: thumbnailUrl,
-      autoPlay: autoPlay,
-    ),
+  await showChurchHostedVideoTheater(
+    context,
+    videoUrl: videoUrl,
+    thumbnailUrl: thumbnailUrl,
+    autoPlay: autoPlay,
+    title: title,
   );
 }
 
-/// Abre o vídeo em rota quase tela cheia com autoplay (Chewie nativo; HTML na web).
+/// 2.º passo: reprodução imersiva (tela cheia) com enquadramento seguro na web e nativo.
 Future<void> openChurchHostedVideoImmersive(
   BuildContext context, {
   required String videoUrl,
   String? thumbnailUrl,
+  String title = '',
 }) async {
   if (!context.mounted) return;
   await Navigator.of(context, rootNavigator: true).push<void>(
@@ -47,6 +71,7 @@ Future<void> openChurchHostedVideoImmersive(
       pageBuilder: (ctx, _, __) => _ChurchVideoImmersivePage(
         videoUrl: videoUrl,
         thumbnailUrl: thumbnailUrl,
+        title: title,
       ),
       transitionsBuilder: (ctx, anim, _, child) {
         return FadeTransition(opacity: anim, child: child);
@@ -58,10 +83,12 @@ Future<void> openChurchHostedVideoImmersive(
 class _ChurchVideoImmersivePage extends StatefulWidget {
   final String videoUrl;
   final String? thumbnailUrl;
+  final String title;
 
   const _ChurchVideoImmersivePage({
     required this.videoUrl,
     this.thumbnailUrl,
+    this.title = '',
   });
 
   @override
@@ -88,36 +115,171 @@ class _ChurchVideoImmersivePageState extends State<_ChurchVideoImmersivePage> {
 
   @override
   Widget build(BuildContext context) {
-    final pad = MediaQuery.paddingOf(context);
+    return ChurchHostedVideoFullscreenPage(
+      videoUrl: widget.videoUrl,
+      thumbnailUrl: widget.thumbnailUrl,
+      title: widget.title,
+    );
+  }
+}
+
+/// Página de vídeo em tela cheia (reutilizável — eventos, mural, site).
+class ChurchHostedVideoFullscreenPage extends StatelessWidget {
+  final String videoUrl;
+  final String title;
+  final String? thumbnailUrl;
+
+  const ChurchHostedVideoFullscreenPage({
+    super.key,
+    required this.videoUrl,
+    this.title = '',
+    this.thumbnailUrl,
+  });
+
+  Future<void> _openBrowser(BuildContext context) async {
+    final u = Uri.tryParse(videoUrl);
+    if (u != null && await canLaunchUrl(u)) {
+      await launchUrl(u, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  /// Encaixa 16:9 no ecrã (sem “zoom” a cortar na web).
+  static Widget _fitVideoBox(Widget child) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final maxW = c.maxWidth;
+        final maxH = c.maxHeight;
+        if (maxW <= 0 || maxH <= 0) {
+          return const SizedBox.shrink();
+        }
+        var w = maxW;
+        var h = w * 9 / 16;
+        if (h > maxH) {
+          h = maxH;
+          w = h * 16 / 9;
+        }
+        return Center(
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final videoLayer = kIsWeb
+        ? _fitVideoBox(
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: buildPremiumHtmlVideo(
+                videoUrl,
+                autoplay: true,
+                muted: false,
+                loop: false,
+                controls: true,
+                objectFitContain: true,
+              ),
+            ),
+          )
+        : LayoutBuilder(
+            builder: (context, c) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: c.maxWidth,
+                    maxHeight: c.maxHeight,
+                  ),
+                  child: ChurchHostedVideoSurface(
+                    videoUrl: videoUrl,
+                    thumbnailUrl: thumbnailUrl,
+                    autoPlay: true,
+                  ),
+                ),
+              );
+            },
+          );
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Positioned.fill(
-            child: Padding(
-              padding: EdgeInsets.only(top: pad.top),
-              child: Center(
-                child: ChurchHostedVideoSurface(
-                  videoUrl: widget.videoUrl,
-                  thumbnailUrl: widget.thumbnailUrl,
-                  autoPlay: true,
+          Positioned.fill(child: videoLayer),
+          SafeArea(
+            child: Stack(
+              children: [
+                if (title.isNotEmpty)
+                  Positioned(
+                    top: 4,
+                    left: 12,
+                    right: 56,
+                    child: IgnorePointer(
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 14,
+                              color: Colors.black.withValues(alpha: 0.85),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  top: 0,
+                  right: 4,
+                  child: Material(
+                    color: Colors.black45,
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: IconButton(
+                      icon: const Icon(Icons.close_rounded,
+                          color: Colors.white, size: 26),
+                      onPressed: () => Navigator.pop(context),
+                      tooltip: 'Fechar',
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: pad.top + 4,
-            right: 8,
-            child: Material(
-              color: Colors.black54,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: IconButton(
-                tooltip: 'Fechar',
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-              ),
+                if (kIsWeb)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton.outlined(
+                              style: IconButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                minimumSize: const Size(
+                                  ThemeCleanPremium.minTouchTarget,
+                                  ThemeCleanPremium.minTouchTarget,
+                                ),
+                              ),
+                              onPressed: () => _openBrowser(context),
+                              icon: const Icon(Icons.open_in_new_rounded),
+                              tooltip: 'Navegador',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -126,50 +288,155 @@ class _ChurchVideoImmersivePageState extends State<_ChurchVideoImmersivePage> {
   }
 }
 
-class _ChurchHostedVideoDialog extends StatelessWidget {
+class _ChurchHostedVideoTheaterSheet extends StatelessWidget {
   final String videoUrl;
   final String? thumbnailUrl;
   final bool autoPlay;
+  final String title;
+  final BuildContext parentContext;
 
-  const _ChurchHostedVideoDialog({
+  const _ChurchHostedVideoTheaterSheet({
     required this.videoUrl,
     this.thumbnailUrl,
     required this.autoPlay,
+    required this.title,
+    required this.parentContext,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ChurchHostedVideoSurface(
-              videoUrl: videoUrl,
-              thumbnailUrl: thumbnailUrl,
-              autoPlay: autoPlay,
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Material(
-                color: Colors.black45,
-                shape: const CircleBorder(),
-                clipBehavior: Clip.antiAlias,
-                child: IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white),
-                  tooltip: 'Fechar',
+    final h = MediaQuery.sizeOf(context).height;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.62,
+      minChildSize: 0.34,
+      maxChildSize: 0.94,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 24,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white30,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title.trim().isNotEmpty ? title.trim() : 'Vídeo',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      tooltip: 'Fechar',
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        // 9:16 é “alto”; dar mais altura útil que o antigo 16:9 neste slot.
+                        maxHeight: h * 0.52,
+                        maxWidth: double.infinity,
+                      ),
+                      child: AspectRatio(
+                        aspectRatio: kChurchVideoTheaterAspect,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: ChurchHostedVideoSurface(
+                            videoUrl: videoUrl,
+                            thumbnailUrl: thumbnailUrl,
+                            autoPlay: autoPlay,
+                            layoutAspectRatio: kChurchVideoTheaterAspect,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(
+                          'Fechar',
+                          style: TextStyle(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!parentContext.mounted) return;
+                            unawaited(
+                              openChurchHostedVideoImmersive(
+                                parentContext,
+                                videoUrl: videoUrl,
+                                thumbnailUrl: thumbnailUrl,
+                                title: title,
+                              ),
+                            );
+                          });
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.fullscreen_rounded, size: 20),
+                        label: const Text('Tela cheia'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -180,15 +447,21 @@ class ChurchHostedVideoSurface extends StatefulWidget {
   final String? thumbnailUrl;
   final bool autoPlay;
 
+  /// Caixa de layout (web, loading, erro). Nativo após init usa o aspect do vídeo.
+  /// No teatro vertical use [kChurchVideoTheaterAspect] (9:16) para alinhar com Shorts.
+  final double? layoutAspectRatio;
+
   const ChurchHostedVideoSurface({
     super.key,
     required this.videoUrl,
     this.thumbnailUrl,
     this.autoPlay = true,
+    this.layoutAspectRatio,
   });
 
   @override
-  State<ChurchHostedVideoSurface> createState() => _ChurchHostedVideoSurfaceState();
+  State<ChurchHostedVideoSurface> createState() =>
+      _ChurchHostedVideoSurfaceState();
 }
 
 class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
@@ -196,6 +469,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
   ChewieController? _chewie;
   bool _loading = true;
   bool _failed = false;
+
+  double get _boxAspect => widget.layoutAspectRatio ?? (16 / 9);
 
   @override
   void initState() {
@@ -223,7 +498,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
       c = controller;
       await controller
           .initialize()
-          .timeout(const Duration(seconds: 22), onTimeout: () => throw TimeoutException('init'));
+          .timeout(const Duration(seconds: 22),
+              onTimeout: () => throw TimeoutException('init'));
       if (!mounted) {
         await controller.dispose();
         return;
@@ -236,7 +512,9 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
         allowFullScreen: true,
         allowMuting: true,
         showControls: true,
-        aspectRatio: controller.value.aspectRatio > 0 ? controller.value.aspectRatio : 16 / 9,
+        aspectRatio: controller.value.aspectRatio > 0
+            ? controller.value.aspectRatio
+            : _boxAspect,
         errorBuilder: (context, message) => Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -289,20 +567,21 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
   Widget build(BuildContext context) {
     if (kIsWeb) {
       return AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: _boxAspect,
         child: buildPremiumHtmlVideo(
           widget.videoUrl,
           autoplay: widget.autoPlay,
           muted: false,
           loop: false,
           controls: true,
+          objectFitContain: true,
         ),
       );
     }
 
     if (_failed) {
       return AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: _boxAspect,
         child: ColoredBox(
           color: Colors.black,
           child: Center(
@@ -314,7 +593,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
                 }
               },
               icon: const Icon(Icons.open_in_new_rounded, color: Colors.white70),
-              label: const Text('Abrir vídeo', style: TextStyle(color: Colors.white70)),
+              label: const Text('Abrir vídeo',
+                  style: TextStyle(color: Colors.white70)),
             ),
           ),
         ),
@@ -325,8 +605,9 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
     final hasThumb = isValidImageUrl(thumb);
 
     if (_loading) {
+      final isPortraitBox = _boxAspect < 1.0;
       return AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: _boxAspect,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -336,8 +617,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
                 fit: BoxFit.cover,
                 width: double.infinity,
                 height: double.infinity,
-                memCacheWidth: 640,
-                memCacheHeight: 360,
+                memCacheWidth: isPortraitBox ? 360 : 640,
+                memCacheHeight: isPortraitBox ? 640 : 360,
                 placeholder: Container(color: Colors.grey.shade900),
                 errorWidget: Container(color: Colors.grey.shade900),
               )
@@ -348,7 +629,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
               child: SizedBox(
                 width: 40,
                 height: 40,
-                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white70),
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.5, color: Colors.white70),
               ),
             ),
           ],
@@ -360,13 +642,14 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
     final vc = _vc;
     if (chewie != null && vc != null && vc.value.isInitialized) {
       return AspectRatio(
-        aspectRatio: vc.value.aspectRatio > 0 ? vc.value.aspectRatio : 16 / 9,
+        aspectRatio:
+            vc.value.aspectRatio > 0 ? vc.value.aspectRatio : _boxAspect,
         child: Chewie(controller: chewie),
       );
     }
 
     return AspectRatio(
-      aspectRatio: 16 / 9,
+      aspectRatio: _boxAspect,
       child: ColoredBox(color: Colors.grey.shade900),
     );
   }

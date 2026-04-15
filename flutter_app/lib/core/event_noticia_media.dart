@@ -118,6 +118,7 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
     pushString(m['thumbUrl']?.toString());
     pushString(m['thumb_url']?.toString());
     pushString(m['thumbnailUrl']?.toString());
+    pushString(m['src']?.toString());
   }
 
   void pushFromAny(dynamic raw) {
@@ -147,11 +148,16 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   pushFromAny(data['imagem_url']);
   pushFromAny(data['imagemUrl']);
   pushFromAny(data['imageUrl']);
-  // Alguns avisos guardam capa em `media` (mapa com url / storagePath).
+  // Avisos/eventos: `media` como mapa ou lista de mapas (url / storagePath).
   final mediaRoot = data['media'];
   if (mediaRoot is Map) {
     pushFromMap(mediaRoot);
+  } else if (mediaRoot is List) {
+    pushFromList(mediaRoot);
   }
+  pushFromList(data['attachments']);
+  pushFromList(data['attachmentsUrls']);
+  pushFromList(data['attachmentUrls']);
   pushFromAny(data['defaultImageUrl']);
   pushFromList(data['imageUrls']);
   pushFromList(data['photos']); // alguns clientes salvam lista em "photos"
@@ -194,6 +200,14 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
     'capaUrl',
     'coverImageUrl',
     'posterUrl',
+    'bannerUrl',
+    'banner',
+    'heroUrl',
+    'heroImageUrl',
+    'pictureUrl',
+    'picture',
+    'fileUrl',
+    'file_url',
   ]) {
     if (data.containsKey(key)) pushFromAny(data[key]);
   }
@@ -227,7 +241,8 @@ double postFeedCarouselAspectRatioForIndex(
   if (mi is Map) {
     final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
     if (oar is num) {
-      return oar.toDouble().clamp(0.56, 1.85);
+      // Largura÷altura. Flyers retrato ~0,52–0,78; paisagem ~1,2–1,85. Evitar só extremos.
+      return oar.toDouble().clamp(0.62, 1.75);
     }
   }
   return 4 / 5;
