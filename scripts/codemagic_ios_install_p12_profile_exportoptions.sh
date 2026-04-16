@@ -10,6 +10,10 @@ if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
   export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
   echo "AVISO: CM_CERTIFICATE vazio — a usar CERTIFICATE_PRIVATE_KEY."
 fi
+if [ -z "${CM_PROVISIONING_PROFILE:-}" ] && [ -n "${PROVISIONING_PROFILE:-}" ]; then
+  export CM_PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+  echo "AVISO: CM_PROVISIONING_PROFILE vazio — a usar PROVISIONING_PROFILE."
+fi
 
 if [ ! -f /tmp/_asc_ok.pem ]; then
   echo "ERRO: /tmp/_asc_ok.pem ausente — execute antes: Preparar PEM App Store Connect."

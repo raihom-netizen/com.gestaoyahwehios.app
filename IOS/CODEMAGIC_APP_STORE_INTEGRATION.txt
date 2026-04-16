@@ -7,22 +7,19 @@ IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
    O Mac da Codemagic não vê a pasta Windows. Só o que está em Environment variables / secrets
    é usado. Se só tiver APP_STORE_CONNECT_* (3 variáveis), o YAML corre em modo «API-only»
    (fetch-signing-files) e pode falhar com 403 ao criar certificado.
-   Solução estável: adicionar CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) abaixo —
-   o script codemagic_ios_verify_env_apple_and_signing.sh passa a modo «manual» e o passo 11
-   usa o P12 local à build, sem POST /v1/certificates.
+   Solução estável: P12 + perfil nos secrets (modo manual). Nomes aceites (igual Controle Total):
+   CERTIFICATE_PRIVATE_KEY (= CM_CERTIFICATE) e CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE.
 
-1) Grupo de variáveis appstore_credentials (Codemagic → Application → Environment variables)
-   - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do ficheiro IOS/AuthKey_UDKV6M9N38.p8
-     (abrir em editor de texto, copiar desde -----BEGIN até -----END, multilinha, segredo).
-   - Os valores abaixo já podem estar no codemagic.yaml como variáveis não secretas:
-     APP_STORE_CONNECT_KEY_IDENTIFIER = UDKV6M9N38
-     APP_STORE_CONNECT_ISSUER_ID = 77a1debb-f68b-418d-9fe3-af0f37b40585
-   - Modo manual (recomendado se o passo 11 falhar na API):
-     CM_CERTIFICATE = Base64 uma linha do export .p12 (Apple Distribution + chave privada).
-       Gerar: na raiz do repo, PowerShell: .\scripts\encode_ios_codemagic_secrets.ps1
-       → D:\Temporarios\gestao_yahweh_codemagic\CM_CERTIFICATE_base64.txt
-     CM_PROVISIONING_PROFILE = Base64 uma linha do gestaoyahwehiosapp.mobileprovision (App Store).
-     CM_CERTIFICATE_PASSWORD = senha definida ao exportar o .p12 (ou vazio se export sem senha).
+1) Grupo appstore_credentials (Codemagic → Application → Environment variables)
+   Mesma estrutura que «controle-totalapp»: credenciais Apple iguais; só mudam P12/perfil por app.
+   - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do IOS/AuthKey_UDKV6M9N38.p8 (multilinha PEM).
+   - APP_STORE_CONNECT_KEY_IDENTIFIER = UDKV6M9N38  (já no codemagic.yaml)
+   - APP_STORE_CONNECT_ISSUER_ID = 77a1debb-f68b-418d-9fe3-af0f37b40585  (já no codemagic.yaml)
+   - CERTIFICATE_PRIVATE_KEY = Base64 uma linha do .p12 Apple Distribution (ou use CM_CERTIFICATE = mesmo valor).
+   - CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE = Base64 do .mobileprovision App Store de com.gestaoyahwehios.app
+     (não é o mesmo ficheiro do Controle Total — cada bundle tem o seu perfil).
+   - CM_CERTIFICATE_PASSWORD ou CERTIFICATE_PASSWORD = senha do export .p12 (ou vazio).
+   Gerar Base64 no PC: .\scripts\encode_ios_codemagic_secrets.ps1 → ficheiros em D:\Temporarios\gestao_yahweh_codemagic\
 
    Sobre «Created By API Key: a1db85a6-...» no portal Apple: é identificação interna de quem
    criou o certificado — NÃO substitui o Key ID UDKV6M9N38 do ficheiro AuthKey_*.p8 na Codemagic.

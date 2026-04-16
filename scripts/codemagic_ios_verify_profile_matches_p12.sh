@@ -16,6 +16,10 @@ if [[ -f /tmp/cm_yw_signing_mode ]] && [[ "$(tr -d '\r\n' < /tmp/cm_yw_signing_m
   echo "OK: modo api_only (Controle Total) — saltar verificação P12 vs perfil."
   exit 0
 fi
+if [[ -f /tmp/cm_yw_signing_mode ]] && [[ "$(tr -d '\r\n' < /tmp/cm_yw_signing_mode)" == "team_signing" ]]; then
+  echo "OK: modo team_signing — certificados Codemagic; saltar verificação P12 vs perfil."
+  exit 0
+fi
 # Última tentativa antes do fail-fast: API ASC (lista ampla de certificados + perfil / criação).
 if [[ -f "${SCRIPT_DIR}/codemagic_ios_asc_api_ensure_appstore_profile.py" ]]; then
   echo "=== API App Store Connect: alinhar perfil .mobileprovision ao P12 ==="

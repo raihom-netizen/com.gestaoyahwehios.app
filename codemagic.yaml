@@ -33,9 +33,15 @@
 #   Local: ajuste flutter_app/ios/ExportOptions.plist — o valor em provisioningProfiles deve ser o "Name" exacto
 #   do perfil App Store (igual ao que PlistBuddy lê do .mobileprovision).
 #
-# Checklist appstore_credentials:
-#   Opção A (API-only): APP_STORE_CONNECT_* + opcional CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA, mesma em todos os builds).
-#   Opção B (manual): APP_STORE_CONNECT_* + CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (.p12 Base64) + CM_PROVISIONING_PROFILE (+ senha P12 se aplicável).
+# Checklist appstore_credentials (igual Controle Total — mesma conta Apple; só mudam P12/perfil por app):
+#   APP_STORE_CONNECT_PRIVATE_KEY, KEY_IDENTIFIER, ISSUER_ID
+#   CERTIFICATE_PRIVATE_KEY = Base64 do .p12 Apple Distribution (nome que o assistente Codemagic usa; equivale a CM_CERTIFICATE)
+#   CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE = Base64 do .mobileprovision App Store do bundle com.gestaoyahwehios.app
+#   CM_CERTIFICATE_PASSWORD ou CERTIFICATE_PASSWORD (se o P12 tiver senha)
+# Grupo firebase_ipa_upload (opcional): FIREBASE_SERVICE_ACCOUNT_JSON, etc. — como no Controle Total.
+#
+#   Opção A (API-only): só APP_STORE_CONNECT_* — pode falhar com 403 ao criar certificado se a chave API não for Admin.
+#   Opção B (recomendada, mesmo padrão Controle Total): APP_STORE_CONNECT_* + CERTIFICATE_PRIVATE_KEY + perfil App Store.
 #   Se "Code signing" terminar em poucos segundos sem erro, confira se xcode-project use-profiles aplicou
 #   perfis (ver passo seguinte: identidades de assinatura).
 #
@@ -84,7 +90,14 @@ workflows:
     environment:
       groups:
         - appstore_credentials
+      # Injeta certificado + perfil da equipa (Settings → Code signing identities), como na documentação Codemagic.
+      # Sem isto, o CI fica em api_only e tenta criar certificado na API (403). Ver scripts/codemagic_ios_team_signing_prepare_exportoptions.sh
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.gestaoyahwehios.app
       vars:
+        # 1 = usar ficheiros da equipa + ios_signing acima (não exige CERTIFICATE_PRIVATE_KEY nos secrets).
+        CM_USE_CODEMAGIC_TEAM_SIGNING: "1"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "UDKV6M9N38"
@@ -147,7 +160,10 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          if [ -f /tmp/cm_yw_signing_mode ] && [ "$(tr -d '\r\n' < /tmp/cm_yw_signing_mode)" = "api_only" ]; then
+          _mode="$(tr -d '\r\n' < /tmp/cm_yw_signing_mode 2>/dev/null || echo "")"
+          if [ "$_mode" = "team_signing" ]; then
+            bash "$ROOT/scripts/codemagic_ios_team_signing_prepare_exportoptions.sh"
+          elif [ "$_mode" = "api_only" ]; then
             bash "$ROOT/scripts/codemagic_ios_install_signing_api_only.sh"
           else
             bash "$ROOT/scripts/codemagic_ios_install_p12_profile_exportoptions.sh"
