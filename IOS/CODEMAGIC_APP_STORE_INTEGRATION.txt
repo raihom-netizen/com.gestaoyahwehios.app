@@ -3,6 +3,11 @@ Codemagic — Gestão YAHWEH — App Store Connect (UDKV6M9N38)
 
 O build NÃO precisa de integração nomeada na equipa (evita erro "integration does not exist").
 
+Erro «No matching certificate found for every requested profile» (Codemagic):
+   O perfil App Store na equipa não está associado ao mesmo certificado Distribution que está em
+   «Code signing identities», ou o bloco ios_signing no YAML não deve ser usado até estar tudo verde.
+   Solução estável: secrets CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE (Base64), sem ios_signing no YAML.
+
 IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
    O Mac da Codemagic não vê a pasta Windows. Só o que está em Environment variables / secrets
    é usado. Se só tiver APP_STORE_CONNECT_* (3 variáveis), o YAML corre em modo «API-only»

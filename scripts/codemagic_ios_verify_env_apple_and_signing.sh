@@ -34,10 +34,27 @@ if [ -z "$_CM_CERT_COMPACT" ]; then
     echo "    (Nao usa CERTIFICATE_PRIVATE_KEY nos secrets; evita POST /certificates 403.)"
     exit 0
   fi
+  _noapi="${CM_DISALLOW_API_ONLY_SIGNING:-0}"
+  if [ "$_noapi" = "1" ] || [ "$_noapi" = "true" ]; then
+    echo ""
+    echo "ERRO: Falta CERTIFICATE_PRIVATE_KEY (ou CM_CERTIFICATE) + CM_PROVISIONING_PROFILE nos secrets."
+    echo "  Sem isto o CI tenta API-only e pode dar 403; com «ios_signing» na equipa pode dar"
+    echo "  «No matching certificate found for every requested profile» se certificado e perfil não coincidem."
+    echo ""
+    echo "  Codemagic → app com.gestaoyahwehios.app → Environment variables → grupo appstore_credentials:"
+    echo "    CERTIFICATE_PRIVATE_KEY   = Base64 uma linha do .p12 Apple Distribution (export Keychain)"
+    echo "    CM_PROVISIONING_PROFILE   = Base64 uma linha do .mobileprovision App Store (bundle com.gestaoyahwehios.app)"
+    echo "    CM_CERTIFICATE_PASSWORD   = senha do .p12 (ou vazio)"
+    echo "  PC (repo):  .\\scripts\\encode_ios_codemagic_secrets.ps1"
+    echo ""
+    echo "  No Apple Developer: perfil App Store deve incluir o MESMO certificado Distribution que está no .p12."
+    echo "  Para voltar a tentar só API (chave Admin): defina CM_DISALLOW_API_ONLY_SIGNING=0 no codemagic.yaml."
+    echo ""
+    exit 1
+  fi
   echo "api_only" > /tmp/cm_yw_signing_mode
   echo "OK: modo API-only — fetch-signing-files (com --certificate-key RSA)."
   echo "AVISO: Com chave API sem permissao para criar certificados, o passo 11 pode dar 403."
-  echo "       Ou defina CM_USE_CODEMAGIC_TEAM_SIGNING=1 + ios_signing no YAML, ou P12+perfil nos secrets."
   exit 0
 fi
 

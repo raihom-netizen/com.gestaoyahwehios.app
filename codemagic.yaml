@@ -90,14 +90,15 @@ workflows:
     environment:
       groups:
         - appstore_credentials
-      # Injeta certificado + perfil da equipa (Settings → Code signing identities), como na documentação Codemagic.
-      # Sem isto, o CI fica em api_only e tenta criar certificado na API (403). Ver scripts/codemagic_ios_team_signing_prepare_exportoptions.sh
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.gestaoyahwehios.app
+      # NÃO usar «ios_signing» aqui se na equipa Codemagic o perfil mostrar certificado «Not uploaded» ou
+      # aparecer «No matching certificate found for every requested profile» — o matcher da Codemagic exige
+      # certificado .p12 na equipa que seja exactamente o do perfil App Store. Até isso estar verde na UI,
+      # usar secrets: CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE (Base64), modo manual (scripts).
       vars:
-        # 1 = usar ficheiros da equipa + ios_signing acima (não exige CERTIFICATE_PRIVATE_KEY nos secrets).
-        CM_USE_CODEMAGIC_TEAM_SIGNING: "1"
+        # 0 = não depender de ficheiros injectados pelo YAML ios_signing (evita erro de match certificado/perfil).
+        CM_USE_CODEMAGIC_TEAM_SIGNING: "0"
+        # 1 = falha já no passo «Verificar variaveis» se faltar P12+perfil (evita 403 no passo 11).
+        CM_DISALLOW_API_ONLY_SIGNING: "1"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "UDKV6M9N38"
