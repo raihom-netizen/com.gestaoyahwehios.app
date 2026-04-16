@@ -27,7 +27,8 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(Icons.article_rounded, 'Cartas e transferências'),
   ChurchShellNavEntry(Icons.bar_chart_rounded, 'Relatórios'),
   ChurchShellNavEntry(Icons.tune_rounded, 'Configurações'),
-  ChurchShellNavEntry(Icons.info_rounded, 'Informações'),
+  /// `info_rounded` pode sair vazio na web (subset Material tree-shake); `feedback_rounded` cobre bem “informações / sugestões”.
+  ChurchShellNavEntry(Icons.feedback_rounded, 'Informações'),
   ChurchShellNavEntry(Icons.fact_check_rounded, 'Aprovações rápidas'),
   /// Mesmo glifo usado no preset “Pastoral” em Departamentos — evita glifo ausente na web.
   ChurchShellNavEntry(Icons.church_rounded, 'Pastoral & comunicação'),
@@ -70,4 +71,6 @@ const List<IconData> kChurchShellNavMaterialIconExtras = [
   Icons.waving_hand_rounded,
   Icons.savings_rounded,
   Icons.warning_amber_rounded,
+  Icons.feedback_rounded,
+  Icons.view_list_rounded,
 ];

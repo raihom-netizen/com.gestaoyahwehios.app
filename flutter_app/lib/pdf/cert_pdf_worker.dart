@@ -902,12 +902,18 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   ];
   if (p.includeInstitutionalPastorSignature &&
       p.useDigitalSignature &&
-      p.institutionalPastorNome.trim().isNotEmpty &&
       instSigOpt != null &&
       instSigOpt.length > 32) {
+    var nomeInst = p.institutionalPastorNome.trim();
+    if (nomeInst.isEmpty) {
+      nomeInst = p.pastorManual.trim();
+    }
+    if (nomeInst.isEmpty) {
+      nomeInst = 'Assinatura institucional';
+    }
     pdfSignatories.add(
       CertSignatoryPdfData(
-        nome: p.institutionalPastorNome.trim(),
+        nome: nomeInst,
         cargo: p.institutionalPastorCargo.trim().isEmpty
             ? 'Assinatura institucional'
             : p.institutionalPastorCargo.trim(),

@@ -127,14 +127,18 @@ class MembersLimitService {
     final tenantData = tenantSnap.data();
     String planId = (tenantData?['planId'] ?? tenantData?['plan'] ?? '').toString().trim();
     if (planId.isNotEmpty) return planId;
-    final subSnap = await _db
-        .collection('subscriptions')
-        .where('igrejaId', isEqualTo: tenantId)
-        .orderBy('createdAt', descending: true)
-        .limit(1)
-        .get();
-    if (subSnap.docs.isNotEmpty) {
-      planId = (subSnap.docs.first.data()['planId'] ?? '').toString().trim();
+    try {
+      final subSnap = await _db
+          .collection('subscriptions')
+          .where('igrejaId', isEqualTo: tenantId)
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+      if (subSnap.docs.isNotEmpty) {
+        planId = (subSnap.docs.first.data()['planId'] ?? '').toString().trim();
+      }
+    } catch (_) {
+      // Visitante / papel sem leitura em `subscriptions` — não bloquear fluxos que só precisam de um planId fallback.
     }
     return planId.isNotEmpty ? planId : 'inicial';
   }

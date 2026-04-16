@@ -30,7 +30,7 @@ IconData? churchDepartmentFaIcon(String iconKey) {
     case 'tesouraria':
       return FontAwesomeIcons.wallet;
     case 'escola_biblica':
-      return FontAwesomeIcons.bookOpenReader;
+      return FontAwesomeIcons.bookOpen;
     case 'varoes':
     case 'men':
       return FontAwesomeIcons.mars;

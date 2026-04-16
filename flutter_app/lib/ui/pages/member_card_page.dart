@@ -3558,6 +3558,37 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       fontSize: 8.5,
                     ),
                   ),
+                  pw.SizedBox(height: 4),
+                  pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'VALIDADE ',
+                        style: pw.TextStyle(
+                          color: PdfColor(textColor.red, textColor.green,
+                              textColor.blue, 0.72),
+                          fontSize: 6.2,
+                          fontWeight: pw.FontWeight.bold,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      pw.Expanded(
+                        child: pw.Text(
+                          () {
+                            final v = validade.trim();
+                            if (v.isEmpty || v == '---') return '—';
+                            return v;
+                          }(),
+                          maxLines: 1,
+                          style: pw.TextStyle(
+                            color: textColor,
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -3623,11 +3654,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final g1 = pal.bg;
     final g2 = pal.bgEnd;
     final fg = pal.fg;
-    final validadePdf = _validityLabel(data.member).trim();
     final frase = cfg.fraseRodape.trim();
     final cpfFmt = _formatCpfForCard(_memberCpfRaw(data.member));
     final nasc = _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-    final estadoCivilPdf = _estadoCivilFromMember(data.member);
     final batismoPdf =
         _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
     final filiacaoTxt = walletFiliacaoFromMember(data.member);
@@ -3643,7 +3672,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return VersoCarteirinhaPdfWidget(
       nomeIgreja: igreja,
       regrasUso: cfg.versoRegrasUso,
-      validadeDestaque: validadePdf.isNotEmpty ? validadePdf : null,
       // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradê.
       gradientStart: g2,
       gradientEnd: g1,
@@ -3654,7 +3682,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       pdfInkEconomy: pdfInkEconomy,
       cpfDoc: cpfFmt,
       nascimentoDoc: nasc,
-      estadoCivilDoc: estadoCivilPdf,
       batismoDoc: batismoPdf,
       filiacaoPaiMaeDoc: filiacaoTxt,
       telefoneDoc: tel,
@@ -3861,7 +3888,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
     final nascimento =
         _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-    final estadoCivil = _estadoCivilFromMember(data.member);
     final batismoFmt =
         _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
     final validade = _validityLabel(data.member);
@@ -3935,6 +3961,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         final a = _admissionBatismoLine(data.member);
         return a.isEmpty ? '—' : a;
       }(),
+      validade: validade.isEmpty ? '—' : validade,
     );
     final back = MemberDigitalWalletBack(
       width: wCard,
@@ -3945,10 +3972,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       churchTitle: cfg.title,
       cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
       nascimento: nascimento.isEmpty ? '—' : nascimento,
-      estadoCivil: estadoCivil.isEmpty ? '—' : estadoCivil,
       dataBatismo: batismoFmt.isEmpty ? '—' : batismoFmt,
       filiacaoPaiMae: filiacaoTxt.isEmpty ? '—' : filiacaoTxt,
-      validade: validade.isEmpty ? '—' : validade,
       telefone: telM.isEmpty ? '—' : telM,
       signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
       signatoryName: signatoryNameWallet,
@@ -6287,7 +6312,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 sanitizeImageUrl(imageUrlFromMap(data.member));
             final nascimento =
                 _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-            final estadoCivil = _estadoCivilFromMember(data.member);
             final batismoFmt =
                 _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
             final validade = _validityLabel(data.member);
@@ -6737,6 +6761,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                               data.member);
                                           return a.isEmpty ? '—' : a;
                                         }(),
+                                        validade: validade.isEmpty
+                                            ? '—'
+                                            : validade,
                                       ),
                                       const SizedBox(height: 14),
                                       MemberDigitalWalletBack(
@@ -6750,18 +6777,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         nascimento: nascimento.isEmpty
                                             ? '—'
                                             : nascimento,
-                                        estadoCivil: estadoCivil.isEmpty
-                                            ? '—'
-                                            : estadoCivil,
                                         dataBatismo: batismoFmt.isEmpty
                                             ? '—'
                                             : batismoFmt,
                                         filiacaoPaiMae: filiacaoTxt.isEmpty
                                             ? '—'
                                             : filiacaoTxt,
-                                        validade: validade.isEmpty
-                                            ? '—'
-                                            : validade,
                                         telefone:
                                             telM.isEmpty ? '—' : telM,
                                         signatureImageUrl:
@@ -6778,7 +6799,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
-                                'Verso — dados do membro (incluído no PDF/PNG acima)',
+                                'Verso — CPF, batismo, filiação, telefone e assinatura (no PDF/PNG acima)',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,

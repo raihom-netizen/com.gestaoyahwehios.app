@@ -987,9 +987,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
 
     if (_tenantId == null) return;
-    // Verifica limite apenas se autenticado (checkLimit exige leitura em members que precisa auth)
-    final isAnonymous = FirebaseAuth.instance.currentUser == null;
-    if (!isAnonymous) {
+    // Web: sessão anónima para Storage — não tem leitura em `membros` nem em `subscriptions`.
+    // Visitante real = sem conta ou só anónimo; aí não se pode correr checkLimit nem queries de duplicado.
+    final authUser = FirebaseAuth.instance.currentUser;
+    final isPublicVisitor = authUser == null || authUser.isAnonymous;
+    // Limite do plano: só para utilizador com login real (gestor a testar o link, etc.).
+    if (!isPublicVisitor) {
       final limitService = MembersLimitService();
       final limitResult = await limitService.checkLimit(_tenantId!);
       if (limitResult.isBlocked) {
@@ -1046,40 +1049,42 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         .collection('membros');
     final editingDocId = _editModeAfterSubmit ? _lastSubmittedDocId : null;
 
-    // Impedir cadastro duplo: mesmo CPF ou mesmo e-mail na mesma igreja (ao criar; ao editar, ignora o próprio doc)
-    if (cpfDigits.length == 11) {
-      final byCpf = await col.where('CPF', isEqualTo: cpfDigits).limit(2).get();
-      final byCpfLower =
-          await col.where('cpf', isEqualTo: cpfDigits).limit(2).get();
-      final conflictCpf =
-          byCpf.docs.where((d) => d.id != editingDocId).isNotEmpty ||
-              byCpfLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
-      if (conflictCpf) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content:
-                  Text('Já existe um cadastro com este CPF nesta igreja.')),
-        );
-        return;
+    // Duplicado: precisa de leitura em `membros` (regras só para tenant). Visitantes não têm — evitar permission-denied.
+    if (!isPublicVisitor) {
+      if (cpfDigits.length == 11) {
+        final byCpf = await col.where('CPF', isEqualTo: cpfDigits).limit(2).get();
+        final byCpfLower =
+            await col.where('cpf', isEqualTo: cpfDigits).limit(2).get();
+        final conflictCpf =
+            byCpf.docs.where((d) => d.id != editingDocId).isNotEmpty ||
+                byCpfLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
+        if (conflictCpf) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content:
+                    Text('Já existe um cadastro com este CPF nesta igreja.')),
+          );
+          return;
+        }
       }
-    }
-    if (emailNorm.isNotEmpty) {
-      final byEmail =
-          await col.where('EMAIL', isEqualTo: emailNorm).limit(2).get();
-      final byEmailLower =
-          await col.where('email', isEqualTo: emailNorm).limit(2).get();
-      final conflictEmail =
-          byEmail.docs.where((d) => d.id != editingDocId).isNotEmpty ||
-              byEmailLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
-      if (conflictEmail) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content:
-                  Text('Já existe um cadastro com este e-mail nesta igreja.')),
-        );
-        return;
+      if (emailNorm.isNotEmpty) {
+        final byEmail =
+            await col.where('EMAIL', isEqualTo: emailNorm).limit(2).get();
+        final byEmailLower =
+            await col.where('email', isEqualTo: emailNorm).limit(2).get();
+        final conflictEmail =
+            byEmail.docs.where((d) => d.id != editingDocId).isNotEmpty ||
+                byEmailLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
+        if (conflictEmail) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content:
+                    Text('Já existe um cadastro com este e-mail nesta igreja.')),
+          );
+          return;
+        }
       }
     }
 
@@ -1168,8 +1173,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       });
     } catch (e) {
       if (!mounted) return;
+      final u = FirebaseAuth.instance.currentUser;
       final msg = e.toString().contains('permission-denied') &&
-              FirebaseAuth.instance.currentUser == null
+              (u == null || u.isAnonymous)
           ? 'Não foi possível gravar. Verifique os dados e tente novamente, ou entre em contato com a igreja.'
           : 'Erro ao cadastrar: $e';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));

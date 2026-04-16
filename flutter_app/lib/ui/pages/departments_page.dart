@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
-import 'package:gestao_yahweh/core/church_department_fa_icons.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
@@ -1085,7 +1084,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     {
       'key': 'escola_biblica',
       'label': 'Escola Bíblica',
-      'icon': Icons.menu_book_rounded,
+      // `menu_book_rounded` pode não renderizar em alguns builds web (ícone vazio).
+      'icon': Icons.auto_stories_rounded,
       'color': 0xFF00897B
     },
     {
@@ -1326,26 +1326,78 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return raw is IconData ? raw : Icons.groups_rounded;
   }
 
+  /// Ícone do departamento com gradiente, brilho suave e sombra na cor do tema
+  /// (Material em todas as plataformas — glifos estáveis na web).
   Widget _iconChip(String key, {double radius = 20}) {
     final opt = _iconOptions.firstWhere((e) => e['key'] == key,
         orElse: () => _iconOptions.first);
-    final bg = Color(_safeIconChipArgb(opt));
     final mat = _safeMaterialGlyph(opt);
-    final fa = churchDepartmentFaIcon(key);
-    // Web (CanvasKit): FaIcon pode não pintar — usar sempre Material no hub web.
-    if (kIsWeb) {
-      return CircleAvatar(
-        radius: radius,
-        backgroundColor: bg,
-        child: Icon(mat, color: Colors.white, size: radius * 1.15),
-      );
-    }
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: bg,
-      child: fa != null
-          ? FaIcon(fa, color: Colors.white, size: radius * 1.05)
-          : Icon(mat, color: Colors.white, size: radius * 1.15),
+    final theme = _themeByKey(key);
+    final c1 = Color(_opaqueArgb32(theme['c1'] as int));
+    final c2 = Color(_opaqueArgb32(theme['c2'] as int));
+    final base = Color(_safeIconChipArgb(opt));
+    final side = (radius * 2.25).clamp(44.0, 72.0);
+    final corner = side * 0.22;
+    return Container(
+      width: side,
+      height: side,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(corner),
+        gradient: LinearGradient(
+          colors: [
+            Color.lerp(c1, Colors.white, 0.2)!,
+            Color.lerp(c2, const Color(0xFF000000), 0.12)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: base.withValues(alpha: 0.3),
+            blurRadius: math.max(8.0, side * 0.15),
+            offset: Offset(0, side * 0.07),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.42),
+          width: 1.2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(corner),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.3),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.48],
+                  ),
+                ),
+              ),
+            ),
+            Icon(
+              mat,
+              color: Colors.white,
+              size: radius * 1.2,
+              shadows: [
+                Shadow(
+                  color: Colors.black.withValues(alpha: 0.32),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2189,17 +2241,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     void openHub() => _openDepartmentHubSheet(deptDoc: d);
 
     const navy = Color(0xFF0C2D5C);
-    final primaryAvatar = Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0C3B8A),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      clipBehavior: Clip.antiAlias,
-      alignment: Alignment.center,
-      child: _iconChip(resolvedIcon, radius: 24),
-    );
+    final primaryAvatar = _iconChip(resolvedIcon, radius: 25);
 
     late final Widget memberSection;
     if (total == 0) {
@@ -2292,131 +2334,153 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: openHub,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              primaryAvatar,
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0C3B8A).withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: openHub,
+              borderRadius: BorderRadius.circular(14),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: navy,
-                        letterSpacing: -0.2,
+                    primaryAvatar,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: navy,
+                              letterSpacing: -0.2,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (m['isWelcomeKit'] == true) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Kit inicial',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (m['isWelcomeKit'] == true) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Kit inicial',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: memberSection,
+                      ),
+                    ),
+                    if (_canWrite) ...[
+                      const SizedBox(width: 2),
+                      PopupMenuButton<String>(
+                        tooltip: 'Opções',
+                        onSelected: (v) async {
+                          if (v == 'edit') _edit(doc: d);
+                          if (v == 'members') {
+                            await _verMembrosDoDepartamento(
+                              context: context,
+                              deptId: d.id,
+                              deptName: name,
+                            );
+                          }
+                          if (v == 'link') {
+                            await _vincularMembros(
+                              context: context,
+                              deptId: d.id,
+                              deptName: name,
+                            );
+                          }
+                          if (v == 'invite') {
+                            await _openDepartmentInviteSheet(
+                              deptId: d.id,
+                              deptName: name,
+                            );
+                          }
+                          if (v == 'archive') {
+                            await _toggleDepartmentArchived(d, true);
+                          }
+                          if (v == 'restore') {
+                            await _toggleDepartmentArchived(d, false);
+                          }
+                          if (v == 'delete') {
+                            await _excluirDepartamento(d);
+                          }
+                        },
+                        itemBuilder: (ctx) {
+                          final active = churchDepartmentDocIsActive(m);
+                          return [
+                            const PopupMenuItem(
+                                value: 'edit', child: Text('Editar')),
+                            const PopupMenuItem(
+                              value: 'members',
+                              child: Text('Ver membros'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'link',
+                              child: Text('Incluir membros'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'invite',
+                              child: Text('Convidar (QR)'),
+                            ),
+                            if (active)
+                              const PopupMenuItem(
+                                value: 'archive',
+                                child: Text('Arquivar'),
+                              )
+                            else
+                              const PopupMenuItem(
+                                value: 'restore',
+                                child: Text('Reativar'),
+                              ),
+                            const PopupMenuDivider(),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Text(
+                                'Excluir',
+                                style: TextStyle(color: Color(0xFFDC2626)),
+                              ),
+                            ),
+                          ];
+                        },
                       ),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                fit: FlexFit.loose,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: memberSection,
-                ),
-              ),
-              if (_canWrite) ...[
-                const SizedBox(width: 2),
-                PopupMenuButton<String>(
-                  tooltip: 'Opções',
-                  onSelected: (v) async {
-                    if (v == 'edit') _edit(doc: d);
-                    if (v == 'members') {
-                      await _verMembrosDoDepartamento(
-                        context: context,
-                        deptId: d.id,
-                        deptName: name,
-                      );
-                    }
-                    if (v == 'link') {
-                      await _vincularMembros(
-                        context: context,
-                        deptId: d.id,
-                        deptName: name,
-                      );
-                    }
-                    if (v == 'invite') {
-                      await _openDepartmentInviteSheet(
-                        deptId: d.id,
-                        deptName: name,
-                      );
-                    }
-                    if (v == 'archive') {
-                      await _toggleDepartmentArchived(d, true);
-                    }
-                    if (v == 'restore') {
-                      await _toggleDepartmentArchived(d, false);
-                    }
-                    if (v == 'delete') {
-                      await _excluirDepartamento(d);
-                    }
-                  },
-                  itemBuilder: (ctx) {
-                    final active = churchDepartmentDocIsActive(m);
-                    return [
-                      const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                      const PopupMenuItem(
-                        value: 'members',
-                        child: Text('Ver membros'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'link',
-                        child: Text('Incluir membros'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'invite',
-                        child: Text('Convidar (QR)'),
-                      ),
-                      if (active)
-                        const PopupMenuItem(
-                          value: 'archive',
-                          child: Text('Arquivar'),
-                        )
-                      else
-                        const PopupMenuItem(
-                          value: 'restore',
-                          child: Text('Reativar'),
-                        ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text(
-                          'Excluir',
-                          style: TextStyle(color: Color(0xFFDC2626)),
-                        ),
-                      ),
-                    ];
-                  },
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       ),
@@ -2801,15 +2865,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }) {
     final listView = ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
       itemCount: docsForTab.length,
-      separatorBuilder: (_, __) => const Divider(
-        height: 1,
-        thickness: 1,
-        indent: 84,
-        endIndent: 16,
-        color: Color(0xFFE8EEF5),
-      ),
+      separatorBuilder: (_, __) => const SizedBox(height: 6),
       itemBuilder: (context, i) {
         final card = _buildDepartmentCard(docsForTab[i]);
         if (kIsWeb) return card;

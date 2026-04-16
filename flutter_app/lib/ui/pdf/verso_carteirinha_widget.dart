@@ -1,12 +1,12 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Verso da carteirinha (PDF CR80): dados, validade, telefone e assinatura — sem e-mail.
+/// Verso da carteirinha (PDF CR80): CPF, nascimento, batismo, filiação, telefone e assinatura.
+/// Validade e estado civil ficam na frente (evita duplicar e liberta espaço para assinatura).
 class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   VersoCarteirinhaPdfWidget({
     required this.nomeIgreja,
     List<String>? regrasUso,
-    this.validadeDestaque,
     PdfColor? gradientStart,
     PdfColor? gradientEnd,
     this.foregroundColor = PdfColors.white,
@@ -15,7 +15,6 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     this.pdfInkEconomy = false,
     this.cpfDoc = '',
     this.nascimentoDoc = '',
-    this.estadoCivilDoc = '',
     this.batismoDoc = '',
     this.filiacaoPaiMaeDoc = '',
     this.telefoneDoc = '',
@@ -41,7 +40,6 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
 
   final String nomeIgreja;
   final List<String> regrasUso;
-  final String? validadeDestaque;
   final PdfColor gradientStart;
   final PdfColor gradientEnd;
   final PdfColor foregroundColor;
@@ -51,7 +49,6 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
 
   final String cpfDoc;
   final String nascimentoDoc;
-  final String estadoCivilDoc;
   final String batismoDoc;
   final String filiacaoPaiMaeDoc;
   final String telefoneDoc;
@@ -108,11 +105,6 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     final ink = pdfInkEconomy;
     final fg = ink ? PdfColors.grey900 : foregroundColor;
     final rod = ink ? PdfColors.grey700 : rodapeColor;
-    final glassFill = ink
-        ? PdfColors.grey200
-        : PdfColor(1, 1, 1, 0.16);
-    final glassBorder =
-        ink ? PdfColors.grey400 : PdfColor(1, 1, 1, 0.28);
 
     final tituloStyle = pw.TextStyle(
       color: fg,
@@ -145,7 +137,6 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
             ),
           );
 
-    final validadeTxt = (validadeDestaque ?? '').trim();
     final regrasCurta = regrasUso.length > 2 ? regrasUso.sublist(0, 2) : regrasUso;
 
     return pw.Container(
@@ -168,44 +159,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 2),
-                    decoration: pw.BoxDecoration(
-                      color: glassFill,
-                      borderRadius: pw.BorderRadius.circular(5),
-                      border: pw.Border.all(color: glassBorder, width: 0.6),
-                    ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      mainAxisSize: pw.MainAxisSize.min,
-                      children: [
-                        pw.Text(
-                          'VALIDADE',
-                          style: pw.TextStyle(
-                            color: ink
-                                ? PdfColors.grey700
-                                : PdfColor(fg.red, fg.green, fg.blue, 0.75),
-                            fontSize: 4.2,
-                            fontWeight: pw.FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        pw.Text(
-                          validadeTxt.isEmpty ? '—' : validadeTxt,
-                          style: pw.TextStyle(
-                            color: fg,
-                            fontSize: 6.8,
-                            fontWeight: pw.FontWeight.bold,
-                            lineSpacing: 1.0,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  pw.SizedBox(height: 2.5),
                   _cpfNascimentoLine(cpfDoc, nascimentoDoc, fg, ink),
-                  _miniField('Estado civil', estadoCivilDoc, fg, ink),
                   _miniField('Batismo', batismoDoc, fg, ink),
                   _miniField('Filiação (Pai e Mãe)', filiacaoPaiMaeDoc, fg, ink),
                   _miniField('Telefone', telefoneDoc, fg, ink),
@@ -217,8 +171,8 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                         color: PdfColor(fg.red, fg.green, fg.blue, 0.45)),
                     if (assinaturaImage != null)
                       pw.Container(
-                        width: 76,
-                        height: 22,
+                        width: 80,
+                        height: 30,
                         margin: const pw.EdgeInsets.only(top: 2),
                         child: pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
                       ),

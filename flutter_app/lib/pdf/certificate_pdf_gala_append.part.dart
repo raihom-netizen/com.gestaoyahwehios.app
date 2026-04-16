@@ -463,7 +463,9 @@ void _appendGalaLuxoCertificatePage(
                     ),
                   pw.Positioned.fill(
                     child: pw.Padding(
-                      padding: const pw.EdgeInsets.fromLTRB(36, 18, 36, 112),
+                      // Espaço inferior reservado para selo/QR + faixa de assinaturas
+                      // (fora desta coluna), evitando overflow que cortava o rodapé no PDF.
+                      padding: const pw.EdgeInsets.fromLTRB(36, 18, 36, 102),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
@@ -570,34 +572,41 @@ void _appendGalaLuxoCertificatePage(
                               ),
                             ),
                           ),
-                          pw.SizedBox(
-                            height: 200,
-                            width: double.infinity,
+                          pw.Expanded(
                             child: pw.Center(
-                              child: pw.Container(
-                                constraints:
-                                    const pw.BoxConstraints(maxWidth: 560),
-                                child: _certificateBodyRich(
-                                  texto: input.texto,
-                                  nome: input.nomeMembro,
-                                  nomeLinha2: nomeMembroLinha2Efetiva,
-                                  cpfFormatado: input.cpfFormatado,
-                                  fontSize: 11.2,
-                                  color: pdfTextCor,
-                                  font: galaBody,
-                                  fontBold: galaBodyBold,
-                                  useSyntheticBoldForHighlights: true,
+                              child: pw.Padding(
+                                padding:
+                                    const pw.EdgeInsets.symmetric(vertical: 4),
+                                child: pw.Container(
+                                  constraints: const pw.BoxConstraints(
+                                    maxWidth: 560,
+                                  ),
+                                  child: _certificateBodyRich(
+                                    texto: input.texto,
+                                    nome: input.nomeMembro,
+                                    nomeLinha2: nomeMembroLinha2Efetiva,
+                                    cpfFormatado: input.cpfFormatado,
+                                    fontSize: 11.2,
+                                    color: pdfTextCor,
+                                    font: galaBody,
+                                    fontBold: galaBodyBold,
+                                    useSyntheticBoldForHighlights: true,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                          pw.Spacer(),
-                          pw.Center(
-                            child: buildFooterSignatures(
-                                galaBronze, galaBronzeLight),
-                          ),
                         ],
                       ),
+                    ),
+                  ),
+                  pw.Positioned(
+                    left: 124,
+                    right: 18,
+                    bottom: 8,
+                    child: pw.Center(
+                      child: buildFooterSignatures(
+                          galaBronze, galaBronzeLight),
                     ),
                   ),
                   pw.Positioned(

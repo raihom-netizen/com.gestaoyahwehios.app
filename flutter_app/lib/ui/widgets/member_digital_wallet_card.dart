@@ -156,7 +156,7 @@ class _GlassPanel extends StatelessWidget {
   }
 }
 
-/// Frente: logo, foto circular, nome, cargo, admissão.
+/// Frente: logo, foto circular, nome, cargo, admissão (inclui estado civil), validade.
 class MemberDigitalWalletFront extends StatelessWidget {
   final double width;
   final Color colorA;
@@ -171,6 +171,8 @@ class MemberDigitalWalletFront extends StatelessWidget {
   final String memberName;
   final String cargo;
   final String admission;
+  /// Data de validade da credencial (mesmo texto que o PDF).
+  final String validade;
 
   const MemberDigitalWalletFront({
     super.key,
@@ -187,6 +189,7 @@ class MemberDigitalWalletFront extends StatelessWidget {
     required this.memberName,
     required this.cargo,
     required this.admission,
+    required this.validade,
   });
 
   @override
@@ -369,6 +372,41 @@ class MemberDigitalWalletFront extends StatelessWidget {
                                   fontSize: 9,
                                 ),
                               ),
+                              const SizedBox(height: 5),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'VALIDADE',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 6.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: textColor.withValues(alpha: 0.72),
+                                      letterSpacing: 0.7,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      () {
+                                        final v = validade.trim();
+                                        if (v.isEmpty || v == '—') {
+                                          return '—';
+                                        }
+                                        return v;
+                                      }(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.poppins(
+                                        color: textColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.05,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -411,15 +449,15 @@ class WalletSignatureStrip extends StatelessWidget {
         Container(width: 140, height: 1, color: lineColor.withValues(alpha: 0.45)),
         if (u.isNotEmpty)
           SizedBox(
-            height: 42,
-            width: 132,
+            height: 52,
+            width: 140,
             child: _WalletSigImage(url: u),
           ),
         if (signatoryName.trim().isNotEmpty)
           Text(
             signatoryName.trim(),
             style: GoogleFonts.poppins(
-              fontSize: 9,
+              fontSize: 9.5,
               fontWeight: FontWeight.w800,
               color: textColor,
             ),
@@ -428,7 +466,7 @@ class WalletSignatureStrip extends StatelessWidget {
           Text(
             signatoryCargo.trim(),
             style: GoogleFonts.poppins(
-              fontSize: 7.5,
+              fontSize: 8,
               fontWeight: FontWeight.w600,
               color: textColor.withValues(alpha: 0.88),
             ),
@@ -484,8 +522,8 @@ class _WalletSigImage extends StatelessWidget {
 
   const _WalletSigImage({required this.url});
 
-  static const double _sigW = 132;
-  static const double _sigH = 42;
+  static const double _sigW = 140;
+  static const double _sigH = 52;
 
   Future<String> _resolve() async {
     var u = sanitizeImageUrl(url);
@@ -529,7 +567,8 @@ class _WalletSigImage extends StatelessWidget {
   }
 }
 
-/// Verso: dados secundários, validade em destaque, telefone, assinatura (sem e-mail).
+/// Verso: CPF/nascimento, batismo, filiação, telefone e assinatura (sem e-mail).
+/// Validade e estado civil estão na frente.
 class MemberDigitalWalletBack extends StatelessWidget {
   final double width;
   final Color colorA;
@@ -539,10 +578,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final String churchTitle;
   final String cpfOrDoc;
   final String nascimento;
-  final String estadoCivil;
   final String dataBatismo;
   final String filiacaoPaiMae;
-  final String validade;
   final String telefone;
   final String? signatureImageUrl;
   final String signatoryName;
@@ -559,10 +596,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.churchTitle,
     required this.cpfOrDoc,
     required this.nascimento,
-    required this.estadoCivil,
     required this.dataBatismo,
     required this.filiacaoPaiMae,
-    required this.validade,
     required this.telefone,
     required this.signatureImageUrl,
     required this.signatoryName,
@@ -612,50 +647,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  _GlassPanel(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(Icons.event_available_rounded,
-                            size: 14, color: accentGold),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'VALIDADE',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 6,
-                                  fontWeight: FontWeight.w600,
-                                  color: textColor.withValues(alpha: 0.75),
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              Text(
-                                validade.trim().isEmpty ? '—' : validade.trim(),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  color: textColor,
-                                  height: 1.05,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _cpfNascimentoLine(cpfOrDoc, nascimento, textColor),
-                        _miniField('Estado civil', estadoCivil, textColor),
                         _miniField('Batismo', dataBatismo, textColor),
                         _miniField(
                             'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),

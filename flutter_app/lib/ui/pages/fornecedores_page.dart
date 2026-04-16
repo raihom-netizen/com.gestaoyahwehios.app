@@ -907,7 +907,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   @override
   void initState() {
     super.initState();
-    _tabMain = TabController(length: 2, vsync: this);
+    _tabMain = TabController(length: 3, vsync: this);
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
@@ -998,6 +998,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 tabs: const [
                   Tab(text: 'Cadastros'),
                   Tab(text: 'Agenda geral'),
+                  Tab(text: 'Lista'),
                 ],
               ),
             )
@@ -1040,6 +1041,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     tabs: const [
                       Tab(text: 'Cadastros'),
                       Tab(text: 'Agenda geral'),
+                      Tab(text: 'Lista'),
                     ],
                   ),
                 ),
@@ -1055,12 +1057,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               if (!embedded && isMobile && !canPop)
                 TabBar(
                   controller: _tabMain,
+                  isScrollable: true,
                   labelColor: ThemeCleanPremium.primary,
                   unselectedLabelColor: Colors.grey.shade600,
                   indicatorColor: ThemeCleanPremium.primary,
                   tabs: const [
                     Tab(text: 'Cadastros'),
                     Tab(text: 'Agenda geral'),
+                    Tab(text: 'Lista'),
                   ],
                 ),
               Expanded(
@@ -1072,6 +1076,13 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       tenantId: widget.tenantId,
                       colFornecedores: _col,
                       onOpenFornecedor: _openHub,
+                    ),
+                    _FornecedoresCompromissosListaTab(
+                      tenantId: widget.tenantId,
+                      colFornecedores: _col,
+                      onOpenFornecedor: _openHub,
+                      fornecedorIdFilter: null,
+                      showFornecedorLine: true,
                     ),
                   ],
                 ),
@@ -1299,6 +1310,373 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               ),
             ],
           );
+  }
+}
+
+/// Lista rolável de compromissos — mesmo padrão visual premium; editar/excluir sem depender do calendário.
+class _FornecedoresCompromissosListaTab extends StatefulWidget {
+  final String tenantId;
+  final CollectionReference<Map<String, dynamic>> colFornecedores;
+  final void Function(String fornecedorId)? onOpenFornecedor;
+  final String? fornecedorIdFilter;
+  final bool showFornecedorLine;
+
+  const _FornecedoresCompromissosListaTab({
+    required this.tenantId,
+    required this.colFornecedores,
+    this.onOpenFornecedor,
+    this.fornecedorIdFilter,
+    required this.showFornecedorLine,
+  });
+
+  @override
+  State<_FornecedoresCompromissosListaTab> createState() =>
+      _FornecedoresCompromissosListaTabState();
+}
+
+class _FornecedoresCompromissosListaTabState
+    extends State<_FornecedoresCompromissosListaTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  CollectionReference<Map<String, dynamic>> get _compCol => FirebaseFirestore
+      .instance
+      .collection('igrejas')
+      .doc(widget.tenantId)
+      .collection('fornecedor_compromissos');
+
+  Query<Map<String, dynamic>> get _query {
+    final f = (widget.fornecedorIdFilter ?? '').trim();
+    if (f.isEmpty) {
+      return _compCol.orderBy('dataVencimento', descending: true).limit(400);
+    }
+    return _compCol
+        .where('fornecedorId', isEqualTo: f)
+        .orderBy('dataVencimento', descending: true)
+        .limit(200);
+  }
+
+  Future<void> _editar(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    final m = doc.data();
+    final fid = (m['fornecedorId'] ?? '').toString().trim();
+    if (fid.isEmpty) return;
+    final ts = m['dataVencimento'];
+    var day = DateTime.now();
+    if (ts is Timestamp) {
+      final dt = ts.toDate();
+      day = DateTime(dt.year, dt.month, dt.day);
+    }
+    await showFornecedorCompromissoEditor(
+      context,
+      compCol: _compCol,
+      fornecedorId: fid,
+      day: day,
+      existing: doc,
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _excluir(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!await _confirmDeleteFornecedorCompromisso(context)) return;
+    await doc.reference.delete();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final pad = ThemeCleanPremium.pagePadding(context);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: widget.colFornecedores.orderBy('nome').limit(500).snapshots(),
+      builder: (context, fnSnap) {
+        final nomePorId = <String, String>{};
+        for (final d in fnSnap.data?.docs ?? []) {
+          nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
+        }
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _query.snapshots(),
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return ChurchPanelErrorBody(
+                title: 'Erro ao carregar agendamentos',
+                error: snap.error,
+                onRetry: () => setState(() {}),
+              );
+            }
+            if (!snap.hasData || !fnSnap.hasData) {
+              return const ChurchPanelLoadingBody();
+            }
+            final docs = snap.data!.docs;
+            final deep = Color.lerp(
+                    ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.35) ??
+                ThemeCleanPremium.primary;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                    Colors.white,
+                  ],
+                ),
+              ),
+              child: docs.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: pad,
+                        child: Text(
+                          'Nenhum compromisso registado.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: pad.copyWith(bottom: 24, top: 8),
+                      itemCount: docs.length + 1,
+                      itemBuilder: (context, i) {
+                        if (i == 0) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.2),
+                                            ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.06),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Icon(
+                                        Icons.view_list_rounded,
+                                        size: 20,
+                                        color: ThemeCleanPremium.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            widget.showFornecedorLine
+                                                ? 'Todos os agendamentos'
+                                                : 'Agendamentos deste fornecedor',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 16,
+                                              letterSpacing: -0.35,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                          Text(
+                                            'Toque num cartão para editar ou use os ícones · ordenado por data (mais recente primeiro)',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.grey.shade700,
+                                              height: 1.25,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        final d = docs[i - 1];
+                        final m = d.data();
+                        final fid = (m['fornecedorId'] ?? '').toString().trim();
+                        final nomeFn = nomePorId[fid] ??
+                            (fid.isEmpty ? 'Fornecedor' : 'Fornecedor #$fid');
+                        final ts = m['dataVencimento'];
+                        String when = '';
+                        if (ts is Timestamp) {
+                          when = _FornecedoresAgendaGeralTabState
+                              ._formatCompromissoWhen(ts);
+                        }
+                        final titulo =
+                            (m['titulo'] ?? '').toString().trim().isEmpty
+                                ? '(sem descrição)'
+                                : (m['titulo'] ?? '').toString().trim();
+                        final valor = m['valorEstimado'];
+                        final vStr = valor is num && valor.toDouble() > 0
+                            ? NumberFormat.currency(
+                                    locale: 'pt_BR', symbol: r'R$')
+                                .format(valor.toDouble())
+                            : '';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => _editar(d),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.12),
+                                ),
+                                boxShadow: [
+                                  ...ThemeCleanPremium.softUiCardShadow,
+                                  BoxShadow(
+                                    color: Colors.black
+                                        .withValues(alpha: 0.05),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 6),
+                                    spreadRadius: -4,
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(20),
+                                child: IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              ThemeCleanPremium.primary,
+                                              deep,
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              14, 12, 6, 12),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              if (widget.showFornecedorLine &&
+                                                  fid.isNotEmpty) ...[
+                                                Text(
+                                                  nomeFn,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 12,
+                                                    color: ThemeCleanPremium
+                                                        .primary,
+                                                    letterSpacing: -0.1,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                              ],
+                                              Text(
+                                                titulo,
+                                                maxLines: 2,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 15,
+                                                  height: 1.2,
+                                                  letterSpacing: -0.3,
+                                                  color: Color(0xFF0F172A),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                [
+                                                  when,
+                                                  if (vStr.isNotEmpty) vStr,
+                                                ].join(' · '),
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          if (widget.showFornecedorLine &&
+                                              fid.isNotEmpty &&
+                                              widget.onOpenFornecedor !=
+                                                  null)
+                                            IconButton(
+                                              tooltip: 'Abrir fornecedor',
+                                              onPressed: () => widget
+                                                  .onOpenFornecedor!(fid),
+                                              icon: Icon(
+                                                Icons.open_in_new_rounded,
+                                                color: ThemeCleanPremium.primary,
+                                                size: 22,
+                                              ),
+                                            ),
+                                          IconButton(
+                                            tooltip: 'Editar',
+                                            onPressed: () => _editar(d),
+                                            icon: const Icon(
+                                              Icons.edit_rounded,
+                                              color: Color(0xFF16A34A),
+                                              size: 22,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Excluir',
+                                            onPressed: () => _excluir(d),
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                              color: Color(0xFFDC2626),
+                                              size: 22,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        );
+                      },
+                    ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 
@@ -2743,7 +3121,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -2854,6 +3232,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 style: const TextStyle(fontWeight: FontWeight.w800)),
             bottom: TabBar(
               controller: _tab,
+              isScrollable: true,
               labelColor: Colors.white,
               unselectedLabelColor: Colors.white.withValues(alpha: 0.72),
               indicatorColor: Colors.white,
@@ -2863,6 +3242,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 Tab(text: 'Cadastro', icon: Icon(Icons.badge_rounded)),
                 Tab(text: 'Financeiro', icon: Icon(Icons.payments_rounded)),
                 Tab(text: 'Agenda', icon: Icon(Icons.event_rounded)),
+                Tab(text: 'Lista', icon: Icon(Icons.view_list_rounded)),
               ],
             ),
           ),
@@ -2885,6 +3265,16 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 tenantId: widget.tenantId,
                 compCol: _compCol,
                 fornecedorId: widget.fornecedorId,
+              ),
+              _FornecedoresCompromissosListaTab(
+                tenantId: widget.tenantId,
+                colFornecedores: FirebaseFirestore.instance
+                    .collection('igrejas')
+                    .doc(widget.tenantId)
+                    .collection('fornecedores'),
+                onOpenFornecedor: null,
+                fornecedorIdFilter: widget.fornecedorId,
+                showFornecedorLine: false,
               ),
             ],
           ),
@@ -3605,8 +3995,10 @@ class _AgendaTabState extends State<_AgendaTab> {
                 ),
               ),
               child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
+                physics: AlwaysScrollableScrollPhysics(
+                  parent: kIsWeb
+                      ? const ClampingScrollPhysics()
+                      : const BouncingScrollPhysics(),
                 ),
                 slivers: [
                   SliverToBoxAdapter(

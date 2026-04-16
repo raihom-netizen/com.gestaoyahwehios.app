@@ -2,7 +2,7 @@
 description: GestÃ£o YAHWEH â€” Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart — script scripts/bump_version.ps1 atualiza os dois.
-version: 11.2.276+1415
+version: 11.2.277+1416
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
