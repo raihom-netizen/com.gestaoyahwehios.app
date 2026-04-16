@@ -480,6 +480,10 @@ class FirebaseStorageService {
         contentType: contentType,
         skipClientPrepare: true,
       );
+    } on FirebaseException catch (e) {
+      debugPrint(
+          'FirebaseStorageService.uploadBytes: ${e.code} ${e.message ?? e}');
+      return null;
     } catch (e) {
       debugPrint('FirebaseStorageService.uploadBytes: $e');
       return null;
