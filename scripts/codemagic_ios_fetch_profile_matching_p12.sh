@@ -82,11 +82,13 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 
 bundle = os.environ.get("IOS_BUNDLE_ID", "com.gestaoyahwehios.app")
 p12_path = "/tmp/cm_distribution.p12"
 prov_dir = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
-pw = os.environ.get("CM_CERTIFICATE_PASSWORD", "")
+_pw_raw = os.environ.get("CM_CERTIFICATE_PASSWORD") or os.environ.get("CERTIFICATE_PASSWORD") or ""
+pw = (_pw_raw or "").strip().replace("\n", "").replace("\r", "")
 
 def fp_sha256_der(der: bytes) -> str:
     p = subprocess.run(
@@ -102,19 +104,30 @@ def fp_sha256_der(der: bytes) -> str:
     return line.split("=", 1)[-1].replace(":", "").upper()
 
 def p12_leaf_der() -> bytes:
-    if pw:
-        cmd = [
-            "openssl", "pkcs12", "-in", p12_path,
-            "-passin", f"pass:{pw}",
-            "-clcerts", "-nokeys",
-        ]
-    else:
-        cmd = [
-            "openssl", "pkcs12", "-in", p12_path,
-            "-nodes", "-passin", "pass:",
-            "-clcerts", "-nokeys",
-        ]
-    p1 = subprocess.run(cmd, capture_output=True)
+    pw_path = None
+    try:
+        if pw:
+            fd, pw_path = tempfile.mkstemp(prefix="cm_p12_pw_")
+            with os.fdopen(fd, "wb") as f:
+                f.write(pw.encode("utf-8"))
+            cmd = [
+                "openssl", "pkcs12", "-in", p12_path,
+                "-passin", "file:" + pw_path,
+                "-clcerts", "-nokeys",
+            ]
+        else:
+            cmd = [
+                "openssl", "pkcs12", "-in", p12_path,
+                "-nodes", "-passin", "pass:",
+                "-clcerts", "-nokeys",
+            ]
+        p1 = subprocess.run(cmd, capture_output=True)
+    finally:
+        if pw_path:
+            try:
+                os.unlink(pw_path)
+            except OSError:
+                pass
     if p1.returncode != 0:
         print("ERRO: extrair certificado do P12 falhou (senha CM_CERTIFICATE_PASSWORD?).", file=sys.stderr)
         sys.exit(0)

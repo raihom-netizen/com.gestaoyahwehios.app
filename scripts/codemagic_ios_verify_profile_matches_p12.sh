@@ -9,6 +9,9 @@
 # Uso: bash scripts/codemagic_ios_verify_profile_matches_p12.sh
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./codemagic_ios_p12_password_helpers.sh
+source "${SCRIPT_DIR}/codemagic_ios_p12_password_helpers.sh"
+codemagic_normalize_p12_password_from_env
 # Última tentativa antes do fail-fast: API ASC (lista ampla de certificados + perfil / criação).
 if [[ -f "${SCRIPT_DIR}/codemagic_ios_asc_api_ensure_appstore_profile.py" ]]; then
   echo "=== API App Store Connect: alinhar perfil .mobileprovision ao P12 ==="
@@ -31,11 +34,16 @@ fi
 rm -f /tmp/p12_leaf.der /tmp/p12_leaf.pem
 
 if [[ -n "${CM_CERTIFICATE_PASSWORD:-}" ]]; then
-  if ! openssl pkcs12 -in "$P12" -passin "pass:${CM_CERTIFICATE_PASSWORD}" -clcerts -nokeys 2>/dev/null \
+  _pwf="$(mktemp)"
+  umask 077
+  printf '%s' "$CM_CERTIFICATE_PASSWORD" > "$_pwf"
+  if ! openssl pkcs12 -in "$P12" -passin "file:${_pwf}" -clcerts -nokeys 2>/dev/null \
       | openssl x509 -outform DER -out /tmp/p12_leaf.der; then
+    rm -f "$_pwf"
     echo "ERRO: não foi possível extrair o certificado do P12 (senha CM_CERTIFICATE_PASSWORD incorreta?)."
     exit 1
   fi
+  rm -f "$_pwf"
 else
   if ! openssl pkcs12 -in "$P12" -nodes -passin pass: -clcerts -nokeys 2>/dev/null \
       | openssl x509 -outform DER -out /tmp/p12_leaf.der; then

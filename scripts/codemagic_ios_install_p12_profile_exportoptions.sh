@@ -2,6 +2,9 @@
 # Instala P12 no keychain, copia .mobileprovision, gera /tmp/ExportOptions.plist e persiste PEM no CM_ENV.
 # Pré-requisitos: keychain initialize + /tmp/_asc_ok.pem (passos anteriores).
 set -eu
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./codemagic_ios_p12_password_helpers.sh
+source "${SCRIPT_DIR}/codemagic_ios_p12_password_helpers.sh"
 
 if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
   export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
@@ -62,27 +65,18 @@ if [ ! -s /tmp/cm_distribution.p12 ]; then
 fi
 
 # Fail-fast com mensagem clara (evita "MAC verification failed" opaco do keychain).
+codemagic_normalize_p12_password_from_env
 echo "A verificar senha do P12 (Apple Distribution) antes do keychain..."
-if [ -n "${CM_CERTIFICATE_PASSWORD:-}" ]; then
-  export CM_CERTIFICATE_PASSWORD
-  if ! openssl pkcs12 -in /tmp/cm_distribution.p12 -passin env:CM_CERTIFICATE_PASSWORD -noout 2>/tmp/_p12_openssl.err; then
-    echo ""
-    echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o ficheiro CM_CERTIFICATE (.p12)."
-    echo "       (OpenSSL: senha errada, P12 corrompido ou nao e Apple Distribution.)"
-    echo "       Corrija o secret CM_CERTIFICATE_PASSWORD no Codemagic (grupo appstore_credentials)."
-    echo "       Use a MESMA senha definida ao exportar o .p12 «Apple Distribution» no Keychain (Mac)."
-    echo "       Nao use a senha de um certificado de DESENVOLVIMENTO criado na UI da Codemagic."
-    cat /tmp/_p12_openssl.err 2>/dev/null || true
-    exit 1
-  fi
-else
-  if ! openssl pkcs12 -in /tmp/cm_distribution.p12 -nodes -passin pass: -noout 2>/tmp/_p12_openssl.err; then
-    echo ""
-    echo "ERRO: o P12 exige senha (ou esta invalido). Defina CM_CERTIFICATE_PASSWORD no Codemagic."
-    echo "       Se exportou o .p12 com password no Keychain, copie essa password para o secret."
-    cat /tmp/_p12_openssl.err 2>/dev/null || true
-    exit 1
-  fi
+if ! codemagic_verify_p12_opens_with_password /tmp/cm_distribution.p12 /tmp/_p12_openssl.err; then
+  echo ""
+  echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o ficheiro CM_CERTIFICATE (.p12)."
+  echo "       (OpenSSL: senha errada, P12 corrompido ou nao e Apple Distribution.)"
+  echo "       Corrija o secret CM_CERTIFICATE_PASSWORD no Codemagic (grupo appstore_credentials)."
+  echo "       Ou defina CERTIFICATE_PASSWORD com a MESMA senha do export .p12 no Keychain (Mac)."
+  echo "       Nao use a senha de um certificado de DESENVOLVIMENTO criado na UI da Codemagic."
+  echo "       Confirme que CM_CERTIFICATE (Base64) e o .p12 desse certificado Apple Distribution."
+  cat /tmp/_p12_openssl.err 2>/dev/null || true
+  exit 1
 fi
 
 if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
@@ -113,6 +107,5 @@ _persist_asc_pem_to_cm_env
 echo "OK: certificado + perfil + ExportOptions.plist"
 
 # Alinhar perfil ao P12: fetch-signing-files + opcional criação de perfil via API ASC (mesmo repositório).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.gestaoyahwehios.app}"
 bash "${SCRIPT_DIR}/codemagic_ios_fetch_profile_matching_p12.sh" || true

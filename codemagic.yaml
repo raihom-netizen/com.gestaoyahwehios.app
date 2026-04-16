@@ -7,7 +7,8 @@
 #   CM_CERTIFICATE          — Apple Distribution .p12 em Base64 (uma linha)
 #   CM_PROVISIONING_PROFILE — .mobileprovision App Store p/ com.gestaoyahwehios.app em Base64
 #   CM_CERTIFICATE_PASSWORD — password do .p12 Apple Distribution (obrigatória se exportou o P12 com senha;
-#     tem de coincidir com o Keychain; NÃO é a senha do cert. de desenvolvimento gerado na Codemagic UI)
+#     tem de coincidir com o Keychain; NÃO é a senha do cert. de desenvolvimento gerado na Codemagic UI).
+#     Alias aceite: CERTIFICATE_PASSWORD (mesmo valor). Espacos/quebras ao colar no portal sao removidos automaticamente.
 # Gerar Base64 no Mac: cat ficheiro.p12 | base64 | pbcopy  (idem para .mobileprovision)
 #
 # Sem ios_signing por bundle: a Codemagic falha se Code signing identities nao tiver perfil App Store.
@@ -27,7 +28,8 @@
 #
 # Checklist credenciais (Codemagic > Team applications > Secrets > appstore_credentials):
 #   CM_CERTIFICATE (P12 Distribution Base64), CM_PROVISIONING_PROFILE (mobileprovision Base64 uma linha),
-#   CM_CERTIFICATE_PASSWORD se o P12 tiver senha, APP_STORE_CONNECT_* (API Key .p8 + Key ID + Issuer).
+#   CM_CERTIFICATE_PASSWORD (senha do export .p12 no Mac) OU CERTIFICATE_PASSWORD com o mesmo valor,
+#   APP_STORE_CONNECT_* (API Key .p8 + Key ID + Issuer).
 #   Se "Code signing" terminar em poucos segundos sem erro, confira se xcode-project use-profiles aplicou
 #   perfis (ver passo seguinte: identidades de assinatura).
 #
@@ -154,7 +156,22 @@ workflows:
             echo "ERRO: CM_CERTIFICATE decodifica para ficheiro vazio."
             exit 1
           fi
-          echo "OK: secrets P12 + provisioning decodificam (bytes prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin))."
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          # shellcheck source=scripts/codemagic_ios_p12_password_helpers.sh
+          source "$ROOT/scripts/codemagic_ios_p12_password_helpers.sh"
+          echo "A verificar senha do P12 (fail-fast, antes do keychain)..."
+          if ! codemagic_verify_p12_opens_with_password /tmp/_cm_verify_p12.bin /tmp/_early_p12.err; then
+            echo ""
+            echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o CM_CERTIFICATE (.p12)."
+            echo "  Codemagic > Team applications > Secrets > grupo appstore_credentials"
+            echo "  - CM_CERTIFICATE_PASSWORD = senha usada ao exportar o .p12 «Apple Distribution» no Keychain (Mac)."
+            echo "  - Ou defina CERTIFICATE_PASSWORD com o mesmo valor (alias aceite)."
+            echo "  - Nao use senha de certificado de desenvolvimento criado na UI da Codemagic."
+            echo "  - Se o P12 foi re-exportado: actualize CM_CERTIFICATE (Base64) e a senha."
+            cat /tmp/_early_p12.err 2>/dev/null || true
+            exit 1
+          fi
+          echo "OK: secrets P12 + provisioning decodificam (bytes prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin)); senha P12 validada (openssl)."
       # Padrão alinhado ao Controle Total App: keychain → PEM API → Sign In with Apple (API) → limpar perfis antigos → P12/perfil.
       - name: Keychain para code signing
         script: |

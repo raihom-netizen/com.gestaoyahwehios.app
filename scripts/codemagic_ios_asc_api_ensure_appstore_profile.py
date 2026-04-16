@@ -17,6 +17,7 @@ import base64
 import json
 import os
 import plistlib
+import tempfile
 import shutil
 import subprocess
 import sys
@@ -47,21 +48,38 @@ def _norm_serial(s: str) -> str:
     return t
 
 
+def _resolve_p12_password() -> str:
+    p = os.environ.get("CM_CERTIFICATE_PASSWORD") or os.environ.get("CERTIFICATE_PASSWORD") or ""
+    return (p or "").strip().replace("\n", "").replace("\r", "")
+
+
 def _p12_leaf_der(path: str, password: str) -> bytes:
-    if password:
-        cmd = [
-            "openssl",
-            "pkcs12",
-            "-in",
-            path,
-            "-passin",
-            f"pass:{password}",
-            "-clcerts",
-            "-nokeys",
-        ]
-    else:
-        cmd = ["openssl", "pkcs12", "-in", path, "-nodes", "-passin", "pass:", "-clcerts", "-nokeys"]
-    p1 = subprocess.run(cmd, capture_output=True)
+    password = (password or "").strip().replace("\n", "").replace("\r", "")
+    pw_path = None
+    try:
+        if password:
+            fd, pw_path = tempfile.mkstemp(prefix="cm_p12_pw_")
+            with os.fdopen(fd, "wb") as f:
+                f.write(password.encode("utf-8"))
+            cmd = [
+                "openssl",
+                "pkcs12",
+                "-in",
+                path,
+                "-passin",
+                f"file:{pw_path}",
+                "-clcerts",
+                "-nokeys",
+            ]
+        else:
+            cmd = ["openssl", "pkcs12", "-in", path, "-nodes", "-passin", "pass:", "-clcerts", "-nokeys"]
+        p1 = subprocess.run(cmd, capture_output=True)
+    finally:
+        if pw_path:
+            try:
+                os.unlink(pw_path)
+            except OSError:
+                pass
     if p1.returncode != 0:
         raise RuntimeError("openssl pkcs12 falhou (senha CM_CERTIFICATE_PASSWORD?)")
     p2 = subprocess.run(
@@ -372,7 +390,7 @@ def matches_only_main() -> int:
     plist_path = "/tmp/cm_prov.plist"
     if not os.path.isfile(p12) or not os.path.isfile(plist_path):
         return 1
-    pw = os.environ.get("CM_CERTIFICATE_PASSWORD", "") or ""
+    pw = _resolve_p12_password()
     try:
         der = _p12_leaf_der(p12, pw)
         fp_p12 = _fp_sha256_der(der)
@@ -397,7 +415,7 @@ def main() -> int:
     if not os.path.isfile(p12):
         print("AVISO: /tmp/cm_distribution.p12 ausente — saltar API profile.")
         return 0
-    pw = os.environ.get("CM_CERTIFICATE_PASSWORD", "") or ""
+    pw = _resolve_p12_password()
     try:
         der = _p12_leaf_der(p12, pw)
         fp_p12 = _fp_sha256_der(der)

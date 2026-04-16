@@ -53,7 +53,15 @@ workflows:
             exit 1
           fi
           [ -s /tmp/_cm_verify_p12.bin ] || { echo "ERRO: P12 decodificado vazio."; exit 1; }
-          echo "OK: P12 + provisioning Base64 validos (prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin) bytes)."
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          source "$ROOT/scripts/codemagic_ios_p12_password_helpers.sh"
+          echo "A verificar senha do P12 (fail-fast)..."
+          if ! codemagic_verify_p12_opens_with_password /tmp/_cm_verify_p12.bin /tmp/_early_p12.err; then
+            echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o P12. Use a senha do export Keychain ou CERTIFICATE_PASSWORD (alias)."
+            cat /tmp/_early_p12.err 2>/dev/null || true
+            exit 1
+          fi
+          echo "OK: P12 + provisioning Base64 validos (prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin) bytes); senha P12 OK."
       - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
@@ -127,6 +135,13 @@ workflows:
           fi
           if [ ! -s /tmp/cm_distribution.p12 ]; then
             echo "ERRO: P12 decodificado vazio."
+            exit 1
+          fi
+          source "$ROOT/scripts/codemagic_ios_p12_password_helpers.sh"
+          codemagic_normalize_p12_password_from_env
+          if ! codemagic_verify_p12_opens_with_password /tmp/cm_distribution.p12 /tmp/_p12_openssl.err; then
+            echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o P12 (ou use CERTIFICATE_PASSWORD com o mesmo valor)."
+            cat /tmp/_p12_openssl.err 2>/dev/null || true
             exit 1
           fi
           if [ -z "${CM_CERTIFICATE_PASSWORD:-}" ]; then
