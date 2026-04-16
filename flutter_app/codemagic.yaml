@@ -57,6 +57,7 @@ workflows:
       - name: JWT App Store Connect + keychain P12 e perfil App Store
         script: |
           set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           echo "CM_IOS_SIGNING_REV=2026-04-no-export-pem-persist-end-FLUTTER-ROOT"
           _secret_to_pem_file() {
             local val="$1"
@@ -151,6 +152,11 @@ workflows:
           PY
           echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
           _persist_asc_pem_to_cm_env
+          # Monorepo: alinhar perfil ao P12 (fetch + API) — ver scripts/codemagic_ios_install_p12_profile_exportoptions.sh na raiz.
+          if [ -f "$ROOT/../scripts/codemagic_ios_fetch_profile_matching_p12.sh" ]; then
+            export IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.gestaoyahwehios.app}"
+            bash "$ROOT/../scripts/codemagic_ios_fetch_profile_matching_p12.sh" || true
+          fi
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e

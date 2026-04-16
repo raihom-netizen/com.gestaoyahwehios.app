@@ -41,3 +41,4 @@ secrets/
 artifacts/
 functions/.env*
 firebase.json.bak
+firebase-debug.log

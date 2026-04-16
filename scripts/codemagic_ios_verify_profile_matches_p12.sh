@@ -7,6 +7,13 @@
 #   /tmp/cm_prov.plist   (security cms -D -i /tmp/cm_raw.mobileprovision)
 #
 # Uso: bash scripts/codemagic_ios_verify_profile_matches_p12.sh
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Última tentativa antes do fail-fast: API ASC (lista ampla de certificados + perfil / criação).
+if [[ -f "${SCRIPT_DIR}/codemagic_ios_asc_api_ensure_appstore_profile.py" ]]; then
+  echo "=== API App Store Connect: alinhar perfil .mobileprovision ao P12 ==="
+  python3 "${SCRIPT_DIR}/codemagic_ios_asc_api_ensure_appstore_profile.py" || true
+fi
 set -euo pipefail
 
 P12=/tmp/cm_distribution.p12
@@ -155,6 +162,10 @@ def fail_profile_mismatch(fp_p12: str, fp_provs: list, dev_certs: list) -> None:
     print("  5) Codemagic → Team applications → Secrets (grupo appstore_credentials)")
     print("     → CM_PROVISIONING_PROFILE = Base64 do novo ficheiro (uma linha, sem quebras)")
     print("  Se renovou o certificado Distribution: exporte novo .p12 e atualize CM_CERTIFICATE também.")
+    print("")
+    print("  CI: o passo «Sync ASC profile with P12» corre fetch-signing-files na Apple;")
+    print("       se este erro persistiu, a API não devolveu nenhum perfil App Store com o SHA256 do P12")
+    print("       (corrija o perfil em developer.apple.com ou defina CM_SKIP_ASC_PROFILE_SYNC=1 para forçar só o secret).")
     print("")
     sys.exit(1)
 

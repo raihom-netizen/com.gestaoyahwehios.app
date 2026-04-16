@@ -49,6 +49,7 @@ import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/carteira_pades_signer.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/utils/carteirinha_pdf_image_resize.dart';
+import 'package:gestao_yahweh/utils/carteirinha_pdf_signature_enhance.dart';
 import 'package:gestao_yahweh/ui/pdf/verso_carteirinha_widget.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pvc_marks.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_a4_cut_guides.dart';
@@ -752,15 +753,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '';
   }
 
+  String _estadoCivilFromMember(Map<String, dynamic> member) {
+    return (member['ESTADO_CIVIL'] ??
+            member['estadoCivil'] ??
+            member['estado_civil'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  /// Frente da carteira: estado civil + admissão + batismo (uma linha; rótulos por extenso).
   String _admissionBatismoLine(Map<String, dynamic> member) {
+    final parts = <String>[];
+    final ec = _estadoCivilFromMember(member);
+    if (ec.isNotEmpty) parts.add('Estado civil: $ec');
     final adm = _admissionForWallet(member);
     final bat = _fmtDate(_dateFromMember(member, 'DATA_BATISMO')).trim();
-    if (adm.isNotEmpty && bat.isNotEmpty) {
-      return 'Adm.: $adm  ·  Batismo: $bat';
-    }
-    if (adm.isNotEmpty) return 'Admissão: $adm';
-    if (bat.isNotEmpty) return 'Batismo: $bat';
-    return '';
+    if (adm.isNotEmpty) parts.add('Admissão: $adm');
+    if (bat.isNotEmpty) parts.add('Batismo: $bat');
+    if (parts.isEmpty) return '';
+    return parts.join('  ·  ');
   }
 
   String _telefoneFromMember(Map<String, dynamic> m) {
@@ -2906,7 +2918,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (u.isNotEmpty) await _pdfImageProviderFromUrlCached(u);
     }
     final sig = (signatoryAssinaturaUrl ?? '').trim();
-    if (sig.isNotEmpty) await _pdfImageProviderFromUrlCached(sig);
+    if (sig.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(sig);
   }
 
   /// Alias explícito para pré-carregamento de imagens antes da montagem do PDF.
@@ -2950,7 +2962,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       await _pdfLogoProvider(cfg, any);
     }
     final s = (signatoryAssinaturaUrl ?? '').trim();
-    if (s.isNotEmpty) await _pdfImageProviderFromUrlCached(s);
+    if (s.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(s);
   }
 
   /// Mesmo tamanho físico da frente e do verso (CR80 ~ ISO/IEC 7810).
@@ -2960,12 +2972,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// Cache de imagens na mesma geração de PDF (evita baixar a mesma foto/logo várias vezes).
   final Map<String, pw.ImageProvider?> _pdfImageSessionCache = {};
   final Map<String, Uint8List?> _pdfImageBytesSessionCache = {};
+  /// Assinatura no PDF: bytes realçados (cache separado da URL genérica).
+  final Map<String, pw.ImageProvider?> _pdfSignatureImageSessionCache = {};
   /// Logo resolvida uma vez por `igrejaDocId` — evita [loadReportPdfBranding] N vezes no lote.
   final Map<String, pw.ImageProvider?> _pdfLogoProviderMemo = {};
 
   void _clearPdfImageSessionCache() {
     _pdfImageSessionCache.clear();
     _pdfImageBytesSessionCache.clear();
+    _pdfSignatureImageSessionCache.clear();
     _pdfLogoProviderMemo.clear();
   }
 
@@ -3066,6 +3081,40 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final p = await _pdfImageProviderFromUrl(u);
     _pdfImageSessionCache[u] = p;
     return p;
+  }
+
+  /// Assinatura visual no PDF: realça traços (decode + `image` fora da UI em mobile/desktop).
+  Future<pw.ImageProvider?> _pdfSignatureImageProviderFromUrlCached(
+      String? rawUrl) async {
+    var u = sanitizeImageUrl((rawUrl ?? '').trim());
+    if (u.isEmpty || !isValidImageUrl(u)) return null;
+    if (_pdfSignatureImageSessionCache.containsKey(u)) {
+      return _pdfSignatureImageSessionCache[u];
+    }
+    final bytes = await _loadCachedImageBytes(u);
+    if (bytes != null && bytes.length > 32) {
+      Uint8List out = bytes;
+      try {
+        if (kIsWeb) {
+          out = carteirinhaPdfEnhanceSignatureForCompute(bytes);
+        } else {
+          out = await compute(
+            carteirinhaPdfEnhanceSignatureForCompute,
+            bytes,
+          );
+        }
+      } catch (_) {}
+      final p = pw.MemoryImage(out);
+      _pdfSignatureImageSessionCache[u] = p;
+      return p;
+    }
+    try {
+      final p = await networkImage(u);
+      _pdfSignatureImageSessionCache[u] = p;
+      return p;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Só preenche logo a partir do cadastro da igreja quando a carteirinha não tem logo própria (URL ou base64).
@@ -3578,9 +3627,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final frase = cfg.fraseRodape.trim();
     final cpfFmt = _formatCpfForCard(_memberCpfRaw(data.member));
     final nasc = _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+    final estadoCivilPdf = _estadoCivilFromMember(data.member);
+    final batismoPdf =
+        _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
     final filiacaoTxt = walletFiliacaoFromMember(data.member);
     final tel = _telefoneFromMember(data.member);
-    final em = _emailFromMember(data.member);
     final snIn = (signatoryNome ?? '').trim();
     final sn = snIn.isNotEmpty
         ? snIn
@@ -3603,9 +3654,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
       pdfInkEconomy: pdfInkEconomy,
       cpfDoc: cpfFmt,
       nascimentoDoc: nasc,
+      estadoCivilDoc: estadoCivilPdf,
+      batismoDoc: batismoPdf,
       filiacaoPaiMaeDoc: filiacaoTxt,
       telefoneDoc: tel,
-      emailDoc: em,
       assinaturaImage: signatoryImage,
       signatoryNome: sn,
       signatoryCargo: sc,
@@ -3624,14 +3676,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
       pw.ImageProvider? signatoryImage;
       if ((signatoryAssinaturaUrl ?? '').trim().isNotEmpty) {
         signatoryImage =
-            await _pdfImageProviderFromUrlCached(signatoryAssinaturaUrl);
+            await _pdfSignatureImageProviderFromUrlCached(signatoryAssinaturaUrl);
       }
       if (signatoryImage == null) {
         final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
             .toString()
             .trim();
         if (su.isNotEmpty) {
-          signatoryImage = await _pdfImageProviderFromUrlCached(su);
+          signatoryImage = await _pdfSignatureImageProviderFromUrlCached(su);
         }
       }
       await _addCardPageToDoc(doc, data, format, cfg,
@@ -3676,7 +3728,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final su =
           (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
       if (su.isNotEmpty) {
-        sigImgVerso = await _pdfImageProviderFromUrlCached(su);
+        sigImgVerso = await _pdfSignatureImageProviderFromUrlCached(su);
       }
     }
     final photoUrl = cfg.showPhoto
@@ -3809,6 +3861,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
     final nascimento =
         _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+    final estadoCivil = _estadoCivilFromMember(data.member);
+    final batismoFmt =
+        _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
     final validade = _validityLabel(data.member);
     final colorA = cfg.bgColorValue;
     final colorB = cfg.bgColorSecondaryValue ??
@@ -3854,7 +3909,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final cpfFmt = _formatCpfForCard(cpf);
     final filiacaoTxt = walletFiliacaoFromMember(data.member);
     final telM = _telefoneFromMember(data.member);
-    final emM = _emailFromMember(data.member);
     final signatoryNameWallet = signatoryNome.trim().isNotEmpty
         ? signatoryNome.trim()
         : (data.member['carteirinhaAssinadaPorNome'] ?? '').toString();
@@ -3891,10 +3945,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       churchTitle: cfg.title,
       cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
       nascimento: nascimento.isEmpty ? '—' : nascimento,
+      estadoCivil: estadoCivil.isEmpty ? '—' : estadoCivil,
+      dataBatismo: batismoFmt.isEmpty ? '—' : batismoFmt,
       filiacaoPaiMae: filiacaoTxt.isEmpty ? '—' : filiacaoTxt,
       validade: validade.isEmpty ? '—' : validade,
       telefone: telM.isEmpty ? '—' : telM,
-      email: emM.isEmpty ? '—' : emM,
       signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
       signatoryName: signatoryNameWallet,
       signatoryCargo: signatoryCargoWallet,
@@ -4556,7 +4611,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final su =
           (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
       if (su.isNotEmpty) {
-        sigIV = await _pdfImageProviderFromUrlCached(su);
+        sigIV = await _pdfSignatureImageProviderFromUrlCached(su);
       }
     }
     final verso = pw.SizedBox(
@@ -4596,7 +4651,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final sigUrlParam = (signatoryAssinaturaUrl ?? '').trim();
       if (sigUrlParam.isNotEmpty) {
         signatoryImage =
-            await _pdfImageProviderFromUrlCached(sigUrlParam);
+            await _pdfSignatureImageProviderFromUrlCached(sigUrlParam);
       }
       // Só usa assinatura gravada na ficha do **membro** quando o PDF não pediu
       // assinatura explícita do líder (evita misturar outro signatário).
@@ -4607,7 +4662,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             .toString()
             .trim();
         if (su.isNotEmpty) {
-          signatoryImage = await _pdfImageProviderFromUrlCached(su);
+          signatoryImage = await _pdfSignatureImageProviderFromUrlCached(su);
         }
       }
 
@@ -4892,7 +4947,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 .toString()
                 .trim();
             if (su.isNotEmpty) {
-              sigIV = await _pdfImageProviderFromUrlCached(su);
+              sigIV = await _pdfSignatureImageProviderFromUrlCached(su);
             }
           }
           return pw.Center(
@@ -6232,6 +6287,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 sanitizeImageUrl(imageUrlFromMap(data.member));
             final nascimento =
                 _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
+            final estadoCivil = _estadoCivilFromMember(data.member);
+            final batismoFmt =
+                _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
             final validade = _validityLabel(data.member);
             _warmupCarteiraAssets(data, cfg);
 
@@ -6633,7 +6691,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         final filiacaoTxt =
                             walletFiliacaoFromMember(data.member);
                         final telM = _telefoneFromMember(data.member);
-                        final emM = _emailFromMember(data.member);
                         final signatoryNameWallet = (_walletPdfExportSignatoryNome ??
                                     '')
                                 .trim()
@@ -6693,6 +6750,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         nascimento: nascimento.isEmpty
                                             ? '—'
                                             : nascimento,
+                                        estadoCivil: estadoCivil.isEmpty
+                                            ? '—'
+                                            : estadoCivil,
+                                        dataBatismo: batismoFmt.isEmpty
+                                            ? '—'
+                                            : batismoFmt,
                                         filiacaoPaiMae: filiacaoTxt.isEmpty
                                             ? '—'
                                             : filiacaoTxt,
@@ -6701,7 +6764,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             : validade,
                                         telefone:
                                             telM.isEmpty ? '—' : telM,
-                                        email: emM.isEmpty ? '—' : emM,
                                         signatureImageUrl:
                                             sigUrl.isEmpty ? null : sigUrl,
                                         signatoryName: signatoryNameWallet,

@@ -1,0 +1,23 @@
+Codemagic — "Fetching configuration file" / build cancelado antes dos passos
+================================================================================
+
+1) O workflow DEVE vir do ficheiro que a app tem configurado em:
+   Codemagic → Application settings → Configuration file from repository
+   - Monorepo (recomendado): caminho na raiz do Git = codemagic.yaml
+   - Se apontar só para flutter_app/codemagic.yaml, falta scripts/ na raiz (use o YAML da raiz).
+
+2) Faça commit e push do codemagic.yaml + scripts/*.sh + .gitattributes para o branch
+   que dispara o build (ex.: main). O commit no Codemagic tem de incluir estes ficheiros.
+
+3) Não cancele o build na fase "Initializing" — espere o fetch do Git (pode demorar 1–2 min).
+
+4) Se o build ficar preso em "Fetching configuration file":
+   - Valide o YAML (indentação com espaços, sem tabs no codemagic.yaml).
+   - Evite caracteres estranhos no nome do workflow (usamos nome ASCII no repositório).
+   - Confirme que o repositório ligado à app Codemagic é o mesmo onde fez push.
+
+5) Perfil vs P12: após o YAML carregar, o passo "Sync ASC profile with P12" não deve
+   falhar o pipeline (se falhar, mantém-se o secret). O passo "Verificar perfil vs P12"
+   continua a ser o fail-fast se ainda houver mismatch.
+
+6) TestFlight: cada upload precisa de build number novo (pubspec + CM_BUILD_NUMBER no Codemagic).

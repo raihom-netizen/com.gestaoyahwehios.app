@@ -1,0 +1,484 @@
+#!/usr/bin/env python3
+"""
+App Store Connect API: garante um perfil IOS_APP_STORE para o bundle que inclua o certificado
+Apple Distribution cujo SHA256 coincide com o leaf do P12 em /tmp/cm_distribution.p12.
+
+Usa JWT (PyJWT) + /tmp/_asc_ok.pem. Se criar perfil novo, grava o .mobileprovision e
+/tmp/cm_prov.plist + /tmp/ExportOptions.plist + cópia em Provisioning Profiles.
+
+Ambiente: APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
+           CM_CERTIFICATE_PASSWORD (opcional), IOS_BUNDLE_ID (default com.gestaoyahwehios.app)
+
+Saída: 0 se perfil alinhado (já existia ou foi criado); 1 se erro irrecuperável; 0 com aviso se saltar.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import os
+import plistlib
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+def _fp_sha256_der(der: bytes) -> str:
+    p = subprocess.run(
+        ["openssl", "x509", "-inform", "DER", "-noout", "-fingerprint", "-sha256"],
+        input=der,
+        capture_output=True,
+    )
+    if p.returncode != 0:
+        return ""
+    line = p.stdout.decode().strip()
+    if "=" not in line:
+        return ""
+    return line.split("=", 1)[-1].replace(":", "").upper()
+
+
+def _norm_serial(s: str) -> str:
+    t = (s or "").replace(" ", "").replace(":", "").upper()
+    if t.startswith("0X"):
+        t = t[2:]
+    return t
+
+
+def _p12_leaf_der(path: str, password: str) -> bytes:
+    if password:
+        cmd = [
+            "openssl",
+            "pkcs12",
+            "-in",
+            path,
+            "-passin",
+            f"pass:{password}",
+            "-clcerts",
+            "-nokeys",
+        ]
+    else:
+        cmd = ["openssl", "pkcs12", "-in", path, "-nodes", "-passin", "pass:", "-clcerts", "-nokeys"]
+    p1 = subprocess.run(cmd, capture_output=True)
+    if p1.returncode != 0:
+        raise RuntimeError("openssl pkcs12 falhou (senha CM_CERTIFICATE_PASSWORD?)")
+    p2 = subprocess.run(
+        ["openssl", "x509", "-outform", "DER"],
+        input=p1.stdout,
+        capture_output=True,
+    )
+    if p2.returncode != 0 or not p2.stdout:
+        raise RuntimeError("PEM→DER do leaf falhou")
+    return p2.stdout
+
+
+def _ensure_jwt():
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "-q", "pyjwt", "cryptography"],
+        check=False,
+    )
+    import jwt  # type: ignore  # noqa: E402
+
+    key_id = os.environ.get("APP_STORE_CONNECT_KEY_IDENTIFIER", "").strip()
+    issuer = os.environ.get("APP_STORE_CONNECT_ISSUER_ID", "").strip()
+    pem_path = "/tmp/_asc_ok.pem"
+    if not key_id or not issuer or not os.path.isfile(pem_path):
+        raise RuntimeError("APP_STORE_CONNECT_KEY_IDENTIFIER / ISSUER_ID ou /tmp/_asc_ok.pem ausente")
+    with open(pem_path, "r", encoding="utf-8") as f:
+        key = f.read()
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "iss": issuer,
+            "iat": now,
+            "exp": now + 1100,
+            "aud": "appstoreconnect-v1",
+        },
+        key,
+        algorithm="ES256",
+        headers={"kid": key_id, "alg": "ES256", "typ": "JWT"},
+    )
+    if isinstance(token, bytes):
+        token = token.decode("ascii")
+    return token
+
+
+def _request(method: str, url: str, token: str, body: dict | None = None) -> tuple[int, dict]:
+    data = None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            raw = resp.read().decode("utf-8")
+            return resp.getcode(), json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(err_body)
+        except json.JSONDecodeError:
+            parsed = {"errors": err_body}
+        return e.code, parsed
+
+
+def _find_bundle_id(token: str, bundle: str) -> str | None:
+    q = urllib.parse.urlencode({"filter[identifier]": bundle, "limit": "5"})
+    url = f"https://api.appstoreconnect.apple.com/v1/bundleIds?{q}"
+    code, data = _request("GET", url, token)
+    if code != 200:
+        print(f"AVISO: GET bundleIds falhou {code}: {data}", file=sys.stderr)
+        return None
+    arr = data.get("data") or []
+    if not arr:
+        return None
+    return str(arr[0].get("id") or "")
+
+
+def _serial_hex_upper_from_der(der: bytes) -> str:
+    p = subprocess.run(
+        ["openssl", "x509", "-inform", "DER", "-noout", "-serial"],
+        input=der,
+        capture_output=True,
+    )
+    if p.returncode != 0:
+        return ""
+    # serial=01:23:AB... ou serial=0xABCD...
+    line = p.stdout.decode().strip()
+    if "=" not in line:
+        return ""
+    raw = line.split("=", 1)[-1].strip().replace(":", "").upper()
+    if raw.startswith("0X"):
+        raw = raw[2:]
+    return raw
+
+
+def _certificates_paginated(token: str, query_suffix: str) -> list[dict]:
+    """query_suffix ex.: '?filter[certificateType]=IOS_DISTRIBUTION&limit=200' ou '?limit=200'."""
+    base = "https://api.appstoreconnect.apple.com/v1/certificates"
+    url = base + (query_suffix if query_suffix.startswith("?") else "?" + query_suffix)
+    rows: list[dict] = []
+    while url:
+        code, data = _request("GET", url, token)
+        if code != 200:
+            print(f"AVISO: GET certificates {url[:80]}... falhou {code}: {data}", file=sys.stderr)
+            break
+        for item in data.get("data") or []:
+            cid = str(item.get("id") or "")
+            attr = item.get("attributes") or {}
+            b64 = attr.get("certificateContent")
+            serial_api = _norm_serial(str(attr.get("serialNumber") or ""))
+            if cid and not b64:
+                c2, d2 = _request(
+                    "GET",
+                    f"https://api.appstoreconnect.apple.com/v1/certificates/{cid}",
+                    token,
+                )
+                if c2 == 200:
+                    attr2 = (d2.get("data") or {}).get("attributes") or {}
+                    b64 = attr2.get("certificateContent") or b64
+                    if not serial_api:
+                        serial_api = _norm_serial(str(attr2.get("serialNumber") or ""))
+            if not cid or not b64:
+                continue
+            try:
+                der = base64.b64decode(b64)
+            except Exception:
+                continue
+            fp = _fp_sha256_der(der)
+            ser_local = _serial_hex_upper_from_der(der)
+            if fp:
+                rows.append(
+                    {
+                        "id": cid,
+                        "fingerprint_sha256": fp,
+                        "serial_local": ser_local,
+                        "serial_api": serial_api,
+                        "name": attr.get("displayName") or attr.get("name") or "",
+                    }
+                )
+        next_url = (data.get("links") or {}).get("next")
+        url = next_url if next_url else None
+    return rows
+
+
+def _list_distribution_certificates(token: str) -> list[dict]:
+    """IOS_DISTRIBUTION primeiro; se não houver match pelo caller, usar listagem ampla."""
+    seen: dict[str, dict] = {}
+    for suffix in (
+        "?filter[certificateType]=IOS_DISTRIBUTION&limit=200",
+        "?limit=200",
+    ):
+        for row in _certificates_paginated(token, suffix):
+            seen[row["id"]] = row
+    return list(seen.values())
+
+
+def _find_cert_for_p12(fp_p12: str, der_p12: bytes, certs: list[dict]) -> dict | None:
+    for c in certs:
+        if c.get("fingerprint_sha256") == fp_p12:
+            return c
+    ser_p12 = _serial_hex_upper_from_der(der_p12)
+    if not ser_p12:
+        return None
+    for c in certs:
+        sa = _norm_serial(str(c.get("serial_api") or ""))
+        sl = _norm_serial(str(c.get("serial_local") or ""))
+        if ser_p12 and (ser_p12 == sa or ser_p12 == sl):
+            return c
+    return None
+
+
+def _profiles_for_bundle(token: str, bundle_id_resource: str) -> list[dict]:
+    out: list[dict] = []
+    q = urllib.parse.urlencode({"filter[bundleId]": bundle_id_resource, "limit": "50"})
+    url = f"https://api.appstoreconnect.apple.com/v1/profiles?{q}"
+    code_last, data_last = 0, {}
+    while url:
+        code, data = _request("GET", url, token)
+        code_last, data_last = code, data
+        if code != 200:
+            print(f"AVISO: GET profiles {url[:90]}... falhou {code}: {data}", file=sys.stderr)
+            break
+        out.extend(list(data.get("data") or []))
+        next_url = (data.get("links") or {}).get("next")
+        url = next_url if next_url else None
+    # include=profiles no bundleId (perfis ligados ao App ID).
+    url_inc = f"https://api.appstoreconnect.apple.com/v1/bundleIds/{bundle_id_resource}?include=profiles"
+    code2, data2 = _request("GET", url_inc, token)
+    if code2 == 200:
+        for item in data2.get("included") or []:
+            if item.get("type") == "profiles":
+                out.append(item)
+    if not out and code_last != 200:
+        print(f"AVISO: GET profiles falhou {code_last}: {data_last}", file=sys.stderr)
+    by_id = {str(x.get("id")): x for x in out if x.get("id")}
+    return list(by_id.values())
+
+
+def _profile_includes_certificate(token: str, profile_id: str, cert_id: str) -> bool:
+    url = f"https://api.appstoreconnect.apple.com/v1/profiles/{profile_id}/relationships/certificates?limit=50"
+    code, data = _request("GET", url, token)
+    if code != 200:
+        return False
+    for item in data.get("data") or []:
+        if str(item.get("id")) == cert_id:
+            return True
+    return False
+
+
+def _download_profile_content(token: str, profile_id: str) -> bytes | None:
+    url = f"https://api.appstoreconnect.apple.com/v1/profiles/{profile_id}"
+    code, data = _request("GET", url, token)
+    if code != 200:
+        return None
+    attr = (data.get("data") or {}).get("attributes") or {}
+    b64 = attr.get("profileContent")
+    if not b64:
+        return None
+    try:
+        return base64.b64decode(b64)
+    except Exception:
+        return None
+
+
+def _create_app_store_profile(
+    token: str, bundle_rid: str, cert_id: str, bundle: str, unique_name: str
+) -> dict | None:
+    body = {
+        "data": {
+            "type": "profiles",
+            "attributes": {
+                "name": unique_name,
+                "profileType": "IOS_APP_STORE",
+            },
+            "relationships": {
+                "bundleId": {"data": {"type": "bundleIds", "id": bundle_rid}},
+                "certificates": {"data": [{"type": "certificates", "id": cert_id}]},
+            },
+        }
+    }
+    code, data = _request("POST", "https://api.appstoreconnect.apple.com/v1/profiles", token, body)
+    if code in (200, 201):
+        row = data.get("data") or {}
+        attr = row.get("attributes") or {}
+        b64 = attr.get("profileContent")
+        if b64:
+            row["_inline_profileContent"] = b64
+        return row
+    print(f"AVISO: POST profiles falhou {code}: {json.dumps(data)[:2000]}", file=sys.stderr)
+    return None
+
+
+def _write_mobileprovision_and_plist(mp_bytes: bytes, bundle: str) -> None:
+    prov_dir = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
+    os.makedirs(prov_dir, exist_ok=True)
+    with open("/tmp/cm_raw.mobileprovision", "wb") as f:
+        f.write(mp_bytes)
+    with open("/tmp/cm_prov.plist", "wb") as out_plist:
+        subprocess.run(
+            ["security", "cms", "-D", "-i", "/tmp/cm_raw.mobileprovision"],
+            stdout=out_plist,
+            check=True,
+        )
+    with open("/tmp/cm_prov.plist", "rb") as f:
+        pl = plistlib.load(f)
+    uuid = str(pl.get("UUID") or "")
+    name = str(pl.get("Name") or "")
+    team = ""
+    tid = pl.get("TeamIdentifier")
+    if isinstance(tid, list) and tid:
+        team = str(tid[0])
+    elif isinstance(tid, str):
+        team = tid
+    if uuid:
+        shutil.copyfile("/tmp/cm_raw.mobileprovision", os.path.join(prov_dir, f"{uuid}.mobileprovision"))
+    exp = {
+        "method": "app-store",
+        "signingStyle": "manual",
+        "teamID": team,
+        "uploadSymbols": True,
+        "provisioningProfiles": {bundle: name},
+    }
+    with open("/tmp/ExportOptions.plist", "wb") as f:
+        plistlib.dump(exp, f, fmt=plistlib.FMT_XML)
+    print(f"OK: perfil escrito (API). name={name} uuid={uuid} team={team}")
+
+
+def _local_tmp_profile_matches_p12(fp_p12: str) -> bool:
+    plist_path = "/tmp/cm_prov.plist"
+    if not os.path.isfile(plist_path):
+        return False
+    try:
+        with open(plist_path, "rb") as f:
+            pl = plistlib.load(f)
+    except Exception:
+        return False
+    for item in pl.get("DeveloperCertificates") or []:
+        if isinstance(item, (bytes, bytearray)):
+            if _fp_sha256_der(bytes(item)) == fp_p12:
+                return True
+    return False
+
+
+def matches_only_main() -> int:
+    """Exit 0 se /tmp/cm_prov.plist inclui o leaf do P12 (SHA256); senão 1. Sem chamadas à API."""
+    p12 = "/tmp/cm_distribution.p12"
+    plist_path = "/tmp/cm_prov.plist"
+    if not os.path.isfile(p12) or not os.path.isfile(plist_path):
+        return 1
+    pw = os.environ.get("CM_CERTIFICATE_PASSWORD", "") or ""
+    try:
+        der = _p12_leaf_der(p12, pw)
+        fp_p12 = _fp_sha256_der(der)
+    except Exception:
+        return 1
+    if not fp_p12:
+        return 1
+    if _local_tmp_profile_matches_p12(fp_p12):
+        print("OK: perfil e P12 coincidem (SHA256).")
+        return 0
+    return 1
+
+
+def main() -> int:
+    if "--matches-only" in sys.argv:
+        return matches_only_main()
+    if os.environ.get("CM_SKIP_ASC_PROFILE_SYNC", "").strip() == "1":
+        print("CM_SKIP_ASC_PROFILE_SYNC=1 — saltar API de perfil.")
+        return 0
+    bundle = os.environ.get("IOS_BUNDLE_ID", "com.gestaoyahwehios.app").strip()
+    p12 = "/tmp/cm_distribution.p12"
+    if not os.path.isfile(p12):
+        print("AVISO: /tmp/cm_distribution.p12 ausente — saltar API profile.")
+        return 0
+    pw = os.environ.get("CM_CERTIFICATE_PASSWORD", "") or ""
+    try:
+        der = _p12_leaf_der(p12, pw)
+        fp_p12 = _fp_sha256_der(der)
+    except Exception as e:
+        print(f"AVISO: leitura P12: {e}", file=sys.stderr)
+        return 0
+    if not fp_p12:
+        return 0
+
+    if _local_tmp_profile_matches_p12(fp_p12):
+        print("OK: /tmp/cm_prov.plist já inclui o certificado do P12 — saltar API.")
+        return 0
+
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"AVISO: JWT: {e}", file=sys.stderr)
+        return 0
+
+    certs = _list_distribution_certificates(token)
+    match = _find_cert_for_p12(fp_p12, der, certs)
+    if not match:
+        print(
+            "ERRO API: nenhum certificado na App Store Connect API corresponde ao P12 (SHA256 nem serial).",
+            file=sys.stderr,
+        )
+        print(
+            "         Confirme que CM_CERTIFICATE é o .p12 do certificado «Apple Distribution» desta equipa.",
+            file=sys.stderr,
+        )
+        print(f"         P12 SHA256: {fp_p12}  |  certificados analisados na API: {len(certs)}", file=sys.stderr)
+        return 0
+
+    cert_id = match["id"]
+    bundle_rid = _find_bundle_id(token, bundle)
+    if not bundle_rid:
+        print(f"AVISO: bundleId {bundle} não encontrado na API.", file=sys.stderr)
+        return 0
+
+    profiles = _profiles_for_bundle(token, bundle_rid)
+    for pr in profiles:
+        pid = str(pr.get("id") or "")
+        attr = pr.get("attributes") or {}
+        ptype = str(attr.get("profileType") or "")
+        if ptype != "IOS_APP_STORE":
+            continue
+        if _profile_includes_certificate(token, pid, cert_id):
+            raw = _download_profile_content(token, pid)
+            if raw:
+                _write_mobileprovision_and_plist(raw, bundle)
+                print("OK: perfil App Store existente na API já inclui o certificado do P12.")
+                return 0
+
+    unique = f"GestaoYahweh_CI_{int(time.time())}"
+    created = _create_app_store_profile(token, bundle_rid, cert_id, bundle, unique)
+    if not created:
+        return 0
+    inline = created.get("_inline_profileContent")
+    if inline:
+        try:
+            raw = base64.b64decode(inline)
+            _write_mobileprovision_and_plist(raw, bundle)
+            print(f"OK: novo perfil App Store criado via API (nome {unique}).")
+            return 0
+        except Exception as e:
+            print(f"AVISO: decode profileContent POST: {e}", file=sys.stderr)
+    new_id = str(created.get("id") or "")
+    if not new_id:
+        return 0
+    raw = _download_profile_content(token, new_id)
+    if not raw:
+        print("AVISO: perfil criado mas profileContent não veio no GET — tente fetch-signing-files.", file=sys.stderr)
+        return 0
+    _write_mobileprovision_and_plist(raw, bundle)
+    print(f"OK: novo perfil App Store criado via API (nome {unique}).")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as e:
+        print(f"AVISO: codemagic_ios_asc_api_ensure_appstore_profile: {e}", file=sys.stderr)
+        sys.exit(0)

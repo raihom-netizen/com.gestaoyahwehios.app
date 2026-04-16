@@ -151,7 +151,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   /// Resolve tenant; para quem pode editar: kit vazio + **presets em falta** + backfill de metadados.
-  /// O botão “Gravar no sistema” continua útil para forçar sincronização manual.
+  /// Igrejas novas também recebem seed no servidor ([ensureChurchWelcomeSeed]); o botão “Gravar padrões” cobre sincronização manual.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
       {bool forceServer = false}) async {
     // Mesmo doc canónico que Pastoral / Escalas: onde há `departamentos` preenchidos
@@ -2838,10 +2838,24 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final padding = ThemeCleanPremium.pagePadding(context);
+    final mq = MediaQuery.paddingOf(context);
+    final pagePad = ThemeCleanPremium.pagePadding(context);
+    /// No painel (shell): corpo edge-to-edge — sem margens laterais do módulo.
+    final padding = widget.embeddedInShell
+        ? EdgeInsets.fromLTRB(0, 0, 0, mq.bottom + (isMobile ? 80 : 12))
+        : pagePad;
+    /// No shell, [VersionFooter] já está na barra inferior — não usar 88px extra no fim da lista
+    /// (evita faixa branca entre o último departamento e o rodapé).
+    final listBottomInset = widget.embeddedInShell
+        ? (isMobile ? 8.0 : padding.bottom)
+        : (isMobile ? 88.0 : padding.bottom);
+    /// Mesmo tom suave do [VersionFooter] — preenche o espaço sem “bloco branco” óbvio.
+    final shellBodyTint = const Color(0xFF1565C0).withValues(alpha: 0.035);
     // Shell já exibe [ModuleHeaderPremium] com título — sem AppBar/barra duplicada.
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F4F8),
+      backgroundColor: widget.embeddedInShell
+          ? shellBodyTint
+          : const Color(0xFFF1F4F8),
       appBar: null,
       body: SafeArea(
         top: !widget.embeddedInShell,
@@ -2996,7 +3010,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                               padding.left,
                               padding.top,
                               padding.right,
-                              isMobile ? 88 : padding.bottom);
+                              listBottomInset);
                           final wideOrEmpty =
                               MediaQuery.sizeOf(context).width >= 720;
 
@@ -3035,7 +3049,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                               padding.left,
                               padding.top,
                               padding.right,
-                              isMobile ? 88 : padding.bottom);
+                              listBottomInset);
                           final showDupBanner =
                               _hasDuplicateDepartmentNames(docsRawForDupCheck);
                           final docsForTab = docsVisible.where((d) {
@@ -3181,16 +3195,23 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                   ),
                                   child: DecoratedBox(
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
+                                      color: widget.embeddedInShell
+                                          ? Colors.transparent
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.circular(
+                                        widget.embeddedInShell ? 0 : 16,
+                                      ),
                                       border: Border.all(
                                         color: const Color(0xFFE8EEF5),
                                       ),
-                                      boxShadow:
-                                          ThemeCleanPremium.softUiCardShadow,
+                                      boxShadow: widget.embeddedInShell
+                                          ? null
+                                          : ThemeCleanPremium.softUiCardShadow,
                                     ),
                                     child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius: BorderRadius.circular(
+                                        widget.embeddedInShell ? 0 : 16,
+                                      ),
                                       child: docsForTab.isEmpty
                                           ? Center(
                                               child: Padding(
@@ -3218,27 +3239,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                   ),
                                 ),
                               ),
-                              if (_canWrite && _deptListTab == 0)
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                      padding.left, 6, padding.right, 10),
-                                  child: Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: _manualEnsurePresets,
-                                      icon: const Icon(Icons.cloud_upload_rounded,
-                                          size: 18),
-                                      label: const Text('Instalar base'),
-                                      style: TextButton.styleFrom(
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 6),
-                                        foregroundColor:
-                                            ThemeCleanPremium.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ),
                             ],
                           );
                     },

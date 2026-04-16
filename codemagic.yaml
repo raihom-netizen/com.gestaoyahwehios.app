@@ -6,7 +6,8 @@
 # Assinatura iOS: secrets no grupo appstore_credentials (evita "No matching profiles" da equipa).
 #   CM_CERTIFICATE          — Apple Distribution .p12 em Base64 (uma linha)
 #   CM_PROVISIONING_PROFILE — .mobileprovision App Store p/ com.gestaoyahwehios.app em Base64
-#   CM_CERTIFICATE_PASSWORD — password do .p12 (opcional, secret)
+#   CM_CERTIFICATE_PASSWORD — password do .p12 Apple Distribution (obrigatória se exportou o P12 com senha;
+#     tem de coincidir com o Keychain; NÃO é a senha do cert. de desenvolvimento gerado na Codemagic UI)
 # Gerar Base64 no Mac: cat ficheiro.p12 | base64 | pbcopy  (idem para .mobileprovision)
 #
 # Sem ios_signing por bundle: a Codemagic falha se Code signing identities nao tiver perfil App Store.
@@ -17,8 +18,8 @@
 # ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
 # Firebase iOS (Console > definições do projeto > app iOS): FIREBASE_IOS_APP_ID deve coincidir
 #   (ex.: 1:157235497908:ios:5c2a89577e79e39b4ac8e1).
-# App Store Connect API (referência, secrets no grupo appstore_credentials): Key ID 899478F5TT |
-#   Issuer 77a1debb-f68b-418d-9fe3-af0f37b40585
+# App Store Connect API (referência, secrets no grupo appstore_credentials): Key ID UDKV6M9N38 |
+#   Issuer 77a1debb-f68b-418d-9fe3-af0f37b40585 (AuthKey_UDKV6M9N38.p8 local em IOS/ — não commitar)
 #
 # ExportOptions (CI): gerado em /tmp/ExportOptions.plist a partir do .mobileprovision (teamID + nome do perfil).
 #   Local: ajuste flutter_app/ios/ExportOptions.plist — o valor em provisioningProfiles deve ser o "Name" exacto
@@ -47,6 +48,12 @@
 #   2) Save → Download → novo ficheiro .mobileprovision.
 #   3) Codemagic → Secrets (appstore_credentials) → CM_PROVISIONING_PROFILE = Base64 do NOVO perfil (uma linha).
 # Se criou novo certificado Distribution: exporte novo .p12 e atualize CM_CERTIFICATE também.
+#
+# Após instalar o P12, codemagic_ios_install_p12_profile_exportoptions.sh chama
+# codemagic_ios_fetch_profile_matching_p12.sh, que por ordem: (1) API ASC — alinhar perfil ao SHA256 do P12
+# (reutilizar perfil ou POST IOS_APP_STORE); (2) se já coincidir, salta fetch-signing-files; (3) senão
+# app-store-connect fetch-signing-files; (4) segunda passagem API. Chave API com papel Admin recomendado
+# para criar perfis. Desativar: CM_SKIP_ASC_PROFILE_SYNC=1.
 # Versão visível no IPA: lib/app_version.dart (build-name) + sufixo + do pubspec ou CM_BUILD_NUMBER.
 #
 # Sign In with Apple: o Runner.entitlements pode omitir o entitlement (padrão atual) para
@@ -57,7 +64,8 @@
 
 workflows:
   ios-release:
-    name: iOS Build — Gestão YAHWEH (TestFlight)
+    # Nome em ASCII evita problemas raros de parsing no passo "Fetching configuration file".
+    name: iOS Build - Gestao YAHWEH (TestFlight)
     max_build_duration: 120
     instance_type: mac_mini_m2
     # Pods + cache CocoaPods reduzem tempo entre builds (Dependency caching).

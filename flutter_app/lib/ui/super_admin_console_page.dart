@@ -316,8 +316,6 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
     );
   }
 
-  String _money(double v) => 'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
-
   String _formatDate(dynamic raw) {
     if (raw is Timestamp) {
       final dt = raw.toDate();

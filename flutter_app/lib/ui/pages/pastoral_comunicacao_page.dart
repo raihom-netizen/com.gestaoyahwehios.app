@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/pastoral_push_responses_section.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 import 'package:intl/intl.dart';
 
@@ -341,7 +342,8 @@ class _PastoralComunicacaoPageState extends State<PastoralComunicacaoPage>
         ),
         content: const SingleChildScrollView(
           child: Text(
-            'Push: envie avisos segmentados (igreja, departamentos, cargos ou membros) com FCM.\n\n'
+            'Push: envie avisos segmentados (igreja, departamentos, cargos ou membros) com FCM. '
+            'Abaixo do formulário, abra cada mensagem para ver confirmações de leitura e respostas dos membros.\n\n'
             'Devocional: mensagem diária agendada para os dispositivos.\n\n'
             'Evasão: alertas com base em padrões de presença.\n\n'
             'O layout segue o mesmo padrão visual dos demais módulos do painel.',
@@ -577,7 +579,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 13.5,
-                    color: Colors.grey.shade800,
+                    color: ThemeCleanPremium.onSurface,
                   ),
                 ),
               ),
@@ -740,7 +742,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.4,
-                      color: Colors.grey.shade900,
+                      color: ThemeCleanPremium.onSurface,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -750,7 +752,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.4,
-                      color: Colors.grey.shade600,
+                      color: ThemeCleanPremium.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -939,7 +941,10 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                         const SizedBox(height: 8),
                         Text(
                           'O app inscreve o membro nos tópicos cargo_* conforme o campo CARGO da ficha.',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     );
@@ -1016,7 +1021,10 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                         const SizedBox(height: 8),
                         Text(
                           'Envio direto aos aparelhos (FCM). Exige CPF na ficha e app com login.',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     );
@@ -1054,7 +1062,10 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
                   _useMessageExpiry && _expiresAt != null
                       ? 'Oculta após: ${DateFormat("dd/MM/yyyy HH:mm").format(_expiresAt!)}'
                       : 'Opcional — após data/hora, a mensagem some da caixa de entrada.',
-                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
                 ),
                 value: _useMessageExpiry,
                 onChanged: (v) => setState(() {
@@ -1104,6 +1115,8 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
           ),
         ),
         const SizedBox(height: 24),
+        PastoralPushResponsesSection(tenantId: widget.tenantId),
+        const SizedBox(height: 24),
         _infoCard(
           'Lembrete de escala',
           'Por volta das 8h15 (horário de Brasília), o sistema envia push no dia anterior '
@@ -1123,10 +1136,17 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.cardBackground,
+            ThemeCleanPremium.primary.withValues(alpha: 0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
         border: Border.all(
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
@@ -1140,7 +1160,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
               fontWeight: FontWeight.w900,
               fontSize: 15,
               letterSpacing: -0.2,
-              color: Colors.grey.shade900,
+              color: ThemeCleanPremium.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -1148,7 +1168,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
             body,
             style: TextStyle(
               fontSize: 13,
-              color: Colors.grey.shade700,
+              color: ThemeCleanPremium.onSurfaceVariant,
               height: 1.4,
             ),
           ),

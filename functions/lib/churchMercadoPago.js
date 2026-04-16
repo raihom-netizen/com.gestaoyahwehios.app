@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = void 0;
 exports.getChurchMpAccessToken = getChurchMpAccessToken;
 exports.ensureMercadoPagoContaForNewChurch = ensureMercadoPagoContaForNewChurch;
+exports.ensureDefaultTreasuryContasForNewChurch = ensureDefaultTreasuryContasForNewChurch;
 exports.tryHandleChurchDonationPayment = tryHandleChurchDonationPayment;
 exports.fetchPaymentForWebhook = fetchPaymentForWebhook;
 /**
@@ -306,6 +307,81 @@ async function ensureMercadoPagoContaForNewChurch(tenantId) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     return true;
+}
+/** Contas de tesouraria sugeridas (sem agência/conta — o gestor completa). Idempotente por [docId]. */
+const TREASURY_SEED_CONTAS = [
+    {
+        docId: "banco_do_brasil",
+        nome: "Banco do Brasil",
+        bancoCodigo: "001",
+        bancoNome: "Banco do Brasil",
+        tipoConta: "corrente",
+        seedPreset: "tesouraria_bb",
+        observacao: "Conta sugerida. Preencha agência e número em Financeiro → Contas.",
+    },
+    {
+        docId: "nubank",
+        nome: "Nubank",
+        bancoCodigo: "260",
+        bancoNome: "Nubank",
+        tipoConta: "corrente",
+        seedPreset: "tesouraria_nubank",
+        observacao: "Conta sugerida. Ajuste dados reais em Financeiro → Contas.",
+    },
+    {
+        docId: "caixa_economica",
+        nome: "Caixa Econômica Federal",
+        bancoCodigo: "104",
+        bancoNome: "Caixa Econômica Federal",
+        tipoConta: "corrente",
+        seedPreset: "tesouraria_caixa",
+        observacao: "Conta sugerida. Preencha agência e operação em Financeiro → Contas.",
+    },
+    {
+        docId: "caixa_numerario",
+        nome: "Caixa / numerário (dinheiro físico)",
+        bancoCodigo: "",
+        bancoNome: "",
+        tipoConta: "caixa",
+        seedPreset: "tesouraria_numerario",
+        observacao: "Movimentos em espécie na igreja. Use para conciliar cofre e arrecadações.",
+    },
+];
+/**
+ * Cria contas-padrão (BB, Nubank, Caixa, numerário) se o documento ainda não existir.
+ * Mercado Pago: use [ensureMercadoPagoContaForNewChurch] antes ou depois (ids distintos).
+ * Devolve quantidade de documentos criados nesta chamada.
+ */
+async function ensureDefaultTreasuryContasForNewChurch(tenantId) {
+    const tid = String(tenantId || "").trim();
+    if (!tid)
+        return 0;
+    const col = fs().collection("igrejas").doc(tid).collection("contas");
+    const batch = fs().batch();
+    let n = 0;
+    for (const row of TREASURY_SEED_CONTAS) {
+        const ref = col.doc(row.docId);
+        const snap = await ref.get();
+        if (snap.exists)
+            continue;
+        batch.set(ref, {
+            nome: row.nome,
+            bancoCodigo: row.bancoCodigo,
+            bancoNome: row.bancoNome,
+            agencia: "",
+            numeroConta: "",
+            tipoConta: row.tipoConta,
+            observacao: row.observacao,
+            ativo: true,
+            seedPreset: row.seedPreset,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        n++;
+    }
+    if (n > 0)
+        await batch.commit();
+    return n;
 }
 async function mpGetWithToken(accessToken, path) {
     const res = await getFetch()(`https://api.mercadopago.com${path}`, {

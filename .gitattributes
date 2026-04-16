@@ -1,0 +1,4 @@
+# CI (Codemagic macOS): scripts shell com CRLF partem bash no runner.
+*.sh text eol=lf
+codemagic.yaml text eol=lf
+flutter_app/codemagic.yaml text eol=lf

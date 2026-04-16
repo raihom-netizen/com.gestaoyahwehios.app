@@ -140,6 +140,15 @@ async function ensureChurchWelcomeSeed(firestore, tenantId) {
     catch (e) {
         console.warn("ensureChurchWelcomeSeed ensureMercadoPagoContaForNewChurch:", e);
     }
+    try {
+        const contasN = await (0, churchMercadoPago_1.ensureDefaultTreasuryContasForNewChurch)(tid);
+        if (contasN > 0) {
+            console.log(`ensureChurchWelcomeSeed: ${contasN} conta(s) tesouraria em igrejas/${tid}/contas`);
+        }
+    }
+    catch (e) {
+        console.warn("ensureChurchWelcomeSeed ensureDefaultTreasuryContasForNewChurch:", e);
+    }
     return { departmentsCreated, cargosCreated };
 }
 //# sourceMappingURL=churchWelcomeSeed.js.map

@@ -98,6 +98,49 @@ String segundoNomeCasamentoFallbackDoCorpo(String corpo, String primeiroNome) {
   return '';
 }
 
+/// Trechos exatos do parágrafo (após «que») para negrito no PDF — alinha com o texto emitido,
+/// mesmo quando o cadastro difere ligeiramente (ex.: sobrenome no corpo e não na ficha).
+List<String>? _casamentoHighlightPairFromCorpo(
+  String texto,
+  String n1,
+  String n2,
+) {
+  final flat = _stripMarkdownParaRegexCertificado(texto);
+  final pn1 = _normCasamentoNomeChave(n1);
+  final pn2 = _normCasamentoNomeChave(n2);
+  if (pn1.isEmpty || pn2.isEmpty) return null;
+  final pairPatterns = <RegExp>[
+    RegExp(
+      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)\s+'
+      r'(?:contraiu|contraíram|contrataram|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos[^.!?]{0,160}?que\s+(.+?)\s+e\s+(.+?)\s+'
+      r'(?:contraiu|contraíram|contrataram|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se)\b',
+      caseSensitive: false,
+    ),
+  ];
+  for (final re in pairPatterns) {
+    final m = re.firstMatch(flat);
+    if (m == null) continue;
+    final a = (m.group(1) ?? '').trim();
+    final b = (m.group(2) ?? '').trim();
+    if (a.isEmpty || b.isEmpty) continue;
+    final a1 = _casamentoNomeCorresponde(a, pn1);
+    final a2 = _casamentoNomeCorresponde(a, pn2);
+    final b1 = _casamentoNomeCorresponde(b, pn1);
+    final b2 = _casamentoNomeCorresponde(b, pn2);
+    if (a1 && b2 && !a2 && !b1) return [a, b];
+    if (b1 && a2 && !b2 && !a1) return [b, a];
+    if (a1 && b2) return [a, b];
+    if (b1 && a2) return [b, a];
+  }
+  return null;
+}
+
 /// Dados de um signatário já resolvidos (bytes opcionais da imagem da assinatura).
 class CertSignatoryPdfData {
   final String nome;
@@ -280,9 +323,21 @@ pw.Widget _certificateBodyRich({
   final nomeT = nome.trim();
   final nome2T = nomeLinha2.trim();
   final cpfT = cpfFormatado.trim();
+  /// Alinha com [\_stripMarkdownParaRegexCertificado]: `**` fora e espaços colapsados
+  /// para os trechos do regex baterem com o mesmo texto exibido no PDF.
+  final textoCorpo =
+      _stripMarkdownParaRegexCertificado(texto.replaceAll('**', ''));
   final tokens = <String>[];
-  if (nomeT.isNotEmpty) tokens.add(nomeT);
-  if (nome2T.isNotEmpty) tokens.add(nome2T);
+  final pair = (nomeT.isNotEmpty && nome2T.isNotEmpty)
+      ? _casamentoHighlightPairFromCorpo(textoCorpo, nomeT, nome2T)
+      : null;
+  if (pair != null && pair.length == 2) {
+    tokens.add(pair[0]);
+    tokens.add(pair[1]);
+  } else {
+    if (nomeT.isNotEmpty) tokens.add(nomeT);
+    if (nome2T.isNotEmpty) tokens.add(nome2T);
+  }
   if (cpfT.isNotEmpty) tokens.add(cpfT);
   tokens.sort((a, b) => b.length.compareTo(a.length));
   final normal = pw.TextStyle(
@@ -291,25 +346,28 @@ pw.Widget _certificateBodyRich({
     lineSpacing: 2,
     font: font,
   );
+  final boldFont = fontBold ?? font;
+  /// Face bold distinta (ex.: Times Bold no gala) — não somar [fontWeight.bold] no pacote `pdf`.
+  final distinctBoldFace = fontBold != null && !identical(font, fontBold);
   final bold = pw.TextStyle(
     fontSize: fontSize,
-    fontWeight: useSyntheticBoldForHighlights
+    fontWeight: !distinctBoldFace && useSyntheticBoldForHighlights
         ? pw.FontWeight.bold
         : pw.FontWeight.normal,
     color: color,
     lineSpacing: 2,
-    font: fontBold ?? font,
+    font: boldFont,
   );
-  if (texto.isEmpty) return pw.SizedBox();
+  if (textoCorpo.isEmpty) return pw.SizedBox();
   if (tokens.isEmpty) {
     return pw.Text(
-      texto,
+      textoCorpo,
       style: normal,
       textAlign: pw.TextAlign.center,
     );
   }
   final children = <pw.InlineSpan>[];
-  var remaining = texto;
+  var remaining = textoCorpo;
   while (remaining.isNotEmpty) {
     int bestPos = -1;
     String? bestToken;

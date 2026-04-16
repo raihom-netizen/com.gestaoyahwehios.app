@@ -411,8 +411,8 @@ class WalletSignatureStrip extends StatelessWidget {
         Container(width: 140, height: 1, color: lineColor.withValues(alpha: 0.45)),
         if (u.isNotEmpty)
           SizedBox(
-            height: 36,
-            width: 120,
+            height: 42,
+            width: 132,
             child: _WalletSigImage(url: u),
           ),
         if (signatoryName.trim().isNotEmpty)
@@ -420,7 +420,7 @@ class WalletSignatureStrip extends StatelessWidget {
             signatoryName.trim(),
             style: GoogleFonts.poppins(
               fontSize: 9,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               color: textColor,
             ),
           ),
@@ -429,10 +429,52 @@ class WalletSignatureStrip extends StatelessWidget {
             signatoryCargo.trim(),
             style: GoogleFonts.poppins(
               fontSize: 7.5,
-              color: textColor.withValues(alpha: 0.8),
+              fontWeight: FontWeight.w600,
+              color: textColor.withValues(alpha: 0.88),
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Assinaturas escaneadas costumam vir claras: contraste + leve duplicação deslocada (traço mais «cheio»).
+class _SignatureInkEnhanced extends StatelessWidget {
+  final Widget Function() buildImage;
+
+  const _SignatureInkEnhanced({required this.buildImage});
+
+  static const List<double> _matrix = [
+    1.62, 0, 0, 0, -66,
+    0, 1.62, 0, 0, -66,
+    0, 0, 1.62, 0, -66,
+    0, 0, 0, 1, 0,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        fit: StackFit.expand,
+        alignment: Alignment.centerLeft,
+        children: [
+          Transform.translate(
+            offset: const Offset(0.7, 0.22),
+            child: Opacity(
+              opacity: 0.4,
+              child: ColorFiltered(
+                colorFilter: const ColorFilter.matrix(_matrix),
+                child: buildImage(),
+              ),
+            ),
+          ),
+          ColorFiltered(
+            colorFilter: const ColorFilter.matrix(_matrix),
+            child: buildImage(),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -441,6 +483,9 @@ class _WalletSigImage extends StatelessWidget {
   final String url;
 
   const _WalletSigImage({required this.url});
+
+  static const double _sigW = 132;
+  static const double _sigH = 42;
 
   Future<String> _resolve() async {
     var u = sanitizeImageUrl(url);
@@ -452,6 +497,25 @@ class _WalletSigImage extends StatelessWidget {
     return isValidImageUrl(u) ? u : '';
   }
 
+  Widget _rawImage(String u) {
+    if (isFirebaseStorageHttpUrl(u)) {
+      return FreshFirebaseStorageImage(
+        imageUrl: u,
+        fit: BoxFit.contain,
+        width: _sigW,
+        height: _sigH,
+        errorWidget: const SizedBox.shrink(),
+      );
+    }
+    return SafeNetworkImage(
+      imageUrl: u,
+      fit: BoxFit.contain,
+      width: _sigW,
+      height: _sigH,
+      errorWidget: const SizedBox.shrink(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<String>(
@@ -459,28 +523,13 @@ class _WalletSigImage extends StatelessWidget {
       builder: (context, snap) {
         final u = snap.data ?? '';
         if (u.isEmpty) return const SizedBox.shrink();
-        if (isFirebaseStorageHttpUrl(u)) {
-          return FreshFirebaseStorageImage(
-            imageUrl: u,
-            fit: BoxFit.contain,
-            width: 120,
-            height: 36,
-            errorWidget: const SizedBox.shrink(),
-          );
-        }
-        return SafeNetworkImage(
-          imageUrl: u,
-          fit: BoxFit.contain,
-          width: 120,
-          height: 36,
-          errorWidget: const SizedBox.shrink(),
-        );
+        return _SignatureInkEnhanced(buildImage: () => _rawImage(u));
       },
     );
   }
 }
 
-/// Verso: dados secundários, validade em destaque, telefone, e-mail, assinatura.
+/// Verso: dados secundários, validade em destaque, telefone, assinatura (sem e-mail).
 class MemberDigitalWalletBack extends StatelessWidget {
   final double width;
   final Color colorA;
@@ -490,10 +539,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final String churchTitle;
   final String cpfOrDoc;
   final String nascimento;
+  final String estadoCivil;
+  final String dataBatismo;
   final String filiacaoPaiMae;
   final String validade;
   final String telefone;
-  final String email;
   final String? signatureImageUrl;
   final String signatoryName;
   final String signatoryCargo;
@@ -509,10 +559,11 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.churchTitle,
     required this.cpfOrDoc,
     required this.nascimento,
+    required this.estadoCivil,
+    required this.dataBatismo,
     required this.filiacaoPaiMae,
     required this.validade,
     required this.telefone,
-    required this.email,
     required this.signatureImageUrl,
     required this.signatoryName,
     required this.signatoryCargo,
@@ -560,33 +611,36 @@ class MemberDigitalWalletBack extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   _GlassPanel(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     child: Row(
                       children: [
                         Icon(Icons.event_available_rounded,
-                            size: 18, color: accentGold),
-                        const SizedBox(width: 8),
+                            size: 14, color: accentGold),
+                        const SizedBox(width: 6),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
                                 'VALIDADE',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 7,
+                                  fontSize: 6,
                                   fontWeight: FontWeight.w600,
                                   color: textColor.withValues(alpha: 0.75),
-                                  letterSpacing: 1,
+                                  letterSpacing: 0.8,
                                 ),
                               ),
                               Text(
                                 validade.trim().isEmpty ? '—' : validade.trim(),
                                 style: GoogleFonts.poppins(
-                                  fontSize: 15,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w800,
                                   color: textColor,
+                                  height: 1.05,
                                 ),
                               ),
                             ],
@@ -595,17 +649,17 @@ class MemberDigitalWalletBack extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _miniField('CPF', cpfOrDoc, textColor),
-                        _miniField('Nascimento', nascimento, textColor),
+                        _cpfNascimentoLine(cpfOrDoc, nascimento, textColor),
+                        _miniField('Estado civil', estadoCivil, textColor),
+                        _miniField('Batismo', dataBatismo, textColor),
                         _miniField(
                             'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),
                         _miniField('Telefone', telefone, textColor),
-                        _miniField('E-mail', email, textColor),
                         const Spacer(),
                         WalletSignatureStrip(
                           imageUrl: signatureImageUrl,
@@ -642,6 +696,57 @@ class MemberDigitalWalletBack extends StatelessWidget {
     );
   }
 
+  /// CPF e nascimento na mesma linha — liberta espaço vertical para assinatura do pastor.
+  static Widget _cpfNascimentoLine(
+      String cpf, String nasc, Color textColor) {
+    final c = cpf.trim().isEmpty ? '—' : cpf.trim();
+    final n = nasc.trim().isEmpty ? '—' : nasc.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: RichText(
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        text: TextSpan(
+          style: GoogleFonts.poppins(
+            fontSize: 8,
+            color: textColor.withValues(alpha: 0.78),
+            height: 1.2,
+          ),
+          children: [
+            const TextSpan(
+              text: 'CPF: ',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            TextSpan(
+              text: c,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.12,
+              ),
+            ),
+            TextSpan(
+              text: '    ',
+              style: TextStyle(color: textColor.withValues(alpha: 0.5)),
+            ),
+            const TextSpan(
+              text: 'Nascimento: ',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            TextSpan(
+              text: n,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   static Widget _miniField(String label, String value, Color textColor) {
     final v = value.trim().isEmpty ? '—' : value.trim();
     return Padding(
@@ -663,8 +768,9 @@ class MemberDigitalWalletBack extends StatelessWidget {
             TextSpan(
               text: v,
               style: TextStyle(
-                color: textColor.withValues(alpha: 0.95),
-                fontWeight: FontWeight.w500,
+                color: textColor,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.15,
               ),
             ),
           ],

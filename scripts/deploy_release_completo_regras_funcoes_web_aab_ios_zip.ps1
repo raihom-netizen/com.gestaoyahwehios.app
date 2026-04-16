@@ -42,6 +42,8 @@ if (Test-Path (Join-Path $FunctionsDir "package-lock.json")) {
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 npm run build
 if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+# index.ts grande: sem isto o CLI pode falhar com "Timeout after 10000" na descoberta.
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = "120"
 # --force: remove da nuvem funções que já não existem no código (evita abort em modo não interativo).
 firebase deploy --only functions --project $Project --force
 $funcExit = $LASTEXITCODE

@@ -1,7 +1,7 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Verso da carteirinha (PDF CR80): dados, validade, telefone, e-mail e regras — sem QR de validação.
+/// Verso da carteirinha (PDF CR80): dados, validade, telefone e assinatura — sem e-mail.
 class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   VersoCarteirinhaPdfWidget({
     required this.nomeIgreja,
@@ -15,9 +15,10 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     this.pdfInkEconomy = false,
     this.cpfDoc = '',
     this.nascimentoDoc = '',
+    this.estadoCivilDoc = '',
+    this.batismoDoc = '',
     this.filiacaoPaiMaeDoc = '',
     this.telefoneDoc = '',
-    this.emailDoc = '',
     this.assinaturaImage,
     this.signatoryNome = '',
     this.signatoryCargo = '',
@@ -50,9 +51,10 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
 
   final String cpfDoc;
   final String nascimentoDoc;
+  final String estadoCivilDoc;
+  final String batismoDoc;
   final String filiacaoPaiMaeDoc;
   final String telefoneDoc;
-  final String emailDoc;
   final pw.ImageProvider? assinaturaImage;
   final String signatoryNome;
   final String signatoryCargo;
@@ -70,6 +72,26 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
       padding: const pw.EdgeInsets.only(bottom: 1.5),
       child: pw.Text(
         '$label: $v',
+        maxLines: 2,
+        style: pw.TextStyle(
+          fontSize: 5.2,
+          lineSpacing: 1.05,
+          color: dim,
+        ),
+        overflow: pw.TextOverflow.clip,
+      ),
+    );
+  }
+
+  static pw.Widget _cpfNascimentoLine(
+      String cpf, String nasc, PdfColor fg, bool ink) {
+    final c = cpf.trim().isEmpty ? '—' : cpf.trim();
+    final n = nasc.trim().isEmpty ? '—' : nasc.trim();
+    final dim = ink ? PdfColors.grey700 : PdfColor(fg.red, fg.green, fg.blue, 0.82);
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 1.5),
+      child: pw.Text(
+        'CPF: $c    Nascimento: $n',
         maxLines: 2,
         style: pw.TextStyle(
           fontSize: 5.2,
@@ -148,14 +170,15 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                 children: [
                   pw.Container(
                     padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 4),
+                        horizontal: 5, vertical: 2),
                     decoration: pw.BoxDecoration(
                       color: glassFill,
-                      borderRadius: pw.BorderRadius.circular(6),
+                      borderRadius: pw.BorderRadius.circular(5),
                       border: pw.Border.all(color: glassBorder, width: 0.6),
                     ),
                     child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      mainAxisSize: pw.MainAxisSize.min,
                       children: [
                         pw.Text(
                           'VALIDADE',
@@ -163,28 +186,29 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                             color: ink
                                 ? PdfColors.grey700
                                 : PdfColor(fg.red, fg.green, fg.blue, 0.75),
-                            fontSize: 4.8,
+                            fontSize: 4.2,
                             fontWeight: pw.FontWeight.bold,
-                            letterSpacing: 0.6,
+                            letterSpacing: 0.5,
                           ),
                         ),
                         pw.Text(
                           validadeTxt.isEmpty ? '—' : validadeTxt,
                           style: pw.TextStyle(
                             color: fg,
-                            fontSize: 10,
+                            fontSize: 6.8,
                             fontWeight: pw.FontWeight.bold,
+                            lineSpacing: 1.0,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  pw.SizedBox(height: 3),
-                  _miniField('CPF', cpfDoc, fg, ink),
-                  _miniField('Nascimento', nascimentoDoc, fg, ink),
+                  pw.SizedBox(height: 2.5),
+                  _cpfNascimentoLine(cpfDoc, nascimentoDoc, fg, ink),
+                  _miniField('Estado civil', estadoCivilDoc, fg, ink),
+                  _miniField('Batismo', batismoDoc, fg, ink),
                   _miniField('Filiação (Pai e Mãe)', filiacaoPaiMaeDoc, fg, ink),
                   _miniField('Telefone', telefoneDoc, fg, ink),
-                  _miniField('E-mail', emailDoc, fg, ink),
                   pw.Spacer(),
                   if ((signatoryNome).trim().isNotEmpty) ...[
                     pw.Container(

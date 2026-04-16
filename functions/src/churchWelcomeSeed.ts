@@ -6,7 +6,10 @@
  */
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
-import { ensureMercadoPagoContaForNewChurch } from "./churchMercadoPago";
+import {
+  ensureDefaultTreasuryContasForNewChurch,
+  ensureMercadoPagoContaForNewChurch,
+} from "./churchMercadoPago";
 
 const WELCOME_DEPARTMENTS: ReadonlyArray<{
   docId: string;
@@ -129,6 +132,15 @@ export async function ensureChurchWelcomeSeed(
     }
   } catch (e) {
     console.warn("ensureChurchWelcomeSeed ensureMercadoPagoContaForNewChurch:", e);
+  }
+
+  try {
+    const contasN = await ensureDefaultTreasuryContasForNewChurch(tid);
+    if (contasN > 0) {
+      console.log(`ensureChurchWelcomeSeed: ${contasN} conta(s) tesouraria em igrejas/${tid}/contas`);
+    }
+  } catch (e) {
+    console.warn("ensureChurchWelcomeSeed ensureDefaultTreasuryContasForNewChurch:", e);
   }
 
   return { departmentsCreated, cargosCreated };

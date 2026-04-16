@@ -2118,6 +2118,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
               logoUrl: logoUrl.isEmpty ? null : logoUrl,
             );
           }
+          /// Telefone + módulo activo: sem barra azul «Bom dia» — o módulo usa a área útil em ecrã
+          /// quase inteiro (título/back em [ModuleHeaderPremium] ou UI interna do módulo).
+          final shellModuleFullBleed = _isMobile && _selectedIndex != 0;
+
           return Scaffold(
             key: _scaffoldKey,
             backgroundColor: ThemeCleanPremium.surfaceVariant,
@@ -2128,7 +2132,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
               children: [
                 Expanded(
                   child: SafeArea(
-                    top: false,
+                    top: shellModuleFullBleed,
                     left: true,
                     right: true,
                     bottom: false,
@@ -2145,7 +2149,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _buildHeader(licenseBlocked: licenseBlocked),
+                                if (!shellModuleFullBleed)
+                                  _buildHeader(licenseBlocked: licenseBlocked),
                                 const ConnectivityOfflineStrip(),
                                 const ChurchPanelAppUpdateBanner(),
                                 _buildPaymentConfirmedBanner(),

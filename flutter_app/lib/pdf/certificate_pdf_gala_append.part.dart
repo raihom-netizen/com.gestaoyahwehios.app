@@ -208,8 +208,10 @@ void _appendGalaLuxoCertificatePage(
   final galaBody = (useLuxFonts && libreLux != null)
       ? libreLux
       : (fontForBody() ?? pw.Font.times());
+  /// Libre Baskerville **Variable** num único TTF: [FontWeight.bold] não gera negrito real no `pdf`.
+  /// Times Bold para os nomes/CPF no corpo — serif legível e contraste garantido.
   final galaBodyBold = (useLuxFonts && libreLux != null)
-      ? libreLux
+      ? pw.Font.timesBold()
       : (fontForBodyBold() ?? pw.Font.timesBold());
   final galaNameFont = (useLuxFonts && pinyonLux != null)
       ? pinyonLux
