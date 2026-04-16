@@ -567,8 +567,8 @@ class _WalletSigImage extends StatelessWidget {
   }
 }
 
-/// Verso: CPF/nascimento, batismo, filiação, telefone e assinatura (sem e-mail).
-/// Validade e estado civil estão na frente.
+/// Verso: CPF/nascimento, batismo, filiação, estado civil, telefone e assinatura (sem e-mail).
+/// Validade na frente; estado civil também no verso (entre filiação e telefone).
 class MemberDigitalWalletBack extends StatelessWidget {
   final double width;
   final Color colorA;
@@ -580,6 +580,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final String nascimento;
   final String dataBatismo;
   final String filiacaoPaiMae;
+  /// Campo `ESTADO_CIVIL` / `estadoCivil` do membro.
+  final String estadoCivil;
   final String telefone;
   final String? signatureImageUrl;
   final String signatoryName;
@@ -598,6 +600,7 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.nascimento,
     required this.dataBatismo,
     required this.filiacaoPaiMae,
+    this.estadoCivil = '',
     required this.telefone,
     required this.signatureImageUrl,
     required this.signatoryName,
@@ -655,6 +658,7 @@ class MemberDigitalWalletBack extends StatelessWidget {
                         _miniField('Batismo', dataBatismo, textColor),
                         _miniField(
                             'Filiação (Pai e Mãe)', filiacaoPaiMae, textColor),
+                        _miniField('Estado civil', estadoCivil, textColor),
                         _miniField('Telefone', telefone, textColor),
                         const Spacer(),
                         WalletSignatureStrip(

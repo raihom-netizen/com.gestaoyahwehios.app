@@ -520,7 +520,7 @@ void _appendGalaLuxoCertificatePage(
                           pw.SizedBox(
                             height: nomeMembroLinha2Efetiva.isEmpty
                                 ? 68.0
-                                : 86.0,
+                                : 118.0,
                             width: double.infinity,
                             child: pw.Center(
                               child: pw.Padding(

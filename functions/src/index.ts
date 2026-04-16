@@ -4409,19 +4409,26 @@ export const recreateMemberAuthForNewEmail = functions
       return { ok: true, skipped: true, reason: "no-email-in-member-doc" };
     }
 
-    const oldUid = resolveMemberAuthUidFromDoc(found.ref.id, d);
-    if (!oldUid) {
+    let authSubjectUid = resolveMemberAuthUidFromDoc(found.ref.id, d);
+    if (!authSubjectUid) {
       return { ok: true, skipped: true, reason: "no-auth-user" };
     }
 
     const callerUid = context.auth.uid;
+    // O campo [authUid] pode ficar desatualizado; o id do documento `membros/{uid}` é o vínculo
+    // correto quando coincide com o utilizador autenticado. Sem isto, getUserByEmail(novoEmail)
+    // devolvia a própria conta e o código tratava como "e-mail em uso por outra conta".
+    if (found.ref.id === callerUid) {
+      authSubjectUid = callerUid;
+    }
+
     const canManage = await canManageTenant(
       callerUid,
       context.auth.token?.role,
       context.auth.token?.igrejaId || context.auth.token?.tenantId,
       tenantId
     );
-    const isSelf = callerUid === oldUid;
+    const isSelf = callerUid === authSubjectUid;
     if (!canManage && !isSelf) {
       throw new functions.https.HttpsError(
         "permission-denied",
@@ -4431,13 +4438,26 @@ export const recreateMemberAuthForNewEmail = functions
 
     let authUser: admin.auth.UserRecord;
     try {
-      authUser = await admin.auth().getUser(oldUid);
+      authUser = await admin.auth().getUser(authSubjectUid);
     } catch {
       return { ok: true, skipped: true, reason: "auth-user-missing" };
     }
 
     const authEmail = String(authUser.email || "").trim().toLowerCase();
     if (authEmail === newEmailRaw) {
+      const wrongField =
+        String(d.authUid || "")
+          .trim() !== authSubjectUid;
+      if (wrongField) {
+        await found.ref.set(
+          {
+            authUid: authSubjectUid,
+            MEMBER_ID: authSubjectUid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
       return { ok: true, unchanged: true, membroFirestoreId: found.ref.id };
     }
 
@@ -4447,7 +4467,7 @@ export const recreateMemberAuthForNewEmail = functions
     } catch {
       conflicting = null;
     }
-    if (conflicting && conflicting.uid !== oldUid) {
+    if (conflicting && conflicting.uid !== authSubjectUid) {
       throw new functions.https.HttpsError(
         "already-exists",
         "Este e-mail já está em uso por outra conta. Escolha outro e-mail."
@@ -4460,19 +4480,19 @@ export const recreateMemberAuthForNewEmail = functions
     const nome = String(d.NOME_COMPLETO || d.nome || d.name || "").trim();
     const oldDocId = found.ref.id;
 
-    const oldUserSnap = await db.collection("users").doc(oldUid).get();
+    const oldUserSnap = await db.collection("users").doc(authSubjectUid).get();
     const oldUserData = oldUserSnap.exists ? oldUserSnap.data() || {} : {};
     const oldTenantUserSnap = await db
       .collection("igrejas")
       .doc(tenantId)
       .collection("users")
-      .doc(oldUid)
+      .doc(authSubjectUid)
       .get();
     const oldTenantUserData = oldTenantUserSnap.exists ? oldTenantUserSnap.data() || {} : {};
 
     const prevClaims = (authUser.customClaims || {}) as Record<string, unknown>;
 
-    await admin.auth().deleteUser(oldUid);
+    await admin.auth().deleteUser(authSubjectUid);
 
     let newAuth: admin.auth.UserRecord;
     try {
@@ -4484,7 +4504,7 @@ export const recreateMemberAuthForNewEmail = functions
       });
     } catch (err: unknown) {
       const anyErr = err as { code?: string; message?: string };
-      console.error("recreateMemberAuthForNewEmail createUser after delete", oldUid, anyErr);
+      console.error("recreateMemberAuthForNewEmail createUser after delete", authSubjectUid, anyErr);
       throw new functions.https.HttpsError(
         "internal",
         "Não foi possível criar o novo login. Contacte o suporte (conta antiga foi removida)."
@@ -4526,7 +4546,7 @@ export const recreateMemberAuthForNewEmail = functions
     });
 
     try {
-      await db.collection("users").doc(oldUid).delete();
+      await db.collection("users").doc(authSubjectUid).delete();
     } catch (e) {
       console.warn("recreateMemberAuth delete old users doc", e);
     }
@@ -4535,7 +4555,7 @@ export const recreateMemberAuthForNewEmail = functions
         .collection("igrejas")
         .doc(tenantId)
         .collection("users")
-        .doc(oldUid)
+        .doc(authSubjectUid)
         .delete();
     } catch (e) {
       console.warn("recreateMemberAuth delete old igrejas/users", e);
@@ -4600,7 +4620,7 @@ export const recreateMemberAuthForNewEmail = functions
     return {
       ok: true,
       recreated: true,
-      previousUid: oldUid,
+      previousUid: authSubjectUid,
       newUid,
       newEmail: newEmailRaw,
       membroFirestoreId: newUid,

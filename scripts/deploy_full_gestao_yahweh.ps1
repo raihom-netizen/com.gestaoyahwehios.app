@@ -1,4 +1,8 @@
-# Deploy completo Gestão YAHWEH:
+# Deploy «completo» legado (regras + 1 function + web) — sem AAB nem iOS nem Git push.
+# Para **deploy completo produção** (functions todas + AAB D:\Temporarios + ZIP iOS + push Codemagic):
+#   .\scripts\deploy_completo.ps1
+#
+# Este script faz:
 # 1) Firestore (regras + índices) + Storage (regras)
 # 2) Seed automático: app_public/institutional_gallery + pastas public/gestao_yahweh/*
 # 3) Cloud Function resolveEmailToChurchPublic (site público / busca igreja por e-mail)

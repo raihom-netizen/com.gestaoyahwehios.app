@@ -25,6 +25,38 @@ bool _casamentoNomeCorresponde(String candidato, String primeiroNorm) {
   return false;
 }
 
+/// Quantas palavras “fortes” de [refNorm] aparecem em [candidatoNorm] (ajuda quando
+/// [\_casamentoNomeCorresponde] falha por grafia/sobrenome diferente).
+int _casamentoOverlapWordCount(String refNorm, String candidatoNorm) {
+  final refWords =
+      refNorm.split(' ').where((w) => w.length > 2).toSet();
+  if (refWords.isEmpty) return 0;
+  return candidatoNorm
+      .split(' ')
+      .where((w) => w.length > 2 && refWords.contains(w))
+      .length;
+}
+
+/// Dado o par «A e B» extraído do corpo, devolve o cônjuge que não é [primeiroNome].
+String _segundoConjugeDoParCasamento(String a, String b, String primeiroNome) {
+  final p = primeiroNome.trim();
+  if (p.isEmpty) return '';
+  final pn = _normCasamentoNomeChave(p);
+  if (pn.length < 3) return '';
+  final an = _normCasamentoNomeChave(a);
+  final bn = _normCasamentoNomeChave(b);
+  final sa = _casamentoOverlapWordCount(pn, an);
+  final sb = _casamentoOverlapWordCount(pn, bn);
+  if (sa > sb + 1) return b.trim();
+  if (sb > sa + 1) return a.trim();
+  if (sa > sb) return b.trim();
+  if (sb > sa) return a.trim();
+  if (_casamentoNomeCorresponde(a, pn)) return b.trim();
+  if (_casamentoNomeCorresponde(b, pn)) return a.trim();
+  // Modelo típico: primeiro nome no cadastro = noivo (primeiro no texto).
+  return b.trim();
+}
+
 /// Remove `**` e normaliza espaços — o texto do editor pode incluir markdown e
 /// quebrar o reconhecimento de «certificamos que A e B contraiu…».
 String _stripMarkdownParaRegexCertificado(String s) {
@@ -40,18 +72,17 @@ String segundoNomeCasamentoFallbackDoCorpo(String corpo, String primeiroNome) {
   final flat = _stripMarkdownParaRegexCertificado(corpo);
   final pn = _normCasamentoNomeChave(p);
 
+  // Separador antes do verbo: espaço ou vírgula («… Barbosa, contrataram»).
+  const verbAlt = r'(?:contraiu|contraíram|contrataram|contratou|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b';
   // Frase fixa "certificamos … que" e variante com texto entre vírgulas antes de "que".
   final pairPatterns = <RegExp>[
     RegExp(
-      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)\s+'
-      r'(?:contraiu|contraíram|contrataram|celebraram|'
-      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b',
+      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)[\s,]+' + verbAlt,
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos[^.!?]{0,160}?que\s+(.+?)\s+e\s+(.+?)\s+'
-      r'(?:contraiu|contraíram|contrataram|celebraram|'
-      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se)\b',
+      r'certificamos[^.!?]{0,220}?que\s+(.+?)\s+e\s+(.+?)[\s,]+' + verbAlt,
       caseSensitive: false,
     ),
   ];
@@ -62,29 +93,35 @@ String segundoNomeCasamentoFallbackDoCorpo(String corpo, String primeiroNome) {
       if (a.isEmpty || b.isEmpty) continue;
       if (_casamentoNomeCorresponde(a, pn)) return b;
       if (_casamentoNomeCorresponde(b, pn)) return a;
+      final guess = _segundoConjugeDoParCasamento(a, b, p);
+      if (guess.isNotEmpty) return guess;
     }
   }
 
   final esc = RegExp.escape(p);
   final patterns = <RegExp>[
     RegExp(
-      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contraiu\b',
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+contraiu\b',
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contraíram\b',
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+contraíram\b',
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contrataram\b',
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+contrataram\b',
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+celebraram\b',
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+contratou\b',
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)\s+contra\b',
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+celebraram\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'certificamos,?\s+que\s+' + esc + r'\s+e\s+(.+?)[\s,]+contra\b',
       caseSensitive: false,
     ),
   ];
@@ -109,17 +146,15 @@ List<String>? _casamentoHighlightPairFromCorpo(
   final pn1 = _normCasamentoNomeChave(n1);
   final pn2 = _normCasamentoNomeChave(n2);
   if (pn1.isEmpty || pn2.isEmpty) return null;
+  const verbAltHighlight = r'(?:contraiu|contraíram|contrataram|contratou|celebraram|'
+      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b';
   final pairPatterns = <RegExp>[
     RegExp(
-      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)\s+'
-      r'(?:contraiu|contraíram|contrataram|celebraram|'
-      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se|contraíram-se)\b',
+      r'certificamos,?\s+que\s+(.+?)\s+e\s+(.+?)[\s,]+' + verbAltHighlight,
       caseSensitive: false,
     ),
     RegExp(
-      r'certificamos[^.!?]{0,160}?que\s+(.+?)\s+e\s+(.+?)\s+'
-      r'(?:contraiu|contraíram|contrataram|celebraram|'
-      r'uniram-se|uniram|casaram-se|casaram|contraíram-se|contraiu-se)\b',
+      r'certificamos[^.!?]{0,220}?que\s+(.+?)\s+e\s+(.+?)[\s,]+' + verbAltHighlight,
       caseSensitive: false,
     ),
   ];
@@ -137,6 +172,16 @@ List<String>? _casamentoHighlightPairFromCorpo(
     if (b1 && a2 && !b2 && !a1) return [b, a];
     if (a1 && b2) return [a, b];
     if (b1 && a2) return [b, a];
+    final scoreA1 = _casamentoOverlapWordCount(pn1, _normCasamentoNomeChave(a));
+    final scoreA2 = _casamentoOverlapWordCount(pn2, _normCasamentoNomeChave(a));
+    final scoreB1 = _casamentoOverlapWordCount(pn1, _normCasamentoNomeChave(b));
+    final scoreB2 = _casamentoOverlapWordCount(pn2, _normCasamentoNomeChave(b));
+    if (scoreA1 >= 2 && scoreB2 >= 2 && scoreA1 >= scoreB1 && scoreB2 >= scoreA2) {
+      return [a, b];
+    }
+    if (scoreB1 >= 2 && scoreA2 >= 2 && scoreB1 >= scoreA1 && scoreA2 >= scoreB2) {
+      return [b, a];
+    }
   }
   return null;
 }

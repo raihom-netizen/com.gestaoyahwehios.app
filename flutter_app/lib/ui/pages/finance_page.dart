@@ -2371,96 +2371,103 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(20),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Container(
-                                    width: 6,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          contaAccent,
-                                          Color.lerp(contaAccent, deep, 0.45)!,
-                                        ],
+                              // [Row] + [CrossAxisAlignment.stretch] dentro de [Column] com altura
+                              // ilimitada (scroll) zera a altura dos cartões — [IntrinsicHeight] fixa.
+                              child: IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            contaAccent,
+                                            Color.lerp(contaAccent, deep, 0.45)!,
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          14, 14, 12, 14),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  nome,
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    fontSize: 15,
-                                                    letterSpacing: -0.35,
-                                                    height: 1.15,
-                                                    color: Color(0xFF0F172A),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            14, 14, 12, 14),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    nome,
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 15,
+                                                      letterSpacing: -0.35,
+                                                      height: 1.15,
+                                                      color: Color(0xFF0F172A),
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Flexible(
-                                                child: Text(
-                                                  nf.format(t.saldo),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  textAlign: TextAlign.right,
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    fontSize: 16,
-                                                    letterSpacing: -0.45,
-                                                    color: saldoCor,
+                                                const SizedBox(width: 10),
+                                                Flexible(
+                                                  child: Text(
+                                                    nf.format(t.saldo),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    textAlign: TextAlign.right,
+                                                    style: TextStyle(
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 16,
+                                                      letterSpacing: -0.45,
+                                                      color: saldoCor,
+                                                    ),
                                                   ),
                                                 ),
+                                                Icon(
+                                                  Icons.chevron_right_rounded,
+                                                  color: Colors.grey.shade400,
+                                                  size: 22,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              '$bancoNome · $tipoConta',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey.shade600,
+                                                letterSpacing: -0.08,
                                               ),
-                                              Icon(
-                                                Icons.chevron_right_rounded,
-                                                color: Colors.grey.shade400,
-                                                size: 22,
+                                            ),
+                                            if (t.receitas > 0 ||
+                                                t.despesas > 0) ...[
+                                              const SizedBox(height: 10),
+                                              _FinanceContasResumoStrip
+                                                  ._fluxoReceitaDespesaMiniBar(
+                                                t.receitas,
+                                                t.despesas,
                                               ),
                                             ],
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            '$bancoNome · $tipoConta',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.grey.shade600,
-                                              letterSpacing: -0.08,
-                                            ),
-                                          ),
-                                          if (t.receitas > 0 || t.despesas > 0) ...[
-                                            const SizedBox(height: 10),
-                                            _FinanceContasResumoStrip
-                                                ._fluxoReceitaDespesaMiniBar(
-                                              t.receitas,
-                                              t.despesas,
-                                            ),
                                           ],
-                                        ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -2909,6 +2916,7 @@ class _ResumoTabState extends State<_ResumoTab> {
 
         final padH = ThemeCleanPremium.isNarrow(context) ? 10.0 : ThemeCleanPremium.spaceLg;
         return SingleChildScrollView(
+          primary: false,
           padding: EdgeInsets.symmetric(
               horizontal: padH, vertical: ThemeCleanPremium.spaceXl),
           child: Column(
@@ -2924,6 +2932,7 @@ class _ResumoTabState extends State<_ResumoTab> {
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               // Filtros por período
               SingleChildScrollView(
+                primary: false,
                 scrollDirection: Axis.horizontal,
                 padding:
                     const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),

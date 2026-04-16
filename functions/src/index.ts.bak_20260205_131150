@@ -1,0 +1,149 @@
+﻿import * as functions from "firebase-functions";
+import * as admin from "firebase-admin";
+
+admin.initializeApp();
+const db = admin.firestore();
+
+function normalizeCpf(input: string): string {
+  return (input || "").replace(/[^0-9]/g, "").trim();
+}
+
+/**
+ * ✅ CPF → PERFIL DA IGREJA (CALLABLE)
+ * Procura em tenants/{tenantId}/usersIndex/{cpf} (docId ou campo cpf)
+ */
+export const resolveCpfToChurchPublic = functions
+  .region("us-central1")
+  .https.onCall(async (data) => {
+    const cpf = normalizeCpf(String(data?.cpf || ""));
+    if (cpf.length !== 11) {
+      throw new functions.https.HttpsError("invalid-argument", "CPF inválido");
+    }
+
+    try {
+      // 1) tenta achar por campo cpf
+      let snap = await db
+        .collectionGroup("usersIndex")
+        .where("cpf", "==", cpf)
+        .limit(1)
+        .get();
+
+      // 2) fallback: docId == cpf
+      if (snap.empty) {
+        snap = await db
+          .collectionGroup("usersIndex")
+          .where(admin.firestore.FieldPath.documentId(), "==", cpf)
+          .limit(1)
+          .get();
+      }
+
+      if (snap.empty) {
+        throw new functions.https.HttpsError("not-found", "CPF não encontrado");
+      }
+
+      const userDoc = snap.docs[0];
+      const userData: any = userDoc.data() || {};
+
+      const tenantId = String(
+        userData.tenantId || userDoc.ref.parent.parent?.id || ""
+      );
+
+      if (!tenantId) {
+        throw new functions.https.HttpsError("internal", "tenantId ausente");
+      }
+
+      const tenantSnap = await db.collection("tenants").doc(tenantId).get();
+      const tenant: any = tenantSnap.data() || {};
+
+      return {
+        tenantId,
+        name: String(tenant.name || tenant.nome || "Igreja"),
+        logoUrl: String(tenant.logoUrl || tenant.logo || ""),
+        slug: String(tenant.slug || tenant.alias || ""),
+        role: String(userData.role || "user"),
+      };
+    } catch (e: any) {
+      console.error("resolveCpfToChurchPublic error:", e);
+      if (e instanceof functions.https.HttpsError) throw e;
+      throw new functions.https.HttpsError("internal", e?.message || "Erro interno");
+    }
+  });
+
+/**
+ * ✅ CPF → EMAIL (CALLABLE) (login CPF)
+ */
+export const resolveCpfToEmail = functions
+  .region("us-central1")
+  .https.onCall(async (data) => {
+    const cpf = normalizeCpf(String(data?.cpf || ""));
+    if (cpf.length !== 11) {
+      throw new functions.https.HttpsError("invalid-argument", "CPF inválido");
+    }
+
+    try {
+      let snap = await db
+        .collectionGroup("usersIndex")
+        .where("cpf", "==", cpf)
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        snap = await db
+          .collectionGroup("usersIndex")
+          .where(admin.firestore.FieldPath.documentId(), "==", cpf)
+          .limit(1)
+          .get();
+      }
+
+      if (snap.empty) {
+        throw new functions.https.HttpsError("not-found", "CPF não encontrado");
+      }
+
+      const userDoc = snap.docs[0];
+      const userData: any = userDoc.data() || {};
+      const email = String(userData.email || "");
+      const tenantId = String(userData.tenantId || userDoc.ref.parent.parent?.id || "");
+
+      if (!email) {
+        throw new functions.https.HttpsError("failed-precondition", "Usuário sem e-mail");
+      }
+
+      return { email, tenantId, role: String(userData.role || "user") };
+    } catch (e: any) {
+      console.error("resolveCpfToEmail error:", e);
+      if (e instanceof functions.https.HttpsError) throw e;
+      throw new functions.https.HttpsError("internal", e?.message || "Erro interno");
+    }
+  });
+
+/**
+ * TEMP — seedPublicCpfIndex (remove depois)
+ * Cria/atualiza: publicCpfIndex/{cpf}
+ */
+export const seedPublicCpfIndex = functions
+  .region("us-central1")
+  .https.onRequest(async (req, res) => {
+    try {
+      const cpf = String((req.query as any).cpf || (req.body && (req.body as any).cpf) || "").replace(/\D/g, "");
+      if (!cpf) return res.status(400).json({ ok: false, reason: "CPF_VAZIO" });
+
+      const name = String((req.query as any).name || (req.body && (req.body as any).name) || "Igreja Teste");
+      const slug = String((req.query as any).slug || (req.body && (req.body as any).slug) || "igreja-teste");
+      const churchId = String((req.query as any).churchId || (req.body && (req.body as any).churchId) || "TESTE");
+
+      const payload = {
+        cpf,
+        name,
+        slug,
+        churchId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      await db.doc(`publicCpfIndex/${cpf}`).set(payload, { merge: true });
+      return res.json({ ok: true, cpf, payload });
+    } catch (e: any) {
+      console.error(e);
+      return res.status(500).json({ ok: false, error: e?.message || "ERR" });
+    }
+  });
+

@@ -3083,7 +3083,48 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return p;
   }
 
-  /// Assinatura visual no PDF: realça traços (decode + `image` fora da UI em mobile/desktop).
+  /// Bytes **originais** da assinatura (sem JPEG 68% do fluxo de fotos — preserva traços finos).
+  Future<Uint8List?> _downloadRawBytesForSignaturePdf(String rawUrl) async {
+    final u = sanitizeImageUrl(rawUrl.trim());
+    if (u.isEmpty || !isValidImageUrl(u)) return null;
+    if (isFirebaseStorageHttpUrl(u)) {
+      try {
+        if (kIsWeb) {
+          try {
+            await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+          } catch (_) {}
+          try {
+            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          } catch (_) {}
+        }
+        var fu = u;
+        final fresh = await refreshFirebaseStorageDownloadUrl(u).timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => u);
+        if (fresh != null && fresh.isNotEmpty) fu = fresh;
+        final bytes = await firebaseStorageBytesFromDownloadUrl(
+          fu,
+          maxBytes: 8 * 1024 * 1024,
+        ).timeout(const Duration(seconds: 18), onTimeout: () => null);
+        if (bytes != null && bytes.length > 32) {
+          return Uint8List.fromList(bytes);
+        }
+      } catch (_) {}
+      return null;
+    }
+    try {
+      final b = await ImageHelper.getBytesFromUrlOrNull(
+        u,
+        timeout: const Duration(seconds: 14),
+      );
+      if (b != null && b.length > 32) {
+        return Uint8List.fromList(b);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Assinatura visual no PDF: pipeline PNG (redimensiona + realça) sem esmagar traços em JPEG.
   Future<pw.ImageProvider?> _pdfSignatureImageProviderFromUrlCached(
       String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
@@ -3091,19 +3132,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (_pdfSignatureImageSessionCache.containsKey(u)) {
       return _pdfSignatureImageSessionCache[u];
     }
-    final bytes = await _loadCachedImageBytes(u);
-    if (bytes != null && bytes.length > 32) {
-      Uint8List out = bytes;
+    final raw = await _downloadRawBytesForSignaturePdf(u);
+    if (raw != null && raw.length > 32) {
+      Uint8List out = raw;
       try {
         if (kIsWeb) {
-          out = carteirinhaPdfEnhanceSignatureForCompute(bytes);
+          out = carteirinhaPdfSignaturePipelineSync(raw) ?? raw;
         } else {
           out = await compute(
-            carteirinhaPdfEnhanceSignatureForCompute,
-            bytes,
+            carteirinhaPdfSignaturePipelineForCompute,
+            raw,
           );
         }
-      } catch (_) {}
+      } catch (_) {
+        out = raw;
+      }
       final p = pw.MemoryImage(out);
       _pdfSignatureImageSessionCache[u] = p;
       return p;
@@ -3275,6 +3318,71 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (_) {
       return s;
     }
+  }
+
+  /// Nome/cargo do signatário para verso da carteirinha: override explícito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
+  Future<({String nome, String cargo})> _resolveSignatoryLabelsForWallet(
+    Map<String, dynamic> member,
+    Map<String, dynamic> cardCfg,
+    String igrejaDocId, {
+    String? signatoryNomeOverride,
+    String? signatoryCargoOverride,
+  }) async {
+    final oN = (signatoryNomeOverride ?? '').trim();
+    final oC = (signatoryCargoOverride ?? '').trim();
+    if (oN.isNotEmpty) return (nome: oN, cargo: oC);
+
+    var nome =
+        (member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    var cargo =
+        (member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
+    if (nome.isNotEmpty) return (nome: nome, cargo: cargo);
+
+    final db = FirebaseFirestore.instance;
+    final tid = igrejaDocId.trim();
+    if (tid.isEmpty) return (nome: '', cargo: cargo);
+
+    Future<void> tryLoad(String rawId) async {
+      final id = rawId.trim();
+      if (id.isEmpty || nome.isNotEmpty) return;
+      try {
+        final doc = await db
+            .collection('igrejas')
+            .doc(tid)
+            .collection('membros')
+            .doc(id)
+            .get();
+        if (!doc.exists) return;
+        final d = doc.data() ?? {};
+        nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+        cargo = signatoryCargoDisplayLabel(d);
+      } catch (_) {}
+    }
+
+    await tryLoad((member['carteirinhaAssinadaPor'] ?? '').toString());
+    if (nome.isEmpty) {
+      await tryLoad((cardCfg['defaultSignatoryMemberId'] ?? '').toString());
+    }
+    return (nome: nome, cargo: cargo);
+  }
+
+  /// URL da assinatura institucional + nome/cargo do pastor (config ou membro signatário).
+  Future<({String pastorUrl, String sigNome, String sigCargo})>
+      _walletDisplayContext(_CardData data) async {
+    final url = await FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
+        data.igrejaDocId);
+    final sig = await _resolveSignatoryLabelsForWallet(
+      data.member,
+      data.cardConfig,
+      data.igrejaDocId,
+      signatoryNomeOverride: _walletPdfExportSignatoryNome,
+      signatoryCargoOverride: _walletPdfExportSignatoryCargo,
+    );
+    return (
+      pastorUrl: (url ?? '').trim(),
+      sigNome: sig.nome,
+      sigCargo: sig.cargo
+    );
   }
 
   /// PDF: [networkImage] do pacote `pdf` falha com frequência em URLs do Firebase Storage (web/token).
@@ -3684,6 +3792,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       nascimentoDoc: nasc,
       batismoDoc: batismoPdf,
       filiacaoPaiMaeDoc: filiacaoTxt,
+      estadoCivilDoc: _estadoCivilFromMember(data.member),
       telefoneDoc: tel,
       assinaturaImage: signatoryImage,
       signatoryNome: sn,
@@ -3758,6 +3867,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
         sigImgVerso = await _pdfSignatureImageProviderFromUrlCached(su);
       }
     }
+    final sigResolved = await _resolveSignatoryLabelsForWallet(
+      data.member,
+      data.cardConfig,
+      data.igrejaDocId,
+      signatoryNomeOverride: signatoryNome,
+      signatoryCargoOverride: signatoryCargo,
+    );
+    final sigNomePdf = sigResolved.nome;
+    final sigCargoPdf = sigResolved.cargo;
     final photoUrl = cfg.showPhoto
         ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
             igrejaDocId: data.igrejaDocId)
@@ -3791,8 +3909,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       logo: logo,
       photo: photo,
       signatoryImage: signatoryImage,
-      signatoryNome: signatoryNome,
-      signatoryCargo: signatoryCargo,
+      signatoryNome: sigNomePdf,
+      signatoryCargo: sigCargoPdf,
       outerSlotWidth: _pdfCardSlotW,
       outerSlotHeight: _pdfCardSlotH,
     );
@@ -3804,8 +3922,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         cfg,
         pdfInkEconomy: pdfInkEconomy,
         signatoryImage: sigImgVerso,
-        signatoryNome: signatoryNome,
-        signatoryCargo: signatoryCargo,
+        signatoryNome: sigNomePdf,
+        signatoryCargo: sigCargoPdf,
       ),
     );
     if (pvcCropMarks) {
@@ -3934,6 +4052,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
     final cpfFmt = _formatCpfForCard(cpf);
     final filiacaoTxt = walletFiliacaoFromMember(data.member);
+    final estadoRaster = _estadoCivilFromMember(data.member);
     final telM = _telefoneFromMember(data.member);
     final signatoryNameWallet = signatoryNome.trim().isNotEmpty
         ? signatoryNome.trim()
@@ -3974,6 +4093,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       nascimento: nascimento.isEmpty ? '—' : nascimento,
       dataBatismo: batismoFmt.isEmpty ? '—' : batismoFmt,
       filiacaoPaiMae: filiacaoTxt.isEmpty ? '—' : filiacaoTxt,
+      estadoCivil: estadoRaster.isEmpty ? '—' : estadoRaster,
       telefone: telM.isEmpty ? '—' : telM,
       signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
       signatoryName: signatoryNameWallet,
@@ -6642,22 +6762,27 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    FutureBuilder<String?>(
+                    FutureBuilder<
+                        ({
+                          String pastorUrl,
+                          String sigNome,
+                          String sigCargo
+                        })>(
                       key: ValueKey<String>(
-                          'pastor_sig_cfg_${data.igrejaDocId}'),
-                      future: FirebaseStorageService
-                          .getPastorSignatureConfigDownloadUrl(
-                              data.igrejaDocId),
+                          'wallet_ctx_${data.igrejaDocId}_${data.memberId}'),
+                      future: _walletDisplayContext(data),
                       builder: (context, snapPastor) {
                         final memberSig = (data.member['carteirinhaAssinaturaUrl'] ??
                                 '')
                             .toString()
                             .trim();
-                        final snapSig = (snapPastor.data ?? '').trim();
+                        final snapSig =
+                            (snapPastor.data?.pastorUrl ?? '').trim();
                         final exportSig = (_walletPdfExportSigUrl ?? '').trim();
                         final sigUrl = exportSig.isNotEmpty
                             ? exportSig
                             : (memberSig.isNotEmpty ? memberSig : snapSig);
+                        final estadoTxt = _estadoCivilFromMember(data.member);
                         final wCard = min(
                           360.0,
                           MediaQuery.sizeOf(context).width -
@@ -6715,20 +6840,24 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         final filiacaoTxt =
                             walletFiliacaoFromMember(data.member);
                         final telM = _telefoneFromMember(data.member);
-                        final signatoryNameWallet = (_walletPdfExportSignatoryNome ??
-                                    '')
-                                .trim()
-                                .isNotEmpty
-                            ? _walletPdfExportSignatoryNome!.trim()
-                            : (data.member['carteirinhaAssinadaPorNome'] ?? '')
-                                .toString();
-                        final signatoryCargoWallet = (_walletPdfExportSignatoryCargo ??
-                                    '')
-                                .trim()
-                                .isNotEmpty
-                            ? _walletPdfExportSignatoryCargo!.trim()
-                            : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
-                                .toString();
+                        final signatoryNameWallet =
+                            (_walletPdfExportSignatoryNome ?? '').trim().isNotEmpty
+                                ? _walletPdfExportSignatoryNome!.trim()
+                                : (snapPastor.hasData &&
+                                        (snapPastor.data!.sigNome).trim().isNotEmpty
+                                    ? snapPastor.data!.sigNome.trim()
+                                    : (data.member['carteirinhaAssinadaPorNome'] ??
+                                            '')
+                                        .toString());
+                        final signatoryCargoWallet =
+                            (_walletPdfExportSignatoryCargo ?? '').trim().isNotEmpty
+                                ? _walletPdfExportSignatoryCargo!.trim()
+                                : (snapPastor.hasData &&
+                                        (snapPastor.data!.sigCargo).trim().isNotEmpty
+                                    ? snapPastor.data!.sigCargo.trim()
+                                    : (data.member['carteirinhaAssinadaPorCargo'] ??
+                                            '')
+                                        .toString());
                         return Column(
                           children: [
                             Screenshot(
@@ -6783,6 +6912,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         filiacaoPaiMae: filiacaoTxt.isEmpty
                                             ? '—'
                                             : filiacaoTxt,
+                                        estadoCivil: estadoTxt.isEmpty
+                                            ? '—'
+                                            : estadoTxt,
                                         telefone:
                                             telM.isEmpty ? '—' : telM,
                                         signatureImageUrl:
@@ -6799,7 +6931,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
-                                'Verso — CPF, batismo, filiação, telefone e assinatura (no PDF/PNG acima)',
+                                'Verso — CPF, batismo, filiação, estado civil, telefone e assinatura (no PDF/PNG acima)',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,

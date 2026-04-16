@@ -3,13 +3,18 @@
 #   2) Todas as Cloud Functions (npm run build + firebase deploy --only functions)
 #   3) Web release + Firebase Hosting
 #   4) AAB Play Store (obfuscate) + cópia para D:\Temporarios
-#   5) ZIP das fontes iOS (sem Pods) em D:\Temporarios — push no Git e build no Codemagic (pod install no Mac)
+#   5) ZIP das fontes iOS (sem Pods) em D:\Temporarios
+#   6) Git commit + push (Codemagic usa o repositório; use -SkipGitPush para saltar)
 #
 # Uso (na raiz): .\scripts\deploy_release_completo_regras_funcoes_web_aab_ios_zip.ps1
 # Pasta destino opcional: .\scripts\deploy_release_completo_regras_funcoes_web_aab_ios_zip.ps1 -CopyTo "D:\Temporarios"
+# Sem commit/push Git (Codemagic não recebe código novo): -SkipGitPush
+#
+# Atalho: .\scripts\deploy_completo.ps1 (mesmos parâmetros -CopyTo / -SkipGitPush)
 
 param(
-    [string] $CopyTo = 'D:\Temporarios'
+    [string] $CopyTo = 'D:\Temporarios',
+    [switch] $SkipGitPush
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,11 +32,11 @@ if (Test-Path $rc) {
 
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 
-Write-Host "`n=== [1/5] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
+Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
 & (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n=== [2/5] Cloud Functions (build + deploy todas) - projeto $Project ===" -ForegroundColor Cyan
+Write-Host "`n=== [2/6] Cloud Functions (build + deploy todas) - projeto $Project ===" -ForegroundColor Cyan
 $FunctionsDir = Join-Path $RepoRoot "functions"
 Push-Location $FunctionsDir
 if (Test-Path (Join-Path $FunctionsDir "package-lock.json")) {
@@ -50,15 +55,15 @@ $funcExit = $LASTEXITCODE
 Pop-Location
 if ($funcExit -ne 0) { exit $funcExit }
 
-Write-Host "`n=== [3/5] Web + Hosting ===" -ForegroundColor Cyan
+Write-Host "`n=== [3/6] Web + Hosting ===" -ForegroundColor Cyan
 & (Join-Path $RepoRoot "scripts\deploy_web_hosting.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n=== [4/5] AAB Play + copia $CopyTo ===" -ForegroundColor Cyan
+Write-Host "`n=== [4/6] AAB Play + copia $CopyTo ===" -ForegroundColor Cyan
 & (Join-Path $RepoRoot "scripts\build_android_play_store_aab.ps1") -CopyTo $CopyTo
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n=== [5/5] ZIP fontes iOS (sem Pods) para Codemagic ===" -ForegroundColor Cyan
+Write-Host "`n=== [5/6] ZIP fontes iOS (sem Pods) para Codemagic ===" -ForegroundColor Cyan
 if (-not (Test-Path $CopyTo)) {
     New-Item -ItemType Directory -Path $CopyTo -Force | Out-Null
 }
@@ -87,6 +92,49 @@ Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "ZIP iOS: $zipPath" -ForegroundColor Green
 
 Set-Location $RepoRoot
+
+if (-not $SkipGitPush) {
+    Write-Host "`n=== [6/6] Git - commit e push (Codemagic usa o repositorio) ===" -ForegroundColor Cyan
+    if (-not (Test-Path (Join-Path $RepoRoot ".git"))) {
+        Write-Host "Aviso: pasta .git ausente - push ignorado." -ForegroundColor Yellow
+    }
+    else {
+        Push-Location $RepoRoot
+        try {
+            $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+            if (-not $branch) { $branch = "main" }
+            git add -A
+            $staged = @(git diff --cached --name-only 2>$null)
+            if ($staged.Count -gt 0) {
+                $msg = "chore: deploy completo producao $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+                git commit -m $msg
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "ERRO: git commit falhou (hooks ou user.name?). Corrija e faca push manualmente." -ForegroundColor Red
+                    Pop-Location
+                    exit $LASTEXITCODE
+                }
+                Write-Host "Commit criado ($($staged.Count) ficheiros)." -ForegroundColor Green
+            }
+            else {
+                Write-Host "Sem alteracoes por commitar - apenas push." -ForegroundColor DarkGray
+            }
+            git push -u origin $branch
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ERRO: git push falhou. Configure credenciais ou remoto origin." -ForegroundColor Red
+                Pop-Location
+                exit $LASTEXITCODE
+            }
+            Write-Host "Push concluido: origin/$branch" -ForegroundColor Green
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+else {
+    Write-Host "`n=== [6/6] Git - ignorado (-SkipGitPush) ===" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "=== Concluido ===" -ForegroundColor Green
 Write-Host "Web: https://gestaoyahweh-21e23.web.app (Ctrl+F5)" -ForegroundColor Green

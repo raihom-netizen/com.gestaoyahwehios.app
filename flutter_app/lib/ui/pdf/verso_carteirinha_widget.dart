@@ -1,8 +1,8 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Verso da carteirinha (PDF CR80): CPF, nascimento, batismo, filiação, telefone e assinatura.
-/// Validade e estado civil ficam na frente (evita duplicar e liberta espaço para assinatura).
+/// Verso da carteirinha (PDF CR80): CPF, nascimento, batismo, filiação, estado civil, telefone e assinatura.
+/// Validade na frente; estado civil também no verso (entre filiação e telefone).
 class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   VersoCarteirinhaPdfWidget({
     required this.nomeIgreja,
@@ -17,6 +17,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     this.nascimentoDoc = '',
     this.batismoDoc = '',
     this.filiacaoPaiMaeDoc = '',
+    this.estadoCivilDoc = '',
     this.telefoneDoc = '',
     this.assinaturaImage,
     this.signatoryNome = '',
@@ -51,6 +52,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   final String nascimentoDoc;
   final String batismoDoc;
   final String filiacaoPaiMaeDoc;
+  final String estadoCivilDoc;
   final String telefoneDoc;
   final pw.ImageProvider? assinaturaImage;
   final String signatoryNome;
@@ -162,9 +164,12 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                   _cpfNascimentoLine(cpfDoc, nascimentoDoc, fg, ink),
                   _miniField('Batismo', batismoDoc, fg, ink),
                   _miniField('Filiação (Pai e Mãe)', filiacaoPaiMaeDoc, fg, ink),
+                  _miniField('Estado civil', estadoCivilDoc, fg, ink),
                   _miniField('Telefone', telefoneDoc, fg, ink),
                   pw.Spacer(),
-                  if ((signatoryNome).trim().isNotEmpty) ...[
+                  if ((signatoryNome).trim().isNotEmpty ||
+                      assinaturaImage != null ||
+                      (signatoryCargo).trim().isNotEmpty) ...[
                     pw.Container(
                         width: 72,
                         height: 0.6,
@@ -176,14 +181,15 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                         margin: const pw.EdgeInsets.only(top: 2),
                         child: pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
                       ),
-                    pw.Text(
-                      signatoryNome.trim(),
-                      style: pw.TextStyle(
-                        color: fg,
-                        fontSize: 6,
-                        fontWeight: pw.FontWeight.bold,
+                    if (signatoryNome.trim().isNotEmpty)
+                      pw.Text(
+                        signatoryNome.trim(),
+                        style: pw.TextStyle(
+                          color: fg,
+                          fontSize: 6,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
-                    ),
                     if (signatoryCargo.trim().isNotEmpty)
                       pw.Text(
                         signatoryCargo.trim(),
