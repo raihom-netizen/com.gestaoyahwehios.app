@@ -1,14 +1,16 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
-# Pipeline iOS alinhado ao padrão Controle Total App: keychain → PEM → Sign In with Apple (API) →
-# limpar perfis antigos → P12/perfil → CocoaPods → deployment 14 → Xcode profiles →
-# versão (app_version.dart) → build IPA → Storage/Firestore divulgação → App Distribution → ASC.
+# Pipeline iOS: keychain → PEM → Sign In with Apple (API) → limpar perfis → assinatura → CocoaPods → …
 #
-# Assinatura iOS: secrets no grupo appstore_credentials (evita "No matching profiles" da equipa).
-#   CM_CERTIFICATE          — Apple Distribution .p12 em Base64 (uma linha)
-#   CM_PROVISIONING_PROFILE — .mobileprovision App Store p/ com.gestaoyahwehios.app em Base64
-#   CM_CERTIFICATE_PASSWORD — password do .p12 Apple Distribution (obrigatória se exportou o P12 com senha;
-#     tem de coincidir com o Keychain; NÃO é a senha do cert. de desenvolvimento gerado na Codemagic UI).
-#     Alias aceite: CERTIFICATE_PASSWORD (mesmo valor). Espacos/quebras ao colar no portal sao removidos automaticamente.
+# ─── Modo «Controle Total» (só 3 variáveis no grupo appstore_credentials) ───
+#   APP_STORE_CONNECT_PRIVATE_KEY (.p8), APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
+#   Não defina CM_CERTIFICATE nem CERTIFICATE_PRIVATE_KEY nem CM_PROVISIONING_PROFILE.
+#   O CI corre app-store-connect fetch-signing-files e gera ExportOptions.plist automaticamente.
+#   A chave API precisa de permissões para certificados/perfis (Admin na App Store Connect recomendado).
+#
+# ─── Modo manual (P12 + perfil nos secrets) ───
+#   CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (Base64 do .p12 Apple Distribution, uma linha)
+#   CM_PROVISIONING_PROFILE — .mobileprovision App Store em Base64
+#   CM_CERTIFICATE_PASSWORD ou CERTIFICATE_PASSWORD — senha do export .p12 (se tiver senha)
 # Gerar Base64 no Mac: cat ficheiro.p12 | base64 | pbcopy  (idem para .mobileprovision)
 #
 # Sem ios_signing por bundle: a Codemagic falha se Code signing identities nao tiver perfil App Store.
@@ -26,10 +28,9 @@
 #   Local: ajuste flutter_app/ios/ExportOptions.plist — o valor em provisioningProfiles deve ser o "Name" exacto
 #   do perfil App Store (igual ao que PlistBuddy lê do .mobileprovision).
 #
-# Checklist credenciais (Codemagic > Team applications > Secrets > appstore_credentials):
-#   CM_CERTIFICATE (P12 Distribution Base64), CM_PROVISIONING_PROFILE (mobileprovision Base64 uma linha),
-#   CM_CERTIFICATE_PASSWORD (senha do export .p12 no Mac) OU CERTIFICATE_PASSWORD com o mesmo valor,
-#   APP_STORE_CONNECT_* (API Key .p8 + Key ID + Issuer).
+# Checklist appstore_credentials:
+#   Opção A: só APP_STORE_CONNECT_PRIVATE_KEY + KEY_IDENTIFIER + ISSUER_ID (modo Controle Total).
+#   Opção B: APP_STORE_CONNECT_* + CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE (+ senha P12 se aplicável).
 #   Se "Code signing" terminar em poucos segundos sem erro, confira se xcode-project use-profiles aplicou
 #   perfis (ver passo seguinte: identidades de assinatura).
 #
@@ -112,67 +113,9 @@ workflows:
       - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e
-          # Codemagic UI: o nome correcto do secret e CM_CERTIFICATE (P12 Distribution em Base64).
-          # Se so existir CERTIFICATE_PRIVATE_KEY no grupo, reutilizamos (mesmo valor esperado: Base64 do .p12).
-          if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
-            export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
-            echo "AVISO: CM_CERTIFICATE vazio — a usar CERTIFICATE_PRIVATE_KEY. Renomeie o secret para CM_CERTIFICATE no Codemagic."
-          fi
-          : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
-          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
-          : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
-          : "${CM_CERTIFICATE:?Defina CM_CERTIFICATE (P12 Apple Distribution em Base64) no grupo appstore_credentials}"
-          : "${CM_PROVISIONING_PROFILE:?Defina CM_PROVISIONING_PROFILE (perfil App Store .mobileprovision em Base64)}"
-          _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
-          if [ -z "${_CM_PROV_COMPACT}" ]; then
-            echo "ERRO: CM_PROVISIONING_PROFILE vazio apos normalizar (so espacos/quebras?)."
-            echo "  Codemagic > Team applications > Secrets > grupo appstore_credentials — nome EXACTO: CM_PROVISIONING_PROFILE"
-            echo "  Valor = UMA linha Base64 do ficheiro .mobileprovision (binario), NAO o XML aberto no editor."
-            exit 1
-          fi
-          if ! printf '%s' "${_CM_PROV_COMPACT}" | base64 -D > /tmp/_cm_verify_prov.bin 2>/tmp/_cm_verify_prov.err; then
-            echo "ERRO: CM_PROVISIONING_PROFILE nao decodifica em Base64 valido (corrija o secret antes do CocoaPods)."
-            cat /tmp/_cm_verify_prov.err 2>/dev/null || true
-            echo ""
-            echo "Como gerar: Mac: base64 -i SeuPerfil.mobileprovision | tr -d '\n' | pbcopy"
-            echo "  Windows (PowerShell): [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\\caminho\\ficheiro.mobileprovision'))"
-            exit 1
-          fi
-          if [ ! -s /tmp/_cm_verify_prov.bin ]; then
-            echo "ERRO: CM_PROVISIONING_PROFILE decodifica para ficheiro vazio."
-            exit 1
-          fi
-          _CM_P12_COMPACT="$(printf '%s' "${CM_CERTIFICATE}" | tr -d '\n\r\t ')"
-          if [ -z "${_CM_P12_COMPACT}" ]; then
-            echo "ERRO: CM_CERTIFICATE vazio apos normalizar."
-            exit 1
-          fi
-          if ! printf '%s' "${_CM_P12_COMPACT}" | base64 -D > /tmp/_cm_verify_p12.bin 2>/tmp/_cm_verify_p12.err; then
-            echo "ERRO: CM_CERTIFICATE (P12) nao decodifica em Base64 valido."
-            cat /tmp/_cm_verify_p12.err 2>/dev/null || true
-            exit 1
-          fi
-          if [ ! -s /tmp/_cm_verify_p12.bin ]; then
-            echo "ERRO: CM_CERTIFICATE decodifica para ficheiro vazio."
-            exit 1
-          fi
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          # shellcheck source=scripts/codemagic_ios_p12_password_helpers.sh
-          source "$ROOT/scripts/codemagic_ios_p12_password_helpers.sh"
-          echo "A verificar senha do P12 (fail-fast, antes do keychain)..."
-          if ! codemagic_verify_p12_opens_with_password /tmp/_cm_verify_p12.bin /tmp/_early_p12.err; then
-            echo ""
-            echo "ERRO: CM_CERTIFICATE_PASSWORD nao abre o CM_CERTIFICATE (.p12)."
-            echo "  Codemagic > Team applications > Secrets > grupo appstore_credentials"
-            echo "  - CM_CERTIFICATE_PASSWORD = senha usada ao exportar o .p12 «Apple Distribution» no Keychain (Mac)."
-            echo "  - Ou defina CERTIFICATE_PASSWORD com o mesmo valor (alias aceite)."
-            echo "  - Nao use senha de certificado de desenvolvimento criado na UI da Codemagic."
-            echo "  - Se o P12 foi re-exportado: actualize CM_CERTIFICATE (Base64) e a senha."
-            cat /tmp/_early_p12.err 2>/dev/null || true
-            exit 1
-          fi
-          echo "OK: secrets P12 + provisioning decodificam (bytes prov=$(wc -c < /tmp/_cm_verify_prov.bin) p12=$(wc -c < /tmp/_cm_verify_p12.bin)); senha P12 validada (openssl)."
-      # Padrão alinhado ao Controle Total App: keychain → PEM API → Sign In with Apple (API) → limpar perfis antigos → P12/perfil.
+          bash "$ROOT/scripts/codemagic_ios_verify_env_apple_and_signing.sh"
+      # Keychain → PEM → Sign In with Apple → limpar perfis → assinatura (API-only ou P12 manual).
       - name: Keychain para code signing
         script: |
           set -e
@@ -196,7 +139,11 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          bash "$ROOT/scripts/codemagic_ios_install_p12_profile_exportoptions.sh"
+          if [ -f /tmp/cm_yw_signing_mode ] && [ "$(tr -d '\r\n' < /tmp/cm_yw_signing_mode)" = "api_only" ]; then
+            bash "$ROOT/scripts/codemagic_ios_install_signing_api_only.sh"
+          else
+            bash "$ROOT/scripts/codemagic_ios_install_p12_profile_exportoptions.sh"
+          fi
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e
