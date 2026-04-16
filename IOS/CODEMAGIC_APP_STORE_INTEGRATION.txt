@@ -3,12 +3,31 @@ Codemagic — Gestão YAHWEH — App Store Connect (UDKV6M9N38)
 
 O build NÃO precisa de integração nomeada na equipa (evita erro "integration does not exist").
 
+IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
+   O Mac da Codemagic não vê a pasta Windows. Só o que está em Environment variables / secrets
+   é usado. Se só tiver APP_STORE_CONNECT_* (3 variáveis), o YAML corre em modo «API-only»
+   (fetch-signing-files) e pode falhar com 403 ao criar certificado.
+   Solução estável: adicionar CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) abaixo —
+   o script codemagic_ios_verify_env_apple_and_signing.sh passa a modo «manual» e o passo 11
+   usa o P12 local à build, sem POST /v1/certificates.
+
 1) Grupo de variáveis appstore_credentials (Codemagic → Application → Environment variables)
    - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do ficheiro IOS/AuthKey_UDKV6M9N38.p8
      (abrir em editor de texto, copiar desde -----BEGIN até -----END, multilinha, segredo).
    - Os valores abaixo já podem estar no codemagic.yaml como variáveis não secretas:
      APP_STORE_CONNECT_KEY_IDENTIFIER = UDKV6M9N38
      APP_STORE_CONNECT_ISSUER_ID = 77a1debb-f68b-418d-9fe3-af0f37b40585
+   - Modo manual (recomendado se o passo 11 falhar na API):
+     CM_CERTIFICATE = Base64 uma linha do export .p12 (Apple Distribution + chave privada).
+       Gerar: na raiz do repo, PowerShell: .\scripts\encode_ios_codemagic_secrets.ps1
+       → D:\Temporarios\gestao_yahweh_codemagic\CM_CERTIFICATE_base64.txt
+     CM_PROVISIONING_PROFILE = Base64 uma linha do gestaoyahwehiosapp.mobileprovision (App Store).
+     CM_CERTIFICATE_PASSWORD = senha definida ao exportar o .p12 (ou vazio se export sem senha).
+
+   Sobre «Created By API Key: a1db85a6-...» no portal Apple: é identificação interna de quem
+   criou o certificado — NÃO substitui o Key ID UDKV6M9N38 do ficheiro AuthKey_*.p8 na Codemagic.
+   A chave «Keys» em developer.apple.com (ex. DYNWZ2Q6C3) é outro tipo (serviços); para CI usa-se
+   a chave de Integrations na App Store Connect (Key ID UDKV6M9N38).
 
 2) Fluxo no YAML
    - O script codemagic_ios_prepare_api_pem.sh gera /tmp/_asc_ok.pem a partir de APP_STORE_CONNECT_PRIVATE_KEY.

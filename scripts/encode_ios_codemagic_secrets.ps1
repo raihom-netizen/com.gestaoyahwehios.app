@@ -17,9 +17,12 @@ if (-not (Test-Path $IOS)) {
 # NUNCA usar "distribution" .cer como P12 — causa "Unknown format in import" no Codemagic.
 $p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p12) {
-    $fallback = Join-Path $IOS "gestaoyahwehiosapp"
-    if (Test-Path -LiteralPath $fallback) {
-        $p12 = Get-Item -LiteralPath $fallback
+    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp")) {
+        $fallback = Join-Path $IOS $name
+        if (Test-Path -LiteralPath $fallback) {
+            $p12 = Get-Item -LiteralPath $fallback
+            break
+        }
     }
 }
 $prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
