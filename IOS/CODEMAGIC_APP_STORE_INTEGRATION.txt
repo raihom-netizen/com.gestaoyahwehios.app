@@ -1,34 +1,25 @@
-Codemagic — Gestão YAHWEH — App Store Connect (chave UDKV6M9N38)
-================================================================
+Codemagic — Gestão YAHWEH — App Store Connect (UDKV6M9N38)
+===========================================================
 
-Objetivo: upload do IPA para o App Store Connect / TestFlight, no mesmo modelo do projeto
-Controle Total (integração ASC + publishing submit_to_testflight).
+O build NÃO precisa de integração nomeada na equipa (evita erro "integration does not exist").
 
-1) Ficheiro local (não commitar)
-   - IOS/AuthKey_UDKV6M9N38.p8
-   - Issuer ID: 77a1debb-f68b-418d-9fe3-af0f37b40585
-   - Key ID: UDKV6M9N38
+1) Grupo de variáveis appstore_credentials (Codemagic → Application → Environment variables)
+   - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do ficheiro IOS/AuthKey_UDKV6M9N38.p8
+     (abrir em editor de texto, copiar desde -----BEGIN até -----END, multilinha, segredo).
+   - Os valores abaixo já podem estar no codemagic.yaml como variáveis não secretas:
+     APP_STORE_CONNECT_KEY_IDENTIFIER = UDKV6M9N38
+     APP_STORE_CONNECT_ISSUER_ID = 77a1debb-f68b-418d-9fe3-af0f37b40585
 
-2) No Codemagic (equipa / Team)
-   - Team settings → Integrations → App Store Connect → Add
-   - Nome da integração: exatamente  GestaoYahwehiosApp
-     (tem de coincidir com `integrations.app_store_connect` no codemagic.yaml da raiz)
-   - Colar Issuer ID, Key ID e fazer upload do .p8 (ou colar o conteúdo PEM do .p8).
+2) Fluxo no YAML
+   - O script codemagic_ios_prepare_api_pem.sh gera /tmp/_asc_ok.pem a partir de APP_STORE_CONNECT_PRIVATE_KEY.
+   - O passo "Enviar IPA ao App Store Connect (TestFlight)" usa app-store-connect publish com esse PEM.
 
-3) Ligar a integração à aplicação
-   - Application settings → Integrations → App Store Connect → selecionar GestaoYahwehiosApp
+3) Papel da chave na Apple (Users and Access → Integrations → API Keys)
+   - Para upload ao TestFlight via API: App Manager ou Admin. Só "Desenvolvedor" pode falhar por permissão.
 
-4) Grupo de secrets appstore_credentials (mantém-se)
-   - CERTIFICATE_PRIVATE_KEY / CM_CERTIFICATE / perfis conforme o fluxo atual (P12 ou API-only).
-   - O passo `scripts/codemagic_ios_prepare_api_pem.sh` continua a usar APP_STORE_CONNECT_PRIVATE_KEY
-     se estiver definido no grupo. Pode repetir o mesmo conteúdo do .p8 da chave UDKV6M9N38
-     (variável secreta multilinha) para os scripts de assinatura/API.
+4) Opcional (futuro)
+   - Podes criar uma integração de equipa App Store Connect no Codemagic e usar auth: integration no YAML,
+     mas o nome tem de existir na conta — senão o build falha antes de correr. O fluxo atual usa só secrets.
 
-5) Papel da chave API na Apple
-   - Para enviar builds ao TestFlight via API, a chave deve ter acesso de App Manager ou Admin.
-   - Se só aparecer "Desenvolvedor" e o upload falhar com permissão, crie uma chave nova com
-     papel adequado ou use a chave Admin (ex.: ControleTotalAPI / 5HSNNJU377) só se o projeto
-     permitir — o ideal é ajustar a chave gestaoyahwehiosapp no App Store Connect.
-
-6) Referência: C:\Controletotalapp_Independente\codemagic.yaml
-   - integrations.app_store_connect + publishing.app_store_connect (auth: integration).
+5) Referência paralela: C:\Controletotalapp_Independente usa integração nomeada + publishing;
+   aqui usamos apenas API key nos secrets para não depender desse nome.
