@@ -1,0 +1,62 @@
+# GitHub Actions: dispara build iOS no Codemagic (workflow ios-release) ao alterar Flutter/codemagic.
+# Opcional: em GitHub → Settings → Secrets → Actions → CODEMAGIC_API_TOKEN (Codemagic → Integrations → API).
+# Opcional: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do AuthKey_UDKV6M9N38.p8 (se quiser injetar no build).
+
+name: Codemagic iOS (trigger)
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'flutter_app/**'
+      - 'codemagic.yaml'
+      - '.github/workflows/codemagic_ios_trigger.yml'
+      - 'scripts/codemagic_*.sh'
+  workflow_dispatch:
+
+jobs:
+  trigger-codemagic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolver app Codemagic e disparar build
+        env:
+          CODEMAGIC_API_TOKEN: ${{ secrets.CODEMAGIC_API_TOKEN }}
+          P8_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -e
+          if [ -z "${CODEMAGIC_API_TOKEN:-}" ]; then
+            echo "::warning::CODEMAGIC_API_TOKEN não definido — configure o secret para disparar builds via API."
+            exit 0
+          fi
+          resp=$(curl -s -H "Content-Type: application/json" -H "x-auth-token: $CODEMAGIC_API_TOKEN" https://api.codemagic.io/apps)
+          app_id=$(echo "$resp" | jq -r '.applications[] | select(.appName | test("gestao|yahweh|Gestao"; "i")) | ._id' | head -1)
+          if [ -z "$app_id" ] || [ "$app_id" = "null" ]; then
+            echo "::warning::App Codemagic não encontrado pelo nome (gestao/yahweh). Crie a app em codemagic.io ou ajuste o filtro jq."
+            exit 0
+          fi
+          echo "App ID: $app_id"
+          branch="${GITHUB_REF_NAME:-main}"
+          if [ -n "${P8_KEY:-}" ]; then
+            body=$(jq -n \
+              --arg appId "$app_id" \
+              --arg branch "$branch" \
+              --arg p8 "$P8_KEY" \
+              '{
+                appId: $appId,
+                workflowId: "ios-release",
+                branch: $branch,
+                environment: { variables: { APP_STORE_CONNECT_PRIVATE_KEY: $p8 } }
+              }')
+          else
+            body=$(jq -n \
+              --arg appId "$app_id" \
+              --arg branch "$branch" \
+              '{ appId: $appId, workflowId: "ios-release", branch: $branch }')
+          fi
+          curl -s -S -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-auth-token: $CODEMAGIC_API_TOKEN" \
+            -d "$body" \
+            https://api.codemagic.io/builds
+          echo ""
+          echo "Build ios-release pedido no Codemagic (branch: $branch)."

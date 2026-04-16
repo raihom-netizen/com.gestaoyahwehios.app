@@ -1,0 +1,34 @@
+Codemagic — Gestão YAHWEH — App Store Connect (chave UDKV6M9N38)
+================================================================
+
+Objetivo: upload do IPA para o App Store Connect / TestFlight, no mesmo modelo do projeto
+Controle Total (integração ASC + publishing submit_to_testflight).
+
+1) Ficheiro local (não commitar)
+   - IOS/AuthKey_UDKV6M9N38.p8
+   - Issuer ID: 77a1debb-f68b-418d-9fe3-af0f37b40585
+   - Key ID: UDKV6M9N38
+
+2) No Codemagic (equipa / Team)
+   - Team settings → Integrations → App Store Connect → Add
+   - Nome da integração: exatamente  GestaoYahwehiosApp
+     (tem de coincidir com `integrations.app_store_connect` no codemagic.yaml da raiz)
+   - Colar Issuer ID, Key ID e fazer upload do .p8 (ou colar o conteúdo PEM do .p8).
+
+3) Ligar a integração à aplicação
+   - Application settings → Integrations → App Store Connect → selecionar GestaoYahwehiosApp
+
+4) Grupo de secrets appstore_credentials (mantém-se)
+   - CERTIFICATE_PRIVATE_KEY / CM_CERTIFICATE / perfis conforme o fluxo atual (P12 ou API-only).
+   - O passo `scripts/codemagic_ios_prepare_api_pem.sh` continua a usar APP_STORE_CONNECT_PRIVATE_KEY
+     se estiver definido no grupo. Pode repetir o mesmo conteúdo do .p8 da chave UDKV6M9N38
+     (variável secreta multilinha) para os scripts de assinatura/API.
+
+5) Papel da chave API na Apple
+   - Para enviar builds ao TestFlight via API, a chave deve ter acesso de App Manager ou Admin.
+   - Se só aparecer "Desenvolvedor" e o upload falhar com permissão, crie uma chave nova com
+     papel adequado ou use a chave Admin (ex.: ControleTotalAPI / 5HSNNJU377) só se o projeto
+     permitir — o ideal é ajustar a chave gestaoyahwehiosapp no App Store Connect.
+
+6) Referência: C:\Controletotalapp_Independente\codemagic.yaml
+   - integrations.app_store_connect + publishing.app_store_connect (auth: integration).
