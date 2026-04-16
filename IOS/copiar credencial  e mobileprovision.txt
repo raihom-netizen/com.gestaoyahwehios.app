@@ -10,6 +10,8 @@ CAUSA: Foi colado Base64 do ficheiro ERRADO.
     — só tem o certificado público, NÃO tem chave privada. NÃO serve para CM_CERTIFICATE.
   - CM_CERTIFICATE tem de ser o Apple Distribution exportado como .P12
     (Acesso às chaves / Keychain: certificado + chave privada → Exportar .p12).
+  - NUNCA use o certificado «Apple Development» ou «Created via API (KeyID)» no secret —
+    isso é para desenvolvimento; o perfil App Store exige Apple DISTRIBUTION no .p12.
 
 NUNCA use:  Get-Item .\dist*   → isso pode apanhar o .cer "distribution" por engano.
 

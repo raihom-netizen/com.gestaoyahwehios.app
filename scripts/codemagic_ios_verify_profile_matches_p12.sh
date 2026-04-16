@@ -65,6 +65,21 @@ if [[ ! -s /tmp/p12_leaf.der ]]; then
   exit 1
 fi
 
+_p12_subj="$(openssl x509 -inform DER -in /tmp/p12_leaf.der -noout -subject 2>/dev/null || true)"
+echo "P12 (subject): ${_p12_subj}"
+if echo "${_p12_subj}" | grep -qiE 'Apple Development|iPhone Developer'; then
+  echo ""
+  echo "ERRO: CERTIFICATE_PRIVATE_KEY / CM_CERTIFICATE é Apple DEVELOPMENT (ex.: «Created via API»)."
+  echo "       Para IPA App Store / TestFlight o secret tem de ser um .p12 de Apple DISTRIBUTION,"
+  echo "       o mesmo que está marcado no perfil em developer.apple.com."
+  echo ""
+  echo "       No Mac: Acesso às chaves → localize «Apple Distribution: Raihom Barbosa (82RC6YL7KL)»"
+  echo "       (não «Apple Development») → botão direito → Exportar 2 itens → .p12 com senha."
+  echo "       Depois: .\\scripts\\encode_ios_codemagic_secrets.ps1 → actualize CERTIFICATE_PRIVATE_KEY na Codemagic."
+  echo ""
+  exit 1
+fi
+
 python3 << 'PY'
 import os
 import plistlib
