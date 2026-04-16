@@ -5,9 +5,18 @@ param([string]$OutDir = "D:\temporarios")
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
 $out = Join-Path $OutDir "CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.txt"
-$openssl = "openssl"
-if (-not (Get-Command $openssl -ErrorAction SilentlyContinue)) {
-    Write-Host "ERRO: openssl nao encontrado no PATH." -ForegroundColor Red
+$openssl = $null
+if (Get-Command openssl -ErrorAction SilentlyContinue) { $openssl = "openssl" }
+if (-not $openssl) {
+    foreach ($p in @(
+        "${env:ProgramFiles}\Git\usr\bin\openssl.exe",
+        "${env:ProgramFiles(x86)}\Git\usr\bin\openssl.exe"
+    )) {
+        if (Test-Path $p) { $openssl = $p; break }
+    }
+}
+if (-not $openssl) {
+    Write-Host "ERRO: openssl nao encontrado (instale Git for Windows ou OpenSSL)." -ForegroundColor Red
     exit 1
 }
 & $openssl genrsa -out $out 2048
