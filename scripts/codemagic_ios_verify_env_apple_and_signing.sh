@@ -23,7 +23,7 @@ fi
 _CM_CERT_COMPACT="$(printf '%s' "${CM_CERTIFICATE:-}" | tr -d '\n\r\t ')"
 if [ -z "$_CM_CERT_COMPACT" ]; then
   echo "api_only" > /tmp/cm_yw_signing_mode
-  echo "OK: modo API-only (Controle Total) — só chave App Store Connect; fetch-signing-files trará certificado + perfil."
+  echo "OK: modo API-only — fetch-signing-files (com --certificate-key RSA). Opcional: secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (mesmo PEM em todos os builds)."
   exit 0
 fi
 

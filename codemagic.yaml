@@ -1,11 +1,14 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 # Pipeline iOS: keychain → PEM → Sign In with Apple (API) → limpar perfis → assinatura → CocoaPods → …
 #
-# ─── Modo «Controle Total» (só 3 variáveis no grupo appstore_credentials) ───
-#   APP_STORE_CONNECT_PRIVATE_KEY (.p8), APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
-#   Não defina CM_CERTIFICATE nem CERTIFICATE_PRIVATE_KEY nem CM_PROVISIONING_PROFILE.
-#   O CI corre app-store-connect fetch-signing-files e gera ExportOptions.plist automaticamente.
-#   A chave API precisa de permissões para certificados/perfis (Admin na App Store Connect recomendado).
+# ─── Modo API-only (sem P12 no secret) ───
+#   Obrigatorio: APP_STORE_CONNECT_PRIVATE_KEY (.p8), APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
+#   Nao defina CM_CERTIFICATE nem CM_PROVISIONING_PROFILE (nem CERTIFICATE_PRIVATE_KEY em Base64 de .p12).
+#   O CLI fetch-signing-files --create exige chave RSA do certificado Distribution (nao e a .p8):
+#   - Opcional recomendado: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM = PEM completo (openssl genrsa 2048),
+#     a MESMA em todos os builds (evita criar varios certificados Apple Distribution; limite ~3 por equipa).
+#   - Se omitir: o CI gera RSA nova por build (pode falhar por limite de certificados apos varios builds).
+#   Chave API: permissoes Admin (ou equivalente) para certificados/perfis na App Store Connect.
 #
 # ─── Modo manual (P12 + perfil nos secrets) ───
 #   CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (Base64 do .p12 Apple Distribution, uma linha)
@@ -29,8 +32,8 @@
 #   do perfil App Store (igual ao que PlistBuddy lê do .mobileprovision).
 #
 # Checklist appstore_credentials:
-#   Opção A: só APP_STORE_CONNECT_PRIVATE_KEY + KEY_IDENTIFIER + ISSUER_ID (modo Controle Total).
-#   Opção B: APP_STORE_CONNECT_* + CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE (+ senha P12 se aplicável).
+#   Opção A (API-only): APP_STORE_CONNECT_* + opcional CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA, mesma em todos os builds).
+#   Opção B (manual): APP_STORE_CONNECT_* + CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (.p12 Base64) + CM_PROVISIONING_PROFILE (+ senha P12 se aplicável).
 #   Se "Code signing" terminar em poucos segundos sem erro, confira se xcode-project use-profiles aplicou
 #   perfis (ver passo seguinte: identidades de assinatura).
 #

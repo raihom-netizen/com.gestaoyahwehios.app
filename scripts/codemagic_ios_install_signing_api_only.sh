@@ -30,12 +30,39 @@ fi
 PROFILE_DIR="${HOME}/Library/MobileDevice/Provisioning Profiles"
 mkdir -p "$PROFILE_DIR"
 
+# fetch-signing-files --create exige --certificate-key (chave RSA do certificado Distribution),
+# NAO e a chave .p8 da API. Ver: codemagic-cli-tools docs fetch-signing-files.
+CERT_KEY_FILE="/tmp/cm_distribution_rsa_for_fetch.pem"
+rm -f "$CERT_KEY_FILE"
+if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
+  if printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
+    printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
+  else
+    _b64="$(printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | tr -d '\n\r\t ')"
+    if ! printf '%s' "$_b64" | base64 -D > "$CERT_KEY_FILE" 2>/dev/null; then
+      printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
+    fi
+  fi
+elif [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ] && printf '%s' "${CERTIFICATE_PRIVATE_KEY}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
+  printf '%s' "${CERTIFICATE_PRIVATE_KEY}" > "$CERT_KEY_FILE"
+else
+  openssl genrsa -out "$CERT_KEY_FILE" 2048 2>/dev/null || openssl genrsa -traditional -out "$CERT_KEY_FILE" 2048
+  echo "AVISO: sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM) — gerada chave RSA nova para criar/associar certificado Distribution."
+  echo "        Recomendado: openssl genrsa 2048 > dist.pem ; colar PEM no secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (evita multiplos certs na Apple)."
+fi
+if [ ! -s "$CERT_KEY_FILE" ] || ! grep -qE "BEGIN (EC |RSA )?PRIVATE KEY" "$CERT_KEY_FILE" 2>/dev/null; then
+  echo "ERRO: chave RSA PEM invalida (ficheiro $CERT_KEY_FILE). Defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM com PEM completo."
+  exit 1
+fi
+chmod 600 "$CERT_KEY_FILE"
+
 echo "=== Modo API-only: app-store-connect fetch-signing-files ($BUNDLE, IOS_APP_STORE) ==="
 set +e
 app-store-connect fetch-signing-files "$BUNDLE" \
   --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
   --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
   --private-key "@file:/tmp/_asc_ok.pem" \
+  --certificate-key "@file:${CERT_KEY_FILE}" \
   --type IOS_APP_STORE \
   --create \
   --delete-stale-profiles \
