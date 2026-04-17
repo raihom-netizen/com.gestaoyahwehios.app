@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -12,6 +13,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 const String kFirebaseGoogleOAuthWebClientId =
     '157235497908-93osahk8novc7i2n6jq2fotimfmhefi3.apps.googleusercontent.com';
 
+/// OAuth iOS (mesmo [CLIENT_ID] em `ios/Runner/GoogleService-Info.plist`).
+const String kFirebaseIosGoogleClientId =
+    '157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg.apps.googleusercontent.com';
+
 GoogleSignIn? _cached;
 
 /// Instância única com [GoogleSignIn.serverClientId] em mobile (Firebase Auth + idToken).
@@ -20,9 +25,11 @@ GoogleSignIn appGoogleSignIn() {
   if (kIsWeb) {
     _cached = GoogleSignIn();
   } else {
+    final isIos = defaultTargetPlatform == TargetPlatform.iOS;
     _cached = GoogleSignIn(
       scopes: const <String>['email', 'profile'],
       serverClientId: kFirebaseGoogleOAuthWebClientId,
+      clientId: isIos ? kFirebaseIosGoogleClientId : null,
       // Android: ajuda a obter código de auth/idToken estável para o Firebase.
       forceCodeForRefreshToken: true,
     );

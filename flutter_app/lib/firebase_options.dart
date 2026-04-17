@@ -43,14 +43,16 @@ class DefaultFirebaseOptions {
     storageBucket: 'gestaoyahweh-21e23.firebasestorage.app',
   );
 
+  // Alinhado a ios/Runner/GoogleService-Info.plist (bundle com.gestaoyahwehios.app).
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDOqG8N_bW50rVt-Kob7mQDcYImNej0rGs',
-    appId: '1:157235497908:ios:5c2a89577e79e39b4ac8e1',
+    appId: '1:157235497908:ios:81977b3cd1ba58614ac0e1',
     messagingSenderId: '157235497908',
     projectId: 'gestaoyahweh-21e23',
     storageBucket: 'gestaoyahweh-21e23.firebasestorage.app',
-    iosClientId: '157235497908-u49j3hncrrnk22s7cm1ntrfqif9c40fj.apps.googleusercontent.com',
-    iosBundleId: 'com.gestaoyaweh.app',
+    iosClientId:
+        '157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg.apps.googleusercontent.com',
+    iosBundleId: 'com.gestaoyahwehios.app',
   );
 
 }
