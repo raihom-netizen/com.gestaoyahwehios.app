@@ -51,6 +51,12 @@
 	<string>Adicionar eventos da igreja ao seu calendário (Google/Apple) após confirmar presença.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Salvar a carteirinha digital na galeria de fotos quando você tocar em Salvar.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Permitir acesso às suas fotos para você escolher imagens em publicações, perfil, mural ou envio de arquivos da igreja.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Usamos sua localização com o app aberto para mapas, distâncias ou recursos que você acionar (eventos, cadastros ou endereços).</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Se você permitir localização em segundo plano, usamos apenas para funcionalidades que você ativar (alertas ou rotas). Pode alterar nas Configurações do iPhone.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
