@@ -28,7 +28,7 @@ function Write-Base64OneLine {
 # NUNCA usar .cer (so certificado publico) - so *.p12 ou ficheiro sem extensao PKCS#12.
 $p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p12) {
-    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp", "distribution.p12", "distribution")) {
+    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp", "distribution.p12")) {
         $fallback = Join-Path $IOS $name
         if (-not (Test-Path -LiteralPath $fallback)) { continue }
         if ($fallback -match '\.cer$') { continue }
