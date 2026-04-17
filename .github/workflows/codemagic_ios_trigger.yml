@@ -1,6 +1,6 @@
 # GitHub Actions: dispara build iOS no Codemagic (workflow ios-release) ao alterar Flutter/codemagic.
 # Opcional: em GitHub → Settings → Secrets → Actions → CODEMAGIC_API_TOKEN (Codemagic → Integrations → API).
-# Opcional: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do AuthKey_UDKV6M9N38.p8 (se quiser injetar no build).
+# Opcional: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do AuthKey_55BABQVL48.p8 (se quiser injetar no build).
 
 name: Codemagic iOS (trigger)
 

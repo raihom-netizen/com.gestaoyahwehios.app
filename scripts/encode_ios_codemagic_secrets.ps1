@@ -28,8 +28,14 @@ if (-not $p12) {
 $prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 
 if (-not $p12) {
-    Write-Host "ERRO: Nenhum .p12 em $IOS (exporte Apple Distribution + chave do Keychain como .p12)." -ForegroundColor Red
-    Write-Host "      Nao use o ficheiro 'distribution' se for apenas .cer - precisa de .p12 com chave privada." -ForegroundColor Yellow
+    $cer = Get-ChildItem -Path $IOS -Filter "distribution*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $cer) { $cer = Get-ChildItem -Path $IOS -Filter "*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    if ($cer) {
+        Write-Host "AVISO: Existe $($cer.Name) — ficheiro .cer da Apple NAO serve como CERTIFICATE_PRIVATE_KEY (sem chave privada)." -ForegroundColor Yellow
+        Write-Host "       No Mac: duplo clique no .cer → Keychain → exportar «Apple Distribution» + chave privada como .p12." -ForegroundColor Yellow
+        Write-Host "       Ou: na Codemagic, após «Generate certificate», descarregue o pacote .p12 indicado pela equipa." -ForegroundColor Yellow
+    }
+    Write-Host "ERRO: Nenhum .p12 em $IOS (nome *.p12 ou com_gestaoyahwehiosapi sem extensao)." -ForegroundColor Red
     exit 1
 }
 if (-not $prov) {

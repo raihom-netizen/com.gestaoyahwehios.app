@@ -1,0 +1,28 @@
+================================================================================
+Gestão YAHWEH — credenciais Apple / Codemagic (atualizado)
+================================================================================
+
+App Store Connect API (TestFlight / scripts)
+  Issuer ID:     77a1debb-f68b-418d-9fe3-af0f37b40585
+  Key ID:        55BABQVL48
+  Ficheiro .p8:  IOS/AuthKey_55BABQVL48.p8  (não commitar — está no .gitignore)
+
+  Codemagic → appstore_credentials:
+    APP_STORE_CONNECT_PRIVATE_KEY     = conteúdo completo do AuthKey_55BABQVL48.p8 (multilinha PEM)
+    (Key ID e Issuer vêm do codemagic.yaml; se repetir nos secrets, use Key ID 55BABQVL48.)
+
+  Chave antiga UDKV6M9N38 foi revogada — não reutilizar.
+
+Assinatura iOS (CERTIFICATE_PRIVATE_KEY na Codemagic)
+  O ficheiro distribution.cer (só certificado público) NÃO substitui um .p12.
+  É preciso um .p12 com Apple Distribution + chave privada:
+    - Mac: Keychain → exportar 2 itens; ou
+    - Pacote .p12 descarregado da Codemagic ao gerar certificado «Apple Distribution».
+
+  Perfil App Store: gestaoyahwehiosapp.mobileprovision (bundle com.gestaoyahwehios.app)
+
+  Gerar Base64 para secrets:
+    Na raiz do repo:  .\scripts\encode_ios_codemagic_secrets.ps1
+    (coloca um ficheiro *.p12 na pasta IOS antes de correr o script)
+
+================================================================================
