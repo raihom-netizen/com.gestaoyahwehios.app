@@ -507,6 +507,133 @@ def _write_mobileprovision_and_plist(mp_bytes: bytes, bundle: str) -> None:
     print(f"OK: perfil escrito (API). name={name} uuid={uuid} team={team}")
 
 
+def import_distribution_identity_to_keychain_main() -> int:
+    """
+    PEM (CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM ou CERTIFICATE_PRIVATE_KEY) + leaf DER na ASC
+    → PKCS#12 temporário → keychain add-certificates (Codemagic).
+    Necessário para exportArchive quando só há .mobileprovision (REST/CLI) sem P12 nos secrets.
+    """
+    priv = _load_distribution_private_key_from_env()
+    if priv is None:
+        print(
+            "ERRO: PEM de chave privada não encontrada (CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM ou CERTIFICATE_PRIVATE_KEY PEM).",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"ERRO: JWT: {e}", file=sys.stderr)
+        return 1
+    certs = _list_distribution_certificates(token)
+    cert_id = _find_cert_id_for_privkey(priv, certs)
+    if not cert_id:
+        print(
+            "ERRO: o PEM não corresponde a nenhum certificado IOS_DISTRIBUTION desta equipa na App Store Connect.",
+            file=sys.stderr,
+        )
+        return 1
+    der: bytes | None = None
+    for c in certs:
+        if str(c.get("id") or "") == cert_id:
+            d = c.get("der")
+            if isinstance(d, (bytes, bytearray)):
+                der = bytes(d)
+            break
+    if not der:
+        print("ERRO: certificado na API sem DER.", file=sys.stderr)
+        return 1
+    from cryptography.hazmat.primitives import serialization
+
+    key_pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    paths = (
+        "/tmp/cm_api_only_priv.pem",
+        "/tmp/cm_api_only_leaf.der",
+        "/tmp/cm_api_only_leaf.pem",
+        "/tmp/cm_api_only_identity.p12",
+    )
+    for path in paths:
+        try:
+            if os.path.isfile(path):
+                os.unlink(path)
+        except OSError:
+            pass
+    with open("/tmp/cm_api_only_priv.pem", "wb") as f:
+        f.write(key_pem)
+    with open("/tmp/cm_api_only_leaf.der", "wb") as f:
+        f.write(der)
+    os.chmod("/tmp/cm_api_only_priv.pem", 0o600)
+    os.chmod("/tmp/cm_api_only_leaf.der", 0o600)
+    p1 = subprocess.run(
+        [
+            "openssl",
+            "x509",
+            "-inform",
+            "DER",
+            "-in",
+            "/tmp/cm_api_only_leaf.der",
+            "-out",
+            "/tmp/cm_api_only_leaf.pem",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if p1.returncode != 0:
+        print(p1.stderr or p1.stdout, file=sys.stderr)
+        return 1
+    os.chmod("/tmp/cm_api_only_leaf.pem", 0o600)
+    pw = (os.environ.get("CM_API_ONLY_IMPORT_P12_PASSWORD") or "cm_yw_dist_import_1").strip() or "cm_yw_dist_import_1"
+
+    def run_pkcs12(extra: list[str]) -> subprocess.CompletedProcess:
+        cmd: list[str] = [
+            "openssl",
+            "pkcs12",
+            "-export",
+            "-out",
+            "/tmp/cm_api_only_identity.p12",
+            "-inkey",
+            "/tmp/cm_api_only_priv.pem",
+            "-in",
+            "/tmp/cm_api_only_leaf.pem",
+            "-passout",
+            f"pass:{pw}",
+            "-name",
+            "Apple Distribution",
+        ]
+        cmd[2:2] = extra  # insert after "pkcs12"
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    p2 = run_pkcs12([])
+    if p2.returncode != 0:
+        p2 = run_pkcs12(["-legacy"])
+    if p2.returncode != 0:
+        print(p2.stderr or p2.stdout, file=sys.stderr)
+        return 1
+    os.chmod("/tmp/cm_api_only_identity.p12", 0o600)
+    kc = shutil.which("keychain")
+    if not kc:
+        print(
+            "ERRO: comando «keychain» não encontrado (use o passo «keychain initialize» antes deste script).",
+            file=sys.stderr,
+        )
+        return 1
+    p3 = subprocess.run(
+        [kc, "add-certificates", "--certificate", "/tmp/cm_api_only_identity.p12", "--certificate-password", pw],
+        capture_output=True,
+        text=True,
+    )
+    if p3.returncode != 0:
+        msg = (p3.stderr or p3.stdout or "").strip()
+        print(f"ERRO: keychain add-certificates: {msg}", file=sys.stderr)
+        return 1
+    print("OK: identidade Apple Distribution importada (PEM + certificado ASC).")
+    return 0
+
+
 def _local_tmp_profile_matches_p12(fp_p12: str) -> bool:
     plist_path = "/tmp/cm_prov.plist"
     if not os.path.isfile(plist_path):
@@ -546,6 +673,12 @@ def matches_only_main() -> int:
 def main() -> int:
     if "--matches-only" in sys.argv:
         return matches_only_main()
+    if "--import-distribution-identity-to-keychain" in sys.argv:
+        try:
+            return import_distribution_identity_to_keychain_main()
+        except Exception as e:
+            print(f"ERRO: import identidade keychain: {e}", file=sys.stderr)
+            return 1
     if "--download-app-store-profile-api-only" in sys.argv:
         try:
             return download_app_store_profile_api_only_main()

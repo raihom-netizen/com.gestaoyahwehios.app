@@ -70,6 +70,40 @@ _prepare_cert_key_file() {
   echo "$CERT_KEY_FILE"
 }
 
+_has_distribution_signing_identity() {
+  security find-identity -v -p codesigning 2>/dev/null | grep -qE 'Apple Distribution:|iPhone Distribution:|iOS Distribution:'
+}
+
+_finalize_api_only_keychain() {
+  echo "=== API-only: validar identidade de codesigning (Distribution) no keychain ==="
+  if _has_distribution_signing_identity; then
+    echo "OK: keychain já tem identidade de distribuição."
+    security find-identity -v -p codesigning 2>/dev/null | grep -E 'Apple Distribution:|iPhone Distribution:|iOS Distribution:' | head -6 || true
+    return 0
+  fi
+  if _has_fixed_distribution_key; then
+    echo "Keychain vazio para Distribution — a importar PEM + certificado da App Store Connect (ASC) …"
+    if ! python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --import-distribution-identity-to-keychain; then
+      echo "ERRO: import da identidade a partir do PEM falhou (PEM não casa com cert IOS_DISTRIBUTION na equipa?)."
+      return 1
+    fi
+  else
+    echo "ERRO: sem certificado Apple/iPhone/iOS Distribution no keychain."
+    echo "       Só o .mobileprovision não basta: é preciso a chave privada do certificado de distribuição."
+    echo "       No Codemagic (grupo appstore_credentials) defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA/EC)"
+    echo "       que seja o par do certificado «Apple Distribution» usado no perfil App Store, ou use modo manual:"
+    echo "       CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE (Base64)."
+    security find-identity -v -p codesigning 2>/dev/null | head -20 || true
+    return 1
+  fi
+  if ! _has_distribution_signing_identity; then
+    echo "ERRO: após import, ainda não há identidade de distribuição visível no keychain."
+    security find-identity -v -p codesigning 2>/dev/null | head -25 || true
+    return 1
+  fi
+  echo "OK: identidade de distribuição pronta para exportArchive."
+}
+
 _run_select_profile_python() {
   export IOS_BUNDLE_ID="$BUNDLE"
   python3 << 'PY'
@@ -257,6 +291,7 @@ fi
 
 if _run_select_profile_python; then
   _persist_asc_pem_to_cm_env
+  _finalize_api_only_keychain || exit 1
   echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, CLI)."
   exit 0
 fi
@@ -273,6 +308,7 @@ fi
 
 if _run_select_profile_python; then
   _persist_asc_pem_to_cm_env
+  _finalize_api_only_keychain || exit 1
   echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, REST ASC)."
   exit 0
 fi
