@@ -11,6 +11,9 @@ if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
 }
 
 Set-Location $FlutterApp
+Write-Host "=== flutter clean (evita locks / ficheiros duplicados no build web no Windows) ===" -ForegroundColor Cyan
+flutter clean
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "=== flutter pub get ===" -ForegroundColor Cyan
 flutter pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

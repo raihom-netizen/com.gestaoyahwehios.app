@@ -447,10 +447,13 @@ class _AuthGateState extends State<AuthGate> {
       } else if (repairDepth < 1 && AppConnectivityService.instance.isOnline) {
         try {
           final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-              .httpsCallable('repairMyChurchBinding');
+              .httpsCallable(
+            'repairMyChurchBinding',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+          );
           await fn
               .call(<String, dynamic>{})
-              .timeout(const Duration(seconds: 28));
+              .timeout(const Duration(seconds: 46));
           await user.getIdToken(true);
           return _loadProfile(user, repairDepth: repairDepth + 1);
         } catch (_) {}

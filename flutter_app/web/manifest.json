@@ -1,27 +1,30 @@
 {
-    "name": "Gestão YAHWEH",
-    "short_name": "Gestão YAHWEH",
+    "name": "Gestão Yahweh - Igrejas",
+    "short_name": "Gestão Yahweh - Igrejas",
     "description": "Gestão para igrejas — membros, eventos, financeiro e assinaturas.",
     "start_url": ".",
     "scope": "/",
     "display": "standalone",
-    "display_override": ["standalone", "fullscreen", "minimal-ui", "browser"],
+    "display_override": [
+        "standalone",
+        "fullscreen",
+        "minimal-ui",
+        "browser"
+    ],
     "orientation": "portrait-primary",
-    "background_color": "#0C3B8A",
+    "background_color": "#FFFFFF",
     "theme_color": "#0C3B8A",
     "prefer_related_applications": false,
     "icons": [
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any"
+            "type": "image/png"
         },
         {
             "src": "icons/Icon-512.png",
             "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any"
+            "type": "image/png"
         },
         {
             "src": "icons/Icon-maskable-192.png",

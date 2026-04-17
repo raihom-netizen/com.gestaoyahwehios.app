@@ -1892,6 +1892,7 @@ exports.resolveEmailToChurchPublic = functions
  */
 exports.repairMyChurchBinding = functions
     .region("us-central1")
+    .runWith({ timeoutSeconds: 120, memory: "256MB" })
     .https.onCall(async (_, context) => {
     if (!context.auth?.uid) {
         throw new functions.https.HttpsError("unauthenticated", "Faça login.");
@@ -1913,20 +1914,22 @@ exports.repairMyChurchBinding = functions
             "emailContato",
             "responsavelEmail",
         ];
+        const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
+        const tasks = [];
         for (const field of fields) {
-            for (const val of [emailLower, emailRaw]) {
-                const q = await db
-                    .collection("igrejas")
-                    .where(field, "==", val)
-                    .limit(1)
-                    .get();
-                if (!q.empty) {
-                    const id = q.docs[0].id;
-                    const ig = await db.collection("igrejas").doc(id).get();
-                    if (ig.exists)
-                        return id;
-                }
+            for (const val of vals) {
+                tasks.push({ field, val });
             }
+        }
+        const snaps = await Promise.all(tasks.map((t) => db.collection("igrejas").where(t.field, "==", t.val).limit(1).get()));
+        for (let i = 0; i < snaps.length; i++) {
+            const q = snaps[i];
+            if (q.empty)
+                continue;
+            const id = q.docs[0].id;
+            const ig = await db.collection("igrejas").doc(id).get();
+            if (ig.exists)
+                return id;
         }
         return null;
     }
@@ -1972,29 +1975,36 @@ exports.repairMyChurchBinding = functions
         return null;
     }
     async function fromMembrosEmail() {
-        for (const field of ["EMAIL", "email", "mail"]) {
-            for (const val of [emailLower, emailRaw]) {
-                const snap = await db
-                    .collectionGroup("membros")
-                    .where(field, "==", val)
-                    .limit(8)
-                    .get();
-                for (const doc of snap.docs) {
-                    const parts = doc.ref.path.split("/");
-                    if (parts[0] !== "igrejas" || parts[2] !== "membros")
-                        continue;
-                    const tid = parts[1];
-                    const ig = await db.collection("igrejas").doc(tid).get();
-                    if (!ig.exists)
-                        continue;
-                    const md = doc.data() || {};
-                    const st = String(md.STATUS || md.status || "").toLowerCase();
-                    if (st === "reprovado")
-                        continue;
-                    const pending = st === "pendente";
-                    const roleRaw = String(md.role || md.FUNCAO || md.funcao || "membro").trim();
-                    return { tenantId: tid, role: roleRaw || "membro", pending };
-                }
+        const fields = ["EMAIL", "email", "mail"];
+        const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
+        const tasks = [];
+        for (const field of fields) {
+            for (const val of vals) {
+                tasks.push({ field, val });
+            }
+        }
+        const snaps = await Promise.all(tasks.map((t) => db
+            .collectionGroup("membros")
+            .where(t.field, "==", t.val)
+            .limit(8)
+            .get()));
+        for (let i = 0; i < snaps.length; i++) {
+            const snap = snaps[i];
+            for (const doc of snap.docs) {
+                const parts = doc.ref.path.split("/");
+                if (parts[0] !== "igrejas" || parts[2] !== "membros")
+                    continue;
+                const tid = parts[1];
+                const ig = await db.collection("igrejas").doc(tid).get();
+                if (!ig.exists)
+                    continue;
+                const md = doc.data() || {};
+                const st = String(md.STATUS || md.status || "").toLowerCase();
+                if (st === "reprovado")
+                    continue;
+                const pending = st === "pendente";
+                const roleRaw = String(md.role || md.FUNCAO || md.funcao || "membro").trim();
+                return { tenantId: tid, role: roleRaw || "membro", pending };
             }
         }
         return null;
@@ -2012,25 +2022,30 @@ exports.repairMyChurchBinding = functions
             return "ADM";
         return s.length <= 24 ? s.toUpperCase() : "membro";
     }
-    let tenantId = await firstIgrejaFromGestorFields();
+    let tenantId = null;
     let roleOut = "GESTOR";
     let pendingApproval = false;
     let activeClaim = true;
-    if (!tenantId) {
-        const byUid = await fromMembrosAuthUid();
-        if (byUid) {
-            tenantId = byUid.tenantId;
-            roleOut = claimRoleFromRaw(byUid.role, "membro");
-            pendingApproval = byUid.pending;
-            activeClaim = !byUid.pending;
-        }
+    const [gestorId, byUid, ui] = await Promise.all([
+        firstIgrejaFromGestorFields(),
+        fromMembrosAuthUid(),
+        fromUsersIndex(),
+    ]);
+    if (gestorId) {
+        tenantId = gestorId;
+        roleOut = "GESTOR";
+        pendingApproval = false;
+        activeClaim = true;
     }
-    if (!tenantId) {
-        const ui = await fromUsersIndex();
-        if (ui) {
-            tenantId = ui.tenantId;
-            roleOut = claimRoleFromRaw(ui.role, "GESTOR");
-        }
+    else if (byUid) {
+        tenantId = byUid.tenantId;
+        roleOut = claimRoleFromRaw(byUid.role, "membro");
+        pendingApproval = byUid.pending;
+        activeClaim = !byUid.pending;
+    }
+    else if (ui) {
+        tenantId = ui.tenantId;
+        roleOut = claimRoleFromRaw(ui.role, "GESTOR");
     }
     if (!tenantId) {
         const byEmail = await fromMembrosEmail();

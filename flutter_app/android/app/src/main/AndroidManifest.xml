@@ -14,7 +14,7 @@
         tools:node="replace" />
     <application
         android:usesCleartextTraffic="true"
-        android:label="Gestao YAHWEH"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

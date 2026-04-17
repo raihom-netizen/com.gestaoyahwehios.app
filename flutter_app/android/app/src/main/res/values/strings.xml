@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Nome sob o ícone na launcher (iOS CFBundleDisplayName / Web manifest). -->
+    <string name="app_name">Gestão Yahweh - Igrejas</string>
+</resources>

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
@@ -363,9 +363,21 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _afterGoogleSignInSuccess() async {
-    final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('repairMyChurchBinding');
-    await fn.call(<String, dynamic>{});
+    final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+      'repairMyChurchBinding',
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+    );
+    try {
+      await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 46));
+    } on FirebaseFunctionsException catch (e) {
+      final code = (e.code).toLowerCase();
+      if (code.contains('not-found')) rethrow;
+      debugPrint('repairMyChurchBinding (soft fail): ${e.code} ${e.message}');
+    } on TimeoutException catch (e) {
+      debugPrint('repairMyChurchBinding: timeout $e');
+    } catch (e, st) {
+      debugPrint('repairMyChurchBinding: $e\n$st');
+    }
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
   }

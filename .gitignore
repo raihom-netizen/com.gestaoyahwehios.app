@@ -41,6 +41,7 @@ Thumbs.db
 secrets/
 .firebase/
 artifacts/
+_deploy_out/
 functions/.env*
 firebase.json.bak
 firebase-debug.log

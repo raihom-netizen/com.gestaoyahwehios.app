@@ -602,7 +602,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
         child: MaterialApp(
           navigatorKey: _navigatorKey,
           scrollBehavior: const GestaoYahwehScrollBehavior(),
-          title: 'Gestão YAHWEH',
+          title: 'Gestão Yahweh - Igrejas',
           theme: ThemeCleanPremium.themeData,
           darkTheme: ThemeCleanPremium.themeDataDark,
           themeMode: _themeProvider.mode,
