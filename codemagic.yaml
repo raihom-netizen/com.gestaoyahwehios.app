@@ -527,6 +527,9 @@ workflows:
             python3 -m pip install --user -q codemagic-cli-tools
             export PATH="$(python3 -m site --user-base)/bin:$PATH"
           fi
+          # Upload + fila Apple: o tempo real depende da rede e dos servidores Apple (não há como “acelerar” o upload).
+          # Estes limites só evitam o passo ficar 45+ min à espera do processamento; o build aparece no ASC na mesma.
+          # TestFlight externo: submeta manualmente no ASC se o passo terminar antes do processamento acabar.
           app-store-connect publish \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
@@ -534,8 +537,8 @@ workflows:
             --path "$IPA" \
             --testflight \
             --expire-build-submitted-for-review \
-            --max-find-build-wait 30 \
-            --max-build-processing-wait 45
+            --max-find-build-wait 15 \
+            --max-build-processing-wait 12
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
       - build/ios/ipa/*.ipa
