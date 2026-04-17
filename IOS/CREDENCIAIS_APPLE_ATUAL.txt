@@ -4,14 +4,24 @@ Gestão YAHWEH — credenciais Apple / Codemagic (atualizado)
 
 App Store Connect API (TestFlight / scripts)
   Issuer ID:     77a1debb-f68b-418d-9fe3-af0f37b40585
-  Key ID:        55BABQVL48
-  Ficheiro .p8:  IOS/AuthKey_55BABQVL48.p8  (não commitar — está no .gitignore)
+  Key ID:        85X9UNAT43
+  Ficheiro .p8:  IOS/AuthKey_85X9UNAT43.p8  (não commitar — está no .gitignore)
 
   Codemagic → appstore_credentials:
-    APP_STORE_CONNECT_PRIVATE_KEY     = conteúdo completo do AuthKey_55BABQVL48.p8 (multilinha PEM)
-    (Key ID e Issuer vêm do codemagic.yaml; se repetir nos secrets, use Key ID 55BABQVL48.)
+    APP_STORE_CONNECT_PRIVATE_KEY     = conteúdo completo do AuthKey_85X9UNAT43.p8 (multilinha PEM)
+    (Key ID e Issuer vêm do codemagic.yaml; se repetir nos secrets, use Key ID 85X9UNAT43.)
 
   Chave antiga UDKV6M9N38 foi revogada — não reutilizar.
+
+  ERRO «Could not deserialize key data» no passo API / JWT:
+    O secret APP_STORE_CONNECT_PRIVATE_KEY tem de ser o texto PEM do AuthKey_85X9UNAT43.p8
+    (linhas -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----).
+    Nao colar Base64 do .p8 por cima do PEM errado; nao usar ficheiro .p8 antigo/revogado.
+
+  Se o log mostrar «Apple Development: Created via API (UDKV6M9N38)» no P12:
+    O valor CERTIFICATE_PRIVATE_KEY na Codemagic AINDA e o certificado de DESENVOLVIMENTO antigo.
+    APAGUE esse secret e substitua por Base64 de um .p12 de Apple DISTRIBUTION apenas
+    (Keychain: «Apple Distribution: Raihom Barbosa» — nao «Apple Development»).
 
 Assinatura iOS (CERTIFICATE_PRIVATE_KEY na Codemagic)
   O ficheiro distribution.cer (só certificado público) NÃO substitui um .p12.

@@ -1,4 +1,4 @@
-Codemagic — Gestão YAHWEH — App Store Connect (UDKV6M9N38)
+Codemagic — Gestão YAHWEH — App Store Connect (85X9UNAT43)
 ===========================================================
 
 O build NÃO precisa de integração nomeada na equipa (evita erro "integration does not exist").
@@ -17,8 +17,8 @@ IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
 
 1) Grupo appstore_credentials (Codemagic → Application → Environment variables)
    Mesma estrutura que «controle-totalapp»: credenciais Apple iguais; só mudam P12/perfil por app.
-   - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do IOS/AuthKey_UDKV6M9N38.p8 (multilinha PEM).
-   - APP_STORE_CONNECT_KEY_IDENTIFIER = UDKV6M9N38  (já no codemagic.yaml)
+   - APP_STORE_CONNECT_PRIVATE_KEY = conteúdo completo do IOS/AuthKey_85X9UNAT43.p8 (multilinha PEM).
+   - APP_STORE_CONNECT_KEY_IDENTIFIER = 85X9UNAT43  (já no codemagic.yaml)
    - APP_STORE_CONNECT_ISSUER_ID = 77a1debb-f68b-418d-9fe3-af0f37b40585  (já no codemagic.yaml)
    - CERTIFICATE_PRIVATE_KEY = Base64 uma linha do .p12 Apple Distribution (ou use CM_CERTIFICATE = mesmo valor).
    - CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE = Base64 do .mobileprovision App Store de com.gestaoyahwehios.app
@@ -27,9 +27,9 @@ IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
    Gerar Base64 no PC: .\scripts\encode_ios_codemagic_secrets.ps1 → ficheiros em D:\Temporarios\gestao_yahweh_codemagic\
 
    Sobre «Created By API Key: a1db85a6-...» no portal Apple: é identificação interna de quem
-   criou o certificado — NÃO substitui o Key ID UDKV6M9N38 do ficheiro AuthKey_*.p8 na Codemagic.
+   criou o certificado — NÃO substitui o Key ID 85X9UNAT43 do ficheiro AuthKey_*.p8 na Codemagic.
    A chave «Keys» em developer.apple.com (ex. DYNWZ2Q6C3) é outro tipo (serviços); para CI usa-se
-   a chave de Integrations na App Store Connect (Key ID UDKV6M9N38).
+   a chave de Integrations na App Store Connect (Key ID 85X9UNAT43).
 
 2) Fluxo no YAML
    - O script codemagic_ios_prepare_api_pem.sh gera /tmp/_asc_ok.pem a partir de APP_STORE_CONNECT_PRIVATE_KEY.

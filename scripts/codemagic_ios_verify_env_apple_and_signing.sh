@@ -24,6 +24,22 @@ fi
 : "${APP_STORE_CONNECT_PRIVATE_KEY:?Grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
 : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?APP_STORE_CONNECT_KEY_IDENTIFIER (Key ID)}"
 : "${APP_STORE_CONNECT_ISSUER_ID:?APP_STORE_CONNECT_ISSUER_ID (Issuer UUID)}"
+if [ -f "$ROOT/scripts/codemagic_ios_prepare_api_pem.sh" ]; then
+  # Valida a chave API logo no passo de variáveis para evitar falha tardia no passo "Preparar PEM".
+  CM_ASC_VALIDATE_ONLY=1 bash "$ROOT/scripts/codemagic_ios_prepare_api_pem.sh" >/tmp/_cm_asc_validate.log 2>&1 || {
+    echo "ERRO: APP_STORE_CONNECT_PRIVATE_KEY invalido."
+    cat /tmp/_cm_asc_validate.log 2>/dev/null || true
+    exit 1
+  }
+fi
+
+_force_api="${CM_FORCE_API_ONLY_SIGNING:-0}"
+if [ "$_force_api" = "1" ] || [ "$_force_api" = "true" ]; then
+  echo "api_only" > /tmp/cm_yw_signing_mode
+  echo "OK: modo API-only FORCADO (CM_FORCE_API_ONLY_SIGNING=1)."
+  echo "    Secrets manuais de P12/perfil serao ignorados neste build."
+  exit 0
+fi
 
 _CM_CERT_COMPACT="$(printf '%s' "${CM_CERTIFICATE:-}" | tr -d '\n\r\t ')"
 if [ -z "$_CM_CERT_COMPACT" ]; then

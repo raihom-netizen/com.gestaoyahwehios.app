@@ -45,11 +45,11 @@ if (-not $p12) {
 # --- Perfil App Store ---
 $prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 
-# --- AuthKey .p8: preferir a chave alinhada ao codemagic.yaml (55BABQVL48) se existir ---
+# --- AuthKey .p8: preferir a chave alinhada ao codemagic.yaml (85X9UNAT43) se existir ---
 $p8 = $null
 $p8All = @(Get-ChildItem -Path $IOS -Filter "AuthKey_*.p8" -File -ErrorAction SilentlyContinue)
 foreach ($c in $p8All) {
-    if ($c.Name -match '55BABQVL48') { $p8 = $c; break }
+    if ($c.Name -match '85X9UNAT43') { $p8 = $c; break }
 }
 if (-not $p8 -and $p8All.Count -gt 0) {
     $p8 = $p8All | Sort-Object Name | Select-Object -First 1
@@ -114,7 +114,7 @@ Colar na Codemagic - Application - Environment variables - grupo appstore_creden
     Copiar TUDO desde -----BEGIN ate -----END inclusive - colar no secret multilinha.
 
 [2] APP_STORE_CONNECT_KEY_IDENTIFIER / KEY_ID
-    Valor no codemagic.yaml: 55BABQVL48
+    Valor no codemagic.yaml: 85X9UNAT43
 
 [3] APP_STORE_CONNECT_ISSUER_ID
     77a1debb-f68b-418d-9fe3-af0f37b40585

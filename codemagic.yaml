@@ -24,8 +24,8 @@
 # ID Apple: 6761656626 | Bundle: com.gestaoyahwehios.app | Team Xcode: 82RC6YL7KL
 # Firebase iOS (Console > definições do projeto > app iOS): FIREBASE_IOS_APP_ID deve coincidir
 #   (ex.: 1:157235497908:ios:5c2a89577e79e39b4ac8e1).
-# App Store Connect API — chave gestaoyahwehiosAPI (Key ID 55BABQVL48) + Issuer ID abaixo.
-#   No grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do IOS/AuthKey_55BABQVL48.p8 (PEM multilinha).
+# App Store Connect API — chave gestaoyahwehiosAPI (Key ID 85X9UNAT43) + Issuer ID abaixo.
+#   No grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do IOS/AuthKey_85X9UNAT43.p8 (PEM multilinha).
 #   Ficheiro local em IOS/ (não commitar). Upload TestFlight: passo de script app-store-connect publish (não exige integração nomeada na equipa).
 #   Apple: para upload de builds ao TestFlight, a chave API deve ter papel App Manager ou Admin (não só Developer).
 #
@@ -97,11 +97,13 @@ workflows:
       vars:
         # 0 = não depender de ficheiros injectados pelo YAML ios_signing (evita erro de match certificado/perfil).
         CM_USE_CODEMAGIC_TEAM_SIGNING: "0"
-        # 1 = falha já no passo «Verificar variaveis» se faltar P12+perfil (evita 403 no passo 11).
-        CM_DISALLOW_API_ONLY_SIGNING: "1"
+        # 1 = ignora P12/perfil manuais e usa fluxo API-only (3 secrets), estilo "Controle Total".
+        CM_FORCE_API_ONLY_SIGNING: "1"
+        # 0 = permite API-only sem exigir P12/perfil nos secrets.
+        CM_DISALLOW_API_ONLY_SIGNING: "0"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
-        APP_STORE_CONNECT_KEY_IDENTIFIER: "55BABQVL48"
+        APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
         APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:5c2a89577e79e39b4ac8e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
