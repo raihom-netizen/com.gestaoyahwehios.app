@@ -1,6 +1,5 @@
-# Gera ficheiros de texto com Base64 (uma linha) para colar na Codemagic:
-#   CM_CERTIFICATE, CM_PROVISIONING_PROFILE
-# Saida: D:\Temporarios\gestao_yahweh_codemagic\ (NAO commite estes ficheiros)
+# Gera ficheiros para colar na Codemagic (grupo appstore_credentials).
+# Saida: D:\Temporarios\gestao_yahweh_codemagic\ (NAO commite)
 #
 # Uso (raiz do repo):  .\scripts\encode_ios_codemagic_secrets.ps1
 $ErrorActionPreference = "Stop"
@@ -10,36 +9,6 @@ $OutDir = "D:\Temporarios\gestao_yahweh_codemagic"
 
 if (-not (Test-Path $IOS)) {
     Write-Host "Pasta IOS nao encontrada: $IOS" -ForegroundColor Red
-    exit 1
-}
-
-# Preferir *.p12; senao ficheiro sem extensao tipico do export (gestaoyahwehiosapp).
-# NUNCA usar "distribution" .cer como P12 — causa "Unknown format in import" no Codemagic.
-$p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $p12) {
-    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp")) {
-        $fallback = Join-Path $IOS $name
-        if (Test-Path -LiteralPath $fallback) {
-            $p12 = Get-Item -LiteralPath $fallback
-            break
-        }
-    }
-}
-$prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-
-if (-not $p12) {
-    $cer = Get-ChildItem -Path $IOS -Filter "distribution*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $cer) { $cer = Get-ChildItem -Path $IOS -Filter "*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
-    if ($cer) {
-        Write-Host "AVISO: Existe $($cer.Name) — ficheiro .cer da Apple NAO serve como CERTIFICATE_PRIVATE_KEY (sem chave privada)." -ForegroundColor Yellow
-        Write-Host "       No Mac: duplo clique no .cer → Keychain → exportar «Apple Distribution» + chave privada como .p12." -ForegroundColor Yellow
-        Write-Host "       Ou: na Codemagic, após «Generate certificate», descarregue o pacote .p12 indicado pela equipa." -ForegroundColor Yellow
-    }
-    Write-Host "ERRO: Nenhum .p12 em $IOS (nome *.p12 ou com_gestaoyahwehiosapi sem extensao)." -ForegroundColor Red
-    exit 1
-}
-if (-not $prov) {
-    Write-Host "ERRO: Nenhum ficheiro .mobileprovision em $IOS" -ForegroundColor Red
     exit 1
 }
 
@@ -55,26 +24,111 @@ function Write-Base64OneLine {
     [IO.File]::WriteAllText($DestTxt, $b64One, [Text.UTF8Encoding]::new($false))
 }
 
-$p12Out = Join-Path $OutDir "CM_CERTIFICATE_base64.txt"
-$provOut = Join-Path $OutDir "CM_PROVISIONING_PROFILE_base64.txt"
-
-# PKCS#12 DER costuma comecar por 0x30 (SEQUENCE); .cer sozinho falha no CI.
-$p12Bytes = [IO.File]::ReadAllBytes($p12.FullName)
-if ($p12Bytes.Length -lt 4 -or $p12Bytes[0] -ne 0x30) {
-    Write-Host "AVISO: $($p12.Name) nao parece PKCS#12 (DER). Confirme que e export .p12 do Keychain, nao .cer." -ForegroundColor Yellow
+# --- P12 (Apple Distribution + chave privada) ---
+$p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $p12) {
+    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp")) {
+        $fallback = Join-Path $IOS $name
+        if (Test-Path -LiteralPath $fallback) {
+            $p12 = Get-Item -LiteralPath $fallback
+            break
+        }
+    }
 }
 
-Write-Base64OneLine -Path $p12.FullName -DestTxt $p12Out
+# --- Perfil App Store ---
+$prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+
+# --- AuthKey .p8 (App Store Connect API) ---
+$p8 = Get-ChildItem -Path $IOS -Filter "AuthKey_*.p8" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+
+$p12Out = Join-Path $OutDir "CM_CERTIFICATE_base64.txt"
+$provOut = Join-Path $OutDir "CM_PROVISIONING_PROFILE_base64.txt"
+$p8Out = Join-Path $OutDir "APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt"
+$readmeOut = Join-Path $OutDir "CODEMAGIC___COLAR_NESTA_ORDEM.txt"
+
+if (-not $prov) {
+    Write-Host "ERRO: Nenhum .mobileprovision em $IOS" -ForegroundColor Red
+    exit 1
+}
+
 Write-Base64OneLine -Path $prov.FullName -DestTxt $provOut
 
+if ($p12) {
+    $p12Bytes = [IO.File]::ReadAllBytes($p12.FullName)
+    if ($p12Bytes.Length -lt 4 -or $p12Bytes[0] -ne 0x30) {
+        Write-Host "AVISO: $($p12.Name) nao parece PKCS#12 (DER). Confirme export .p12 do Keychain, nao .cer." -ForegroundColor Yellow
+    }
+    Write-Base64OneLine -Path $p12.FullName -DestTxt $p12Out
+    $p12Ok = $true
+} else {
+    $cer = Get-ChildItem -Path $IOS -Filter "distribution*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $cer) { $cer = Get-ChildItem -Path $IOS -Filter "*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    $msg = @"
+FALTA FICHEIRO .p12 (Apple Distribution + chave privada).
+
+Nao foi encontrado *.p12 em: $IOS
+O ficheiro distribution.cer NAO substitui o P12 (nao tem chave privada).
+
+O que fazer:
+  1) Mac: Keychain → «Apple Distribution: Raihom Barbosa» → Exportar 2 itens → .p12
+  2) Ou: Codemagic → equipa → certificado gerado → descarregar o .p12 indicado
+  3) Coloque o .p12 em IOS\ e volte a correr: .\scripts\encode_ios_codemagic_secrets.ps1
+
+O ficheiro CM_PROVISIONING_PROFILE_base64.txt JA FOI GERADO nesta pasta.
+"@
+    [IO.File]::WriteAllText((Join-Path $OutDir "AINDA_FALTA_P12___LER_ISTO.txt"), $msg, [Text.UTF8Encoding]::new($false))
+    Remove-Item -LiteralPath $p12Out -Force -ErrorAction SilentlyContinue
+    Write-Host 'AVISO: Sem .p12 - nao gerado CM_CERTIFICATE_base64.txt. Leia AINDA_FALTA_P12___LER_ISTO.txt.' -ForegroundColor Yellow
+    $p12Ok = $false
+}
+
+if ($p8) {
+    $pemText = [IO.File]::ReadAllText($p8.FullName, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($p8Out, $pemText.TrimEnd() + "`n", [Text.UTF8Encoding]::new($false))
+} else {
+    Write-Host "AVISO: Nenhum AuthKey_*.p8 em $IOS - nao gerado APP_STORE_CONNECT_PRIVATE_KEY." -ForegroundColor Yellow
+}
+
+$summary = @'
+================================================================================
+Colar na Codemagic - Application - Environment variables - grupo appstore_credentials
+================================================================================
+
+[1] APP_STORE_CONNECT_PRIVATE_KEY
+    Abrir: APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt
+    Copiar TUDO desde -----BEGIN ate -----END inclusive - colar no secret multilinha.
+
+[2] APP_STORE_CONNECT_KEY_IDENTIFIER / KEY_ID
+    Valor no codemagic.yaml: 55BABQVL48
+
+[3] APP_STORE_CONNECT_ISSUER_ID
+    77a1debb-f68b-418d-9fe3-af0f37b40585
+
+[4] CM_PROVISIONING_PROFILE
+    Abrir: CM_PROVISIONING_PROFILE_base64.txt - UMA linha Base64 - colar.
+
+[5] CERTIFICATE_PRIVATE_KEY  (mesmo conteudo que CM_CERTIFICATE_base64)
+    Abrir: CM_CERTIFICATE_base64.txt - UMA linha Base64 - colar.
+    So existe se tiver ficheiro .p12 em IOS; senao leia AINDA_FALTA_P12___LER_ISTO.txt
+
+[6] CM_CERTIFICATE_PASSWORD
+    Senha definida ao exportar o .p12 ou vazio.
+
+NAO commite estes ficheiros nem os partilhe em chats publicos.
+================================================================================
+'@
+[IO.File]::WriteAllText($readmeOut, $summary, [Text.UTF8Encoding]::new($false))
+
 Write-Host ""
-Write-Host "Origem:" -ForegroundColor Cyan
-Write-Host "  P12:              $($p12.FullName)"
-Write-Host "  Provisioning:     $($prov.FullName)"
+Write-Host "Gerado em: $OutDir" -ForegroundColor Green
+Write-Host "  CM_PROVISIONING_PROFILE_base64.txt"
+if ($p8) { Write-Host "  APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt" }
+if ($p12Ok) {
+    Write-Host "  CM_CERTIFICATE_base64.txt"
+} else {
+    Write-Host "  AINDA_FALTA_P12___LER_ISTO.txt  (sem P12 ainda)"
+}
+Write-Host "  CODEMAGIC___COLAR_NESTA_ORDEM.txt"
 Write-Host ""
-Write-Host "Gerado (colar na Codemagic > appstore_credentials):" -ForegroundColor Green
-Write-Host "  CM_CERTIFICATE            -> $p12Out"
-Write-Host "  CM_PROVISIONING_PROFILE   -> $provOut"
-Write-Host ""
-Write-Host "Abra cada .txt no Notepad, Ctrl+A, Ctrl+C e cole no campo correspondente." -ForegroundColor Yellow
-Write-Host "NAO commite estes ficheiros nem os cole em chats publicos." -ForegroundColor DarkYellow
+Write-Host 'Abra CODEMAGIC___COLAR_NESTA_ORDEM.txt para a ordem dos secrets.' -ForegroundColor Cyan
