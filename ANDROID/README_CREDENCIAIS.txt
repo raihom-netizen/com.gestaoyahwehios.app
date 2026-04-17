@@ -5,6 +5,8 @@ Pasta ANDROID — credenciais Google / Firebase (Gestão YAHWEH)
    - Para a APP Android (Flutter): copiar para flutter_app\android\app\google-services.json
    - Ou executar na raiz do repo: .\scripts\sync_android_google_services.ps1
    - Pode ser versionado no Git (contém API key limitada ao pacote; muitos projetos commitam).
+   - Depois de adicionar SHA-1/SHA-256 no Firebase Console, volte a descarregar o ficheiro
+     (Configurações do projeto → a sua app Android) e sincronize de novo.
 
 2) client_secret_....json (OAuth)
    - Para servidores, scripts Node, Cloud Functions que precisem de fluxo OAuth com segredo.
