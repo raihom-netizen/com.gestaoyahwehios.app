@@ -59,7 +59,8 @@ class _SignupPageState extends State<SignupPage> {
     setState(() => _loading = true);
     try {
       if (kIsWeb) {
-        await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
+        await FirebaseAuth.instance
+            .signInWithPopup(firebaseWebGoogleAuthProvider());
       } else {
         await GestorOAuthOnboardingService.signInWithGoogleNative();
       }

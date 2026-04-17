@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' show GoogleAuthProvider;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
@@ -16,6 +17,16 @@ const String kFirebaseGoogleOAuthWebClientId =
 /// OAuth iOS (mesmo [CLIENT_ID] em `ios/Runner/GoogleService-Info.plist`).
 const String kFirebaseIosGoogleClientId =
     '157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg.apps.googleusercontent.com';
+
+/// [FirebaseAuth] na web (`signInWithPopup` / `signInWithRedirect`): escopos e
+/// `prompt=select_account` para evitar conta errada em cache do navegador.
+GoogleAuthProvider firebaseWebGoogleAuthProvider() {
+  final p = GoogleAuthProvider();
+  p.addScope('email');
+  p.addScope('profile');
+  p.setCustomParameters(<String, String>{'prompt': 'select_account'});
+  return p;
+}
 
 GoogleSignIn? _cached;
 

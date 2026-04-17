@@ -370,6 +370,34 @@ class _LoginPageState extends State<LoginPage> {
     await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
   }
 
+  /// Mensagens em português para erros comuns do Google Auth na web.
+  String _messageForGoogleWebAuth(FirebaseAuthException e) {
+    final code = e.code.toLowerCase();
+    if (code.contains('account-exists-with-different-credential')) {
+      return 'Este e-mail já tem login com senha. Use e-mail e senha ou peça ao gestor para alinhar o acesso.';
+    }
+    if (code.contains('invalid-credential')) {
+      return 'Não foi possível validar o login com Google. Tente de novo ou use e-mail e senha.';
+    }
+    if (code.contains('popup-closed') || code.contains('cancel')) {
+      return 'Login Google cancelado.';
+    }
+    if (code.contains('unauthorized-domain')) {
+      return 'Este domínio não está autorizado para login Google. '
+          'Em Firebase Console → Authentication → Settings, adicione o domínio em "Authorized domains".';
+    }
+    if (code.contains('operation-not-allowed')) {
+      return 'Login com Google não está ativado no projeto. '
+          'Ative o provedor Google em Firebase Console → Authentication → Sign-in method.';
+    }
+    if (code.contains('web-storage-unsupported') ||
+        code.contains('storage-unsupported')) {
+      return 'O navegador bloqueou armazenamento necessário para o login. '
+          'Saia do modo anônimo ou permita cookies e armazenamento para este site.';
+    }
+    return e.message ?? e.code;
+  }
+
   /// Web: conclui login após `signInWithRedirect` (quando popup falha ou navegador bloqueia).
   Future<void> _completeGoogleRedirectIfNeeded() async {
     if (!kIsWeb || !mounted) return;
@@ -387,7 +415,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
-      final msg = e.message ?? e.code;
+      final msg = _messageForGoogleWebAuth(e);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(msg)));
@@ -428,7 +456,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       UserCredential cred;
       if (kIsWeb) {
-        final provider = GoogleAuthProvider();
+        final provider = firebaseWebGoogleAuthProvider();
         try {
           cred =
               await FirebaseAuth.instance.signInWithPopup(provider);
@@ -480,19 +508,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
-      final code = e.code.toLowerCase();
-      String msg;
-      if (code.contains('account-exists-with-different-credential')) {
-        msg =
-            'Este e-mail já tem login com senha. Use e-mail e senha ou peça ao gestor para alinhar o acesso.';
-      } else if (code.contains('invalid-credential')) {
-        msg =
-            'Não foi possível validar o login com Google. Tente de novo ou use e-mail e senha.';
-      } else if (code.contains('popup-closed') || code.contains('cancel')) {
-        msg = 'Login Google cancelado.';
-      } else {
-        msg = e.message ?? e.code;
-      }
+      final msg = _messageForGoogleWebAuth(e);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on FirebaseFunctionsException catch (e) {

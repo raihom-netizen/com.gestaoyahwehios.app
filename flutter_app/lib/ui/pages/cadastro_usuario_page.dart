@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 
 class CadastroUsuarioPage extends StatefulWidget {
@@ -28,7 +29,8 @@ class _CadastroUsuarioPageState extends State<CadastroUsuarioPage> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
+      await FirebaseAuth.instance
+          .signInWithPopup(firebaseWebGoogleAuthProvider());
       if (!mounted) return;
       setState(() {
         _loading = false;
