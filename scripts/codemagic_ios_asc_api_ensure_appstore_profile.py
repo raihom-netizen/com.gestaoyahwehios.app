@@ -17,6 +17,7 @@ import base64
 import json
 import os
 import plistlib
+import re
 import tempfile
 import shutil
 import subprocess
@@ -214,6 +215,7 @@ def _certificates_paginated(token: str, query_suffix: str) -> list[dict]:
                 rows.append(
                     {
                         "id": cid,
+                        "der": der,
                         "fingerprint_sha256": fp,
                         "serial_local": ser_local,
                         "serial_api": serial_api,
@@ -235,6 +237,143 @@ def _list_distribution_certificates(token: str) -> list[dict]:
         for row in _certificates_paginated(token, suffix):
             seen[row["id"]] = row
     return list(seen.values())
+
+
+def _spki_der_from_pubkey(pub) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    return pub.public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+
+def _load_distribution_private_key_from_env():
+    """PEM RSA/EC (ou Base64 do PEM) em CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM / CERTIFICATE_PRIVATE_KEY."""
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "-q", "cryptography"],
+        check=False,
+    )
+    from cryptography.hazmat.primitives import serialization
+
+    def to_pem_bytes(raw: str) -> bytes | None:
+        text = raw.strip()
+        if re.search(r"BEGIN (EC |RSA |OPENSSH )?PRIVATE KEY", text):
+            return text.encode("utf-8")
+        b64 = "".join(text.split())
+        try:
+            decoded = base64.b64decode(b64, validate=False)
+        except Exception:
+            return None
+        if re.search(rb"BEGIN (EC |RSA |OPENSSH )?PRIVATE KEY", decoded):
+            return decoded
+        return None
+
+    for envname in ("CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM", "CERTIFICATE_PRIVATE_KEY"):
+        raw = (os.environ.get(envname) or "").strip()
+        if not raw:
+            continue
+        pem_bytes = to_pem_bytes(raw)
+        if not pem_bytes:
+            continue
+        try:
+            return serialization.load_pem_private_key(pem_bytes, password=None)
+        except Exception:
+            continue
+    return None
+
+
+def _find_cert_id_for_privkey(priv, certs: list[dict]) -> str | None:
+    from cryptography import x509
+
+    want = _spki_der_from_pubkey(priv.public_key())
+    for c in certs:
+        der = c.get("der")
+        if not isinstance(der, (bytes, bytearray)) or not der:
+            continue
+        try:
+            cert = x509.load_der_x509_certificate(bytes(der))
+            got = _spki_der_from_pubkey(cert.public_key())
+        except Exception:
+            continue
+        if got == want:
+            return str(c.get("id") or "")
+    return None
+
+
+def download_app_store_profile_api_only_main() -> int:
+    """
+    Descarrega um perfil IOS_APP_STORE via REST (sem depender do CLI fetch-signing-files).
+    Se existir CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (ou CERTIFICATE_PRIVATE_KEY em PEM),
+    prefere perfis que incluam o certificado cujo par de chaves coincide com o PEM.
+    """
+    if os.environ.get("CM_SKIP_ASC_PROFILE_SYNC", "").strip() == "1":
+        print("CM_SKIP_ASC_PROFILE_SYNC=1 — saltar download REST.")
+        return 1
+    bundle = os.environ.get("IOS_BUNDLE_ID", "com.gestaoyahwehios.app").strip()
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"ERRO: JWT: {e}", file=sys.stderr)
+        return 1
+    bundle_rid = _find_bundle_id(token, bundle)
+    if not bundle_rid:
+        print(f"ERRO: bundleId {bundle} não encontrado na App Store Connect.", file=sys.stderr)
+        return 1
+    priv = _load_distribution_private_key_from_env()
+    cert_id: str | None = None
+    certs = _list_distribution_certificates(token)
+    if priv is not None:
+        cert_id = _find_cert_id_for_privkey(priv, certs)
+        if not cert_id:
+            print(
+                "AVISO: PEM local não corresponde a nenhum certificado IOS_DISTRIBUTION na API.",
+                file=sys.stderr,
+            )
+    profiles = _profiles_for_bundle(token, bundle_rid)
+    options: list[tuple[str, str, str]] = []
+    for pr in profiles:
+        attr = pr.get("attributes") or {}
+        if str(attr.get("profileType") or "") != "IOS_APP_STORE":
+            continue
+        pid = str(pr.get("id") or "")
+        if not pid:
+            continue
+        if cert_id and not _profile_includes_certificate(token, pid, cert_id):
+            continue
+        name = str(attr.get("name") or "")
+        exp = str(attr.get("expirationDate") or "")
+        options.append((exp, pid, name))
+    options.sort(reverse=True)
+    for _exp, pid, name in options:
+        raw = _download_profile_content(token, pid)
+        if raw:
+            _write_mobileprovision_and_plist(raw, bundle)
+            print(f"OK: perfil via REST ASC (nome={name!r}, id={pid}).")
+            return 0
+    if cert_id:
+        unique = f"GestaoYahweh_CI_REST_{int(time.time())}"
+        created = _create_app_store_profile(token, bundle_rid, cert_id, bundle, unique)
+        if created:
+            inline = created.get("_inline_profileContent")
+            if isinstance(inline, str) and inline:
+                try:
+                    raw2 = base64.b64decode(inline)
+                except Exception:
+                    raw2 = b""
+                if raw2:
+                    _write_mobileprovision_and_plist(raw2, bundle)
+                    print(f"OK: perfil IOS_APP_STORE criado via REST ({unique}).")
+                    return 0
+            new_id = str(created.get("id") or "")
+            if new_id:
+                raw = _download_profile_content(token, new_id)
+                if raw:
+                    _write_mobileprovision_and_plist(raw, bundle)
+                    print(f"OK: perfil IOS_APP_STORE criado via REST (GET id={new_id}).")
+                    return 0
+    print("ERRO: nenhum perfil IOS_APP_STORE utilizável na API ASC (REST).", file=sys.stderr)
+    return 1
 
 
 def _find_cert_for_p12(fp_p12: str, der_p12: bytes, certs: list[dict]) -> dict | None:
@@ -407,6 +546,12 @@ def matches_only_main() -> int:
 def main() -> int:
     if "--matches-only" in sys.argv:
         return matches_only_main()
+    if "--download-app-store-profile-api-only" in sys.argv:
+        try:
+            return download_app_store_profile_api_only_main()
+        except Exception as e:
+            print(f"ERRO: download REST perfil: {e}", file=sys.stderr)
+            return 1
     if os.environ.get("CM_SKIP_ASC_PROFILE_SYNC", "").strip() == "1":
         print("CM_SKIP_ASC_PROFILE_SYNC=1 — saltar API de perfil.")
         return 0

@@ -222,6 +222,8 @@ _fetch_with_create() {
 }
 
 # --- Fluxo principal ---
+FETCH_EXIT=0
+REST_EXIT=0
 if _has_fixed_distribution_key; then
   echo "=== Modo API-only: chave Distribution fixa + fetch-signing-files ($BUNDLE, IOS_APP_STORE) ==="
   CERT_KEY_FILE="$(_prepare_cert_key_file)"
@@ -229,15 +231,20 @@ if _has_fixed_distribution_key; then
   _fetch_with_create "$CERT_KEY_FILE"
   FETCH_EXIT=$?
   set -eu
+  if [[ "$FETCH_EXIT" -ne 0 ]]; then
+    echo ""
+    echo "AVISO: fetch-signing-files (--create) terminou com codigo $FETCH_EXIT (ver log)."
+    tail -40 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+    tail -40 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
+  fi
 else
-  echo "=== Modo API-only (só API .p8): descarregar perfis existentes — SEM --create (evita 409) ==="
+  echo "=== Modo API-only (só API .p8): fetch SEM --create e SEM --delete-stale-profiles (evita 409 e limpezas agressivas) ==="
   set +e
   app-store-connect fetch-signing-files "$BUNDLE" \
     --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
     --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
     --private-key "@file:/tmp/_asc_ok.pem" \
     --type IOS_APP_STORE \
-    --delete-stale-profiles \
     --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
   FETCH_EXIT=$?
   set -eu
@@ -246,33 +253,35 @@ else
     echo "AVISO: fetch sem --create terminou com codigo $FETCH_EXIT (ver log)."
     tail -40 /tmp/cm_api_only_fetch.log 2>/dev/null || true
   fi
-  if _run_select_profile_python; then
-    _persist_asc_pem_to_cm_env
-    echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, perfis existentes)."
-    exit 0
-  fi
-  echo ""
-  echo "AVISO: nenhum perfil App Store local após download-only."
-  echo "        A tentar fluxo com --certificate-key + --create (requer CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM se a Apple já tiver 3 certs)."
-  echo "        Gere PEM fixo: .\\scripts\\gen_ios_distribution_csr_private_key_pem.ps1"
-  CERT_KEY_FILE="$(_prepare_cert_key_file)"
-  set +e
-  _fetch_with_create "$CERT_KEY_FILE"
-  FETCH_EXIT=$?
-  set -eu
 fi
 
-if [[ "${FETCH_EXIT:-1}" -ne 0 ]]; then
-  echo ""
-  echo "ERRO: fetch-signing-files falhou (codigo $FETCH_EXIT)."
-  echo "  Chave API: Admin + APP_STORE_CONNECT_PRIVATE_KEY / KEY_IDENTIFIER / ISSUER_ID."
-  echo "  Se 409: defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA fixo) ou revogue um certificado Distribution antigo na Apple."
-  tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
-  tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
-  exit 1
+if _run_select_profile_python; then
+  _persist_asc_pem_to_cm_env
+  echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, CLI)."
+  exit 0
 fi
 
-_run_select_profile_python
+echo ""
+echo "=== Fallback: perfil IOS_APP_STORE via REST (App Store Connect API) ==="
+set +e
+python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --download-app-store-profile-api-only
+REST_EXIT=$?
+set -eu
+if [[ "$REST_EXIT" -ne 0 ]]; then
+  echo "AVISO: fallback REST terminou com codigo $REST_EXIT."
+fi
 
-_persist_asc_pem_to_cm_env
-echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (modo API-only)."
+if _run_select_profile_python; then
+  _persist_asc_pem_to_cm_env
+  echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, REST ASC)."
+  exit 0
+fi
+
+echo ""
+echo "ERRO: nenhum perfil App Store adequado após CLI (codigo ${FETCH_EXIT}) + REST (codigo ${REST_EXIT})."
+echo "  Confirme chave API (Admin) e APP_STORE_CONNECT_*."
+echo "  Recomendado: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (mesmo PEM em todos os builds) — scripts/gen_ios_distribution_csr_private_key_pem.ps1"
+echo "  Ou modo manual: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64)."
+tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
+exit 1
