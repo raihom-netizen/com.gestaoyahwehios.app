@@ -3,11 +3,15 @@ import 'dart:async' show TimeoutException, unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
+import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
+import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
@@ -20,6 +24,7 @@ import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart';
 import 'package:intl/intl.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 enum _SmartStep { choosePersona, gestorBranch, credentials }
 
@@ -73,6 +78,9 @@ class _LoginPageState extends State<LoginPage> {
   /// Após escolher persona: membro (true) ou gestor já cadastrado (false).
   bool _credentialsAsMembro = true;
 
+  /// iOS/macOS nativo: exibir «Continuar com Apple» quando o SO suportar.
+  bool _appleSignInAvailable = false;
+
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
     if (widget.afterLoginRoute == '/admin') return 'master';
@@ -107,6 +115,11 @@ class _LoginPageState extends State<LoginPage> {
         !_isMasterAdminLogin) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _completeGoogleRedirectIfNeeded());
+    }
+    if (!kIsWeb) {
+      SignInWithApple.isAvailable().then((ok) {
+        if (mounted) setState(() => _appleSignInAvailable = ok);
+      });
     }
   }
 
@@ -363,12 +376,32 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _afterGoogleSignInSuccess() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
+        user.uid)) {
+      await user.getIdToken(false);
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
+      return;
+    }
+
+    if (await ChurchBindingRepairCoordinator.conservativeChurchBindingLooksOk(
+        user)) {
+      await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
+      await user.getIdToken(false);
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
+      return;
+    }
+
     final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
       'repairMyChurchBinding',
       options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
     );
+    var repairCallSucceeded = false;
     try {
       await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 46));
+      repairCallSucceeded = true;
     } on FirebaseFunctionsException catch (e) {
       final code = (e.code).toLowerCase();
       if (code.contains('not-found')) rethrow;
@@ -377,6 +410,9 @@ class _LoginPageState extends State<LoginPage> {
       debugPrint('repairMyChurchBinding: timeout $e');
     } catch (e, st) {
       debugPrint('repairMyChurchBinding: $e\n$st');
+    }
+    if (repairCallSucceeded) {
+      await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
     }
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
@@ -561,6 +597,65 @@ class _LoginPageState extends State<LoginPage> {
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
       final msg = 'Falha no login com Google. Tente de novo ou use e-mail e senha.';
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n$e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Painel igreja (iOS/macOS): mesmo pós-login que Google ([_afterGoogleSignInSuccess]).
+  Future<void> _onAppleChurchLogin() async {
+    if (!_showChurchGoogleButton || !_appleSignInAvailable || kIsWeb || _loading) {
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      final cred = await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
+      if (cred == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Entrar com Apple não está disponível neste aparelho.'),
+            ),
+          );
+        }
+        return;
+      }
+      if (!mounted || cred.user == null) return;
+      await _afterGoogleSignInSuccess();
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final msg = _messageForGoogleWebAuth(e);
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final code = (e.code).toLowerCase();
+      final msg = code.contains('not-found')
+          ? (_credentialsAsMembro
+              ? 'Não encontramos cadastro de membro ou gestor com esta Apple ID. '
+                  'Confira se o e-mail na igreja é o mesmo da conta Apple. '
+                  'Se você é gestor e quer cadastrar uma igreja nova, volte e escolha a opção correspondente.'
+              : 'Não encontramos uma igreja vinculada a esta Apple ID. '
+                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
+          : (e.message ?? e.code);
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      final low = e.toString().toLowerCase();
+      if (low.contains('cancel')) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      const msg = 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n$e')));
     } finally {
@@ -862,30 +957,47 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildGoogleSignInButton(Color theme) {
+  Widget _buildChurchOAuthButtons(Color theme) {
     if (!_showChurchGoogleButton) return const SizedBox.shrink();
-    return OutlinedButton(
-      onPressed: _loading ? null : _onGoogleChurchLogin,
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        side: BorderSide(color: Colors.grey.shade400),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _googleMark(),
-          const SizedBox(width: 10),
-          Text(
-            'Continuar com Google',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: theme,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton(
+          onPressed: _loading ? null : _onGoogleChurchLogin,
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            side: BorderSide(color: Colors.grey.shade400),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _googleMark(),
+              const SizedBox(width: 10),
+              Text(
+                'Continuar com Google',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: theme,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!kIsWeb && _appleSignInAvailable) ...[
+          const SizedBox(height: 10),
+          SignInWithAppleButton(
+            onPressed: () {
+              if (_loading) return;
+              unawaited(_onAppleChurchLogin());
+            },
+            style: SignInWithAppleButtonStyle.black,
+            height: 48,
+            text: 'Continuar com Apple',
           ),
         ],
-      ),
+      ],
     );
   }
 
@@ -1301,7 +1413,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         const SizedBox(height: 14),
-        _buildGoogleSignInButton(theme),
+        _buildChurchOAuthButtons(theme),
         if (_showChurchGoogleButton) ...[
           const SizedBox(height: 10),
           Row(
@@ -1497,9 +1609,9 @@ class _LoginPageState extends State<LoginPage> {
                               Text(
                                 _credentialsAsMembro
                                     ? 'Membro: use o mesmo e-mail cadastrado na igreja. '
-                                        'Pode entrar com Google ou e-mail e senha.'
+                                        'Pode entrar com Google, Apple (iPhone/Mac) ou e-mail e senha.'
                                     : 'Gestor: use o e-mail da conta da igreja. '
-                                        'Pode entrar com Google ou e-mail e senha.',
+                                        'Pode entrar com Google, Apple (iPhone/Mac) ou e-mail e senha.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey.shade700,
@@ -1507,7 +1619,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ),
                               const SizedBox(height: 14),
-                              _buildGoogleSignInButton(theme),
+                              _buildChurchOAuthButtons(theme),
                               if (_showChurchGoogleButton) ...[
                                 const SizedBox(height: 10),
                                 Row(
@@ -1613,6 +1725,10 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                       ),
+                      if (_nativeChurchLogin) ...[
+                        const SizedBox(height: 16),
+                        _buildNativeStoreDownloadSection(theme),
+                      ],
                       if (_nativeChurchLogin && !_showGestorMarketingBlocks) ...[
                         const SizedBox(height: 14),
                         const YahwehOfficialSocialChannelsBar(compact: true),
@@ -1651,6 +1767,83 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _launchStoreUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (!await canLaunchUrl(uri)) return;
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  /// Entrada do app nativo: Play Store (Android) ou convite TestFlight (iPhone).
+  Widget _buildNativeStoreDownloadSection(Color theme) {
+    if (kIsWeb) return const SizedBox.shrink();
+    final isAndroid = defaultTargetPlatform == TargetPlatform.android;
+    final isIos = defaultTargetPlatform == TargetPlatform.iOS;
+    if (!isAndroid && !isIos) return const SizedBox.shrink();
+
+    if (isAndroid) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Atualize, avalie ou partilhe o app na loja oficial.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade800,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: () => unawaited(
+                _launchStoreUrl(AppConstants.gestaoYahwehPlayStoreUrl)),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF01875F),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: const Icon(Icons.shop_2_outlined),
+            label: const Text('Abrir na Google Play'),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          AppConstants.marketingDownloadIosTestFlightHint,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: Colors.grey.shade800,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.tonalIcon(
+          onPressed: () => unawaited(
+              _launchStoreUrl(AppConstants.gestaoYahwehTestFlightUrl)),
+          style: FilledButton.styleFrom(
+            foregroundColor: theme,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.apple),
+          label: const Text('iPhone (TestFlight)'),
+        ),
+      ],
     );
   }
 
@@ -1809,8 +2002,8 @@ class _LoginPageState extends State<LoginPage> {
                           const SizedBox(height: 8),
                           Text(
                             _credentialsAsMembro
-                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google ou e-mail e senha.'
-                                : 'Gestor: e-mail da conta da igreja. Google ou e-mail e senha.',
+                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha.'
+                                : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,
@@ -1820,7 +2013,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ],
                         const SizedBox(height: 16),
-                        _buildGoogleSignInButton(theme),
+                        _buildChurchOAuthButtons(theme),
                         if (_showChurchGoogleButton) ...[
                           const SizedBox(height: 10),
                           Row(

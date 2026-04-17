@@ -1480,11 +1480,22 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              'Android e iOS para os membros da igreja.',
+                                              'Android: Play Store (botão Android). '
+                                              'iPhone: siga o TestFlight — toque em Apple abaixo; depois instale Gestão Yahweh - Igrejas.',
                                               style: TextStyle(
                                                   fontSize: 14,
                                                   color: Colors.grey.shade700,
                                                   height: 1.4),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              AppConstants
+                                                  .marketingDownloadIosTestFlightHint,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.grey.shade600,
+                                                height: 1.35,
+                                              ),
                                             ),
                                             const SizedBox(height: 16),
                                             StreamBuilder<
@@ -1543,7 +1554,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                             },
                                                       icon: const Icon(
                                                           Icons.apple),
-                                                      label: const Text('iOS'),
+                                                      label: const Text(
+                                                          'iPhone (TestFlight)'),
                                                     ),
                                                     OutlinedButton.icon(
                                                       onPressed: folderUrl
@@ -3587,11 +3599,20 @@ class _ChurchTenantFallback extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                      'Android: Play Store (app Controle Total) por defeito; iOS e pasta em config/appDownloads.',
+                      'Android: Play Store (Gestão Yahweh). iPhone: TestFlight — toque em Apple abaixo; depois instale Gestão Yahweh - Igrejas.',
                       style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade700,
                           height: 1.4)),
+                  const SizedBox(height: 8),
+                  Text(
+                    AppConstants.marketingDownloadIosTestFlightHint,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      height: 1.35,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: FirebaseFirestore.instance
@@ -3612,7 +3633,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                             },
                             icon: const Icon(Icons.android),
                             label: const Text('Android')),
-                        OutlinedButton.icon(
+                        FilledButton.tonalIcon(
                             onPressed: iosEff.isEmpty
                                 ? null
                                 : () {
@@ -3621,7 +3642,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                                         context, Uri.parse(iosEff));
                                   },
                             icon: const Icon(Icons.apple),
-                            label: const Text('iOS')),
+                            label: const Text('iPhone (TestFlight)')),
                       ]);
                     },
                   ),

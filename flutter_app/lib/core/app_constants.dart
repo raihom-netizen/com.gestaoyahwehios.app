@@ -21,6 +21,17 @@ class AppConstants {
   static const String gestaoYahwehPlayStoreUrl =
       'https://play.google.com/store/apps/details?id=com.gestaoyahweh.app';
 
+  /// TestFlight — convite público para instalar **Gestão Yahweh - Igrejas** no iPhone.
+  /// Usado no site de divulgação quando `config/appDownloads.iosUrl` está vazio.
+  static const String gestaoYahwehTestFlightUrl =
+      'https://testflight.apple.com/join/4Zdptnh8';
+
+  /// Texto curto para a secção de downloads (web / site público).
+  static const String marketingDownloadIosTestFlightHint =
+      'iPhone: toque no botão Apple (iOS) abaixo. Abre-se o convite do '
+      'TestFlight — aceite na App Store, instale o app TestFlight se for pedido e, '
+      'em seguida, instale Gestão Yahweh - Igrejas.';
+
   /// Alias legado — mesmo destino que [gestaoYahwehPlayStoreUrl].
   static const String marketingPlayStoreAndroidUrl = gestaoYahwehPlayStoreUrl;
 
@@ -30,11 +41,12 @@ class AppConstants {
     return raw.isNotEmpty ? raw : marketingPlayStoreAndroidUrl;
   }
 
-  /// `config/appDownloads` — iOS: `iosUrl` ou pasta de downloads.
+  /// `config/appDownloads` — iOS: `iosUrl` (painel master), senão convite [gestaoYahwehTestFlightUrl].
+  /// A pasta `driveFolderUrl` continua só no botão «Pasta de downloads».
   static String effectiveAppDownloadsIosUrl(Map<String, dynamic>? data) {
     final ios = (data?['iosUrl'] ?? '').toString().trim();
-    final folder = (data?['driveFolderUrl'] ?? '').toString().trim();
-    return ios.isNotEmpty ? ios : folder;
+    if (ios.isNotEmpty) return ios;
+    return gestaoYahwehTestFlightUrl;
   }
 
   /// Base https normalizada (sem path final). [raw] pode ser `dominio.com` ou URL completa.

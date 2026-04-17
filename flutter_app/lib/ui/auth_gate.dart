@@ -23,6 +23,7 @@ import '../services/church_funcoes_controle_service.dart';
 import '../services/fcm_service.dart';
 import '../services/app_permissions.dart';
 import '../services/tenant_resolver_service.dart';
+import '../services/church_binding_repair_coordinator.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
 class _IgrejaNaoVinculadaPage extends StatefulWidget {
@@ -445,6 +446,15 @@ class _AuthGateState extends State<AuthGate> {
       } else if (cached != null && cached['church'] is Map) {
         churchData = Map<String, dynamic>.from(cached['church'] as Map);
       } else if (repairDepth < 1 && AppConnectivityService.instance.isOnline) {
+        if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
+            user.uid)) {
+          try {
+            await user.getIdToken(true);
+            final retried =
+                await _loadProfile(user, repairDepth: repairDepth + 1);
+            if (retried != null) return retried;
+          } catch (_) {}
+        }
         try {
           final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
@@ -455,6 +465,7 @@ class _AuthGateState extends State<AuthGate> {
               .call(<String, dynamic>{})
               .timeout(const Duration(seconds: 46));
           await user.getIdToken(true);
+          await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
           return _loadProfile(user, repairDepth: repairDepth + 1);
         } catch (_) {}
       }

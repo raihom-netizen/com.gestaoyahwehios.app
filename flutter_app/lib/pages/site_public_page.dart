@@ -1317,9 +1317,18 @@ class _DownloadsSection extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Android: app Gestão YAHWEH na Play Store (link direto abaixo). '
-              'iOS e pasta: configuráveis pelo painel master em config/appDownloads.',
-              style: TextStyle(color: Colors.black54),
+              'Android: instale Gestão Yahweh - Igrejas pela Play Store (botão Android abaixo).',
+              style: TextStyle(color: Colors.black54, height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              AppConstants.marketingDownloadIosTestFlightHint,
+              style: TextStyle(color: Colors.black54, height: 1.35),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Links alternativos podem ser definidos pelo painel master em config/appDownloads.',
+              style: TextStyle(color: Colors.black45, fontSize: 12.5, height: 1.3),
             ),
             const SizedBox(height: 12),
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -1348,7 +1357,7 @@ class _DownloadsSection extends StatelessWidget {
                           ? null
                           : () => _open(iosEffective),
                       icon: const Icon(Icons.apple),
-                      label: const Text('iOS'),
+                      label: const Text('iPhone (TestFlight)'),
                     ),
                     OutlinedButton.icon(
                       onPressed: folderUrl.isEmpty
