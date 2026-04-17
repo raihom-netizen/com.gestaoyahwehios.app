@@ -339,8 +339,8 @@ workflows:
           printf '%s\n' "$ABS_IPA" > "$FLUTTER_PWD/.cm_last_ipa_path"
           printf '%s\n' "$ABS_IPA" > "$ROOT/.cm_yw_last_ipa_path"
           mkdir -p "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
-          cp -f "$ABS_IPA" "$ROOT/build/ios/ipa/"
-          cp -f "$ABS_IPA" "$FLUTTER_PWD/build/ios/ipa/"
+          bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$ROOT/build/ios/ipa"
+          bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$FLUTTER_PWD/build/ios/ipa"
           echo "IPA: $ABS_IPA"
           echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
           ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
@@ -375,7 +375,7 @@ workflows:
             fi
             IPA_FILE="$(tr -d '\r\n' < "$marker" | head -n 1)"
             if [ -n "$IPA_FILE" ] && [ -f "$IPA_FILE" ]; then
-              cp -f "$IPA_FILE" build/ios/ipa/
+              bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$IPA_FILE" "$ROOT/build/ios/ipa"
               COPIED=1
               echo "Copiado via $marker: $IPA_FILE"
               break
@@ -383,7 +383,9 @@ workflows:
             echo "AVISO: $marker invalido ou ficheiro ausente: ${IPA_FILE:-<vazio>}"
           done
           if [ "$COPIED" -eq 0 ] && [ -d "$CLASSIC_IPA_DIR" ]; then
-            find "$CLASSIC_IPA_DIR" -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} build/ios/ipa/ \;
+            find "$CLASSIC_IPA_DIR" -maxdepth 1 -name "*.ipa" -type f | while read -r _ipa; do
+              bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$_ipa" "$ROOT/build/ios/ipa"
+            done
             if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
               COPIED=1
             fi
@@ -395,7 +397,9 @@ workflows:
             if [ ! -d "$extra" ]; then
               continue
             fi
-            find "$extra" -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} build/ios/ipa/ \;
+            find "$extra" -maxdepth 1 -name "*.ipa" -type f | while read -r _ipa; do
+              bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$_ipa" "$ROOT/build/ios/ipa"
+            done
             if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
               COPIED=1
               echo "Copiado de $extra"
@@ -415,7 +419,7 @@ workflows:
             fi
             while IFS= read -r f; do
               [ -z "$f" ] && continue
-              cp -f "$f" build/ios/ipa/
+              bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$f" "$ROOT/build/ios/ipa"
             done < /tmp/cm_ipa_list.txt
           fi
           echo "IPAs prontos para artefactos / App Store Connect:"
@@ -423,7 +427,9 @@ workflows:
           ls -la "$CLASSIC_IPA_DIR" 2>/dev/null || true
           # Alguns passos / publicadores procuram *.ipa na raiz do clone — copiar também para ROOT.
           if find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -print -quit 2>/dev/null | grep -q .; then
-            find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} "$ROOT/" \;
+            find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f | while read -r _ipa; do
+              bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$_ipa" "$ROOT"
+            done
             echo "Copia para raiz do workspace ($ROOT):"
             ls -la "$ROOT"/*.ipa 2>/dev/null || true
           fi
