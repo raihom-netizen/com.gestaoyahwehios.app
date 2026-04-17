@@ -425,7 +425,8 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
     this.onTap,
   });
 
-  static const double _maxImageHeight = 200;
+  /// Altura máxima da faixa de imagem — proporção editorial (~16:10), com teto para mobile.
+  static const double _maxImageHeight = 232;
 
   bool get _hasPhoto =>
       imageUrl.trim().isNotEmpty && isValidImageUrl(imageUrl.trim());
@@ -440,33 +441,42 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(18);
+    final borderRadius = BorderRadius.circular(22);
     final weekdayLine = weekdayLongLabel.isNotEmpty
         ? weekdayLongLabel
         : weekdayLabel;
+    final deep = Color.lerp(accent, const Color(0xFF0F172A), 0.42)!;
 
     return Material(
       color: Colors.transparent,
+      elevation: 0,
       child: InkWell(
         onTap: onTap,
         borderRadius: borderRadius,
+        splashColor: accent.withValues(alpha: 0.12),
+        highlightColor: accent.withValues(alpha: 0.06),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                Color.lerp(Colors.white, accent, 0.04)!,
+              ],
+            ),
             borderRadius: borderRadius,
-            border: Border(
-              left: BorderSide(color: accent, width: 4),
-              top: const BorderSide(color: Color(0xFFE8EEF4)),
-              right: const BorderSide(color: Color(0xFFE8EEF4)),
-              bottom: const BorderSide(color: Color(0xFFE8EEF4)),
+            border: Border.all(
+              color: Color.lerp(const Color(0xFFE2E8F0), accent, 0.12)!,
+              width: 1.2,
             ),
             boxShadow: [
               ...ThemeCleanPremium.softUiCardShadow,
               BoxShadow(
-                color: accent.withValues(alpha: 0.07),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-                spreadRadius: -6,
+                color: accent.withValues(alpha: 0.1),
+                blurRadius: 36,
+                offset: const Offset(0, 18),
+                spreadRadius: -8,
               ),
             ],
           ),
@@ -479,22 +489,86 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                   LayoutBuilder(
                     builder: (context, c) {
                       final w = c.maxWidth;
-                      final naturalH = w * 9 / 16;
-                      final h = math.min(naturalH, _maxImageHeight);
+                      final naturalH = w * 10 / 16;
+                      final h = math.min(naturalH, _maxImageHeight).clamp(156.0, _maxImageHeight);
                       final dpr =
                           MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-                      final mw = (w * dpr).round().clamp(320, 1600);
-                      final mh = (h * dpr).round().clamp(180, 600);
+                      final mw = (w * dpr).round().clamp(360, 1800);
+                      final mh = (h * dpr).round().clamp(220, 900);
                       return SizedBox(
                         height: h,
                         width: double.infinity,
-                        child: FreshFirebaseStorageImage(
-                          imageUrl: imageUrl.trim(),
-                          fit: BoxFit.cover,
-                          memCacheWidth: mw,
-                          memCacheHeight: mh,
-                          placeholder: YahwehPremiumFeedShimmer.mediaCover(),
-                          errorWidget: _SchedulePhotoFallback(accent: accent),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            FreshFirebaseStorageImage(
+                              imageUrl: imageUrl.trim(),
+                              fit: BoxFit.cover,
+                              memCacheWidth: mw,
+                              memCacheHeight: mh,
+                              placeholder: YahwehPremiumFeedShimmer.mediaCover(),
+                              errorWidget: _SchedulePhotoFallback(accent: accent),
+                            ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: h * 0.42,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black.withValues(alpha: 0.18),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: 12,
+                              top: 12,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.92),
+                                  borderRadius: BorderRadius.circular(10),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.08),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.auto_awesome_rounded,
+                                        size: 14,
+                                        color: accent,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Agenda',
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.4,
+                                          color: deep,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
@@ -502,25 +576,25 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                 else
                   _SchedulePhotoFallback(accent: accent, compact: false),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
-                          fontSize: 18,
+                        style: TextStyle(
+                          fontSize: 19,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: -0.4,
-                          height: 1.22,
-                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.5,
+                          height: 1.2,
+                          color: deep,
                         ),
                       ),
                       if (dateShort.isNotEmpty ||
                           weekdayLine.isNotEmpty ||
                           timeLabel.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        _ScheduleWhenStrip(
+                        const SizedBox(height: 12),
+                        _ScheduleWhenChips(
                           accent: accent,
                           dateShort: dateShort,
                           weekdayLine: weekdayLine,
@@ -528,31 +602,39 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                         ),
                       ],
                       if (_showVenueLine) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Icon(
-                                Icons.place_outlined,
-                                size: 17,
-                                color: accent.withValues(alpha: 0.75),
-                              ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFE8EEF4),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                location.trim(),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  height: 1.4,
-                                  color: Colors.grey.shade700,
-                                  fontWeight: FontWeight.w600,
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.place_rounded,
+                                size: 18,
+                                color: accent.withValues(alpha: 0.85),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  location.trim(),
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    height: 1.45,
+                                    color: Colors.grey.shade800,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ],
@@ -567,14 +649,14 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   }
 }
 
-/// Uma linha: data · dia · hora (menos altura que três pastilhas).
-class _ScheduleWhenStrip extends StatelessWidget {
+/// Data / dia / hora em pastilhas separadas (legibilidade + aspecto premium).
+class _ScheduleWhenChips extends StatelessWidget {
   final Color accent;
   final String dateShort;
   final String weekdayLine;
   final String timeLabel;
 
-  const _ScheduleWhenStrip({
+  const _ScheduleWhenChips({
     required this.accent,
     required this.dateShort,
     required this.weekdayLine,
@@ -583,40 +665,96 @@ class _ScheduleWhenStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parts = <String>[];
-    if (dateShort.isNotEmpty) parts.add(dateShort);
-    if (weekdayLine.isNotEmpty) parts.add(weekdayLine);
-    if (timeLabel.isNotEmpty) parts.add(timeLabel);
-    if (parts.isEmpty) return const SizedBox.shrink();
+    final deep = Color.lerp(accent, const Color(0xFF0F172A), 0.35)!;
 
-    final deep = Color.lerp(accent, const Color(0xFF0F172A), 0.38)!;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.event_available_rounded, size: 20, color: accent),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              parts.join(' · '),
+    Widget? chip(IconData icon, String text, {required bool filled}) {
+      if (text.isEmpty) return null;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: filled
+              ? LinearGradient(
+                  colors: [
+                    accent.withValues(alpha: 0.95),
+                    Color.lerp(accent, deep, 0.15)!,
+                  ],
+                )
+              : null,
+          color: filled ? null : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: filled
+                ? Colors.transparent
+                : accent.withValues(alpha: 0.28),
+            width: 1.2,
+          ),
+          boxShadow: filled
+              ? [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.28),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: filled ? Colors.white : accent,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              text,
               style: TextStyle(
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: FontWeight.w800,
-                height: 1.25,
-                color: deep,
-                letterSpacing: -0.15,
+                letterSpacing: -0.2,
+                color: filled ? Colors.white : deep,
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
+      );
+    }
+
+    final c1 = chip(Icons.calendar_today_rounded, dateShort, filled: true);
+    final c2 = chip(Icons.wb_sunny_rounded, weekdayLine, filled: false);
+    final c3 = chip(Icons.schedule_rounded, timeLabel, filled: false);
+
+    final row = <Widget>[];
+    if (c1 != null) row.add(c1);
+    if (c2 != null) {
+      if (row.isNotEmpty) row.add(const SizedBox(width: 8));
+      row.add(c2);
+    }
+    if (c3 != null) {
+      if (row.isNotEmpty) row.add(const SizedBox(width: 8));
+      row.add(c3);
+    }
+    if (row.isEmpty) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        if (c.maxWidth < 340) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (c1 != null) c1,
+              if (c2 != null) c2,
+              if (c3 != null) c3,
+            ],
+          );
+        }
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: row),
+        );
+      },
     );
   }
 }
@@ -632,26 +770,61 @@ class _SchedulePhotoFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final h = compact ? 120.0 : 132.0;
-    return Container(
+    final h = compact ? 120.0 : 168.0;
+    return SizedBox(
       height: h,
       width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.2),
-            const Color(0xFFF8FAFC),
-            accent.withValues(alpha: 0.08),
-          ],
-        ),
-      ),
-      child: Center(
-        child: Icon(
-          Icons.event_available_rounded,
-          size: 48,
-          color: accent.withValues(alpha: 0.45),
+      child: ClipRRect(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  accent.withValues(alpha: 0.22),
+                  const Color(0xFFF8FAFC),
+                  Color.lerp(const Color(0xFFEFF6FF), accent, 0.06)!,
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            right: -20,
+            top: -24,
+            child: Icon(
+              Icons.event_repeat_rounded,
+              size: compact ? 72 : 120,
+              color: accent.withValues(alpha: 0.07),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.event_available_rounded,
+                  size: compact ? 44 : 52,
+                  color: accent.withValues(alpha: 0.5),
+                ),
+                if (!compact) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Imagem opcional',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: accent.withValues(alpha: 0.55),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
         ),
       ),
     );

@@ -996,9 +996,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 labelColor: Colors.white,
                 unselectedLabelColor: Colors.white70,
                 tabs: const [
-                  Tab(text: 'Cadastros'),
-                  Tab(text: 'Agenda geral'),
-                  Tab(text: 'Lista'),
+                  Tab(
+                    text: 'Cadastros',
+                    icon: Icon(Icons.storefront_rounded, size: 20),
+                  ),
+                  Tab(
+                    text: 'Agenda geral',
+                    icon: Icon(Icons.calendar_month_rounded, size: 20),
+                  ),
+                  Tab(
+                    text: 'Lista',
+                    icon: Icon(Icons.view_agenda_rounded, size: 20),
+                  ),
                 ],
               ),
             )
@@ -1039,9 +1048,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     dense: true,
                     controller: _tabMain,
                     tabs: const [
-                      Tab(text: 'Cadastros'),
-                      Tab(text: 'Agenda geral'),
-                      Tab(text: 'Lista'),
+                      Tab(
+                        text: 'Cadastros',
+                        icon: Icon(Icons.storefront_rounded, size: 18),
+                      ),
+                      Tab(
+                        text: 'Agenda geral',
+                        icon: Icon(Icons.calendar_month_rounded, size: 18),
+                      ),
+                      Tab(
+                        text: 'Lista',
+                        icon: Icon(Icons.view_agenda_rounded, size: 18),
+                      ),
                     ],
                   ),
                 ),
@@ -1050,7 +1068,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   padding: ThemeCleanPremium.pagePadding(context),
                   child: ModuleHeaderPremium(
                     title: 'Fornecedores & prestadores',
-                    icon: Icons.business_center_rounded,
+                    icon: Icons.storefront_rounded,
                     subtitle: 'Cadastro completo, financeiro e agenda de vencimentos',
                   ),
                 ),
@@ -1062,9 +1080,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   unselectedLabelColor: Colors.grey.shade600,
                   indicatorColor: ThemeCleanPremium.primary,
                   tabs: const [
-                    Tab(text: 'Cadastros'),
-                    Tab(text: 'Agenda geral'),
-                    Tab(text: 'Lista'),
+                    Tab(
+                      text: 'Cadastros',
+                      icon: Icon(Icons.storefront_rounded, size: 20),
+                    ),
+                    Tab(
+                      text: 'Agenda geral',
+                      icon: Icon(Icons.calendar_month_rounded, size: 20),
+                    ),
+                    Tab(
+                      text: 'Lista',
+                      icon: Icon(Icons.view_agenda_rounded, size: 20),
+                    ),
                   ],
                 ),
               Expanded(
@@ -1337,6 +1364,9 @@ class _FornecedoresCompromissosListaTab extends StatefulWidget {
 class _FornecedoresCompromissosListaTabState
     extends State<_FornecedoresCompromissosListaTab>
     with AutomaticKeepAliveClientMixin {
+  /// Recria subscrições Firestore após «Tentar novamente» (ex.: índice em deploy).
+  int _retryNonce = 0;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -1387,21 +1417,30 @@ class _FornecedoresCompromissosListaTabState
   Widget build(BuildContext context) {
     super.build(context);
     final pad = ThemeCleanPremium.pagePadding(context);
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: widget.colFornecedores.orderBy('nome').limit(500).snapshots(),
-      builder: (context, fnSnap) {
-        final nomePorId = <String, String>{};
-        for (final d in fnSnap.data?.docs ?? []) {
-          nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
-        }
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _query.snapshots(),
-          builder: (context, snap) {
+    return KeyedSubtree(
+      key: ValueKey<int>(_retryNonce),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: widget.colFornecedores.orderBy('nome').limit(500).snapshots(),
+        builder: (context, fnSnap) {
+          if (fnSnap.hasError) {
+            return ChurchPanelErrorBody(
+              title: 'Erro ao carregar cadastros de fornecedores',
+              error: fnSnap.error,
+              onRetry: () => setState(() => _retryNonce++),
+            );
+          }
+          final nomePorId = <String, String>{};
+          for (final d in fnSnap.data?.docs ?? []) {
+            nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
+          }
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _query.snapshots(),
+            builder: (context, snap) {
             if (snap.hasError) {
               return ChurchPanelErrorBody(
                 title: 'Erro ao carregar agendamentos',
                 error: snap.error,
-                onRetry: () => setState(() {}),
+                onRetry: () => setState(() => _retryNonce++),
               );
             }
             if (!snap.hasData || !fnSnap.hasData) {
@@ -1463,7 +1502,7 @@ class _FornecedoresCompromissosListaTabState
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Icon(
-                                        Icons.view_list_rounded,
+                                        Icons.view_agenda_rounded,
                                         size: 20,
                                         color: ThemeCleanPremium.primary,
                                       ),
@@ -1676,6 +1715,7 @@ class _FornecedoresCompromissosListaTabState
           },
         );
       },
+    ),
     );
   }
 }
@@ -3239,10 +3279,22 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               indicatorWeight: 3.2,
               labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
               tabs: const [
-                Tab(text: 'Cadastro', icon: Icon(Icons.badge_rounded)),
-                Tab(text: 'Financeiro', icon: Icon(Icons.payments_rounded)),
-                Tab(text: 'Agenda', icon: Icon(Icons.event_rounded)),
-                Tab(text: 'Lista', icon: Icon(Icons.view_list_rounded)),
+                Tab(
+                  text: 'Cadastro',
+                  icon: Icon(Icons.storefront_rounded, size: 20),
+                ),
+                Tab(
+                  text: 'Financeiro',
+                  icon: Icon(Icons.payments_rounded, size: 20),
+                ),
+                Tab(
+                  text: 'Agenda',
+                  icon: Icon(Icons.calendar_month_rounded, size: 20),
+                ),
+                Tab(
+                  text: 'Lista',
+                  icon: Icon(Icons.view_agenda_rounded, size: 20),
+                ),
               ],
             ),
           ),
@@ -3358,7 +3410,7 @@ class _CadastroTab extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 16),
-            _infoTile(Icons.badge_rounded, 'Documento', (m['cpfCnpj'] ?? '').toString()),
+            _infoTile(Icons.contact_page_rounded, 'Documento', (m['cpfCnpj'] ?? '').toString()),
             _infoTile(Icons.place_rounded, 'Endereço', end.isEmpty ? '—' : end),
             _infoTile(Icons.phone_rounded, 'Telefone', (m['telefone'] ?? '').toString()),
             _infoTile(Icons.chat_rounded, 'WhatsApp', (m['whatsapp'] ?? '').toString()),

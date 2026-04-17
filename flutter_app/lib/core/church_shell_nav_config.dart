@@ -34,7 +34,7 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(Icons.church_rounded, 'Pastoral & comunicação'),
   ChurchShellNavEntry(Icons.payment_rounded, 'Financeiro'),
   ChurchShellNavEntry(Icons.inventory_2_rounded, 'Patrimônio'),
-  ChurchShellNavEntry(Icons.local_shipping_rounded, 'Fornecedores'),
+  ChurchShellNavEntry(Icons.storefront_rounded, 'Fornecedores'),
   ChurchShellNavEntry(Icons.card_giftcard_rounded, 'Doação'),
 ];
 

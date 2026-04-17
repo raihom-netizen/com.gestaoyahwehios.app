@@ -246,6 +246,48 @@ function resolveDonorDisplayName(payment, meta) {
     }
     return fromMeta || "Doador";
 }
+/** PIX / Checkout: `dizimo` | `oferta` (default oferta se inválido). */
+function normalizeDonationKind(raw) {
+    const s = String(raw || "")
+        .trim()
+        .toLowerCase();
+    if (s === "dizimo" || s === "dízimo" || s === "diezmo")
+        return "dizimo";
+    if (s === "oferta" || s === "offer")
+        return "oferta";
+    return "dizimo";
+}
+/** Categoria no módulo Financeiro — relatórios e extrato. */
+function categoriaForDonationKind(kind) {
+    return kind === "dizimo" ? "Dízimos" : "Ofertas";
+}
+function labelForDonationKind(kind) {
+    return kind === "dizimo" ? "Dízimo" : "Oferta";
+}
+/** Nome completo do cadastro de membro (extrato / conciliação). */
+async function resolveMemberFullNameForDonation(tenantId, memberId) {
+    const mid = String(memberId || "").trim();
+    if (!mid)
+        return "";
+    try {
+        const snap = await fs()
+            .collection("igrejas")
+            .doc(tenantId)
+            .collection("membros")
+            .doc(mid)
+            .get();
+        if (!snap.exists)
+            return "";
+        const d = snap.data() || {};
+        const nome = String(d.NOME_COMPLETO || d.NOME || d.nome || d.name || "")
+            .trim()
+            .replace(/\s+/g, " ");
+        return nome.slice(0, 200);
+    }
+    catch {
+        return "";
+    }
+}
 async function resolveDefaultMercadoPagoContaId(tenantId) {
     try {
         const col = fs().collection("igrejas").doc(tenantId).collection("contas");
@@ -445,6 +487,8 @@ async function tryHandleChurchDonationPayment(payment) {
                     meta.memberId = pd.memberId;
                 if (!meta.memberCpf && pd.memberCpf)
                     meta.memberCpf = pd.memberCpf;
+                if (!meta.donationKind && pd.donationKind)
+                    meta.donationKind = pd.donationKind;
             }
         }
     }
@@ -469,8 +513,15 @@ async function tryHandleChurchDonationPayment(payment) {
         return true;
     }
     const { gross, net, fee } = computeMpNetAmounts(payment);
-    const donorName = resolveDonorDisplayName(payment, meta);
+    let donorName = resolveDonorDisplayName(payment, meta);
     const memberId = String(meta.memberId || "").trim();
+    const memberFull = await resolveMemberFullNameForDonation(tenantId, memberId);
+    if (memberFull) {
+        donorName = memberFull;
+    }
+    const donationKind = normalizeDonationKind(meta.donationKind);
+    const categoriaFinanceiro = categoriaForDonationKind(donationKind);
+    const tipoLabel = labelForDonationKind(donationKind);
     const memberCpfDigits = String(meta.memberCpf || meta.memberCpfDigits || "")
         .replace(/\D/g, "")
         .slice(0, 11);
@@ -511,8 +562,10 @@ async function tryHandleChurchDonationPayment(payment) {
         grossAmount: gross,
         mpFees: fee,
         netAmount: net,
-        descricao: `Doação (Mercado Pago) — ${donorName}`,
-        categoria: "Dízimos",
+        descricao: `${tipoLabel} (Mercado Pago) — ${donorName}`,
+        categoria: categoriaFinanceiro,
+        donationKind,
+        donationKindLabel: tipoLabel,
         /** Alinhado ao Financeiro (saldo por conta e lista): destino da receita */
         contaDestinoId: contaDestinoId || null,
         contaDestinoNome: contaDestinoNome || null,
@@ -528,6 +581,7 @@ async function tryHandleChurchDonationPayment(payment) {
         paymentMethod: payment.payment_type_id || payment.payment_method_id || "pix",
         donorName,
         memberId: memberId || null,
+        donorDisplaySource: memberFull ? "membro_cadastro" : "informado_ou_mp",
         origem: "mercado_pago_doacao",
         conciliado: true,
         conciliacaoOrigem: "mp_webhook_auto",
@@ -549,6 +603,9 @@ async function tryHandleChurchDonationPayment(payment) {
         donorName,
         memberId: memberId || null,
         memberCpfDigits: memberCpfDigits || null,
+        donationKind,
+        donationKindLabel: tipoLabel,
+        categoria: categoriaFinanceiro,
         amount: net,
         grossAmount: gross,
         mpFees: fee,
@@ -784,6 +841,8 @@ exports.createChurchDonationPix = functions
     const memberId = String(data?.memberId || "").trim();
     const payerEmail = String(data?.payerEmail || "").trim();
     const contaDestinoId = String(data?.contaDestinoId || "").trim();
+    const donationKind = normalizeDonationKind(data?.donationKind);
+    const tipoLabel = labelForDonationKind(donationKind);
     if (!tenantId || amount < 1 || amount > 100000) {
         throw new functions.https.HttpsError("invalid-argument", "Valor invalido (min R$1, max R$100.000)");
     }
@@ -821,7 +880,7 @@ exports.createChurchDonationPix = functions
     notificationUrl = appendTenantToNotificationUrl(notificationUrl, tenantId);
     const payload = {
         transaction_amount: Number(amount.toFixed(2)),
-        description: `Doação — ${donorName}`,
+        description: `${tipoLabel} — ${donorName}`.slice(0, 240),
         payment_method_id: "pix",
         external_reference: tenantId,
         notification_url: notificationUrl,
@@ -831,6 +890,7 @@ exports.createChurchDonationPix = functions
             kind: "church_donation",
             donorName,
             memberId,
+            donationKind,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),
@@ -879,6 +939,8 @@ exports.createChurchDonationPreference = functions
     let contaDestinoId = String(data?.contaDestinoId || "").trim();
     const returnUrl = String(data?.returnUrl || "").trim();
     const maxInstallments = Math.min(12, Math.max(1, Math.floor(Number(data?.maxInstallments || 12))));
+    const donationKind = normalizeDonationKind(data?.donationKind);
+    const tipoLabel = labelForDonationKind(donationKind);
     if (!tenantId || amount < 1 || amount > 100000) {
         throw new functions.https.HttpsError("invalid-argument", "Valor invalido (min R$1, max R$100.000)");
     }
@@ -919,7 +981,7 @@ exports.createChurchDonationPreference = functions
     const prefBody = {
         items: [
             {
-                title: `Doação — ${donorName}`.slice(0, 127),
+                title: `${tipoLabel} — ${donorName}`.slice(0, 127),
                 quantity: 1,
                 unit_price: Number(amount.toFixed(2)),
                 currency_id: "BRL",
@@ -931,6 +993,7 @@ exports.createChurchDonationPreference = functions
             kind: "church_donation",
             donorName,
             memberId,
+            donationKind,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),
@@ -961,6 +1024,7 @@ exports.createChurchDonationPreference = functions
             .set({
             donorName,
             memberId,
+            donationKind,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),

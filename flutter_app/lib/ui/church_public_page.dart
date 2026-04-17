@@ -2423,7 +2423,7 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
           kicker: 'Programação',
           title: 'Agenda de cultos e reuniões',
           subtitle:
-              'Próximas datas dos eventos cadastrados pela igreja (lista compacta; toque para ver detalhes).',
+              'Capas com tratamento editorial, data e horário em pastilhas — toque no cartão para ver detalhes e local.',
           icon: Icons.event_repeat_rounded,
           accentColor: accentEvento,
           child: Column(

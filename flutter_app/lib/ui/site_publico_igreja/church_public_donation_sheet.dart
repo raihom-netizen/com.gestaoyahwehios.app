@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_toggle_pair.dart';
+import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 
 /// URL de retorno após pagamento no Checkout Pro (Mercado Pago).
 String churchPublicDonationReturnUrl(String slugClean) {
@@ -60,6 +61,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
 
   bool _pixMode = true;
   int _parcelas = 1;
+  String _donationKind = 'dizimo';
   bool _loading = false;
   String? _qrPayload;
   String? _paymentId;
@@ -113,6 +115,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         'payerEmail': _emailCtrl.text.trim(),
         'contaDestinoId': '',
         'memberId': '',
+        'donationKind': _donationKind,
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final qr = (data['qr_code'] ?? '').toString();
@@ -171,6 +174,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         'memberId': '',
         'returnUrl': churchPublicDonationReturnUrl(widget.slugClean),
         'maxInstallments': _parcelas,
+        'donationKind': _donationKind,
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final url = (data['init_point'] ?? '').toString().trim();
@@ -474,7 +478,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Mercado Pago · após aprovação, lançamento automático no módulo financeiro da igreja',
+                          'Super Premium · escolha dízimo ou oferta · Mercado Pago · lançamento automático no financeiro',
                           style: TextStyle(
                             fontSize: 12.5,
                             color: Colors.grey.shade600,
@@ -510,6 +514,12 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
                       labelB: 'Cartão',
                       iconA: Icons.qr_code_2_rounded,
                       iconB: Icons.credit_card_rounded,
+                    ),
+                    const SizedBox(height: 18),
+                    DonationKindSelectorGrid(
+                      value: _donationKind,
+                      accentColor: widget.accentColor,
+                      onChanged: (k) => setState(() => _donationKind = k),
                     ),
                     const SizedBox(height: 18),
                     TextField(

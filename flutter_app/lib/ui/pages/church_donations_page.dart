@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -78,6 +81,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   bool _gerando = false;
   bool _pixMode = true;
   int _parcelas = 1;
+  /// `dizimo` | `oferta` — enviado ao MP (metadata) e ao financeiro via webhook.
+  String _donationKind = 'dizimo';
+  String? _memberDocIdForDonation;
   String? _qrPayload;
   String? _paymentId;
   String? _checkoutEmbedUrl;
@@ -91,6 +97,32 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     _nomeCtrl.text = u?.displayName ?? '';
     _emailCtrl.text = u?.email ?? '';
     _loadContas();
+    unawaited(_bindMemberForDonation());
+  }
+
+  Future<void> _bindMemberForDonation() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('membros')
+          .where('authUid', isEqualTo: uid)
+          .limit(1)
+          .get();
+      if (q.docs.isEmpty) return;
+      final doc = q.docs.first;
+      final data = doc.data();
+      final nome = (data['NOME_COMPLETO'] ?? data['NOME'] ?? data['nome'] ?? '')
+          .toString()
+          .trim();
+      if (!mounted) return;
+      if (nome.isNotEmpty && _nomeCtrl.text.trim().isEmpty) {
+        setState(() => _nomeCtrl.text = nome);
+      }
+      setState(() => _memberDocIdForDonation = doc.id);
+    } catch (_) {}
   }
 
   void _cancelarFluxoDoacao() {
@@ -213,8 +245,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'donorName': nome,
         'payerEmail': _emailCtrl.text.trim(),
         'contaDestinoId': _contaId ?? '',
-        'memberId': '',
+        'memberId': _memberDocIdForDonation ?? '',
         'memberCpf': _onlyDigits(widget.cpf),
+        'donationKind': _donationKind,
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final qr = (data['qr_code'] ?? '').toString();
@@ -280,10 +313,11 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'donorName': nome,
         'payerEmail': _emailCtrl.text.trim(),
         'contaDestinoId': _contaId ?? '',
-        'memberId': '',
+        'memberId': _memberDocIdForDonation ?? '',
         'memberCpf': _onlyDigits(widget.cpf),
         'returnUrl': _churchPanelDonationReturnUrl(),
         'maxInstallments': _parcelas,
+        'donationKind': _donationKind,
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final url = (data['init_point'] ?? '').toString().trim();
@@ -679,7 +713,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'O valor cai na conta MP da igreja. Débito, crédito ou PIX no checkout; conciliação automática no Financeiro.',
+                              'O valor cai na conta MP da igreja. Super Premium: escolha dízimo ou oferta — extrato e financeiro com nome completo do membro (cadastro) ou nome informado.',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade700,
@@ -719,6 +753,12 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                   ),
                 );
               },
+            ),
+            const SizedBox(height: 18),
+            DonationKindSelectorGrid(
+              value: _donationKind,
+              accentColor: primary,
+              onChanged: (k) => setState(() => _donationKind = k),
             ),
             const SizedBox(height: 18),
             TextField(
@@ -1039,6 +1079,8 @@ class _DonationHistoryTab extends StatefulWidget {
 class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   final _searchCtrl = TextEditingController();
   String? _methodFilter;
+  /// null = todos, `dizimo`, `oferta`
+  String? _kindFilter;
   int _periodDays = 152;
 
   @override
@@ -1054,6 +1096,13 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
     final docCpf = (d['memberCpfDigits'] ?? '').toString();
     if (_myCpfDigits.length >= 11 && docCpf == _myCpfDigits) return true;
     return false;
+  }
+
+  bool _passesKind(Map<String, dynamic> d) {
+    if (_kindFilter == null) return true;
+    final k = (d['donationKind'] ?? '').toString().toLowerCase().trim();
+    if (_kindFilter == 'oferta') return k == 'oferta';
+    return k.isEmpty || k == 'dizimo' || k == 'dízimo';
   }
 
   @override
@@ -1097,6 +1146,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
           if (!_passesRole(d)) return false;
           final mk = (d['methodKey'] ?? '').toString();
           if (_methodFilter != null && mk != _methodFilter) return false;
+          if (!_passesKind(d)) return false;
           if (needle.isEmpty) return true;
           final nome = (d['donorName'] ?? '').toString().toLowerCase();
           final mp = (d['mpPaymentId'] ?? '').toString().toLowerCase();
@@ -1232,6 +1282,25 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
                 _methodChip('Outro', 'outro', primary),
               ],
             ),
+            const SizedBox(height: 12),
+            Text(
+              'Dízimo / Oferta',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _kindChip('Todos', null, primary),
+                _kindChip('Dízimo', 'dizimo', primary),
+                _kindChip('Oferta', 'oferta', primary),
+              ],
+            ),
             const SizedBox(height: 20),
             if (rows.isEmpty)
               Padding(
@@ -1330,21 +1399,56 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
                                   ],
                                 ),
                               ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 11,
-                                    color: Colors.grey.shade800,
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      label,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 11,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 6),
+                                  Builder(
+                                    builder: (context) {
+                                      final dk =
+                                          (d['donationKind'] ?? '').toString();
+                                      final kindLabel = (d['donationKindLabel'] ??
+                                              (dk == 'oferta'
+                                                  ? 'Oferta'
+                                                  : 'Dízimo'))
+                                          .toString();
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              primary.withValues(alpha: 0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
+                                        child: Text(
+                                          kindLabel,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 11,
+                                            color: primary,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -1415,6 +1519,22 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
       selected: sel,
       onSelected: (v) {
         if (v) setState(() => _methodFilter = key);
+      },
+      selectedColor: primary.withValues(alpha: 0.2),
+      labelStyle: TextStyle(
+        fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+        color: sel ? primary : Colors.grey.shade800,
+      ),
+    );
+  }
+
+  Widget _kindChip(String label, String? key, Color primary) {
+    final sel = _kindFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      onSelected: (v) {
+        if (v) setState(() => _kindFilter = key);
       },
       selectedColor: primary.withValues(alpha: 0.2),
       labelStyle: TextStyle(
