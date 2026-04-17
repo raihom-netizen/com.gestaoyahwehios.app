@@ -31,6 +31,13 @@
         ]
       },
       {
+        "source": "/.well-known/assetlinks.json",
+        "headers": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Cache-Control", "value": "public, max-age=3600" }
+        ]
+      },
+      {
         "source": "assets/**",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
@@ -106,6 +113,7 @@
       }
     ],
     "rewrites": [
+      { "source": "/.well-known/assetlinks.json", "destination": "/assetlinks.json" },
       { "source": "/igreja/*/evento/*", "function": "shareEvento" },
       { "source": "/s/evento", "function": "shareEvento" },
       { "source": "**", "destination": "/index.html" }

@@ -31,5 +31,11 @@ Pasta ANDROID — credenciais Google / Firebase (Gestão YAHWEH)
      SHA-1:  96:91:41:90:E3:D0:A2:91:20:75:A2:4F:63:1F:53:30:0E:43:A6:CD
      SHA-256: 32:B1:DF:79:52:83:16:D1:C0:BE:E2:19:AC:51:9B:00:36:3A:12:0D:64:89:BA:56:32:56:12:CC:09:87:17:00
 
+5) Android App Links (Digital Asset Links)
+   - O JSON do protocolo na Play usa o SHA-256 da chave de ASSINATURA da app (não a chave de upload).
+   - Ficheiro servido em: https://gestaoyahweh.com.br/.well-known/assetlinks.json
+     (origem: flutter_app/web/assetlinks.json + rewrite em firebase.json).
+   - Após deploy web, validar: https://developers.google.com/digital-asset-links/tools/generator
+
 Firebase Console (projeto gestaoyahweh-21e23):
 https://console.firebase.google.com/project/gestaoyahweh-21e23/settings/general

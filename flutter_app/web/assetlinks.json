@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.gestaoyahweh.app",
+      "sha256_cert_fingerprints": [
+        "C0:58:17:CF:3B:0B:95:15:5B:C7:DC:27:4E:4A:34:D3:59:9E:2B:6A:95:87:46:61:CD:6B:DD:48:A8:C1:1A:E4"
+      ]
+    }
+  }
+]
