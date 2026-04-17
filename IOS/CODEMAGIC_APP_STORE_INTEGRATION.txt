@@ -12,7 +12,8 @@ Erro «No matching certificate found for every requested profile» (Codemagic):
    — AuthKey_*.p8, .mobileprovision, export Apple Distribution (.p12 ou ficheiro «distribution» se for PKCS#12),
      notas .txt. Organização tua no PC: OK. O Mac da Codemagic NÃO monta esta pasta; só entra no build o que
      estiver em Environment variables / secrets. Para modo manual: na raiz do repo correr
-     .\scripts\encode_ios_codemagic_secrets.ps1 (lê IOS\ e grava Base64 em D:\Temporarios\gestao_yahweh_codemagic\).
+     .\scripts\encode_ios_codemagic_secrets.ps1 (lê IOS\ e grava em D:\Temporarios\gestao_yahweh_codemagic\
+     ficheiros COLAR___*.txt prontos a copiar/colar nos secrets + COLAR___GUIA_CODEMAGIC.txt).
 
    IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
    O Mac da Codemagic não vê a pasta Windows. Só o que está em Environment variables / secrets
@@ -33,7 +34,7 @@ Erro «No matching certificate found for every requested profile» (Codemagic):
    - CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE = Base64 do .mobileprovision App Store de com.gestaoyahwehios.app
      (não é o mesmo ficheiro do Controle Total — cada bundle tem o seu perfil).
    - CM_CERTIFICATE_PASSWORD ou CERTIFICATE_PASSWORD = senha do export .p12 (ou vazio).
-   Gerar Base64 no PC: .\scripts\encode_ios_codemagic_secrets.ps1 → ficheiros em D:\Temporarios\gestao_yahweh_codemagic\
+   Gerar no PC: .\scripts\encode_ios_codemagic_secrets.ps1 → D:\Temporarios\gestao_yahweh_codemagic\ (COLAR___*.txt + guia)
 
    Sobre «Created By API Key: a1db85a6-...» no portal Apple: é identificação interna de quem
    criou o certificado — NÃO substitui o Key ID 85X9UNAT43 do ficheiro AuthKey_*.p8 na Codemagic.

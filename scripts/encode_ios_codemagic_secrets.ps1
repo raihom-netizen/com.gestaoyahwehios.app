@@ -60,6 +60,11 @@ $p12Out = Join-Path $OutDir "CM_CERTIFICATE_base64.txt"
 $provOut = Join-Path $OutDir "CM_PROVISIONING_PROFILE_base64.txt"
 $p8Out = Join-Path $OutDir "APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt"
 $readmeOut = Join-Path $OutDir "CODEMAGIC___COLAR_NESTA_ORDEM.txt"
+# Nomes explícitos: abrir, Ctrl+A, Ctrl+C, colar no secret correspondente (só o conteúdo do ficheiro).
+$colarP12 = Join-Path $OutDir "COLAR___CERTIFICATE_PRIVATE_KEY_ou_CM_CERTIFICATE__uma_linha.txt"
+$colarProv = Join-Path $OutDir "COLAR___CM_PROVISIONING_PROFILE__uma_linha.txt"
+$colarP8 = Join-Path $OutDir "COLAR___APP_STORE_CONNECT_PRIVATE_KEY__multilinha.txt"
+$colarGuia = Join-Path $OutDir "COLAR___GUIA_CODEMAGIC.txt"
 
 if (-not $prov) {
     Write-Host "ERRO: Nenhum .mobileprovision em $IOS" -ForegroundColor Red
@@ -67,6 +72,7 @@ if (-not $prov) {
 }
 
 Write-Base64OneLine -Path $prov.FullName -DestTxt $provOut
+Copy-Item -LiteralPath $provOut -Destination $colarProv -Force
 
 if ($p12) {
     $p12Bytes = [IO.File]::ReadAllBytes($p12.FullName)
@@ -74,8 +80,10 @@ if ($p12) {
         Write-Host "AVISO: $($p12.Name) nao parece PKCS#12 (DER). Confirme export .p12 do Keychain, nao .cer." -ForegroundColor Yellow
     }
     Write-Base64OneLine -Path $p12.FullName -DestTxt $p12Out
+    Copy-Item -LiteralPath $p12Out -Destination $colarP12 -Force
     $p12Ok = $true
 } else {
+    Remove-Item -LiteralPath $colarP12 -Force -ErrorAction SilentlyContinue
     $cer = Get-ChildItem -Path $IOS -Filter "distribution*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $cer) { $cer = Get-ChildItem -Path $IOS -Filter "*.cer" -File -ErrorAction SilentlyContinue | Select-Object -First 1 }
     $msg = @"
@@ -99,50 +107,70 @@ CM_PROVISIONING_PROFILE_base64.txt nesta pasta JA foi gerado.
 
 if ($p8) {
     $pemText = [IO.File]::ReadAllText($p8.FullName, [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText($p8Out, $pemText.TrimEnd() + "`n", [Text.UTF8Encoding]::new($false))
+    $pemTrim = $pemText.TrimEnd() + "`n"
+    [IO.File]::WriteAllText($p8Out, $pemTrim, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($colarP8, $pemTrim, [Text.UTF8Encoding]::new($false))
 } else {
+    Remove-Item -LiteralPath $colarP8 -Force -ErrorAction SilentlyContinue
     Write-Host "AVISO: Nenhum AuthKey_*.p8 em $IOS - nao gerado APP_STORE_CONNECT_PRIVATE_KEY." -ForegroundColor Yellow
 }
 
-$summary = @'
+$issuerLine = "77a1debb-f68b-418d-9fe3-af0f37b40585"
+$issuerSrc = Join-Path $IOS "app_store_connect_issuer_id.txt"
+if (Test-Path -LiteralPath $issuerSrc) {
+    $issuerLine = ([IO.File]::ReadAllText($issuerSrc, [Text.UTF8Encoding]::new($false))).Trim() -replace "\s+", ""
+}
+$issuerRefOut = Join-Path $OutDir "COLAR___APP_STORE_CONNECT_ISSUER_ID__uma_linha.txt"
+[IO.File]::WriteAllText($issuerRefOut, $issuerLine + "`n", [Text.UTF8Encoding]::new($false))
+
+$summary = @"
 ================================================================================
-Colar na Codemagic - Application - Environment variables - grupo appstore_credentials
+Codemagic - Application - Environment variables - grupo appstore_credentials
 ================================================================================
 
-[1] APP_STORE_CONNECT_PRIVATE_KEY
-    Abrir: APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt
-    Copiar TUDO desde -----BEGIN ate -----END inclusive - colar no secret multilinha.
+Ficheiros prontos a copiar/colar (conteudo = so o que esta dentro do .txt):
 
-[2] APP_STORE_CONNECT_KEY_IDENTIFIER / KEY_ID
-    Valor no codemagic.yaml: 85X9UNAT43
+  COLAR___APP_STORE_CONNECT_PRIVATE_KEY__multilinha.txt
+    -> Secret: APP_STORE_CONNECT_PRIVATE_KEY (multilinha, Secret)
 
-[3] APP_STORE_CONNECT_ISSUER_ID
-    77a1debb-f68b-418d-9fe3-af0f37b40585
+  COLAR___APP_STORE_CONNECT_ISSUER_ID__uma_linha.txt  (uma linha; lido de IOS\\app_store_connect_issuer_id.txt se existir)
+    -> Secret: APP_STORE_CONNECT_ISSUER_ID
 
-[4] CM_PROVISIONING_PROFILE
-    Abrir: CM_PROVISIONING_PROFILE_base64.txt - UMA linha Base64 - colar.
+  COLAR___CERTIFICATE_PRIVATE_KEY_ou_CM_CERTIFICATE__uma_linha.txt  (se existir .p12 em IOS)
+    -> Secret: CERTIFICATE_PRIVATE_KEY  OU  CM_CERTIFICATE  (o mesmo valor Base64, uma linha)
 
-[5] CERTIFICATE_PRIVATE_KEY  (mesmo conteudo que CM_CERTIFICATE_base64)
-    Abrir: CM_CERTIFICATE_base64.txt - UMA linha Base64 - colar.
-    So existe se tiver ficheiro .p12 em IOS; senao leia AINDA_FALTA_P12___LER_ISTO.txt
+  COLAR___CM_PROVISIONING_PROFILE__uma_linha.txt
+    -> Secret: CM_PROVISIONING_PROFILE  OU  PROVISIONING_PROFILE
 
-[6] CM_CERTIFICATE_PASSWORD
-    Senha definida ao exportar o .p12 ou vazio.
+  APP_STORE_CONNECT_KEY_IDENTIFIER = 85X9UNAT43  (digitar manualmente ou ja no codemagic.yaml)
 
-NAO commite estes ficheiros nem os partilhe em chats publicos.
+  APP_STORE_CONNECT_ISSUER_ID = $issuerLine  (ou copiar de COLAR___APP_STORE_CONNECT_ISSUER_ID__uma_linha.txt se existir)
+
+  CM_CERTIFICATE_PASSWORD / CERTIFICATE_PASSWORD = senha do .p12 ou vazio
+
+Copias legadas (mesmo conteudo):
+  CM_CERTIFICATE_base64.txt | CM_PROVISIONING_PROFILE_base64.txt | APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt
+
+NAO commite D:\\Temporarios\\gestao_yahweh_codemagic nem partilhe estes ficheiros.
 ================================================================================
-'@
+"@
 [IO.File]::WriteAllText($readmeOut, $summary, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($colarGuia, $summary, [Text.UTF8Encoding]::new($false))
 
 Write-Host ""
 Write-Host "Gerado em: $OutDir" -ForegroundColor Green
-Write-Host "  CM_PROVISIONING_PROFILE_base64.txt"
-if ($p8) { Write-Host "  APP_STORE_CONNECT_PRIVATE_KEY___COLAR_MULTILINHA.txt" }
-if ($p12Ok) {
-    Write-Host "  CM_CERTIFICATE_base64.txt"
-} else {
-    Write-Host "  AINDA_FALTA_P12___LER_ISTO.txt  (sem P12 ainda)"
+Write-Host "  (copiar SO o conteudo de cada ficheiro, uma variavel por secret)"
+Write-Host "  COLAR___CM_PROVISIONING_PROFILE__uma_linha.txt"
+if ($p8) {
+    Write-Host "  COLAR___APP_STORE_CONNECT_PRIVATE_KEY__multilinha.txt"
 }
-Write-Host "  CODEMAGIC___COLAR_NESTA_ORDEM.txt"
+Write-Host "  COLAR___APP_STORE_CONNECT_ISSUER_ID__uma_linha.txt"
+if ($p12Ok) {
+    Write-Host "  COLAR___CERTIFICATE_PRIVATE_KEY_ou_CM_CERTIFICATE__uma_linha.txt"
+} else {
+    Write-Host "  AINDA_FALTA_P12___LER_ISTO.txt  (sem P12 em IOS - falta export .p12)"
+}
+Write-Host "  COLAR___GUIA_CODEMAGIC.txt  (instrucoes)"
 Write-Host ""
-Write-Host 'Abra CODEMAGIC___COLAR_NESTA_ORDEM.txt para a ordem dos secrets.' -ForegroundColor Cyan
+Write-Host 'Abra COLAR___GUIA_CODEMAGIC.txt (a pasta abre no Explorador).' -ForegroundColor Cyan
+try { Start-Process "explorer.exe" -ArgumentList $OutDir } catch {}
