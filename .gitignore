@@ -1,5 +1,6 @@
 # Chaves Apple / segredos locais (nunca no Git)
 .local/
+bootstrap_signing_output/
 IOS/*.p8
 **/AuthKey_*.p8
 **/ApiKey_*.p8

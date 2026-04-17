@@ -634,6 +634,220 @@ def import_distribution_identity_to_keychain_main() -> int:
     return 0
 
 
+def bootstrap_distribution_cert_ci_main() -> int:
+    """
+    Sem Mac: gera RSA+CSR na CI, POST IOS_DISTRIBUTION na ASC, importa no keychain,
+    cria/usa perfil IOS_APP_STORE para IOS_BUNDLE_ID e grava PEM em bootstrap_signing_output/
+    (artefacto Codemagic). Chave API com papel Admin.
+
+    Uso: uma vez (ou com CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 no mesmo build que o IPA);
+    depois copie distribution_private_key.pem para o secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM
+    e desligue o bootstrap para não criar mais certificados (limite 3 Distribution).
+    """
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--user", "-q", "cryptography"],
+        check=False,
+    )
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    if not os.path.isfile("/tmp/_asc_ok.pem"):
+        print("ERRO: /tmp/_asc_ok.pem ausente (corra Preparar PEM App Store Connect antes).", file=sys.stderr)
+        return 1
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"ERRO: JWT: {e}", file=sys.stderr)
+        return 1
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(
+            x509.Name(
+                [
+                    x509.NameAttribute(NameOID.COUNTRY_NAME, "PT"),
+                    x509.NameAttribute(NameOID.ORGANIZATION_NAME, "GestaoYAHWEH"),
+                    x509.NameAttribute(NameOID.COMMON_NAME, "Gestao YAHWEH Codemagic Bootstrap"),
+                ]
+            )
+        )
+        .sign(key, hashes.SHA256())
+    )
+    csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("ascii")
+    csr_der = csr.public_bytes(serialization.Encoding.DER)
+    csr_b64 = base64.b64encode(csr_der).decode("ascii")
+
+    data_ok: dict | None = None
+    used_label = ""
+    for csr_content, label in ((csr_pem, "PEM"), (csr_b64, "base64-DER")):
+        body = {
+            "data": {
+                "type": "certificates",
+                "attributes": {
+                    "certificateType": "IOS_DISTRIBUTION",
+                    "csrContent": csr_content,
+                },
+            }
+        }
+        code, data = _request("POST", "https://api.appstoreconnect.apple.com/v1/certificates", token, body)
+        if code in (200, 201):
+            data_ok = data
+            used_label = label
+            print(f"OK: POST certificates (CSR como {label}).")
+            break
+        print(f"AVISO: POST certificates com CSR {label} falhou {code}: {json.dumps(data)[:1200]}", file=sys.stderr)
+    if not data_ok:
+        print(
+            "ERRO: não foi possível criar IOS_DISTRIBUTION (403/409?). Revogue um Distribution antigo se exceder 3.",
+            file=sys.stderr,
+        )
+        return 1
+
+    row = data_ok.get("data") or {}
+    cert_id = str(row.get("id") or "")
+    attr = row.get("attributes") or {}
+    b64cert = attr.get("certificateContent")
+    if not cert_id or not b64cert:
+        print("ERRO: resposta sem id/certificateContent.", file=sys.stderr)
+        return 1
+    try:
+        cert_der = base64.b64decode(b64cert)
+    except Exception as e:
+        print(f"ERRO: decode certificateContent: {e}", file=sys.stderr)
+        return 1
+
+    root = (os.environ.get("CM_BUILD_DIR") or os.environ.get("FCI_BUILD_DIR") or os.getcwd()).strip()
+    out_dir = (os.environ.get("CM_BOOTSTRAP_SIGNING_OUT_DIR") or "").strip() or os.path.join(root, "bootstrap_signing_output")
+    os.makedirs(out_dir, exist_ok=True)
+    key_path = os.path.join(out_dir, "distribution_private_key.pem")
+    cer_path = os.path.join(out_dir, "distribution_leaf.der")
+    key_pem_bytes = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    with open(key_path, "wb") as f:
+        f.write(key_pem_bytes)
+    with open(cer_path, "wb") as f:
+        f.write(cert_der)
+    os.chmod(key_path, 0o600)
+    os.chmod(cer_path, 0o600)
+
+    leaf_pem = os.path.join(out_dir, "distribution_leaf.pem")
+    p1 = subprocess.run(
+        ["openssl", "x509", "-inform", "DER", "-in", cer_path, "-out", leaf_pem],
+        capture_output=True,
+        text=True,
+    )
+    if p1.returncode != 0:
+        print(p1.stderr or p1.stdout, file=sys.stderr)
+        return 1
+    os.chmod(leaf_pem, 0o600)
+    pw = (os.environ.get("CM_API_ONLY_IMPORT_P12_PASSWORD") or "cm_yw_bootstrap_dist_1").strip() or "cm_yw_bootstrap_dist_1"
+    p12_path = os.path.join(out_dir, "bootstrap_identity.p12")
+
+    def run_pkcs12(extra: list[str]) -> subprocess.CompletedProcess:
+        cmd: list[str] = [
+            "openssl",
+            "pkcs12",
+            "-export",
+            "-out",
+            p12_path,
+            "-inkey",
+            key_path,
+            "-in",
+            leaf_pem,
+            "-passout",
+            f"pass:{pw}",
+            "-name",
+            "Apple Distribution",
+        ]
+        cmd[2:2] = extra
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    p2 = run_pkcs12([])
+    if p2.returncode != 0:
+        p2 = run_pkcs12(["-legacy"])
+    if p2.returncode != 0:
+        print(p2.stderr or p2.stdout, file=sys.stderr)
+        return 1
+    os.chmod(p12_path, 0o600)
+    kc = shutil.which("keychain")
+    if not kc:
+        print("ERRO: comando keychain ausente.", file=sys.stderr)
+        return 1
+    p3 = subprocess.run(
+        [kc, "add-certificates", "--certificate", p12_path, "--certificate-password", pw],
+        capture_output=True,
+        text=True,
+    )
+    if p3.returncode != 0:
+        print((p3.stderr or p3.stdout or "").strip(), file=sys.stderr)
+        return 1
+
+    bundle = os.environ.get("IOS_BUNDLE_ID", "com.gestaoyahwehios.app").strip()
+    bundle_rid = _find_bundle_id(token, bundle)
+    if not bundle_rid:
+        print(f"ERRO: bundleId {bundle} não encontrado na ASC.", file=sys.stderr)
+        return 1
+
+    raw_mp: bytes | None = None
+    profiles = _profiles_for_bundle(token, bundle_rid)
+    for pr in profiles:
+        attr = pr.get("attributes") or {}
+        if str(attr.get("profileType") or "") != "IOS_APP_STORE":
+            continue
+        pid = str(pr.get("id") or "")
+        if not pid:
+            continue
+        if not _profile_includes_certificate(token, pid, cert_id):
+            continue
+        raw_mp = _download_profile_content(token, pid)
+        if raw_mp:
+            print(f"OK: reutilizar perfil IOS_APP_STORE existente (id={pid}).")
+            break
+    if not raw_mp:
+        unique = f"GestaoYahwehBootstrap_{int(time.time())}"
+        created = _create_app_store_profile(token, bundle_rid, cert_id, bundle, unique)
+        if not created:
+            print("ERRO: não foi possível criar perfil IOS_APP_STORE para o novo certificado.", file=sys.stderr)
+            return 1
+        inline = created.get("_inline_profileContent")
+        if isinstance(inline, str) and inline:
+            try:
+                raw_mp = base64.b64decode(inline)
+            except Exception:
+                raw_mp = None
+        if not raw_mp:
+            new_id = str(created.get("id") or "")
+            if new_id:
+                raw_mp = _download_profile_content(token, new_id)
+        if not raw_mp:
+            print("ERRO: perfil criado mas sem profileContent.", file=sys.stderr)
+            return 1
+        print(f"OK: perfil IOS_APP_STORE criado ({unique}).")
+
+    _write_mobileprovision_and_plist(raw_mp, bundle)
+
+    with open(os.path.join(out_dir, "README_BOOTSTRAP.txt"), "w", encoding="utf-8") as f:
+        f.write(
+            "1) Codemagic: descarregue distribution_private_key.pem deste artefacto.\n"
+            "2) Environment variables (appstore_credentials): CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM = "
+            "conteudo COMPLETO do PEM (Secret, multilinha).\n"
+            "3) Desligue CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM ou nao use o workflow ios-distribution-bootstrap "
+            "para nao criar mais certificados Distribution (maximo 3 na equipa).\n"
+            f"4) CSR enviado como: {used_label}\n"
+        )
+
+    print("")
+    print("OK: bootstrap CI concluido — PEM em:", key_path)
+    print("    Copie o ficheiro para o secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM e desligue o bootstrap.")
+    return 0
+
+
 def _local_tmp_profile_matches_p12(fp_p12: str) -> bool:
     plist_path = "/tmp/cm_prov.plist"
     if not os.path.isfile(plist_path):
@@ -678,6 +892,12 @@ def main() -> int:
             return import_distribution_identity_to_keychain_main()
         except Exception as e:
             print(f"ERRO: import identidade keychain: {e}", file=sys.stderr)
+            return 1
+    if "--bootstrap-distribution-cert-ci" in sys.argv:
+        try:
+            return bootstrap_distribution_cert_ci_main()
+        except Exception as e:
+            print(f"ERRO: bootstrap Distribution CI: {e}", file=sys.stderr)
             return 1
     if "--download-app-store-profile-api-only" in sys.argv:
         try:

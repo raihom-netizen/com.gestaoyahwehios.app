@@ -255,6 +255,25 @@ _fetch_with_create() {
   return "$ex"
 }
 
+# --- Opcional: criar IOS_DISTRIBUTION + perfil na CI (sem Mac), neste mesmo build ---
+# Defina CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 só até copiar o PEM para o secret; cada execução cria NOVO certificado (máx. 3 na equipa).
+ROOT_BOOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-}}"
+if [[ -n "$ROOT_BOOT" ]] && { [[ "${CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM:-0}" == "1" ]] || [[ "${CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM:-}" == "true" ]]; }; then
+  if ! _has_fixed_distribution_key; then
+    echo "=== CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM: bootstrap na ASC (RSA novo + CSR + POST certificate) ==="
+    python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --bootstrap-distribution-cert-ci || exit 1
+    _pem_f="$ROOT_BOOT/bootstrap_signing_output/distribution_private_key.pem"
+    if [[ -f "$_pem_f" ]]; then
+      export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$_pem_f")"
+      echo "OK: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM carregado deste build (mesma sessão para fetch --create)."
+      echo "AVISO: Copie o ficheiro para o secret Codemagic e volte a pôr CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=0."
+    else
+      echo "ERRO: PEM do bootstrap não encontrado: $_pem_f"
+      exit 1
+    fi
+  fi
+fi
+
 # --- Fluxo principal ---
 FETCH_EXIT=0
 REST_EXIT=0

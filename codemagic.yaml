@@ -99,6 +99,10 @@ workflows:
         CM_USE_CODEMAGIC_TEAM_SIGNING: "0"
         # 1 = ignora P12/perfil manuais e usa fluxo API-only (3 secrets), estilo "Controle Total".
         CM_FORCE_API_ONLY_SIGNING: "1"
+        # 1 = só se NÃO existir CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM: cria certificado Distribution na CI (sem Mac),
+        #     importa no keychain e gera PEM em bootstrap_signing_output/ (artefacto). Depois copie o PEM para o
+        #     secret e volte a 0 — cada run=1 novo certificado (limite 3 Distribution na equipa Apple).
+        CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM: "0"
         # 0 = permite API-only sem exigir P12/perfil nos secrets.
         CM_DISALLOW_API_ONLY_SIGNING: "0"
         APP_STORE_APPLE_ID: 6761656626
@@ -529,6 +533,8 @@ workflows:
       - build/ios/ipa/*.ipa
       - "*.ipa"
       - /tmp/xcodebuild_logs/*.log
+      # Se CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 num build, o PEM fica aqui para copiar ao secret.
+      - bootstrap_signing_output/**
     publishing:
       email:
         recipients:
@@ -538,5 +544,46 @@ workflows:
           failure: true
       # TestFlight: passo de script "Enviar IPA ao App Store Connect" (APP_STORE_CONNECT_PRIVATE_KEY no grupo).
       # LOJA App Store: no ASC após processamento em TestFlight — Preparar envio + metadata + revisão.
+
+  # Sem Mac: correr UMA vez (ou com CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 no ios-release), descarregar
+  # bootstrap_signing_output/distribution_private_key.pem → secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM → desligar bootstrap.
+  ios-distribution-bootstrap:
+    name: iOS Bootstrap Distribution PEM (sem Mac)
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - appstore_credentials
+      vars:
+        APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
+        APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
+      flutter: stable
+    scripts:
+      - name: Validar secrets App Store Connect
+        script: |
+          set -e
+          : "${APP_STORE_CONNECT_PRIVATE_KEY:?APP_STORE_CONNECT_PRIVATE_KEY (.p8)}"
+          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?}"
+      - name: Keychain para code signing
+        script: |
+          set -e
+          keychain initialize
+      - name: Preparar PEM App Store Connect
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_prepare_api_pem.sh"
+      - name: Criar certificado Distribution + perfil + PEM (bootstrap CI)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          python3 "$ROOT/scripts/codemagic_ios_asc_api_ensure_appstore_profile.py" --bootstrap-distribution-cert-ci
+      - name: Identidades de assinatura
+        script: |
+          set -e
+          security find-identity -v -p codesigning | head -25 || true
+    artifacts:
+      - bootstrap_signing_output/**
 
 # Android AAB local: .\scripts\build_android_play_store_aab.ps1
