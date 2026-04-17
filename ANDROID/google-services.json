@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "157235497908-7431jos7gjv9ir11sr1r8r4rs5l0rgsm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gestaoyahweh.app",
+            "certificate_hash": "7a44f49e895ca69b03718f82dc4858d1001aac5b"
+          }
+        },
+        {
           "client_id": "157235497908-a3l3rbim39cedu9eag8qqm991rf5rlrj.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
