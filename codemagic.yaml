@@ -97,8 +97,10 @@ workflows:
       vars:
         # 0 = não depender de ficheiros injectados pelo YAML ios_signing (evita erro de match certificado/perfil).
         CM_USE_CODEMAGIC_TEAM_SIGNING: "0"
-        # 1 = ignora P12/perfil manuais e usa fluxo API-only (3 secrets), estilo "Controle Total".
-        CM_FORCE_API_ONLY_SIGNING: "1"
+        # 0 = se existir CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE no grupo appstore_credentials,
+        #     usa modo manual (P12 no keychain) — estável e não depende de CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.
+        # 1 = ignora P12/perfil e força API-only: exige PEM da chave Distribution OU bootstrap; perfil só não basta.
+        CM_FORCE_API_ONLY_SIGNING: "0"
         # 1 = só se NÃO existir CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM: cria certificado Distribution na CI (sem Mac),
         #     importa no keychain e gera PEM em bootstrap_signing_output/ (artefacto). Depois copie o PEM para o
         #     secret e volte a 0 — cada run=1 novo certificado (limite 3 Distribution na equipa Apple).

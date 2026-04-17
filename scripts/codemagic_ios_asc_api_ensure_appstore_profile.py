@@ -392,28 +392,16 @@ def _find_cert_for_p12(fp_p12: str, der_p12: bytes, certs: list[dict]) -> dict |
 
 
 def _profiles_for_bundle(token: str, bundle_id_resource: str) -> list[dict]:
+    """Perfis ligados ao App ID. Apple rejeita filter[bundleId] em GET /v1/profiles (400 PARAMETER_ERROR.INVALID)."""
     out: list[dict] = []
-    q = urllib.parse.urlencode({"filter[bundleId]": bundle_id_resource, "limit": "50"})
-    url = f"https://api.appstoreconnect.apple.com/v1/profiles?{q}"
-    code_last, data_last = 0, {}
-    while url:
-        code, data = _request("GET", url, token)
-        code_last, data_last = code, data
-        if code != 200:
-            print(f"AVISO: GET profiles {url[:90]}... falhou {code}: {data}", file=sys.stderr)
-            break
-        out.extend(list(data.get("data") or []))
-        next_url = (data.get("links") or {}).get("next")
-        url = next_url if next_url else None
-    # include=profiles no bundleId (perfis ligados ao App ID).
     url_inc = f"https://api.appstoreconnect.apple.com/v1/bundleIds/{bundle_id_resource}?include=profiles"
     code2, data2 = _request("GET", url_inc, token)
     if code2 == 200:
         for item in data2.get("included") or []:
             if item.get("type") == "profiles":
                 out.append(item)
-    if not out and code_last != 200:
-        print(f"AVISO: GET profiles falhou {code_last}: {data_last}", file=sys.stderr)
+    else:
+        print(f"AVISO: GET bundleIds?include=profiles falhou {code2}: {data2}", file=sys.stderr)
     by_id = {str(x.get("id")): x for x in out if x.get("id")}
     return list(by_id.values())
 
