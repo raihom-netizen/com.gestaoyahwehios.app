@@ -1237,6 +1237,119 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                           final responsavel =
                               (ig['responsavel'] ?? ig['gestorNome'] ?? '')
                                   .toString();
+                          final actionButtons = <Widget>[
+                            if (widget.canEdit)
+                              IconButton(
+                                tooltip:
+                                    'Licença, FREE, bloqueio, exclusão',
+                                icon: const Icon(
+                                    Icons.admin_panel_settings_rounded),
+                                onPressed: () => _abrirGestaoLicenca(context,
+                                    igrejaId: igrejaId, nome: nome, ig: ig),
+                              ),
+                            if (widget.canEdit && !removed && plano != 'free')
+                              IconButton(
+                                tooltip: '+15 dias',
+                                icon: const Icon(Icons.date_range_rounded),
+                                onPressed: () async {
+                                  await billing.prorrogarTenant(igrejaId, 15);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      ThemeCleanPremium.successSnackBar(
+                                          'Prazo +15 dias.'),
+                                    );
+                                  }
+                                },
+                              ),
+                            if (widget.canEdit && !removed && plano != 'free')
+                              IconButton(
+                                tooltip: 'Bônus +7 dias',
+                                icon: const Icon(Icons.card_giftcard_rounded),
+                                onPressed: () async {
+                                  await billing.prorrogarTenant(igrejaId, 7);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      ThemeCleanPremium.successSnackBar(
+                                          'Bônus aplicado: +7 dias de licença.'),
+                                    );
+                                  }
+                                },
+                              ),
+                            if (widget.canEdit && removed)
+                              IconButton(
+                                tooltip: 'Reativar',
+                                icon: const Icon(Icons.person_add_rounded),
+                                onPressed: () async {
+                                  await billing.reativarTenant(igrejaId);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      ThemeCleanPremium.successSnackBar(
+                                          'Igreja reativada.'),
+                                    );
+                                  }
+                                },
+                              ),
+                            if (widget.canEdit && !removed)
+                              IconButton(
+                                tooltip: 'Remover acesso (soft)',
+                                icon: const Icon(Icons.person_remove_rounded),
+                                onPressed: () async {
+                                  final ok = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Remover igreja'),
+                                      content: Text(
+                                          'Remover "$nome"? Pode reativar depois.'),
+                                      actions: [
+                                        TextButton(
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, false),
+                                            child: const Text('Cancelar')),
+                                        FilledButton(
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, true),
+                                            child: const Text('Remover')),
+                                      ],
+                                    ),
+                                  );
+                                  if (ok == true) {
+                                    await billing.removerTenant(igrejaId);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        ThemeCleanPremium.successSnackBar(
+                                            'Igreja removida (soft).'),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            IconButton(
+                              tooltip: 'Detalhes',
+                              icon: const Icon(Icons.info_outline_rounded),
+                              onPressed: () {
+                                showDialog(
+                                    context: context,
+                                    builder: (_) =>
+                                        _DetalhesIgrejaDialog(igreja: ig));
+                              },
+                            ),
+                            if (widget.canEdit)
+                              IconButton(
+                                tooltip: 'Editar cadastro',
+                                icon: const Icon(Icons.edit_rounded),
+                                onPressed: () async {
+                                  await showDialog(
+                                    context: context,
+                                    builder: (_) => _EditIgrejaDialog(
+                                      title: 'Editar igreja',
+                                      canEdit: widget.canEdit,
+                                      tenantId: igrejaId,
+                                      igreja: ig,
+                                    ),
+                                  );
+                                },
+                              ),
+                          ];
                           return Card(
                             margin: const EdgeInsets.only(bottom: 10),
                             elevation: 0,
@@ -1250,39 +1363,75 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   horizontal: 16, vertical: 10),
                               leading: Icon(Icons.church_rounded,
                                   color: ThemeCleanPremium.primary, size: 32),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      nome,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700),
-                                      overflow: TextOverflow.ellipsis,
+                              title: isNarrow
+                                  ? Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          nome,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: _paymentChipColor(guard)
+                                                .withOpacity(0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                                color: _paymentChipColor(guard)
+                                                    .withOpacity(0.35)),
+                                          ),
+                                          child: Text(
+                                            'Pagamento: ${guard.masterBadgeLabel}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: _paymentChipColor(guard),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            nome,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w700),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: _paymentChipColor(guard)
+                                                .withOpacity(0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                                color: _paymentChipColor(guard)
+                                                    .withOpacity(0.35)),
+                                          ),
+                                          child: Text(
+                                            'Pagamento: ${guard.masterBadgeLabel}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: _paymentChipColor(guard),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: _paymentChipColor(guard)
-                                          .withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                          color: _paymentChipColor(guard)
-                                              .withOpacity(0.35)),
-                                    ),
-                                    child: Text(
-                                      'Pagamento: ${guard.masterBadgeLabel}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: _paymentChipColor(guard),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1327,145 +1476,20 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                         color:
                                             ThemeCleanPremium.onSurfaceVariant),
                                   ),
+                                  if (isNarrow) ...[
+                                    const SizedBox(height: 6),
+                                    SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(children: actionButtons),
+                                    ),
+                                  ],
                                 ],
                               ),
-                              isThreeLine: true,
+                              isThreeLine: !isNarrow,
                               titleAlignment: ListTileTitleAlignment.top,
-                              trailing: Wrap(
-                                spacing: 4,
-                                children: [
-                                  if (widget.canEdit)
-                                    IconButton(
-                                      tooltip:
-                                          'Licença, FREE, bloqueio, exclusão',
-                                      icon: const Icon(
-                                          Icons.admin_panel_settings_rounded),
-                                      onPressed: () => _abrirGestaoLicenca(
-                                          context,
-                                          igrejaId: igrejaId,
-                                          nome: nome,
-                                          ig: ig),
-                                    ),
-                                  if (widget.canEdit &&
-                                      !removed &&
-                                      plano != 'free')
-                                    IconButton(
-                                      tooltip: '+15 dias',
-                                      icon:
-                                          const Icon(Icons.date_range_rounded),
-                                      onPressed: () async {
-                                        await billing.prorrogarTenant(
-                                            igrejaId, 15);
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            ThemeCleanPremium.successSnackBar(
-                                                'Prazo +15 dias.'),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  if (widget.canEdit &&
-                                      !removed &&
-                                      plano != 'free')
-                                    IconButton(
-                                      tooltip: 'Bônus +7 dias',
-                                      icon: const Icon(
-                                          Icons.card_giftcard_rounded),
-                                      onPressed: () async {
-                                        await billing.prorrogarTenant(
-                                            igrejaId, 7);
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            ThemeCleanPremium.successSnackBar(
-                                                'Bônus aplicado: +7 dias de licença.'),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  if (widget.canEdit && removed)
-                                    IconButton(
-                                      tooltip: 'Reativar',
-                                      icon:
-                                          const Icon(Icons.person_add_rounded),
-                                      onPressed: () async {
-                                        await billing.reativarTenant(igrejaId);
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            ThemeCleanPremium.successSnackBar(
-                                                'Igreja reativada.'),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  if (widget.canEdit && !removed)
-                                    IconButton(
-                                      tooltip: 'Remover acesso (soft)',
-                                      icon: const Icon(
-                                          Icons.person_remove_rounded),
-                                      onPressed: () async {
-                                        final ok = await showDialog<bool>(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            title: const Text('Remover igreja'),
-                                            content: Text(
-                                                'Remover "$nome"? Pode reativar depois.'),
-                                            actions: [
-                                              TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(ctx, false),
-                                                  child:
-                                                      const Text('Cancelar')),
-                                              FilledButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(ctx, true),
-                                                  child: const Text('Remover')),
-                                            ],
-                                          ),
-                                        );
-                                        if (ok == true) {
-                                          await billing.removerTenant(igrejaId);
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              ThemeCleanPremium.successSnackBar(
-                                                  'Igreja removida (soft).'),
-                                            );
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  IconButton(
-                                    tooltip: 'Detalhes',
-                                    icon:
-                                        const Icon(Icons.info_outline_rounded),
-                                    onPressed: () {
-                                      showDialog(
-                                          context: context,
-                                          builder: (_) => _DetalhesIgrejaDialog(
-                                              igreja: ig));
-                                    },
-                                  ),
-                                  if (widget.canEdit)
-                                    IconButton(
-                                      tooltip: 'Editar cadastro',
-                                      icon: const Icon(Icons.edit_rounded),
-                                      onPressed: () async {
-                                        await showDialog(
-                                          context: context,
-                                          builder: (_) => _EditIgrejaDialog(
-                                            title: 'Editar igreja',
-                                            canEdit: widget.canEdit,
-                                            tenantId: igrejaId,
-                                            igreja: ig,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                ],
-                              ),
+                              trailing: isNarrow
+                                  ? null
+                                  : Wrap(spacing: 4, children: actionButtons),
                               minLeadingWidth: 24,
                             ),
                           );

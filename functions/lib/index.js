@@ -3398,11 +3398,9 @@ async function ensureMemberFirebaseAuth(tenantId, memberId, memberRef, memberDat
                     authUid: u.uid,
                     MEMBER_ID: u.uid,
                     legacyMemberDocId: curId,
+                    // Mantém URLs legadas para evitar "sumiço" da foto se a cópia
+                    // de Storage atrasar/falhar em algum ambiente.
                     photoStoragePath: `igrejas/${tenantId}/membros/${u.uid}/foto_perfil.jpg`,
-                    foto_url: admin.firestore.FieldValue.delete(),
-                    fotoUrl: admin.firestore.FieldValue.delete(),
-                    photoURL: admin.firestore.FieldValue.delete(),
-                    FOTO_URL_OU_ID: admin.firestore.FieldValue.delete(),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 };
                 const newRef = memberRef.parent.doc(u.uid);
@@ -3465,11 +3463,8 @@ async function ensureMemberFirebaseAuth(tenantId, memberId, memberRef, memberDat
             authUid,
             MEMBER_ID: authUid,
             legacyMemberDocId: oldDocId,
+            // Mantém URLs legadas para evitar perder foto/avatar durante migração de docId.
             photoStoragePath: `igrejas/${tenantId}/membros/${authUid}/foto_perfil.jpg`,
-            foto_url: admin.firestore.FieldValue.delete(),
-            fotoUrl: admin.firestore.FieldValue.delete(),
-            photoURL: admin.firestore.FieldValue.delete(),
-            FOTO_URL_OU_ID: admin.firestore.FieldValue.delete(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         const newRef = memberRef.parent.doc(authUid);
@@ -3765,11 +3760,8 @@ exports.recreateMemberAuthForNewEmail = functions
         MEMBER_ID: newUid,
         EMAIL: newEmailRaw,
         email: newEmailRaw,
+        // Mantém URLs legadas para evitar perder foto/avatar durante migração de UID.
         photoStoragePath: `igrejas/${tenantId}/membros/${newUid}/foto_perfil.jpg`,
-        foto_url: admin.firestore.FieldValue.delete(),
-        fotoUrl: admin.firestore.FieldValue.delete(),
-        photoURL: admin.firestore.FieldValue.delete(),
-        FOTO_URL_OU_ID: admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     const newMembroRef = db.collection("igrejas").doc(tenantId).collection("membros").doc(newUid);

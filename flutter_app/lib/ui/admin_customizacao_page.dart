@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Customização do sistema. Super Premium, responsivo.
 class AdminCustomizacaoPage extends StatefulWidget {
@@ -102,7 +103,7 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (_error != null) ...[
-                      _PremiumCard(
+                      MasterPremiumCard(
                         child: Row(
                           children: [
                             Icon(Icons.warning_amber_rounded, color: ThemeCleanPremium.error, size: 24),
@@ -114,7 +115,7 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    _PremiumCard(
+                    MasterPremiumCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -171,25 +172,6 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
                 ),
               ),
       ),
-    );
-  }
-}
-
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: child,
     );
   }
 }

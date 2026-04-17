@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'pages/mercado_pago_admin_page.dart';
@@ -949,8 +950,8 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                                       return Container(
                                         margin: EdgeInsets.zero,
                                         decoration: BoxDecoration(
-                                          color:
-                                              ThemeCleanPremium.cardBackground,
+                                          gradient: ThemeCleanPremium
+                                              .churchPanelBodyGradient,
                                           borderRadius:
                                               BorderRadius.circular(0),
                                           boxShadow: null,
@@ -1371,8 +1372,41 @@ class _WarnBox extends StatelessWidget {
   const _WarnBox({required this.text, required this.action});
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(8),
-      child: Column(children: [Text(text), action]));
+        padding: EdgeInsets.fromLTRB(
+          ThemeCleanPremium.spaceSm,
+          ThemeCleanPremium.spaceSm,
+          ThemeCleanPremium.spaceSm,
+          0,
+        ),
+        child: MasterPremiumCard(
+          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      color: ThemeCleanPremium.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              action,
+            ],
+          ),
+        ),
+      );
 }
 
 /// Diálogo para inclusão manual de nova igreja: nome, slug, plano e data para testar.

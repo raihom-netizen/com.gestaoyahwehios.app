@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Página que explica os níveis de acesso: Master (gestor geral), Gestor Local, ADM, Líder, Usuário. Super Premium, responsivo.
 class AdminNiveisAcessoPage extends StatelessWidget {
@@ -132,14 +133,7 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
+    return MasterPremiumCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

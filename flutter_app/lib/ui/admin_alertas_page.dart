@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Central de Alertas. Super Premium, responsivo.
 class AdminAlertasPage extends StatefulWidget {
@@ -90,7 +91,7 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _PremiumCard(
+                      child: MasterPremiumCard(
                         child: Row(
                           children: [
                             Icon(Icons.warning_amber_rounded, color: ThemeCleanPremium.error, size: 24),
@@ -105,7 +106,7 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
                   Expanded(
                     child: filtrados.isEmpty
                         ? Center(
-                            child: _PremiumCard(
+                            child: MasterPremiumCard(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -128,7 +129,7 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
                               final lido = a['lido'] == true;
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                                child: _PremiumCard(
+                                child: MasterPremiumCard(
                                   child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -186,26 +187,6 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
                 ],
               ),
       ),
-    );
-  }
-}
-
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child, this.padding});
-  final Widget child;
-  final EdgeInsetsGeometry? padding;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: padding ?? const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: child,
     );
   }
 }

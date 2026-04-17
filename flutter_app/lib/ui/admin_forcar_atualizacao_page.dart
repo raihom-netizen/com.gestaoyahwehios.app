@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Versão mínima em `config/appVersion`: usuários desatualizados veem **aviso** com link da loja (app não bloqueia).
 class AdminForcarAtualizacaoPage extends StatefulWidget {
@@ -113,41 +114,39 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
             : ListView(
                 padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
       children: [
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
-          child: Padding(
-            padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.system_update_rounded, color: ThemeCleanPremium.primary, size: 28),
-                    const SizedBox(width: 12),
-                    Text(
+        MasterPremiumCard(
+          padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.system_update_rounded, color: ThemeCleanPremium.primary, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
                       'Aviso de nova versão (Play Store)',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Define a versão mínima em config/appVersion. Quem estiver abaixo vê um diálogo premium '
-                  'com mensagem e botão para a Play Store (Android: com.gestaoyahweh.app). '
-                  'O uso do app não é bloqueado — o usuário pode tocar em Depois.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Versão atual do app: $appVersion',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: ThemeCleanPremium.primary,
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Define a versão mínima em config/appVersion. Quem estiver abaixo vê um diálogo premium '
+                'com mensagem e botão para a Play Store (Android: com.gestaoyahweh.app). '
+                'O uso do app não é bloqueado — o usuário pode tocar em Depois.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Versão atual do app: $appVersion',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: ThemeCleanPremium.primary,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 20),

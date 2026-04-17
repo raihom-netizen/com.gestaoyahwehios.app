@@ -69,12 +69,27 @@ app-store-connect fetch-signing-files "$BUNDLE" \
   --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
 FETCH_EXIT=$?
 set -eu
+if [[ "$FETCH_EXIT" -ne 0 ]] && rg -n "returned 409|current Distribution certificate|pending certificate request" /tmp/cm_api_only_fetch.log >/dev/null 2>&1; then
+  echo ""
+  echo "AVISO: Apple recusou criar novo certificado Distribution (409)."
+  echo "       A tentar fallback automático: reutilizar perfis existentes sem --create."
+  set +e
+  app-store-connect fetch-signing-files "$BUNDLE" \
+    --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+    --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+    --private-key "@file:/tmp/_asc_ok.pem" \
+    --type IOS_APP_STORE \
+    --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch_fallback.log
+  FETCH_EXIT=$?
+  set -eu
+fi
 if [[ "$FETCH_EXIT" -ne 0 ]]; then
   echo ""
   echo "ERRO: fetch-signing-files falhou (codigo $FETCH_EXIT)."
   echo "  A chave API precisa de permissoes para ler/criar certificados e perfis (papel Admin na App Store Connect)."
   echo "  Confirme APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER e ISSUER_ID."
   tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+  tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
   exit 1
 fi
 

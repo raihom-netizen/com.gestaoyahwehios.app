@@ -2,6 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Migração: sincroniza usuários (users) para a tabela de membros
 /// da igreja (igrejas/{id}/membros) para corrigir exibição
@@ -197,173 +198,173 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Migrar membros',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800) ?? const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+    final pad = ThemeCleanPremium.pagePadding(context);
+    return Scaffold(
+      primary: false,
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            pad.left,
+            pad.top,
+            pad.right,
+            pad.bottom + ThemeCleanPremium.spaceXl,
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Sincroniza todos os usuários (coleção users) para a tabela de membros de cada igreja (igrejas), com nome, e-mail e foto. Assim o painel da igreja passa a exibir corretamente os membros e as fotos.',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade700, height: 1.4),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.sync_rounded, size: 48, color: Colors.deepPurple.shade600),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Migração completa (recomendado)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Copia a subcoleção legada "members" para "membros" em cada igreja e sincroniza a coleção users para igrejas/.../membros. Pode levar alguns minutos; não feche a página.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: _loading ? null : () => _executarMigracaoCompleta(),
-                    icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.all_inclusive_rounded),
-                    label: Text(_loading ? 'Executando...' : 'Executar migração completa'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.deepPurple.shade600,
-                    ),
-                  ),
-                ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Migrar membros',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800) ?? const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.people_alt_rounded, size: 48, color: ThemeCleanPremium.primary),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Executar migração (MASTER / ADMIN)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Cada usuário com tenantId ou igrejaId será escrito em igrejas/{id}/membros, com foto (FOTO_URL_OU_ID) quando existir.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Se aparecer erro "internal": publique a função antes. Na pasta "functions" do projeto: npm run build e firebase deploy --only functions.',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade800, fontStyle: FontStyle.italic),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: _loading ? null : () => _executarMigracao(),
-                    icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.sync_rounded),
-                    label: Text(_loading ? 'Executando...' : 'Executar migração'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: ThemeCleanPremium.primary,
+              const SizedBox(height: 8),
+              Text(
+                'Sincroniza todos os usuários (coleção users) para a tabela de membros de cada igreja (igrejas), com nome, e-mail e foto. Assim o painel da igreja passa a exibir corretamente os membros e as fotos.',
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade700, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              MasterPremiumCard(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.sync_rounded, size: 48, color: Colors.deepPurple.shade600),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Migração completa (recomendado)',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  if (_resultMessage != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.green.shade200),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 22),
-                          const SizedBox(width: 10),
-                          Expanded(child: Text(_resultMessage!, style: TextStyle(fontSize: 13, color: Colors.green.shade900))),
-                        ],
+                    const SizedBox(height: 8),
+                    Text(
+                      'Copia a subcoleção legada "members" para "membros" em cada igreja e sincroniza a coleção users para igrejas/.../membros. Pode levar alguns minutos; não feche a página.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _loading ? null : () => _executarMigracaoCompleta(),
+                      icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.all_inclusive_rounded),
+                      label: Text(_loading ? 'Executando...' : 'Executar migração completa'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.deepPurple.shade600,
                       ),
                     ),
                   ],
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.red.shade200),
+                ),
+              ),
+              const SizedBox(height: 24),
+              MasterPremiumCard(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.people_alt_rounded, size: 48, color: ThemeCleanPremium.primary),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Executar migração (MASTER / ADMIN)',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Cada usuário com tenantId ou igrejaId será escrito em igrejas/{id}/membros, com foto (FOTO_URL_OU_ID) quando existir.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Se aparecer erro "internal": publique a função antes. Na pasta "functions" do projeto: npm run build e firebase deploy --only functions.',
+                      style: TextStyle(fontSize: 12, color: Colors.orange.shade800, fontStyle: FontStyle.italic),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _loading ? null : () => _executarMigracao(),
+                      icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.sync_rounded),
+                      label: Text(_loading ? 'Executando...' : 'Executar migração'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: ThemeCleanPremium.primary,
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.error_outline_rounded, color: Colors.red.shade700, size: 22),
-                          const SizedBox(width: 10),
-                          Expanded(child: Text(_errorMessage!, style: TextStyle(fontSize: 13, color: Colors.red.shade900))),
-                        ],
+                    ),
+                    if (_resultMessage != null) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(_resultMessage!, style: TextStyle(fontSize: 13, color: Colors.green.shade900))),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.error_outline_rounded, color: Colors.red.shade700, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(_errorMessage!, style: TextStyle(fontSize: 13, color: Colors.red.shade900))),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              MasterPremiumCard(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.church_rounded, size: 48, color: Colors.green.shade700),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Migrar todos para Brasil para Cristo',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Todos os usuários (users) serão escritos como membros da igreja Brasil para Cristo e seus tenantId/igrejaId serão atualizados para essa igreja. Use após configurar a igreja no cadastro.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _loading ? null : () => _executarMigracao(targetSlug: 'brasil-para-cristo'),
+                      icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.people_rounded),
+                      label: Text(_loading ? 'Executando...' : 'Migrar todos para Brasil para Cristo'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.green.shade700,
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 24),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.church_rounded, size: 48, color: Colors.green.shade700),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Migrar todos para Brasil para Cristo',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Todos os usuários (users) serão escritos como membros da igreja Brasil para Cristo e seus tenantId/igrejaId serão atualizados para essa igreja. Use após configurar a igreja no cadastro.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: _loading ? null : () => _executarMigracao(targetSlug: 'brasil-para-cristo'),
-                    icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.people_rounded),
-                    label: Text(_loading ? 'Executando...' : 'Migrar todos para Brasil para Cristo'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.green.shade700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

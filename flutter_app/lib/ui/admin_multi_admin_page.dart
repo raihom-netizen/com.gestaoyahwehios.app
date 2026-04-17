@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Multi-Admin e delegação (Super Premium).
 /// Carrega `usuarios` sem `where` no servidor + filtro local + `GetOptions(server)` para evitar INTERNAL ASSERTION no Firestore Web 11.x.
@@ -242,7 +243,8 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
             if (_error != null)
               Padding(
                 padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, ThemeCleanPremium.spaceSm),
-                child: _PremiumCard(
+                child: MasterPremiumCard(
+                  expandWidth: true,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -270,7 +272,8 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
                       ? Center(
                           child: Padding(
                             padding: EdgeInsets.fromLTRB(padding.left, 24, padding.right, padding.bottom + 24),
-                            child: _PremiumCard(
+                            child: MasterPremiumCard(
+                              expandWidth: true,
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -309,7 +312,8 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
                             final via = a['viaAdminsDoc'] == true;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                              child: _PremiumCard(
+                              child: MasterPremiumCard(
+                                expandWidth: true,
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -497,28 +501,6 @@ class _Chip extends StatelessWidget {
           Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: light ? Colors.white : ThemeCleanPremium.onSurface)),
         ],
       ),
-    );
-  }
-}
-
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: const [
-          BoxShadow(color: Color(0x0A000000), blurRadius: 24, offset: Offset(0, 10)),
-        ],
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: child,
     );
   }
 }

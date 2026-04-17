@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 class AdminPlanosCobrancaPage extends StatefulWidget {
   const AdminPlanosCobrancaPage({super.key});
@@ -64,51 +65,98 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
     final padding = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
       primary: false,
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: isMobile ? null : AppBar(title: const Text('Planos e Cobranças')),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: padding,
-              children: [
-                const Text('Planos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 12),
-                ..._planos.map((p) => Card(
-                      child: ListTile(
-                        title: Text(p['nome'] ?? ''),
-                        subtitle: Text('R\$ ${p['preco'] ?? ''} / ${p['periodo'] ?? ''}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.edit),
-                          tooltip: 'Editar Plano',
-                          onPressed: () => _editarPlano(p),
+                padding: EdgeInsets.fromLTRB(
+                  padding.left,
+                  padding.top,
+                  padding.right,
+                  padding.bottom + ThemeCleanPremium.spaceXl,
+                ),
+                children: [
+                  const MasterModuleSectionTitle(
+                    title: 'Planos',
+                    subtitle: 'Valores exibidos no sistema e na divulgação.',
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  ..._planos.map(
+                    (p) => Padding(
+                      padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                      child: MasterPremiumCard(
+                        padding: EdgeInsets.zero,
+                        child: ListTile(
+                          title: Text(
+                            p['nome'] ?? '',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text('R\$ ${p['preco'] ?? ''} / ${p['periodo'] ?? ''}'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.edit_rounded),
+                            tooltip: 'Editar plano',
+                            onPressed: () => _editarPlano(p),
+                          ),
                         ),
                       ),
-                    )),
-                const Divider(height: 32),
-                const Text('Recebimentos', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 12),
-                Text('Total recebido: R\$ ${totalRecebido.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Buscar por cliente',
-                    border: OutlineInputBorder(),
+                    ),
                   ),
-                  onChanged: (v) => setState(() => _busca = v.toLowerCase()),
-                ),
-                const SizedBox(height: 12),
-                ...recFiltrados.map((r) => Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.attach_money),
-                        title: Text(r['cliente'] ?? ''),
-                        subtitle: Text('R\$ ${r['valor'] ?? ''} - ${r['data'] ?? ''}'),
-                        trailing: Text(r['status'] ?? '', style: TextStyle(color: r['status'] == 'pago' ? Colors.green : Colors.red)),
+                  const SizedBox(height: ThemeCleanPremium.spaceLg),
+                  const Divider(height: 1),
+                  const SizedBox(height: ThemeCleanPremium.spaceLg),
+                  MasterModuleSectionTitle(
+                    title: 'Recebimentos',
+                    subtitle: 'Pagamentos registrados na coleção «pagamentos».',
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceSm),
+                  MasterPremiumCard(
+                    child: Text(
+                      'Total recebido: R\$ ${totalRecebido.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                    ),
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  TextField(
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      hintText: 'Buscar por cliente',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                       ),
-                    )),
-              ],
-            ),
-        ),
+                      filled: true,
+                      fillColor: ThemeCleanPremium.cardBackground,
+                    ),
+                    onChanged: (v) => setState(() => _busca = v.toLowerCase()),
+                  ),
+                  const SizedBox(height: ThemeCleanPremium.spaceMd),
+                  ...recFiltrados.map(
+                    (r) => Padding(
+                      padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                      child: MasterPremiumCard(
+                        padding: EdgeInsets.zero,
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.attach_money_rounded,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                          title: Text(r['cliente'] ?? ''),
+                          subtitle: Text('R\$ ${r['valor'] ?? ''} — ${r['data'] ?? ''}'),
+                          trailing: Text(
+                            r['status'] ?? '',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: r['status'] == 'pago' ? Colors.green.shade700 : Colors.red.shade700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

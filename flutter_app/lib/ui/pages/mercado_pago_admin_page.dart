@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 class MercadoPagoAdminPage extends StatefulWidget {
   /// Quando aberto dentro do painel master (drawer), evita conflito de [PrimaryScrollController].
@@ -189,7 +190,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         if (_loadError != null) ...[
-                          _PremiumCard(
+                          MasterPremiumCard(
                             child: Row(
                               children: [
                                 Container(
@@ -217,7 +218,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                         ],
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -248,7 +249,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -276,7 +277,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -343,7 +344,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -410,7 +411,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Wrap(
                             spacing: 12,
                             runSpacing: 12,
@@ -444,7 +445,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                           ),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _PremiumCard(
+                        MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -549,26 +550,6 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
   }
 }
 
-/// Card branco estilo Super Premium: sombra suave, bordas 16px.
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: child,
-    );
-  }
-}
-
 class _SalesList extends StatelessWidget {
   static String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
@@ -583,12 +564,12 @@ class _SalesList extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _PremiumCard(
+          return MasterPremiumCard(
             child: Text('Erro: ${snapshot.error}', style: const TextStyle(color: ThemeCleanPremium.error, fontSize: 13)),
           );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _PremiumCard(
+          return MasterPremiumCard(
             child: Text(
               'Nenhuma cobrança registrada ainda. Ao receber pagamentos via Mercado Pago (cartão ou PIX), o webhook grava aqui.',
               style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant, fontSize: 14),
@@ -609,7 +590,7 @@ class _SalesList extends StatelessWidget {
                 : null;
             return Padding(
               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              child: _PremiumCard(
+              child: MasterPremiumCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -671,12 +652,12 @@ class _LicensesSummary extends StatelessWidget {
       stream: FirebaseFirestore.instance.collection('igrejas').limit(100).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _PremiumCard(
+          return MasterPremiumCard(
             child: Text('Erro: ${snapshot.error}', style: const TextStyle(color: ThemeCleanPremium.error, fontSize: 13)),
           );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _PremiumCard(
+          return MasterPremiumCard(
             child: Text(
               'Nenhuma licença ativa no momento. Licenças são atualizadas quando o webhook do Mercado Pago confirma o pagamento.',
               style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant, fontSize: 14),
@@ -695,7 +676,7 @@ class _LicensesSummary extends StatelessWidget {
             final billingStatus = (billing?['status'] ?? '-').toString();
             return Padding(
               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              child: _PremiumCard(
+              child: MasterPremiumCard(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

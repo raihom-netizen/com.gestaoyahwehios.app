@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Recebimentos de licenças — sales (Mercado Pago) + status por tenant. Super Premium, responsivo.
 class AdminRecebimentosPage extends StatelessWidget {
@@ -170,7 +171,8 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
     const brandTeal = Color(0xFF0D9488);
 
     if (_loading) {
-      return _PremiumCard(
+      return MasterPremiumCard(
+        padding: EdgeInsets.zero,
         child: const Padding(
           padding: EdgeInsets.all(ThemeCleanPremium.spaceLg),
           child: Center(child: CircularProgressIndicator()),
@@ -187,7 +189,8 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
       DateTime(_periodEnd.year, _periodEnd.month, _periodEnd.day, 23, 59, 59),
     );
 
-    return _PremiumCard(
+    return MasterPremiumCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
         child: Column(
@@ -326,7 +329,8 @@ class _SalesList extends StatelessWidget {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();
           final isPermissionDenied = err.contains('permission-denied') || err.contains('PERMISSION_DENIED');
-          return _PremiumCard(
+          return MasterPremiumCard(
+            padding: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
               child: Row(
@@ -348,7 +352,8 @@ class _SalesList extends StatelessWidget {
           );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _PremiumCard(
+          return MasterPremiumCard(
+            padding: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
               child: Text(
@@ -372,7 +377,8 @@ class _SalesList extends StatelessWidget {
                 : null;
             return Padding(
               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              child: _PremiumCard(
+              child: MasterPremiumCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
                   child: Column(
@@ -444,7 +450,8 @@ class _LicensesSummary extends StatelessWidget {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();
           final isPermissionDenied = err.contains('permission-denied') || err.contains('PERMISSION_DENIED');
-          return _PremiumCard(
+          return MasterPremiumCard(
+            padding: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
               child: Row(
@@ -466,7 +473,8 @@ class _LicensesSummary extends StatelessWidget {
           );
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _PremiumCard(
+          return MasterPremiumCard(
+            padding: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
               child: Center(
@@ -495,7 +503,8 @@ class _LicensesSummary extends StatelessWidget {
             final hasGestor = gestorNome.isNotEmpty || gestorEmail.isNotEmpty || gestorTelefone.isNotEmpty;
             return Padding(
               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              child: _PremiumCard(
+              child: MasterPremiumCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
                   child: Column(
@@ -603,26 +612,6 @@ class _LicensesSummary extends StatelessWidget {
           }),
         );
       },
-    );
-  }
-}
-
-/// Card com borda 16px e sombra suave (Super Premium).
-class _PremiumCard extends StatelessWidget {
-  final Widget child;
-
-  const _PremiumCard({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: child,
     );
   }
 }

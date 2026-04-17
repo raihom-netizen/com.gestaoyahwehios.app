@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/global_announcement_overlay.dart';
 import 'package:intl/intl.dart';
@@ -443,14 +444,14 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
             ),
             const SizedBox(height: ThemeCleanPremium.spaceXl),
             if (_loading)
-              _PremiumCard(
+              MasterPremiumCard(
                 child: const Padding(
                   padding: EdgeInsets.all(ThemeCleanPremium.spaceXl),
                   child: Center(child: CircularProgressIndicator()),
                 ),
               )
             else if (_error != null)
-              _PremiumCard(
+              MasterPremiumCard(
                 child: Padding(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
                   child: Row(
@@ -469,7 +470,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                 ),
               )
             else
-              _PremiumCard(
+              MasterPremiumCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -869,7 +870,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                   .snapshots(),
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return _PremiumCard(
+                  return MasterPremiumCard(
                     child: Text(
                       'Não foi possível carregar o histórico. Se for índice, faça deploy do firestore.indexes ou aguarde propagação.\n${snap.error}',
                       style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13),
@@ -878,7 +879,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                 }
                 if (snap.connectionState == ConnectionState.waiting &&
                     !snap.hasData) {
-                  return const _PremiumCard(
+                  return const MasterPremiumCard(
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Center(child: CircularProgressIndicator()),
@@ -887,7 +888,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                 }
                 final docs = snap.data?.docs ?? [];
                 if (docs.isEmpty) {
-                  return _PremiumCard(
+                  return MasterPremiumCard(
                     child: Text(
                       'Nenhum registro ainda. Ao salvar ou remover um aviso, aparece aqui.',
                       style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
@@ -899,7 +900,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                     for (final d in docs)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _PremiumCard(
+                        child: MasterPremiumCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1039,25 +1040,5 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
       return 'Promoção';
     }
     return 'Geral';
-  }
-}
-
-/// Card Super Premium: bordas 16px, sombra suave.
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: child,
-    );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
 /// Lista todos os planos oficiais (mesma lista do painel divulgação e painel igreja).
@@ -144,11 +145,10 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                     ...planosOficiais.map((plan) {
                       final ctrlM = _controllersMonthly[plan.id]!;
                       final ctrlA = _controllersAnnual[plan.id]!;
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
+                      return MasterPremiumCard(
+                        margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+                        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                        child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
@@ -203,7 +203,6 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                               ),
                             ],
                           ),
-                        ),
                       );
                     }),
                   ],

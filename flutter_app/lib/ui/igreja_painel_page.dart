@@ -222,16 +222,89 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     if (mounted) setState(() => _loading = false);
   }
 
+  Future<void> _abrirMenuMobile() async {
+    final item = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final labels = <(IconData, String, int)>[
+          (Icons.dashboard_rounded, 'Painel', 0),
+          (Icons.people_rounded, 'Membros', 1),
+          (Icons.groups_rounded, 'Departamentos', 2),
+          (Icons.event_rounded, 'Eventos', 3),
+          (Icons.cake_rounded, 'Aniversariantes', 4),
+          (Icons.campaign_rounded, 'Avisos', 5),
+          (Icons.verified_user_rounded, 'Liderança', 6),
+          (Icons.bar_chart_rounded, 'Relatórios', 7),
+          (Icons.manage_accounts_rounded, 'Usuários e permissões', 8),
+          (Icons.pending_actions_rounded, 'Aprovar membros', 9),
+        ];
+        return SafeArea(
+          top: false,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: labels.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final (icon, title, index) = labels[i];
+              return ListTile(
+                leading: Icon(icon, color: const Color(0xFF0D47A1)),
+                title: Text(title),
+                onTap: () => Navigator.pop(ctx, index),
+              );
+            },
+          ),
+        );
+      },
+    );
+    if (item == null) return;
+    if (item == 0) {
+      setState(() => _menuIndex = 0);
+    } else {
+      await _abrirModulo(item);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
+        final contentPadding = isMobile ? 14.0 : 32.0;
+        final showSidebar = !isMobile && !_menuCollapsed;
         return Scaffold(
           backgroundColor: const Color(0xFFF0F7FF),
-          body: Row(
-            children: [
-              if (!isMobile || !_menuCollapsed)
+          appBar: isMobile
+              ? AppBar(
+                  backgroundColor: const Color(0xFF0D47A1),
+                  foregroundColor: Colors.white,
+                  title: const Text(
+                    'Painel da Igreja',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  leading: IconButton(
+                    icon: const Icon(Icons.menu_rounded),
+                    onPressed: _abrirMenuMobile,
+                    tooltip: 'Abrir módulos',
+                  ),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.search_rounded),
+                      tooltip: 'Busca global',
+                      onPressed: _abrirBuscaGlobal,
+                    ),
+                  ],
+                )
+              : null,
+          body: SafeArea(
+            top: !isMobile,
+            bottom: true,
+            child: Row(
+              children: [
+              if (showSidebar)
                 IgrejaMenuLateralDinamico(
                   selectedIndex: _menuIndex,
                   onItemSelected: (i) {
@@ -248,21 +321,22 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : SingleChildScrollView(
-                        padding: const EdgeInsets.all(32),
+                        padding: EdgeInsets.all(contentPadding),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                const Text('Painel da Igreja', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 26, color: Color(0xFF0D47A1), letterSpacing: -0.5)),
-                                const Spacer(),
-                                IconButton(
-                                  icon: const Icon(Icons.search_rounded, color: Color(0xFF0D47A1), size: 26),
-                                  tooltip: 'Busca global (Ctrl+K)',
-                                  onPressed: _abrirBuscaGlobal,
-                                ),
-                              ],
-                            ),
+                            if (!isMobile)
+                              Row(
+                                children: [
+                                  const Text('Painel da Igreja', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 26, color: Color(0xFF0D47A1), letterSpacing: -0.5)),
+                                  const Spacer(),
+                                  IconButton(
+                                    icon: const Icon(Icons.search_rounded, color: Color(0xFF0D47A1), size: 26),
+                                    tooltip: 'Busca global (Ctrl+K)',
+                                    onPressed: _abrirBuscaGlobal,
+                                  ),
+                                ],
+                              ),
                             const SizedBox(height: 18),
                             // KPIs
                             Wrap(
@@ -280,21 +354,38 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                             ),
                             const SizedBox(height: 32),
                             // Gráficos
-                            Row(
-                              children: [
-                                Expanded(child: GraficoUltraModerno(
-                                  valores: const [10, 12, 15, 18, 22, 25, 30, 35, 40, 45, 50, 60],
-                                  labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
-                                  titulo: 'Crescimento de Membros',
-                                )),
-                                const SizedBox(width: 32),
-                                Expanded(child: GraficoUltraModerno(
-                                  valores: const [5, 8, 12, 20, 18, 22, 30, 28, 35, 40, 38, 45],
-                                  labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
-                                  titulo: 'Ofertas Mensais',
-                                )),
-                              ],
-                            ),
+                            if (isMobile)
+                              Column(
+                                children: [
+                                  GraficoUltraModerno(
+                                    valores: const [10, 12, 15, 18, 22, 25, 30, 35, 40, 45, 50, 60],
+                                    labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                                    titulo: 'Crescimento de Membros',
+                                  ),
+                                  const SizedBox(height: 18),
+                                  GraficoUltraModerno(
+                                    valores: const [5, 8, 12, 20, 18, 22, 30, 28, 35, 40, 38, 45],
+                                    labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                                    titulo: 'Ofertas Mensais',
+                                  ),
+                                ],
+                              )
+                            else
+                              Row(
+                                children: [
+                                  Expanded(child: GraficoUltraModerno(
+                                    valores: const [10, 12, 15, 18, 22, 25, 30, 35, 40, 45, 50, 60],
+                                    labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                                    titulo: 'Crescimento de Membros',
+                                  )),
+                                  const SizedBox(width: 32),
+                                  Expanded(child: GraficoUltraModerno(
+                                    valores: const [5, 8, 12, 20, 18, 22, 30, 28, 35, 40, 38, 45],
+                                    labels: const ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                                    titulo: 'Ofertas Mensais',
+                                  )),
+                                ],
+                              ),
                             const SizedBox(height: 32),
                             // Cards de relatórios e atalhos
                             Wrap(
@@ -309,29 +400,34 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                               ],
                             ),
                             const SizedBox(height: 32),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: _aniversariantesWidget()),
-                                const SizedBox(width: 24),
-                                Expanded(child: _lideresWidget()),
-                                const SizedBox(width: 24),
-                                Expanded(child: _avisosWidget()),
-                              ],
-                            ),
+                            if (isMobile)
+                              Column(
+                                children: [
+                                  _aniversariantesWidget(),
+                                  const SizedBox(height: 14),
+                                  _lideresWidget(),
+                                  const SizedBox(height: 14),
+                                  _avisosWidget(),
+                                ],
+                              )
+                            else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: _aniversariantesWidget()),
+                                  const SizedBox(width: 24),
+                                  Expanded(child: _lideresWidget()),
+                                  const SizedBox(width: 24),
+                                  Expanded(child: _avisosWidget()),
+                                ],
+                              ),
                           ],
                         ),
                       ),
               ),
-            ],
+              ],
+            ),
           ),
-          floatingActionButton: isMobile
-              ? FloatingActionButton(
-                  onPressed: () => setState(() => _menuCollapsed = !_menuCollapsed),
-                  backgroundColor: const Color(0xFF1565C0),
-                  child: Icon(_menuCollapsed ? Icons.menu : Icons.close),
-                )
-              : null,
         );
       },
     );
@@ -464,13 +560,14 @@ class _AtalhoCard extends StatelessWidget {
   const _AtalhoCard({required this.label, required this.icon, required this.onTap});
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: 200,
+          width: isMobile ? 160 : 200,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.white,

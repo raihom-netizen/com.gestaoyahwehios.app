@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/admin_igreja_usuarios_page.dart';
 import 'package:intl/intl.dart';
 
@@ -46,6 +47,85 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
     }
   }
 
+  Future<void> _menuAcaoIgreja({
+    required String action,
+    required String tenantId,
+    required String nomeIgreja,
+    required bool removed,
+  }) async {
+    switch (action) {
+      case 'reativar':
+        await BillingLicenseService().reativarTenant(tenantId);
+        await _load();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar('Igreja reativada.'),
+          );
+        }
+        return;
+      case 'remover':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Remover igreja'),
+            content: Text(
+              'Remover "$nomeIgreja"? Ela perderá acesso ao sistema. Você pode reativar depois.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remover')),
+            ],
+          ),
+        );
+        if (ok == true) {
+          await BillingLicenseService().removerTenant(tenantId);
+          await _load();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar('Igreja removida. Use Reativar para restaurar.'),
+            );
+          }
+        }
+        return;
+      case 'excluir':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Excluir igreja do banco'),
+            content: Text(
+              'Excluir permanentemente "$nomeIgreja"? O documento do tenant será apagado. Use apenas quando a igreja não quiser mais o sistema. Esta ação não pode ser desfeita.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Excluir permanentemente'),
+              ),
+            ],
+          ),
+        );
+        if (ok == true) {
+          try {
+            await BillingLicenseService().excluirTenant(tenantId);
+            await _load();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.successSnackBar('Tenant excluído do banco.'),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Erro ao excluir: $e')),
+              );
+            }
+          }
+        }
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final q = _busca.trim().toLowerCase();
@@ -62,6 +142,7 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
 
     return Scaffold(
       primary: false,
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: isMobile ? null : AppBar(title: const Text('Gestores e Igrejas')),
       body: SafeArea(
         child: _loading
@@ -71,41 +152,57 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                   Padding(
                     padding: padding,
                     child: TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search_rounded),
                         hintText: 'Buscar por nome da igreja, gestor ou slug...',
-                        border: OutlineInputBorder(),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        ),
+                        filled: true,
+                        fillColor: ThemeCleanPremium.cardBackground,
                       ),
                       onChanged: (v) => setState(() => _busca = v),
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        Text('Total: ${filtrados.length}', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-                      ],
+                    padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: MasterPremiumCard(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: ThemeCleanPremium.spaceMd,
+                          vertical: ThemeCleanPremium.spaceSm,
+                        ),
+                        child: Text(
+                          'Total: ${filtrados.length}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Expanded(
                     child: filtrados.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.people_rounded, size: 64, color: Colors.grey.shade400),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _tenants.isEmpty ? 'Nenhuma igreja cadastrada.' : 'Nenhum resultado para a busca.',
-                                  style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
+                        ? ThemeCleanPremium.premiumEmptyState(
+                            icon: Icons.people_rounded,
+                            title: _tenants.isEmpty
+                                ? 'Nenhuma igreja cadastrada.'
+                                : 'Nenhum resultado para a busca.',
+                            subtitle: _tenants.isEmpty
+                                ? 'As igrejas aparecem aqui assim que forem registradas.'
+                                : 'Ajuste os termos da busca ou limpe o campo.',
                           )
                         : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            padding: EdgeInsets.fromLTRB(
+                              padding.left,
+                              0,
+                              padding.right,
+                              padding.bottom + ThemeCleanPremium.spaceLg,
+                            ),
                             itemCount: filtrados.length,
                             itemBuilder: (_, i) {
                               final doc = filtrados[i];
@@ -125,15 +222,17 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                               final plano = (data['plano'] ?? 'free').toString();
                               final status = (data['status'] ?? 'ativa').toString();
 
-                              return Card(
-                                elevation: 0,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                                  side: BorderSide(color: Colors.grey.shade200),
-                                ),
-                                color: removed ? Colors.grey.shade50 : null,
-                                child: ListTile(
+                              return MasterPremiumCard(
+                                margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+                                padding: EdgeInsets.zero,
+                                child: Material(
+                                  color: removed
+                                      ? Colors.grey.shade50
+                                      : ThemeCleanPremium.cardBackground,
+                                  borderRadius:
+                                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: ListTile(
                                   onTap: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
@@ -181,93 +280,99 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                                     ],
                                   ),
                                   isThreeLine: true,
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (removed)
-                                        TextButton.icon(
-                                          icon: const Icon(Icons.person_add_rounded, size: 18),
-                                          label: const Text('Reativar'),
-                                          onPressed: () async {
-                                            await BillingLicenseService().reativarTenant(tenantId);
-                                            _load();
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                ThemeCleanPremium.successSnackBar('Igreja reativada.'),
-                                              );
-                                            }
-                                          },
-                                        )
-                                      else
-                                        IconButton(
-                                          icon: const Icon(Icons.person_remove_rounded),
-                                          tooltip: 'Remover (pode reativar depois)',
-                                          onPressed: () async {
-                                            final ok = await showDialog<bool>(
-                                              context: context,
-                                              builder: (ctx) => AlertDialog(
-                                                title: const Text('Remover igreja'),
-                                                content: Text(
-                                                  'Remover "$nomeIgreja"? Ela perderá acesso ao sistema. Você pode reativar depois.',
+                                  trailing: isMobile
+                                      ? PopupMenuButton<String>(
+                                          tooltip: 'Ações',
+                                          icon: const Icon(Icons.more_vert_rounded),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                            minWidth: ThemeCleanPremium.minTouchTarget,
+                                            minHeight: ThemeCleanPremium.minTouchTarget,
+                                          ),
+                                          onSelected: (v) => _menuAcaoIgreja(
+                                            action: v,
+                                            tenantId: tenantId,
+                                            nomeIgreja: nomeIgreja,
+                                            removed: removed,
+                                          ),
+                                          itemBuilder: (ctx) => [
+                                            if (removed)
+                                              PopupMenuItem(
+                                                value: 'reativar',
+                                                child: ListTile(
+                                                  dense: true,
+                                                  leading: const Icon(Icons.person_add_rounded),
+                                                  title: const Text('Reativar'),
                                                 ),
-                                                actions: [
-                                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-                                                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remover')),
-                                                ],
-                                              ),
-                                            );
-                                            if (ok == true) {
-                                              await BillingLicenseService().removerTenant(tenantId);
-                                              _load();
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  ThemeCleanPremium.successSnackBar('Igreja removida. Use Reativar para restaurar.'),
-                                                );
-                                              }
-                                            }
-                                          },
-                                        ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_forever_rounded),
-                                        tooltip: 'Excluir (limpar banco — irreversível)',
-                                        onPressed: () async {
-                                          final ok = await showDialog<bool>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              title: const Text('Excluir igreja do banco'),
-                                              content: Text(
-                                                'Excluir permanentemente "$nomeIgreja"? O documento do tenant será apagado. Use apenas quando a igreja não quiser mais o sistema. Esta ação não pode ser desfeita.',
-                                              ),
-                                              actions: [
-                                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-                                                FilledButton(
-                                                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                                                  onPressed: () => Navigator.pop(ctx, true),
-                                                  child: const Text('Excluir permanentemente'),
+                                              )
+                                            else
+                                              PopupMenuItem(
+                                                value: 'remover',
+                                                child: ListTile(
+                                                  dense: true,
+                                                  leading: const Icon(Icons.person_remove_rounded),
+                                                  title: const Text('Remover'),
                                                 ),
-                                              ],
+                                              ),
+                                            PopupMenuItem(
+                                              value: 'excluir',
+                                              child: ListTile(
+                                                dense: true,
+                                                leading: const Icon(Icons.delete_forever_rounded, color: Colors.red),
+                                                title: const Text('Excluir permanente'),
+                                              ),
                                             ),
-                                          );
-                                          if (ok == true) {
-                                            try {
-                                              await BillingLicenseService().excluirTenant(tenantId);
-                                              _load();
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  ThemeCleanPremium.successSnackBar('Tenant excluído do banco.'),
-                                                );
-                                              }
-                                            } catch (e) {
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('Erro ao excluir: $e')),
-                                                );
-                                              }
-                                            }
-                                          }
-                                        },
-                                      ),
-                                    ],
+                                          ],
+                                        )
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (removed)
+                                              TextButton.icon(
+                                                icon: const Icon(Icons.person_add_rounded, size: 18),
+                                                label: const Text('Reativar'),
+                                                onPressed: () => _menuAcaoIgreja(
+                                                  action: 'reativar',
+                                                  tenantId: tenantId,
+                                                  nomeIgreja: nomeIgreja,
+                                                  removed: removed,
+                                                ),
+                                              )
+                                            else
+                                              IconButton(
+                                                icon: const Icon(Icons.person_remove_rounded),
+                                                tooltip: 'Remover (pode reativar depois)',
+                                                style: IconButton.styleFrom(
+                                                  minimumSize: const Size(
+                                                    ThemeCleanPremium.minTouchTarget,
+                                                    ThemeCleanPremium.minTouchTarget,
+                                                  ),
+                                                ),
+                                                onPressed: () => _menuAcaoIgreja(
+                                                  action: 'remover',
+                                                  tenantId: tenantId,
+                                                  nomeIgreja: nomeIgreja,
+                                                  removed: removed,
+                                                ),
+                                              ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete_forever_rounded),
+                                              tooltip: 'Excluir (limpar banco — irreversível)',
+                                              style: IconButton.styleFrom(
+                                                minimumSize: const Size(
+                                                  ThemeCleanPremium.minTouchTarget,
+                                                  ThemeCleanPremium.minTouchTarget,
+                                                ),
+                                              ),
+                                              onPressed: () => _menuAcaoIgreja(
+                                                action: 'excluir',
+                                                tenantId: tenantId,
+                                                nomeIgreja: nomeIgreja,
+                                                removed: removed,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                   ),
                                 ),
                               );

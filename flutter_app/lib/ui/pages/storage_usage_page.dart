@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
@@ -275,7 +276,8 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (_error != null)
-                  _PremiumCard(
+                  MasterPremiumCard(
+                    expandWidth: true,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -323,7 +325,8 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
                   const SizedBox(height: 16),
                   _buildFirestoreChartsSection(),
                   const SizedBox(height: 16),
-                  _PremiumCard(
+                  MasterPremiumCard(
+                    expandWidth: true,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -493,7 +496,8 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
           },
         ),
         const SizedBox(height: 14),
-        _PremiumCard(
+        MasterPremiumCard(
+          expandWidth: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -592,7 +596,8 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
           ),
         ),
         const SizedBox(height: 12),
-        _PremiumCard(
+        MasterPremiumCard(
+          expandWidth: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -914,24 +919,6 @@ class _HorizontalRatioBar extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PremiumCard extends StatelessWidget {
-  final Widget child;
-
-  const _PremiumCard({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: ThemeCleanPremium.premiumSurfaceCard.copyWith(
-        color: ThemeCleanPremium.cardBackground,
-      ),
-      child: child,
     );
   }
 }

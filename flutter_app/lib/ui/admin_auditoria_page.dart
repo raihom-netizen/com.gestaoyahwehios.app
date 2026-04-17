@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Logs de uso de banco, Google Drive etc. Master vê todos; Gestor local vê só da sua igreja. Super Premium, responsivo.
 class AdminAuditoriaPage extends StatefulWidget {
@@ -117,7 +118,7 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _PremiumCard(
+                child: MasterPremiumCard(
                   child: Row(
                     children: [
                       Icon(Icons.warning_amber_rounded, color: ThemeCleanPremium.error, size: 24),
@@ -134,7 +135,7 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
                   ? const Center(child: CircularProgressIndicator())
                   : filtrados.isEmpty
                       ? Center(
-                          child: _PremiumCard(
+                          child: MasterPremiumCard(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -156,7 +157,7 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
                             final l = filtrados[i];
                             return Padding(
                               padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                              child: _PremiumCard(
+                              child: MasterPremiumCard(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
@@ -194,25 +195,6 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: child,
     );
   }
 }
