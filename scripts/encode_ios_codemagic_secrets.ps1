@@ -25,22 +25,36 @@ function Write-Base64OneLine {
 }
 
 # --- P12 (Apple Distribution + chave privada) ---
+# NUNCA usar .cer (so certificado publico) - so *.p12 ou ficheiro sem extensao PKCS#12.
 $p12 = Get-ChildItem -Path $IOS -Filter "*.p12" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p12) {
-    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp")) {
+    foreach ($name in @("com_gestaoyahwehiosapi", "gestaoyahwehiosapp", "distribution.p12", "distribution")) {
         $fallback = Join-Path $IOS $name
-        if (Test-Path -LiteralPath $fallback) {
-            $p12 = Get-Item -LiteralPath $fallback
-            break
-        }
+        if (-not (Test-Path -LiteralPath $fallback)) { continue }
+        if ($fallback -match '\.cer$') { continue }
+        try {
+            $head = [IO.File]::ReadAllBytes($fallback)
+            if ($head.Length -ge 4 -and $head[0] -eq 0x30) {
+                $p12 = Get-Item -LiteralPath $fallback
+                break
+            }
+        } catch {}
     }
 }
 
 # --- Perfil App Store ---
 $prov = Get-ChildItem -Path $IOS -Filter "*.mobileprovision" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 
-# --- AuthKey .p8 (App Store Connect API) ---
-$p8 = Get-ChildItem -Path $IOS -Filter "AuthKey_*.p8" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+# --- AuthKey .p8: preferir a chave alinhada ao codemagic.yaml (55BABQVL48) se existir ---
+$p8 = $null
+$p8All = @(Get-ChildItem -Path $IOS -Filter "AuthKey_*.p8" -File -ErrorAction SilentlyContinue)
+foreach ($c in $p8All) {
+    if ($c.Name -match '55BABQVL48') { $p8 = $c; break }
+}
+if (-not $p8 -and $p8All.Count -gt 0) {
+    $p8 = $p8All | Sort-Object Name | Select-Object -First 1
+    Write-Host "AVISO: Varias chaves .p8 em IOS - a usar $($p8.Name). Alinhe o codemagic.yaml ao mesmo Key ID." -ForegroundColor DarkYellow
+}
 
 $p12Out = Join-Path $OutDir "CM_CERTIFICATE_base64.txt"
 $provOut = Join-Path $OutDir "CM_PROVISIONING_PROFILE_base64.txt"
@@ -67,15 +81,15 @@ if ($p12) {
     $msg = @"
 FALTA FICHEIRO .p12 (Apple Distribution + chave privada).
 
-Nao foi encontrado *.p12 em: $IOS
+Pasta: $IOS
 O ficheiro distribution.cer NAO substitui o P12 (nao tem chave privada).
 
 O que fazer:
-  1) Mac: Keychain → «Apple Distribution: Raihom Barbosa» → Exportar 2 itens → .p12
-  2) Ou: Codemagic → equipa → certificado gerado → descarregar o .p12 indicado
-  3) Coloque o .p12 em IOS\ e volte a correr: .\scripts\encode_ios_codemagic_secrets.ps1
+  - Mac Keychain: exportar Apple Distribution como .p12 (certificado + chave privada)
+  - Ou Codemagic equipa: descarregar o .p12 do certificado gerado
+  - Depois correr de novo: .\scripts\encode_ios_codemagic_secrets.ps1
 
-O ficheiro CM_PROVISIONING_PROFILE_base64.txt JA FOI GERADO nesta pasta.
+CM_PROVISIONING_PROFILE_base64.txt nesta pasta JA foi gerado.
 "@
     [IO.File]::WriteAllText((Join-Path $OutDir "AINDA_FALTA_P12___LER_ISTO.txt"), $msg, [Text.UTF8Encoding]::new($false))
     Remove-Item -LiteralPath $p12Out -Force -ErrorAction SilentlyContinue
