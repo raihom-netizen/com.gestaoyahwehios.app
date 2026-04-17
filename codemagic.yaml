@@ -111,6 +111,9 @@ workflows:
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
         APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
+        # Opcional: sobrescreve os defaults do passo «Enviar IPA ao ASC» (minutos). Apple pode demorar 30–60 min.
+        APP_STORE_CONNECT_MAX_FIND_BUILD_WAIT: "60"
+        APP_STORE_CONNECT_MAX_BUILD_PROCESSING_WAIT: "45"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       flutter: stable
@@ -527,9 +530,8 @@ workflows:
             python3 -m pip install --user -q codemagic-cli-tools
             export PATH="$(python3 -m site --user-base)/bin:$PATH"
           fi
-          # Upload + fila Apple: o tempo real depende da rede e dos servidores Apple (não há como “acelerar” o upload).
-          # Estes limites só evitam o passo ficar 45+ min à espera do processamento; o build aparece no ASC na mesma.
-          # TestFlight externo: submeta manualmente no ASC se o passo terminar antes do processamento acabar.
+          # Após o upload, a API da Apple pode demorar muito a listar o build («Could not find the build…»).
+          # Valores baixos (ex. 15 min) fazem o passo falhar com exit 1 mesmo com IPA já enviado. Usar 45–60 min ou as env acima.
           app-store-connect publish \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
@@ -537,8 +539,8 @@ workflows:
             --path "$IPA" \
             --testflight \
             --expire-build-submitted-for-review \
-            --max-find-build-wait 15 \
-            --max-build-processing-wait 12
+            --max-find-build-wait "${APP_STORE_CONNECT_MAX_FIND_BUILD_WAIT:-60}" \
+            --max-build-processing-wait "${APP_STORE_CONNECT_MAX_BUILD_PROCESSING_WAIT:-45}"
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
       - build/ios/ipa/*.ipa
