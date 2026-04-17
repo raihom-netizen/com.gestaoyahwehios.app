@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Assinatura iOS só com App Store Connect API (padrão «Controle Total»: 3 variáveis).
 # Pré-requisitos: keychain initialize + /tmp/_asc_ok.pem
+#
+# Sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM: primeiro descarrega perfis/certificados
+# já existentes na Apple (sem --create), para não gerar chave RSA aleatória nem bater no 409.
+# Com CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (mesmo PEM em todos os builds): pode usar --create.
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -30,71 +34,45 @@ fi
 PROFILE_DIR="${HOME}/Library/MobileDevice/Provisioning Profiles"
 mkdir -p "$PROFILE_DIR"
 
-# fetch-signing-files --create exige --certificate-key (chave RSA do certificado Distribution),
-# NAO e a chave .p8 da API. Ver: codemagic-cli-tools docs fetch-signing-files.
-CERT_KEY_FILE="/tmp/cm_distribution_rsa_for_fetch.pem"
-rm -f "$CERT_KEY_FILE"
-if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
-  if printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
-    printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
-  else
-    _b64="$(printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | tr -d '\n\r\t ')"
-    if ! printf '%s' "$_b64" | base64 -D > "$CERT_KEY_FILE" 2>/dev/null; then
-      printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
-    fi
+_has_fixed_distribution_key() {
+  if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
+    return 0
   fi
-elif [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ] && printf '%s' "${CERTIFICATE_PRIVATE_KEY}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
-  printf '%s' "${CERTIFICATE_PRIVATE_KEY}" > "$CERT_KEY_FILE"
-else
-  openssl genrsa -out "$CERT_KEY_FILE" 2048 2>/dev/null || openssl genrsa -traditional -out "$CERT_KEY_FILE" 2048
-  echo "AVISO: sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM) — gerada chave RSA nova para criar/associar certificado Distribution."
-  echo "        Recomendado: openssl genrsa 2048 > dist.pem ; colar PEM no secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (evita multiplos certs na Apple)."
-fi
-if [ ! -s "$CERT_KEY_FILE" ] || ! grep -qE "BEGIN (EC |RSA )?PRIVATE KEY" "$CERT_KEY_FILE" 2>/dev/null; then
-  echo "ERRO: chave RSA PEM invalida (ficheiro $CERT_KEY_FILE). Defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM com PEM completo."
-  exit 1
-fi
-chmod 600 "$CERT_KEY_FILE"
+  if [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ] && printf '%s' "${CERTIFICATE_PRIVATE_KEY}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
+    return 0
+  fi
+  return 1
+}
 
-echo "=== Modo API-only: app-store-connect fetch-signing-files ($BUNDLE, IOS_APP_STORE) ==="
-set +e
-app-store-connect fetch-signing-files "$BUNDLE" \
-  --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-  --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-  --private-key "@file:/tmp/_asc_ok.pem" \
-  --certificate-key "@file:${CERT_KEY_FILE}" \
-  --type IOS_APP_STORE \
-  --create \
-  --delete-stale-profiles \
-  --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
-FETCH_EXIT=$?
-set -eu
-if [[ "$FETCH_EXIT" -ne 0 ]] && rg -n "returned 409|current Distribution certificate|pending certificate request" /tmp/cm_api_only_fetch.log >/dev/null 2>&1; then
-  echo ""
-  echo "AVISO: Apple recusou criar novo certificado Distribution (409)."
-  echo "       A tentar fallback automático: reutilizar perfis existentes sem --create."
-  set +e
-  app-store-connect fetch-signing-files "$BUNDLE" \
-    --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-    --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-    --private-key "@file:/tmp/_asc_ok.pem" \
-    --type IOS_APP_STORE \
-    --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch_fallback.log
-  FETCH_EXIT=$?
-  set -eu
-fi
-if [[ "$FETCH_EXIT" -ne 0 ]]; then
-  echo ""
-  echo "ERRO: fetch-signing-files falhou (codigo $FETCH_EXIT)."
-  echo "  A chave API precisa de permissoes para ler/criar certificados e perfis (papel Admin na App Store Connect)."
-  echo "  Confirme APP_STORE_CONNECT_PRIVATE_KEY (.p8), KEY_IDENTIFIER e ISSUER_ID."
-  tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
-  tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
-  exit 1
-fi
+_prepare_cert_key_file() {
+  CERT_KEY_FILE="/tmp/cm_distribution_rsa_for_fetch.pem"
+  rm -f "$CERT_KEY_FILE"
+  if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
+    if printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
+      printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
+    else
+      _b64="$(printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" | tr -d '\n\r\t ')"
+      if ! printf '%s' "$_b64" | base64 -D > "$CERT_KEY_FILE" 2>/dev/null; then
+        printf '%s' "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM}" > "$CERT_KEY_FILE"
+      fi
+    fi
+  elif [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ] && printf '%s' "${CERTIFICATE_PRIVATE_KEY}" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"; then
+    printf '%s' "${CERTIFICATE_PRIVATE_KEY}" > "$CERT_KEY_FILE"
+  else
+    openssl genrsa -out "$CERT_KEY_FILE" 2048 2>/dev/null || openssl genrsa -traditional -out "$CERT_KEY_FILE" 2048
+    echo "AVISO: gerada chave RSA nova (só para tentativa --create). Guarde PEM fixo em CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM para builds estáveis."
+  fi
+  if [ ! -s "$CERT_KEY_FILE" ] || ! grep -qE "BEGIN (EC |RSA )?PRIVATE KEY" "$CERT_KEY_FILE" 2>/dev/null; then
+    echo "ERRO: chave RSA PEM invalida (ficheiro $CERT_KEY_FILE). Defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM com PEM completo."
+    exit 1
+  fi
+  chmod 600 "$CERT_KEY_FILE"
+  echo "$CERT_KEY_FILE"
+}
 
-export IOS_BUNDLE_ID="$BUNDLE"
-python3 << 'PY'
+_run_select_profile_python() {
+  export IOS_BUNDLE_ID="$BUNDLE"
+  python3 << 'PY'
 import glob
 import os
 import plistlib
@@ -169,7 +147,7 @@ for path in glob.glob(os.path.join(prov_dir, "*.mobileprovision")):
 
 if not best_path or not best_pl:
     print("ERRO: nenhum perfil App Store adequado em", prov_dir, "para", bundle, file=sys.stderr)
-    print("  Verifique fetch-signing-files e o bundle ID na Apple Developer.", file=sys.stderr)
+    print("  Crie/edite um perfil IOS_APP_STORE para este bundle na Apple Developer ou defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.", file=sys.stderr)
     sys.exit(1)
 
 shutil.copyfile(best_path, "/tmp/cm_raw.mobileprovision")
@@ -206,6 +184,95 @@ with open("/tmp/ExportOptions.plist", "wb") as f:
 uuid_val = str(best_pl.get("UUID") or "")
 print("OK API-only: perfil=", name, "uuid=", uuid_val, "team=", team)
 PY
+}
+
+_log_suggests_409() {
+  [ -f /tmp/cm_api_only_fetch.log ] && grep -E "returned 409|current Distribution certificate|pending certificate request" /tmp/cm_api_only_fetch.log >/dev/null 2>&1
+}
+
+_fetch_with_create() {
+  local cert_key_file="$1"
+  set +e
+  app-store-connect fetch-signing-files "$BUNDLE" \
+    --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+    --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+    --private-key "@file:/tmp/_asc_ok.pem" \
+    --certificate-key "@file:${cert_key_file}" \
+    --type IOS_APP_STORE \
+    --create \
+    --delete-stale-profiles \
+    --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
+  local ex=$?
+  set -eu
+  if [[ "$ex" -ne 0 ]] && _log_suggests_409; then
+    echo ""
+    echo "AVISO: Apple recusou criar novo certificado Distribution (409)."
+    echo "       Fallback: reutilizar recursos existentes sem --create."
+    set +e
+    app-store-connect fetch-signing-files "$BUNDLE" \
+      --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+      --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+      --private-key "@file:/tmp/_asc_ok.pem" \
+      --type IOS_APP_STORE \
+      --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch_fallback.log
+    ex=$?
+    set -eu
+  fi
+  return "$ex"
+}
+
+# --- Fluxo principal ---
+if _has_fixed_distribution_key; then
+  echo "=== Modo API-only: chave Distribution fixa + fetch-signing-files ($BUNDLE, IOS_APP_STORE) ==="
+  CERT_KEY_FILE="$(_prepare_cert_key_file)"
+  set +e
+  _fetch_with_create "$CERT_KEY_FILE"
+  FETCH_EXIT=$?
+  set -eu
+else
+  echo "=== Modo API-only (só API .p8): descarregar perfis existentes — SEM --create (evita 409) ==="
+  set +e
+  app-store-connect fetch-signing-files "$BUNDLE" \
+    --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+    --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+    --private-key "@file:/tmp/_asc_ok.pem" \
+    --type IOS_APP_STORE \
+    --delete-stale-profiles \
+    --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
+  FETCH_EXIT=$?
+  set -eu
+  if [[ "$FETCH_EXIT" -ne 0 ]]; then
+    echo ""
+    echo "AVISO: fetch sem --create terminou com codigo $FETCH_EXIT (ver log)."
+    tail -40 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+  fi
+  if _run_select_profile_python; then
+    _persist_asc_pem_to_cm_env
+    echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (API-only, perfis existentes)."
+    exit 0
+  fi
+  echo ""
+  echo "AVISO: nenhum perfil App Store local após download-only."
+  echo "        A tentar fluxo com --certificate-key + --create (requer CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM se a Apple já tiver 3 certs)."
+  echo "        Gere PEM fixo: .\\scripts\\gen_ios_distribution_csr_private_key_pem.ps1"
+  CERT_KEY_FILE="$(_prepare_cert_key_file)"
+  set +e
+  _fetch_with_create "$CERT_KEY_FILE"
+  FETCH_EXIT=$?
+  set -eu
+fi
+
+if [[ "${FETCH_EXIT:-1}" -ne 0 ]]; then
+  echo ""
+  echo "ERRO: fetch-signing-files falhou (codigo $FETCH_EXIT)."
+  echo "  Chave API: Admin + APP_STORE_CONNECT_PRIVATE_KEY / KEY_IDENTIFIER / ISSUER_ID."
+  echo "  Se 409: defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA fixo) ou revogue um certificado Distribution antigo na Apple."
+  tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+  tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
+  exit 1
+fi
+
+_run_select_profile_python
 
 _persist_asc_pem_to_cm_env
 echo "OK: ExportOptions.plist + /tmp/cm_raw.mobileprovision (modo API-only)."

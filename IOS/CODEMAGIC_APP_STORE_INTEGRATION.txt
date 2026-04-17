@@ -8,11 +8,14 @@ Erro «No matching certificate found for every requested profile» (Codemagic):
    «Code signing identities», ou o bloco ios_signing no YAML não deve ser usado até estar tudo verde.
    Solução estável: secrets CERTIFICATE_PRIVATE_KEY + CM_PROVISIONING_PROFILE (Base64), sem ios_signing no YAML.
 
-IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
+   IMPORTANTE — ficheiros só em C:\...\IOS NÃO entram no CI
    O Mac da Codemagic não vê a pasta Windows. Só o que está em Environment variables / secrets
-   é usado. Se só tiver APP_STORE_CONNECT_* (3 variáveis), o YAML corre em modo «API-only»
-   (fetch-signing-files) e pode falhar com 403 ao criar certificado.
-   Solução estável: P12 + perfil nos secrets (modo manual). Nomes aceites (igual Controle Total):
+   é usado. Se só tiver APP_STORE_CONNECT_* (3 variáveis), o YAML corre em modo «API-only».
+   O script codemagic_ios_install_signing_api_only.sh faz primeiro fetch SEM --create (descarrega
+   perfis já existentes na Apple) para evitar erro 409 («já existe certificado Distribution»).
+   Se ainda falhar: secret opcional CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM = PEM RSA 2048 fixo
+   (gerar: .\\scripts\\gen_ios_distribution_csr_private_key_pem.ps1 → colar na Codemagic).
+   Alternativa estável: P12 + perfil nos secrets (modo manual). Nomes aceites (igual Controle Total):
    CERTIFICATE_PRIVATE_KEY (= CM_CERTIFICATE) e CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE.
 
 1) Grupo appstore_credentials (Codemagic → Application → Environment variables)
