@@ -26,7 +26,7 @@
 #   (ex.: 1:157235497908:ios:81977b3cd1ba58614ac0e1).
 # App Store Connect API — chave gestaoyahwehiosAPI (Key ID 85X9UNAT43) + Issuer ID abaixo.
 #   No grupo appstore_credentials: APP_STORE_CONNECT_PRIVATE_KEY = conteúdo do IOS/AuthKey_85X9UNAT43.p8 (PEM multilinha).
-#   Ficheiro local em IOS/ (não commitar). Upload TestFlight: passo de script app-store-connect publish (não exige integração nomeada na equipa).
+#   Upload TestFlight: usar publishing.app_store_connect no YAML (integração nativa), não app-store-connect publish no script — evita bloqueio longo na VM.
 #   Apple: para upload de builds ao TestFlight, a chave API deve ter papel App Manager ou Admin (não só Developer).
 #
 # ExportOptions (CI): gerado em /tmp/ExportOptions.plist a partir do .mobileprovision (teamID + nome do perfil).
@@ -111,9 +111,6 @@ workflows:
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
         APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
-        # Opcional: sobrescreve os defaults do passo «Enviar IPA ao ASC» (minutos). Apple pode demorar 30–60 min.
-        APP_STORE_CONNECT_MAX_FIND_BUILD_WAIT: "60"
-        APP_STORE_CONNECT_MAX_BUILD_PROCESSING_WAIT: "45"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       flutter: stable
@@ -499,48 +496,8 @@ workflows:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
-      - name: Enviar IPA ao App Store Connect (TestFlight)
-        script: |
-          set -e
-          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          cd "$ROOT"
-          : "${APP_STORE_CONNECT_ISSUER_ID:?Grupo appstore_credentials: APP_STORE_CONNECT_ISSUER_ID}"
-          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Grupo appstore_credentials: APP_STORE_CONNECT_KEY_IDENTIFIER}"
-          if [ ! -f /tmp/_asc_ok.pem ]; then
-            echo "ERRO: /tmp/_asc_ok.pem ausente — o passo Preparar PEM App Store Connect deve correr antes."
-            exit 1
-          fi
-          IPA=""
-          BD="${FLUTTER_BUILD_DIR:-build}"
-          for cand in build/ios/ipa/*.ipa "flutter_app/$BD/ios/ipa/"*.ipa flutter_app/build/ios/ipa/*.ipa "$BD/ios/ipa/"*.ipa; do
-            if [ -f "$cand" ]; then IPA="$cand"; break; fi
-          done
-          if [ -z "$IPA" ]; then
-            IPA=$(find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -n 1)
-          fi
-          if [ -z "$IPA" ] || [ ! -f "$IPA" ]; then
-            echo "ERRO: nenhum .ipa encontrado para publicar."
-            find "$ROOT" -name "*.ipa" -not -path "*/.git/*" 2>/dev/null || true
-            exit 1
-          fi
-          echo "=== app-store-connect publish (TestFlight) ==="
-          echo "IPA: $IPA ($(wc -c < "$IPA" | tr -d ' ') bytes)"
-          if ! command -v app-store-connect >/dev/null 2>&1; then
-            echo "A instalar codemagic-cli-tools (app-store-connect)..."
-            python3 -m pip install --user -q codemagic-cli-tools
-            export PATH="$(python3 -m site --user-base)/bin:$PATH"
-          fi
-          # Após o upload, a API da Apple pode demorar muito a listar o build («Could not find the build…»).
-          # Valores baixos (ex. 15 min) fazem o passo falhar com exit 1 mesmo com IPA já enviado. Usar 45–60 min ou as env acima.
-          app-store-connect publish \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key "@file:/tmp/_asc_ok.pem" \
-            --path "$IPA" \
-            --testflight \
-            --expire-build-submitted-for-review \
-            --max-find-build-wait "${APP_STORE_CONNECT_MAX_FIND_BUILD_WAIT:-60}" \
-            --max-build-processing-wait "${APP_STORE_CONNECT_MAX_BUILD_PROCESSING_WAIT:-45}"
+      # Upload TestFlight: integração nativa Codemagic (mesmo padrão que flutter_app/codemagic.yaml / Controle Total).
+      # Evita o passo lento «app-store-connect publish» (CLI) que faz polling 30 em 30 s e falha com timeout.
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
       - build/ios/ipa/*.ipa
@@ -555,7 +512,12 @@ workflows:
         notify:
           success: true
           failure: true
-      # TestFlight: passo de script "Enviar IPA ao App Store Connect" (APP_STORE_CONNECT_PRIVATE_KEY no grupo).
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
       # LOJA App Store: no ASC após processamento em TestFlight — Preparar envio + metadata + revisão.
 
   # Sem Mac: correr UMA vez (ou com CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 no ios-release), descarregar
