@@ -268,7 +268,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         includeFinance: widget.canViewFinance,
         financeWindow: widget.canViewFinance ? widget.financePeriodRange : null,
       );
-      if (mounted) {
+        if (mounted) {
         setState(() {
           _intel = intel;
           _visitanteDocs = vis.docs;
@@ -278,9 +278,9 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           _cachedVisitantesDocs = vis.docs;
           _cachedChurchData = church;
           _contasDocs = contasList;
-          if (!useFinanceStream) {
-            _loading = false;
-          }
+          // Com stream de finanças: não bloquear o cartão inteiro até o 1.º snapshot —
+          // mostra já escalas/visitantes; saldos atualizam quando o stream emitir.
+          _loading = false;
         });
         if (useFinanceStream) {
           _bindFinanceStream();
@@ -304,8 +304,12 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     if (!widget.canViewFinance || !widget.deferFinanceBlock) return null;
     if (_error != null && _intel == null) return null;
     if (_loading && _intel == null) return null;
-    final fi = _intel?.finance;
-    if (fi == null) return null;
+    final fi = _intel?.finance ??
+        const ChurchFinanceInsight(
+          mediaEntradasMensal: 0,
+          mediaSaidasMensal: 0,
+          projecaoSaidasProxMes: 0,
+        );
     final narrow =
         MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile;
     return Column(

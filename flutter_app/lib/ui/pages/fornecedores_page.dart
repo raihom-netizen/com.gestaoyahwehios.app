@@ -10,7 +10,8 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
-import 'package:gestao_yahweh/ui/pages/finance_page.dart' show showFinanceLancamentoEditorForTenant;
+import 'package:gestao_yahweh/ui/pages/finance_page.dart'
+    show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
@@ -3256,7 +3257,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
       .doc(widget.tenantId)
       .collection('fornecedor_compromissos');
 
-  Future<void> _novaMov() async {
+  Future<void> _novaComTipo(String presetTipo) async {
     final doc = await _fornecedorRef.get();
     if (!doc.exists || !mounted) return;
     final nome = (doc.data()?['nome'] ?? '').toString();
@@ -3267,8 +3268,59 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
       presetFornecedorNome: nome,
       lockFornecedor: true,
       panelRole: widget.role,
+      presetNovoTipo: presetTipo,
     );
     if (mounted && ok) setState(() {});
+  }
+
+  Future<void> _novaDespesa() => _novaComTipo('saida');
+
+  Future<void> _novaReceita() => _novaComTipo('entrada');
+
+  Future<void> _editarLancamento(QueryDocumentSnapshot<Map<String, dynamic>> d) async {
+    final ok = await showFinanceLancamentoEditorForTenant(
+      context,
+      tenantId: widget.tenantId,
+      existingDoc: d,
+      presetFornecedorId: widget.fornecedorId,
+      lockFornecedor: true,
+      panelRole: widget.role,
+    );
+    if (mounted && ok) setState(() {});
+  }
+
+  Future<void> _excluirLancamento(QueryDocumentSnapshot<Map<String, dynamic>> d) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir lançamento'),
+        content: const Text(
+          'Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await excluirLancamentoFinanceiroComAuditoria(d, widget.tenantId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Lançamento excluído.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao excluir: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _emitirRecibo(Map<String, dynamic> m, String financeDocId) async {
@@ -3408,8 +3460,10 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 tenantId: widget.tenantId,
                 fornecedorId: widget.fornecedorId,
                 financeCol: _financeCol,
-                onNovaDespesa: _novaMov,
-                onNovaReceita: _novaMov,
+                onNovaDespesa: _novaDespesa,
+                onNovaReceita: _novaReceita,
+                onEditar: _editarLancamento,
+                onExcluir: _excluirLancamento,
                 onRecibo: _emitirRecibo,
               ),
               _AgendaTab(
@@ -3589,6 +3643,8 @@ class _FinanceiroTab extends StatelessWidget {
   final CollectionReference<Map<String, dynamic>> financeCol;
   final VoidCallback onNovaDespesa;
   final VoidCallback onNovaReceita;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) onEditar;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) onExcluir;
   final Future<void> Function(Map<String, dynamic> m, String id) onRecibo;
 
   const _FinanceiroTab({
@@ -3597,6 +3653,8 @@ class _FinanceiroTab extends StatelessWidget {
     required this.financeCol,
     required this.onNovaDespesa,
     required this.onNovaReceita,
+    required this.onEditar,
+    required this.onExcluir,
     required this.onRecibo,
   });
 
@@ -3733,19 +3791,43 @@ class _FinanceiroTab extends StatelessWidget {
                               '${emitiuRecibo ? '\nRecibo PDF gerado' : ''}',
                             ),
                             isThreeLine: true,
+                            onTap: () => onEditar(d),
                             trailing: PopupMenuButton<String>(
                               icon: const Icon(Icons.more_vert_rounded),
-                              onSelected: (v) {
-                                if (v == 'recibo') onRecibo(m, d.id);
+                              tooltip: 'Opções',
+                              onSelected: (v) async {
+                                if (v == 'editar') await onEditar(d);
+                                if (v == 'excluir') await onExcluir(d);
+                                if (v == 'recibo') await onRecibo(m, d.id);
                               },
                               itemBuilder: (_) => [
+                                const PopupMenuItem(
+                                  value: 'editar',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit_rounded, size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Editar (comprovante, conta…)'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'excluir',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFB91C1C)),
+                                      SizedBox(width: 8),
+                                      Text('Excluir', style: TextStyle(color: Color(0xFFB91C1C))),
+                                    ],
+                                  ),
+                                ),
                                 const PopupMenuItem(
                                   value: 'recibo',
                                   child: Row(
                                     children: [
                                       Icon(Icons.picture_as_pdf_rounded, size: 18),
                                       SizedBox(width: 8),
-                                      Text('Gerar recibo PDF'),
+                                      Text('Emitir recibo PDF'),
                                     ],
                                   ),
                                 ),

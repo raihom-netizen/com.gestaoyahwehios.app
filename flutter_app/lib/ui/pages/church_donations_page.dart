@@ -1462,6 +1462,17 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
                               ),
                             ),
                           ],
+                          if ((d['categoria'] ?? '').toString().trim().isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Financeiro: ${d['categoria']}',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
                           if ((d['contaDestinoNome'] ?? '')
                               .toString()
                               .trim()

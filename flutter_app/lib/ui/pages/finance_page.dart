@@ -92,6 +92,13 @@ Future<void> _excluirLancamentoComAuditoria(
   await doc.reference.delete();
 }
 
+/// Outros módulos (ex.: Fornecedores) — mesma exclusão com auditoria que o Financeiro.
+Future<void> excluirLancamentoFinanceiroComAuditoria(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+  String tenantId,
+) =>
+    _excluirLancamentoComAuditoria(doc, tenantId);
+
 // Padrão de cores do módulo financeiro: entradas azul, saídas vermelho, saldo positivo verde, negativo vermelho
 const Color _financeEntradas = Color(0xFF2563EB); // azul — receitas/entradas
 const Color _financeSaidas = Color(0xFFDC2626); // vermelho — despesas/saídas
@@ -7164,6 +7171,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   String? presetFornecedorNome,
   bool lockFornecedor = false,
   String? panelRole,
+  /// Só para **novo** lançamento: `entrada`, `saida` ou `transferencia`.
+  String? presetNovoTipo,
 }) async {
   final financeCol = FirebaseFirestore.instance
       .collection('igrejas')
@@ -7176,6 +7185,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   String tipo = isEdit ? (data?['type'] ?? 'entrada').toString() : 'entrada';
   if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia') {
     tipo = 'entrada';
+  }
+  if (!isEdit && presetNovoTipo != null) {
+    final p = presetNovoTipo.trim().toLowerCase();
+    if (p == 'entrada' || p == 'saida' || p == 'transferencia') {
+      tipo = p;
+    }
   }
   final amtInicial =
       isEdit ? _parseValor(data?['amount'] ?? data?['valor']) : 0.0;

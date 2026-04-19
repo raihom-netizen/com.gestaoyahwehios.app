@@ -34,7 +34,7 @@ class DonationKindSelectorGrid extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Escolha se o valor é dízimo ou oferta — entra no financeiro e no extrato com esse detalhe.',
+          'Obrigatório: dízimo e oferta são lançados em categorias diferentes no financeiro (Dízimos vs Ofertas voluntárias) e no extrato.',
           style: TextStyle(
             fontSize: 12.5,
             color: Colors.grey.shade600,
@@ -66,8 +66,8 @@ class DonationKindSelectorGrid extends StatelessWidget {
                     selected: !isDizimo,
                     accent: accentColor,
                     icon: Icons.volunteer_activism_rounded,
-                    title: 'Oferta',
-                    subtitle: 'Oferta voluntária',
+                    title: 'Oferta voluntária',
+                    subtitle: 'Diferente do dízimo no extrato',
                     onTap: () => onChanged('oferta'),
                   ),
                 ),

@@ -52,6 +52,14 @@ function fs() {
 }
 /** Descobre tenant pela ponte PIX (subcoleção por igreja ou legado na raiz). */
 async function resolveTenantFromPaymentBridge(paymentId) {
+    const loaded = await loadPaymentBridge(paymentId);
+    return loaded?.tenantId || null;
+}
+/**
+ * Ponte PIX: ao criar o pagamento guardamos `donationKind` aqui — o webhook do MP
+ * muitas vezes **não** devolve `metadata.donationKind` no objeto payment; sem isto tudo virava "Dízimo".
+ */
+async function loadPaymentBridge(paymentId) {
     const pid = String(paymentId || "").trim();
     if (!pid)
         return null;
@@ -62,19 +70,24 @@ async function resolveTenantFromPaymentBridge(paymentId) {
             .limit(1)
             .get();
         if (!cg.empty) {
-            const ref = cg.docs[0].ref;
-            const tid = String(ref.parent.parent?.id || "").trim();
-            if (tid)
-                return tid;
+            const doc = cg.docs[0];
+            const tid = String(doc.ref.parent.parent?.id || "").trim();
+            if (tid) {
+                return { tenantId: tid, pd: (doc.data() || {}) };
+            }
         }
     }
     catch (e) {
-        console.warn("resolveTenantFromPaymentBridge collectionGroup", e);
+        console.warn("loadPaymentBridge collectionGroup", e);
     }
     const legacy = await fs().collection("church_mp_payments").doc(pid).get();
     if (!legacy.exists)
         return null;
-    return String(legacy.data()?.tenantId || "").trim() || null;
+    const d = legacy.data() || {};
+    const tenantId = String(d.tenantId || "").trim();
+    if (!tenantId)
+        return null;
+    return { tenantId, pd: d };
 }
 /** Preferência Checkout Pro: dados + tenant (path ou legado). */
 async function loadPreferenceBridge(prefId) {
@@ -246,20 +259,21 @@ function resolveDonorDisplayName(payment, meta) {
     }
     return fromMeta || "Doador";
 }
-/** PIX / Checkout: `dizimo` | `oferta` (default oferta se inválido). */
+/** PIX / Checkout: `dizimo` | `oferta` (sem valor: dízimo — compatível com fluxo antigo). */
 function normalizeDonationKind(raw) {
     const s = String(raw || "")
         .trim()
         .toLowerCase();
     if (s === "dizimo" || s === "dízimo" || s === "diezmo")
         return "dizimo";
-    if (s === "oferta" || s === "offer")
+    if (s === "oferta" || s === "offer" || s === "oferta_voluntaria" || s === "oferta voluntária") {
         return "oferta";
+    }
     return "dizimo";
 }
-/** Categoria no módulo Financeiro — relatórios e extrato. */
+/** Categoria no módulo Financeiro — alinhado a `_categoriasReceitaPadrao` no app. */
 function categoriaForDonationKind(kind) {
-    return kind === "dizimo" ? "Dízimos" : "Ofertas";
+    return kind === "dizimo" ? "Dízimos" : "Ofertas Voluntárias";
 }
 function labelForDonationKind(kind) {
     return kind === "dizimo" ? "Dízimo" : "Oferta";
@@ -461,14 +475,6 @@ async function tryHandleChurchDonationPayment(payment) {
     const meta = { ...(payment?.metadata || {}) };
     let tenantId = String(meta.tenantId || payment.external_reference || "").trim();
     let isChurch = String(meta.kind || "").toLowerCase() === "church_donation";
-    /** PIX: ponte em `igrejas/{tid}/mp_payment_bridge` ou legado `church_mp_payments`. */
-    if (!isChurch && pid) {
-        const bt = await resolveTenantFromPaymentBridge(pid);
-        if (bt) {
-            isChurch = true;
-            tenantId = tenantId || bt;
-        }
-    }
     /** Checkout Pro: preference em `mp_preference_bridge` ou legado `church_mp_preferences`. */
     if (!isChurch) {
         const prefId = String(payment?.preference_id || meta.preference_id || "").trim();
@@ -489,6 +495,31 @@ async function tryHandleChurchDonationPayment(payment) {
                     meta.memberCpf = pd.memberCpf;
                 if (!meta.donationKind && pd.donationKind)
                     meta.donationKind = pd.donationKind;
+            }
+        }
+    }
+    /**
+     * PIX: ponte `mp_payment_bridge` — o MP costuma omitir metadata no webhook;
+     * mesclamos donationKind / doador para o extrato bater com a escolha no app/site.
+     */
+    if (pid) {
+        const loaded = await loadPaymentBridge(pid);
+        if (loaded) {
+            const pd = loaded.pd;
+            if (!tenantId)
+                tenantId = loaded.tenantId;
+            if (!meta.donorName && pd.donorName)
+                meta.donorName = pd.donorName;
+            if (!meta.contaDestinoId && pd.contaDestinoId)
+                meta.contaDestinoId = pd.contaDestinoId;
+            if (!meta.memberId && pd.memberId)
+                meta.memberId = pd.memberId;
+            if (!meta.memberCpf && pd.memberCpf)
+                meta.memberCpf = pd.memberCpf;
+            if (!meta.donationKind && pd.donationKind)
+                meta.donationKind = pd.donationKind;
+            if (!isChurch) {
+                isChurch = true;
             }
         }
     }
@@ -911,7 +942,14 @@ exports.createChurchDonationPix = functions
             .set({
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             amount: Number(amount.toFixed(2)),
-        });
+            donationKind,
+            donorName: donorName.slice(0, 120),
+            memberId: memberId || "",
+            memberCpf: String(data?.memberCpf || "")
+                .replace(/\D/g, "")
+                .slice(0, 11),
+            contaDestinoId: contaMeta || "",
+        }, { merge: true });
     }
     const tx = res?.point_of_interaction?.transaction_data || {};
     const qrCode = String(tx?.qr_code || tx?.pix_copia_cola || tx?.pix_copy_paste || "");

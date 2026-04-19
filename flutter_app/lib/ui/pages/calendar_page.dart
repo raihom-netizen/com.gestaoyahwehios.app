@@ -76,6 +76,11 @@ class _CalendarPageState extends State<CalendarPage>
   String _listFilter = 'mes_atual';
   DateTime? _periodStart;
   DateTime? _periodEnd;
+  /// Vista lista: mês arbitrário quando [_listFilter] == `mes_livre`.
+  DateTime? _listMonthAnchor;
+  /// Vista lista: selecionar vários itens da agenda interna para excluir em lote.
+  bool _agendaBulkSelectMode = false;
+  final Set<String> _agendaSelectedIds = {};
   List<String> _customTipos = [];
   /// Categorias personalizadas (`event_categories`) — mesma coleção do Mural de eventos.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventCategoryDocs = [];
@@ -835,6 +840,9 @@ class _CalendarPageState extends State<CalendarPage>
       case 'periodo':
         if (_periodStart != null) return _periodStart!.year;
         return n.year;
+      case 'mes_livre':
+        final a = _listMonthAnchor ?? DateTime(n.year, n.month);
+        return a.year;
       default:
         return n.year;
     }
@@ -855,6 +863,9 @@ class _CalendarPageState extends State<CalendarPage>
       case 'periodo':
         if (_periodStart != null) return _periodStart!.month;
         return n.month;
+      case 'mes_livre':
+        final a = _listMonthAnchor ?? DateTime(n.year, n.month);
+        return a.month;
       default:
         return n.month;
     }
@@ -881,6 +892,12 @@ class _CalendarPageState extends State<CalendarPage>
             return (_periodStart!, DateTime(_periodEnd!.year, _periodEnd!.month, _periodEnd!.day, 23, 59, 59));
           }
           return (DateTime(now.year, now.month, 1), DateTime(now.year, now.month + 1, 0, 23, 59, 59));
+        case 'mes_livre':
+          final a = _listMonthAnchor ?? DateTime(now.year, now.month);
+          return (
+            DateTime(a.year, a.month, 1),
+            DateTime(a.year, a.month + 1, 0, 23, 59, 59),
+          );
         default:
           return (DateTime(now.year, now.month, 1), DateTime(now.year, now.month + 1, 0, 23, 59, 59));
       }
@@ -903,6 +920,515 @@ class _CalendarPageState extends State<CalendarPage>
       setState(() => _agendaDocs = snap.docs);
       _rebuildMerged();
     });
+  }
+
+  void _clearAgendaBulkUi() {
+    _agendaBulkSelectMode = false;
+    _agendaSelectedIds.clear();
+  }
+
+  /// Só itens persistidos em `agenda` (exclui pré-visualizações `virt_tpl_`).
+  bool _agendaDocSelectable(_CalendarEvent ev) {
+    return ev.source == 'agenda' && !ev.id.startsWith('virt_tpl_');
+  }
+
+  /// Remove documentos `agenda` com `startTime` no intervalo inclusive (mural/cultos não entram).
+  Future<int> _deleteAgendaDocsInRange(DateTime start, DateTime end) async {
+    final snap = await _agenda
+        .where('startTime',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
+    if (snap.docs.isEmpty) return 0;
+    const chunk = 450;
+    for (var i = 0; i < snap.docs.length; i += chunk) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final d in snap.docs.skip(i).take(chunk)) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+    }
+    return snap.docs.length;
+  }
+
+  Future<void> _confirmAndDeleteAgendaRange(
+    DateTime start,
+    DateTime end, {
+    required String scopeLabel,
+  }) async {
+    if (!_canWrite) return;
+    final snap = await _agenda
+        .where('startTime',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
+    final n = snap.docs.length;
+    if (n == 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Nenhum evento da agenda interna em $scopeLabel.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Remover eventos da agenda?'),
+        content: Text(
+          n == 1
+              ? 'Será removido 1 evento da agenda interna ($scopeLabel). '
+                  'Itens do mural ou cultos não são afetados.'
+              : 'Serão removidos $n eventos da agenda interna ($scopeLabel). '
+                  'Itens do mural ou cultos não são afetados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(n > 1 ? 'Remover todos' : 'Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _deleteAgendaDocsInRange(start, end);
+      _clearAgendaBulkUi();
+      await _loadEvents();
+      _restartAgendaSubscription();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$n evento${n == 1 ? '' : 's'} removido${n == 1 ? '' : 's'} da agenda.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAgendaCleanupToolsSheet() async {
+    if (!_canWrite) return;
+    final primary = ThemeCleanPremium.primary;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ThemeCleanPremium.radiusXl),
+        ),
+      ),
+      builder: (ctx) {
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        Widget tile({
+          required IconData icon,
+          required String title,
+          required String subtitle,
+          required VoidCallback onTap,
+        }) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Material(
+              color: Colors.white,
+              elevation: 0,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: primary.withValues(alpha: 0.08),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(icon, color: primary, size: 26),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.35,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    colors: [
+                      primary,
+                      Color.lerp(primary, const Color(0xFF1E3A8A), 0.35)!,
+                    ],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.cleaning_services_rounded,
+                            color: Colors.white,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Limpar agenda interna',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              color: Colors.white,
+                              height: 1.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Remove apenas eventos criados na Agenda. '
+                      'Mural, cultos e escalas não são apagados aqui.',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        height: 1.4,
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              tile(
+                icon: Icons.view_day_rounded,
+                title: 'Por dia',
+                subtitle: 'Escolha uma data e remova todos os eventos da agenda nesse dia.',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2035),
+                  );
+                  if (d == null || !mounted) return;
+                  final start = DateTime(d.year, d.month, d.day);
+                  final end = DateTime(d.year, d.month, d.day, 23, 59, 59);
+                  final label =
+                      DateFormat("d 'de' MMMM yyyy", 'pt_BR').format(d);
+                  await _confirmAndDeleteAgendaRange(
+                    start,
+                    end,
+                    scopeLabel: label,
+                  );
+                },
+              ),
+              tile(
+                icon: Icons.date_range_rounded,
+                title: 'Por período',
+                subtitle: 'Data inicial e final — remove tudo da agenda entre essas datas.',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final start = await showDatePicker(
+                    context: context,
+                    initialDate: _periodStart ?? DateTime.now(),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2035),
+                  );
+                  if (start == null || !mounted) return;
+                  final end = await showDatePicker(
+                    context: context,
+                    initialDate: _periodEnd ?? start,
+                    firstDate: start,
+                    lastDate: DateTime(2035),
+                  );
+                  if (end == null || !mounted) return;
+                  final a = DateTime(start.year, start.month, start.day);
+                  final b = DateTime(end.year, end.month, end.day, 23, 59, 59);
+                  if (a.isAfter(b)) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('A data inicial deve ser antes da final.'),
+                        ),
+                      );
+                    }
+                    return;
+                  }
+                  await _confirmAndDeleteAgendaRange(
+                    a,
+                    b,
+                    scopeLabel:
+                        '${DateFormat('dd/MM/yyyy').format(a)} — ${DateFormat('dd/MM/yyyy').format(DateTime(end.year, end.month, end.day))}',
+                  );
+                },
+              ),
+              tile(
+                icon: Icons.calendar_month_rounded,
+                title: 'Por mês',
+                subtitle: 'Escolha um mês (qualquer dia) e remova toda a agenda daquele mês.',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2035),
+                  );
+                  if (d == null || !mounted) return;
+                  final start = DateTime(d.year, d.month, 1);
+                  final end = DateTime(d.year, d.month + 1, 0, 23, 59, 59);
+                  final cap = toBeginningOfSentenceCase(
+                    DateFormat('MMMM yyyy', 'pt_BR').format(d),
+                  );
+                  await _confirmAndDeleteAgendaRange(
+                    start,
+                    end,
+                    scopeLabel: cap ?? 'mês selecionado',
+                  );
+                },
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Dica: na vista "Agenda", use "Selecionar" para marcar vários cartões e excluir só os escolhidos.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _commitBulkDeleteSelected() async {
+    if (!_canWrite || _agendaSelectedIds.isEmpty) return;
+    final ids = _agendaSelectedIds.toList();
+    final n = ids.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Remover selecionados?'),
+        content: Text(
+          n == 1
+              ? 'Será removido 1 evento da agenda interna.'
+              : 'Serão removidos $n eventos da agenda interna.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      const chunk = 450;
+      for (var i = 0; i < ids.length; i += chunk) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final id in ids.skip(i).take(chunk)) {
+          batch.delete(_agenda.doc(id));
+        }
+        await batch.commit();
+      }
+      _clearAgendaBulkUi();
+      await _loadEvents();
+      _restartAgendaSubscription();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$n evento${n == 1 ? '' : 's'} removido${n == 1 ? '' : 's'}.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildAgendaBulkSelectBar() {
+    final n = _agendaSelectedIds.length;
+    final primary = ThemeCleanPremium.primary;
+    return Material(
+      elevation: 12,
+      color: ThemeCleanPremium.cardBackground,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Cancelar seleção',
+                onPressed: () => setState(_clearAgendaBulkUi),
+                icon: const Icon(Icons.close_rounded),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      n == 0
+                          ? 'Toque nos eventos da agenda'
+                          : '$n selecionado${n == 1 ? '' : 's'}',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'Só agenda interna',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (n > 0)
+                TextButton(
+                  onPressed: () =>
+                      setState(() => _agendaSelectedIds.clear()),
+                  child: Text(
+                    'Limpar',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: primary,
+                    ),
+                  ),
+                ),
+              FilledButton(
+                onPressed: n == 0 ? null : () => unawaited(_commitBulkDeleteSelected()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                ),
+                child: Text(
+                  'Excluir',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _categoryKeyFromLegacyType(String tipo) {
@@ -1503,6 +2029,35 @@ class _CalendarPageState extends State<CalendarPage>
                       onPressed: () => _showAddEvent(),
                       icon: const Icon(Icons.add_rounded),
                     ),
+                ] else if (_canWrite) ...[
+                  IconButton(
+                    tooltip: 'Limpar por dia, período ou mês',
+                    onPressed: _showAgendaCleanupToolsSheet,
+                    icon: const Icon(Icons.auto_delete_rounded),
+                  ),
+                  IconButton(
+                    tooltip: _agendaBulkSelectMode
+                        ? 'Cancelar seleção'
+                        : 'Selecionar vários',
+                    onPressed: () {
+                      setState(() {
+                        _agendaBulkSelectMode = !_agendaBulkSelectMode;
+                        if (!_agendaBulkSelectMode) {
+                          _agendaSelectedIds.clear();
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      _agendaBulkSelectMode
+                          ? Icons.close_rounded
+                          : Icons.checklist_rounded,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Novo evento',
+                    onPressed: () => _showAddEvent(),
+                    icon: const Icon(Icons.add_rounded),
+                  ),
                 ],
               ],
             ),
@@ -1518,47 +2073,63 @@ class _CalendarPageState extends State<CalendarPage>
               foregroundColor: Colors.white,
             )
           : null,
-      bottomNavigationBar: showBottomBar
-          ? SafeArea(
-              child: Material(
-                elevation: 8,
-                color: ThemeCleanPremium.cardBackground,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _exportAgendaPdf,
-                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 22),
-                          label: Text('PDF', style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700)),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
-                          ),
-                        ),
-                      ),
-                      if (_canWrite) ...[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton.icon(
-                            onPressed: () => _showAddEvent(),
-                            icon: const Icon(Icons.add_rounded, size: 22),
-                            label: Text('Novo evento', style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700)),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
+      bottomNavigationBar: _agendaBulkSelectMode &&
+              _agendaView == _AgendaViewKind.list &&
+              _canWrite
+          ? _buildAgendaBulkSelectBar()
+          : (showBottomBar
+              ? SafeArea(
+                  child: Material(
+                    elevation: 8,
+                    color: ThemeCleanPremium.cardBackground,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _exportAgendaPdf,
+                              icon: const Icon(Icons.picture_as_pdf_rounded,
+                                  size: 22),
+                              label: Text('PDF',
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700)),
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                minimumSize: const Size(
+                                    0, ThemeCleanPremium.minTouchTarget),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ],
+                          if (_canWrite) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 2,
+                              child: FilledButton.icon(
+                                onPressed: () => _showAddEvent(),
+                                icon: const Icon(Icons.add_rounded, size: 22),
+                                label: Text('Novo evento',
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700)),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                  minimumSize: const Size(
+                                      0, ThemeCleanPremium.minTouchTarget),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            )
-          : null,
+                )
+              : null),
       body: SafeArea(
         child: useSplitCalendar
             ? Padding(
@@ -1779,6 +2350,39 @@ class _CalendarPageState extends State<CalendarPage>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (_agendaView == _AgendaViewKind.list && _canWrite) ...[
+          IconButton(
+            tooltip: 'Limpar por dia, período ou mês',
+            onPressed: _showAgendaCleanupToolsSheet,
+            icon: const Icon(Icons.auto_delete_rounded),
+            style: IconButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
+            ),
+          ),
+          IconButton(
+            tooltip: _agendaBulkSelectMode
+                ? 'Cancelar seleção'
+                : 'Selecionar vários',
+            onPressed: () {
+              setState(() {
+                _agendaBulkSelectMode = !_agendaBulkSelectMode;
+                if (!_agendaBulkSelectMode) {
+                  _agendaSelectedIds.clear();
+                }
+              });
+            },
+            icon: Icon(
+              _agendaBulkSelectMode
+                  ? Icons.close_rounded
+                  : Icons.checklist_rounded,
+            ),
+            style: IconButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
+            ),
+          ),
+        ],
         IconButton(
           tooltip: 'Exportar PDF',
           onPressed: _exportAgendaPdf,
@@ -1786,7 +2390,7 @@ class _CalendarPageState extends State<CalendarPage>
           style: IconButton.styleFrom(
             visualDensity: VisualDensity.compact,
             minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
-          ),
+            ),
         ),
         if (_canWrite)
           IconButton(
@@ -1838,13 +2442,19 @@ class _CalendarPageState extends State<CalendarPage>
                   'Mês',
                   Icons.calendar_month_rounded,
                   _agendaView == _AgendaViewKind.month,
-                  () => setState(() => _agendaView = _AgendaViewKind.month))),
+                  () => setState(() {
+                    _clearAgendaBulkUi();
+                    _agendaView = _AgendaViewKind.month;
+                  }))),
           Expanded(
               child: _toggleBtn(
                   'Semana',
                   Icons.view_week_rounded,
                   _agendaView == _AgendaViewKind.week,
-                  () => setState(() => _agendaView = _AgendaViewKind.week))),
+                  () => setState(() {
+                    _clearAgendaBulkUi();
+                    _agendaView = _AgendaViewKind.week;
+                  }))),
           Expanded(
               child: _toggleBtn(
                   'Agenda',
@@ -2512,6 +3122,10 @@ class _CalendarPageState extends State<CalendarPage>
     final color = _CalendarPageState._hexToColor(ev.eventColorHex) ?? _eventColors[ev.type] ?? ThemeCleanPremium.primaryLight;
     final time = DateFormat('HH:mm').format(ev.dateTime);
     final canEditAgenda = _canWrite && ev.source == 'agenda';
+    final bulk =
+        _agendaBulkSelectMode && _agendaView == _AgendaViewKind.list;
+    final selectable = bulk && _agendaDocSelectable(ev);
+    final selected = _agendaSelectedIds.contains(ev.id);
     String? monthListDayLine;
     if (overlaySheetContext != null) {
       final raw = DateFormat('EEEE, d/MM', 'pt_BR').format(ev.dateTime);
@@ -2527,17 +3141,53 @@ class _CalendarPageState extends State<CalendarPage>
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           boxShadow: ThemeCleanPremium.softUiCardShadow,
           border: Border.all(
-            color: ev.hasConflict
-                ? Colors.deepOrange.shade400
-                : (ev.hasScheduleOverlap
-                    ? Colors.blue.shade400
-                    : const Color(0xFFF1F5F9)),
-            width: (ev.hasConflict || ev.hasScheduleOverlap) ? 1.5 : 1,
+            color: selected
+                ? ThemeCleanPremium.primary
+                : (ev.hasConflict
+                    ? Colors.deepOrange.shade400
+                    : (ev.hasScheduleOverlap
+                        ? Colors.blue.shade400
+                        : const Color(0xFFF1F5F9))),
+            width: selected
+                ? 2
+                : ((ev.hasConflict || ev.hasScheduleOverlap) ? 1.5 : 1),
           ),
         ),
         child: IntrinsicHeight(
           child: Row(
             children: [
+              if (bulk) ...[
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Center(
+                    child: selectable
+                        ? Checkbox(
+                            value: selected,
+                            activeColor: ThemeCleanPremium.primary,
+                            onChanged: (_) {
+                              setState(() {
+                                if (selected) {
+                                  _agendaSelectedIds.remove(ev.id);
+                                } else {
+                                  _agendaSelectedIds.add(ev.id);
+                                }
+                              });
+                            },
+                          )
+                        : Tooltip(
+                            message: 'Só eventos da agenda interna',
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.lock_outline_rounded,
+                                size: 22,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ],
               Container(
                 width: 5,
                 decoration: BoxDecoration(
@@ -2550,6 +3200,18 @@ class _CalendarPageState extends State<CalendarPage>
               Expanded(
                 child: GestureDetector(
                   onTap: () {
+                    if (bulk) {
+                      if (selectable) {
+                        setState(() {
+                          if (selected) {
+                            _agendaSelectedIds.remove(ev.id);
+                          } else {
+                            _agendaSelectedIds.add(ev.id);
+                          }
+                        });
+                      }
+                      return;
+                    }
                     if (overlaySheetContext != null) {
                       Navigator.pop(overlaySheetContext);
                     }
@@ -2660,7 +3322,7 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                 ),
               ),
-              if (_whatsappDigitsForEvent(ev) != null)
+              if (_whatsappDigitsForEvent(ev) != null && !bulk)
                 Padding(
                   padding: const EdgeInsets.only(right: 2),
                   child: IconButton(
@@ -2671,7 +3333,7 @@ class _CalendarPageState extends State<CalendarPage>
                         _openWhatsAppDigits(_whatsappDigitsForEvent(ev)!),
                   ),
                 ),
-              if (canEditAgenda)
+              if (canEditAgenda && !bulk)
                 Align(
                   alignment: Alignment.center,
                   child: Row(
@@ -3190,10 +3852,32 @@ class _CalendarPageState extends State<CalendarPage>
     if (value == 'periodo' && _periodStart != null && _periodEnd != null) {
       return '${_periodStart!.day}/${_periodStart!.month} - ${_periodEnd!.day}/${_periodEnd!.month}';
     }
+    if (value == 'mes_livre' && _listMonthAnchor != null) {
+      final raw = DateFormat('MMM yyyy', 'pt_BR').format(_listMonthAnchor!);
+      if (raw.isEmpty) return defaultLabel;
+      return '${raw[0].toUpperCase()}${raw.substring(1)}';
+    }
     return defaultLabel;
   }
 
   Future<void> _applyListPeriodFilter(String value) async {
+    if (value == 'mes_livre') {
+      final d = await showDatePicker(
+        context: context,
+        initialDate: _listMonthAnchor ?? DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2035),
+      );
+      if (d != null && mounted) {
+        setState(() {
+          _listFilter = 'mes_livre';
+          _listMonthAnchor = DateTime(d.year, d.month, 1);
+        });
+        await _loadEvents();
+        _restartAgendaSubscription();
+      }
+      return;
+    }
     if (value == 'periodo') {
       final start = await showDatePicker(
         context: context,
@@ -3214,12 +3898,12 @@ class _CalendarPageState extends State<CalendarPage>
           _periodStart = start;
           _periodEnd = end;
         });
-        _loadEvents();
+        await _loadEvents();
         _restartAgendaSubscription();
       }
     } else {
       setState(() => _listFilter = value);
-      _loadEvents();
+      await _loadEvents();
       _restartAgendaSubscription();
     }
   }
@@ -3267,9 +3951,12 @@ class _CalendarPageState extends State<CalendarPage>
 
   Widget _buildListFilters() {
     final primary = ThemeCleanPremium.primary;
+    final showTopAppBar =
+        !ThemeCleanPremium.isMobile(context) || Navigator.canPop(context);
     const chipData = <(String, String, IconData)>[
       ('Mês anterior', 'mes_anterior', Icons.navigate_before_rounded),
       ('Mês atual', 'mes_atual', Icons.today_rounded),
+      ('Outro mês', 'mes_livre', Icons.event_note_rounded),
       ('Semanal', 'semanal', Icons.view_week_rounded),
       ('Diário', 'diario', Icons.view_day_rounded),
       ('Anual', 'anual', Icons.calendar_view_month_rounded),
@@ -3310,7 +3997,10 @@ class _CalendarPageState extends State<CalendarPage>
                           icon: icon,
                           accent: primary,
                           selected: _listFilter == value,
-                          maxLabelLines: value == 'periodo' ? 2 : 1,
+                          maxLabelLines:
+                              (value == 'periodo' || value == 'mes_livre')
+                                  ? 2
+                                  : 1,
                           onTap: () {
                             unawaited(_applyListPeriodFilter(value));
                           },
@@ -3321,7 +4011,41 @@ class _CalendarPageState extends State<CalendarPage>
               ),
             ),
             if (_canWrite) ...[
-              const SizedBox(width: 8),
+              if (!showTopAppBar) ...[
+                IconButton(
+                  tooltip: 'Limpar por dia, período ou mês',
+                  onPressed: _showAgendaCleanupToolsSheet,
+                  icon: Icon(Icons.auto_delete_rounded, color: primary),
+                  style: IconButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    minimumSize: const Size(44, 44),
+                  ),
+                ),
+                IconButton(
+                  tooltip: _agendaBulkSelectMode
+                      ? 'Cancelar seleção'
+                      : 'Selecionar vários',
+                  onPressed: () {
+                    setState(() {
+                      _agendaBulkSelectMode = !_agendaBulkSelectMode;
+                      if (!_agendaBulkSelectMode) {
+                        _agendaSelectedIds.clear();
+                      }
+                    });
+                  },
+                  icon: Icon(
+                    _agendaBulkSelectMode
+                        ? Icons.close_rounded
+                        : Icons.checklist_rounded,
+                    color: primary,
+                  ),
+                  style: IconButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    minimumSize: const Size(44, 44),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
               _buildListPdfExportAction(),
             ],
           ],
@@ -4172,14 +4896,19 @@ class _CalendarPageState extends State<CalendarPage>
     );
     if (ok != true || !mounted) return;
     try {
-      for (final id in ids) {
-        await _agenda.doc(id).delete();
-      }
+      final removed = await _deleteAgendaDocsInRange(
+        DateTime(day.year, day.month, day.day),
+        DateTime(day.year, day.month, day.day, 23, 59, 59),
+      );
+      await _loadEvents();
+      _restartAgendaSubscription();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  '${ids.length} evento${ids.length == 1 ? '' : 's'} removido${ids.length == 1 ? '' : 's'}.')),
+            content: Text(
+              '$removed evento${removed == 1 ? '' : 's'} removido${removed == 1 ? '' : 's'}.',
+            ),
+          ),
         );
       }
     } catch (e) {

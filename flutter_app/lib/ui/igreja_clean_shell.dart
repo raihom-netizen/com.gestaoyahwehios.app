@@ -61,8 +61,6 @@ import 'package:google_fonts/google_fonts.dart';
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
 const double _breakpointDesktop = 900;
 
-/// Atalhos do [NavigationBar] mobile: Painel, Membros, Eventos, Mural; último abre o drawer.
-const List<int> _kBottomNavShellIndices = [0, 2, 7, 6];
 const double _breakpointPhone = 600;
 
 /// Ícone e label para cada item do menu
@@ -172,76 +170,115 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   bool get _isMobile => MediaQuery.sizeOf(context).width < _breakpointDesktop;
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
-  int get _bottomNavSelectedSlot {
-    final i = _kBottomNavShellIndices.indexOf(_selectedIndex);
-    return i >= 0 ? i : _kBottomNavShellIndices.length;
-  }
-
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé + barra inferior no mesmo bloco: evita SafeArea duplo (body + nav) no PWA/mobile web.
-    return Theme(
-      data: Theme.of(context).copyWith(
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: ThemeCleanPremium.cardBackground,
-          surfaceTintColor: Colors.transparent,
-          elevation: 12,
-          shadowColor: Colors.black.withOpacity(0.12),
-          indicatorColor: ThemeCleanPremium.primary.withOpacity(0.14),
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        ),
+    // Rodapé + atalhos coloridos Super Premium (substitui NavigationBar única-cor).
+    const shortcuts = <_ChurchShellFooterShortcut>[
+      _ChurchShellFooterShortcut(
+        shellIndex: 0,
+        shortLabel: 'Painel',
+        accent: Color(0xFF2563EB),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const VersionFooter(safeAreaBottom: false),
-          NavigationBar(
-            height: 64,
-            selectedIndex: _bottomNavSelectedSlot,
-            onDestinationSelected: (slot) {
-              if (slot == _kBottomNavShellIndices.length) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _scaffoldKey.currentState?.openDrawer();
-                });
-                return;
-              }
-              final idx = _kBottomNavShellIndices[slot];
-              if (!_canAccessItem(idx)) {
-                _showPanelSnack('Sem acesso a este módulo.', isError: true);
-                return;
-              }
-              setState(() => _selectedIndex = idx);
-            },
-            destinations: [
-              NavigationDestination(
-                icon: Icon(_items[0].icon),
-                label: 'Painel',
-                tooltip: _items[0].label,
+      _ChurchShellFooterShortcut(
+        shellIndex: 2,
+        shortLabel: 'Membros',
+        accent: Color(0xFF0D9488),
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: 7,
+        shortLabel: 'Eventos',
+        accent: Color(0xFFF97316),
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: 6,
+        shortLabel: 'Mural',
+        accent: Color(0xFFEC4899),
+      ),
+      _ChurchShellFooterShortcut.menu(
+        shortLabel: 'Menu',
+        accent: Color(0xFF6366F1),
+      ),
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const VersionFooter(safeAreaBottom: false),
+        Material(
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white,
+                  Color.lerp(Colors.white, const Color(0xFFEFF6FF), 0.65)!,
+                ],
               ),
-              NavigationDestination(
-                icon: Icon(_items[2].icon),
-                label: 'Membros',
-                tooltip: _items[2].label,
+              border: Border(
+                top: BorderSide(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+                ),
               ),
-              NavigationDestination(
-                icon: Icon(_items[7].icon),
-                label: 'Eventos',
-                tooltip: _items[7].label,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.07),
+                  blurRadius: 18,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                child: Row(
+                  children: [
+                    for (var s = 0; s < shortcuts.length; s++)
+                      Expanded(
+                        child: _PremiumShellFooterShortcut(
+                          shellIndex: shortcuts[s].shellIndex,
+                          shortLabel: shortcuts[s].shortLabel,
+                          accent: shortcuts[s].accent,
+                          opensDrawer: shortcuts[s].opensDrawer,
+                          icon: shortcuts[s].opensDrawer
+                              ? Icons.menu_rounded
+                              : _items[shortcuts[s].shellIndex!].icon,
+                          fullTooltip: shortcuts[s].opensDrawer
+                              ? 'Mais opções (menu lateral)'
+                              : _items[shortcuts[s].shellIndex!].label,
+                          selected: shortcuts[s].opensDrawer
+                              ? false
+                              : _selectedIndex == shortcuts[s].shellIndex,
+                          onTap: () {
+                            if (shortcuts[s].opensDrawer) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _scaffoldKey.currentState?.openDrawer();
+                              });
+                              return;
+                            }
+                            final idx = shortcuts[s].shellIndex!;
+                            if (!_canAccessItem(idx)) {
+                              _showPanelSnack(
+                                'Sem acesso a este módulo.',
+                                isError: true,
+                              );
+                              return;
+                            }
+                            setState(() => _selectedIndex = idx);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              NavigationDestination(
-                icon: Icon(_items[6].icon),
-                label: 'Mural',
-                tooltip: _items[6].label,
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.menu_rounded),
-                label: 'Menu',
-                tooltip: 'Mais opções',
-              ),
-            ],
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -2330,6 +2367,128 @@ class _HeaderVencimento extends StatelessWidget {
                 color: light ? Colors.white : Colors.blue.shade800,
                 fontWeight: FontWeight.w600));
       },
+    );
+  }
+}
+
+/// Atalho da barra inferior do painel da igreja (índice no shell ou menu).
+class _ChurchShellFooterShortcut {
+  final int? shellIndex;
+  final String shortLabel;
+  final Color accent;
+  final bool opensDrawer;
+
+  const _ChurchShellFooterShortcut({
+    required this.shellIndex,
+    required this.shortLabel,
+    required this.accent,
+  }) : opensDrawer = false;
+
+  const _ChurchShellFooterShortcut.menu({
+    required this.shortLabel,
+    required this.accent,
+  })  : shellIndex = null,
+        opensDrawer = true;
+}
+
+/// Chip colorido Super Premium — círculo com gradiente ao selecionar.
+class _PremiumShellFooterShortcut extends StatelessWidget {
+  final int? shellIndex;
+  final String shortLabel;
+  final Color accent;
+  final bool opensDrawer;
+  final IconData icon;
+  final String fullTooltip;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PremiumShellFooterShortcut({
+    required this.shellIndex,
+    required this.shortLabel,
+    required this.accent,
+    required this.opensDrawer,
+    required this.icon,
+    required this.fullTooltip,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = accent;
+    return Tooltip(
+      message: fullTooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          splashColor: c.withValues(alpha: 0.2),
+          highlightColor: c.withValues(alpha: 0.08),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: selected
+                        ? LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              c,
+                              Color.lerp(c, const Color(0xFF0F172A), 0.22)!,
+                            ],
+                          )
+                        : null,
+                    color: selected ? null : c.withValues(alpha: 0.14),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: c.withValues(alpha: 0.42),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : [
+                            BoxShadow(
+                              color: c.withValues(alpha: 0.12),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 24,
+                    color: selected ? Colors.white : c.withValues(alpha: 0.92),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  shortLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    height: 1.05,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                    letterSpacing: -0.25,
+                    color: selected ? c : const Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
