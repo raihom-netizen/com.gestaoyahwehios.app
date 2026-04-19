@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -34,6 +36,11 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
   /// Preset atual (rótulos). Alinhado ao painel principal.
   final ChurchDashboardFinancePreset financePeriodPreset;
 
+  /// Quando definido (ex.: painel inicial), os saldos por conta seguem o mesmo stream
+  /// do Firestore que o gráfico «Fluxo Financeiro» — atualização em tempo real após
+  /// lançamentos no Financeiro ou em Fornecedores.
+  final Stream<QuerySnapshot<Map<String, dynamic>>>? financeStream;
+
   const ChurchMinistryHealthPanel({
     super.key,
     required this.tenantId,
@@ -42,6 +49,7 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
     required this.canViewFinance,
     required this.financePeriodRange,
     required this.financePeriodPreset,
+    this.financeStream,
     this.onNavigateToMembers,
     this.onRefreshDashboard,
     this.deferFinanceBlock = false,
@@ -65,11 +73,18 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _cachedNoticiasDocs = const [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _cachedVisitantesDocs = const [];
   Map<String, dynamic>? _cachedChurchData;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _financeStreamSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _financeStreamSub?.cancel();
+    super.dispose();
   }
 
   void _notifyDeferredReady() {
@@ -84,7 +99,21 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId ||
         oldWidget.memberDocs.length != widget.memberDocs.length) {
+      _financeStreamSub?.cancel();
+      _financeStreamSub = null;
       _load();
+      return;
+    }
+    if (oldWidget.financeStream != widget.financeStream) {
+      if (widget.canViewFinance && widget.financeStream != null) {
+        if (_cachedChurchData != null) {
+          _bindFinanceStream();
+        }
+      } else {
+        _financeStreamSub?.cancel();
+        _financeStreamSub = null;
+        _load();
+      }
       return;
     }
     final periodChanged =
@@ -108,7 +137,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     if (!widget.canViewFinance || _financeAllDocs.isEmpty) return;
     final w = widget.financePeriodRange;
     final finWindow = _financeAllDocs.where((d) {
-      final dt = _lancamentoDate(d.data());
+      final dt = financeLancamentoDate(d.data());
       if (dt == null) return false;
       return !dt.isBefore(w.start) && !dt.isAfter(w.end);
     }).toList();
@@ -130,25 +159,56 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
   }
 
-  static DateTime? _lancamentoDate(Map<String, dynamic> m) {
-    final raw = m['createdAt'] ?? m['date'];
-    if (raw == null) return null;
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    if (raw is Map) {
-      final sec = raw['seconds'] ?? raw['_seconds'];
-      if (sec != null) {
-        final n = sec is num ? sec.toInt() : int.tryParse(sec.toString());
-        if (n != null) {
-          return DateTime.fromMillisecondsSinceEpoch(n * 1000);
-        }
-      }
-    }
-    return DateTime.tryParse(raw.toString());
+  void _mergeFinanceIntoState(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> finAll) {
+    if (!widget.canViewFinance) return;
+    final w = widget.financePeriodRange;
+    final finDocs = finAll.where((d) {
+      final dt = financeLancamentoDate(d.data());
+      if (dt == null) return false;
+      return !dt.isBefore(w.start) && !dt.isAfter(w.end);
+    }).toList();
+    final intel = ChurchMinistryIntelService.build(
+      members: widget.memberDocs,
+      escalas: _cachedEscalasDocs,
+      noticias: _cachedNoticiasDocs,
+      visitantes: _cachedVisitantesDocs,
+      financeDocs: finDocs,
+      churchData: _cachedChurchData,
+      includeFinance: true,
+      financeWindow: w,
+    );
+    if (!mounted) return;
+    setState(() {
+      _financeAllDocs = finAll;
+      _intel = intel;
+      _loading = false;
+      _error = null;
+    });
+    _notifyDeferredReady();
+  }
+
+  void _bindFinanceStream() {
+    _financeStreamSub?.cancel();
+    final stream = widget.financeStream;
+    if (stream == null || !widget.canViewFinance) return;
+    _financeStreamSub = stream.listen(
+      (snap) => _mergeFinanceIntoState(snap.docs),
+      onError: (_, __) {
+        if (!mounted) return;
+        setState(() {
+          _error = 'Não foi possível carregar o painel de inteligência.';
+          _loading = false;
+        });
+        _notifyDeferredReady();
+      },
+    );
   }
 
   Future<void> _load() async {
     if (widget.tenantId.trim().isEmpty) return;
+    final useFinanceStream =
+        widget.canViewFinance && widget.financeStream != null;
     setState(() {
       _loading = true;
       _error = null;
@@ -163,9 +223,15 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         base.collection('visitantes').orderBy('createdAt', descending: true).limit(200).get(),
       ];
       if (widget.canViewFinance) {
-        futures.add(
-          base.collection('finance').orderBy('createdAt', descending: true).get(),
-        );
+        if (!useFinanceStream) {
+          futures.add(
+            base
+                .collection('finance')
+                .orderBy('createdAt', descending: true)
+                .limit(6000)
+                .get(),
+          );
+        }
         futures.add(base.collection('contas').orderBy('nome').get());
       }
       futures.add(base.get());
@@ -178,11 +244,13 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       List<QueryDocumentSnapshot<Map<String, dynamic>>> finAll = const [];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> contasList = const [];
       if (widget.canViewFinance) {
-        finAll = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+        if (!useFinanceStream) {
+          finAll = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+        }
         contasList = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
         final w = widget.financePeriodRange;
         finDocs = finAll.where((d) {
-          final dt = _lancamentoDate(d.data());
+          final dt = financeLancamentoDate(d.data());
           if (dt == null) return false;
           return !dt.isBefore(w.start) && !dt.isAfter(w.end);
         }).toList();
@@ -210,9 +278,15 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           _cachedVisitantesDocs = vis.docs;
           _cachedChurchData = church;
           _contasDocs = contasList;
-          _loading = false;
+          if (!useFinanceStream) {
+            _loading = false;
+          }
         });
-        _notifyDeferredReady();
+        if (useFinanceStream) {
+          _bindFinanceStream();
+        } else {
+          _notifyDeferredReady();
+        }
       }
     } catch (e) {
       if (mounted) {

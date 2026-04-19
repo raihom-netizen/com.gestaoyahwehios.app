@@ -541,6 +541,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             financePeriodPreset: _dashCanFinance
                                 ? _dashFinancePreset
                                 : ChurchDashboardFinancePreset.currentMonth,
+                            financeStream: _financeStream,
                             deferFinanceBlock: _dashCanFinance,
                             onDeferredFinanceReady: () {
                               if (mounted) setState(() {});
