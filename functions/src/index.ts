@@ -6717,6 +6717,7 @@ export { processarCertificadosLote } from "./processarCertificadosLote";
 export {
   sendSegmentedPush,
   archivePastoralMessage,
+  updatePastoralMessage,
   resendPastoralMessage,
   resendDevotionalEnvio,
   deleteDevotionalEnvio,

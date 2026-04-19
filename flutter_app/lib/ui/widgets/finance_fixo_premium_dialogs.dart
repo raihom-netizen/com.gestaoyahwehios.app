@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
+    show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 String _memberNomeFromData(Map<String, dynamic> m) =>
@@ -70,7 +72,7 @@ class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
             ButtonSegment<String>(
               value: 'fornecedor',
               label: Text('Fornecedor'),
-              icon: Icon(Icons.storefront_rounded, size: 18),
+              icon: Icon(kFornecedoresModuleIcon, size: 18),
             ),
           ],
           selected: {value},
@@ -126,7 +128,7 @@ class FinanceFixoVinculoSegment extends StatelessWidget {
             ButtonSegment<String>(
               value: 'fornecedor',
               label: Text('Fornecedor'),
-              icon: Icon(Icons.storefront_rounded, size: 18),
+              icon: Icon(kFornecedoresModuleIcon, size: 18),
             ),
           ],
           selected: {value},
@@ -198,7 +200,7 @@ class FinanceFixoTitularCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    isMembro ? Icons.person_rounded : Icons.storefront_rounded,
+                    isMembro ? Icons.person_rounded : kFornecedoresModuleIcon,
                     color: p,
                     size: 26,
                   ),
@@ -512,7 +514,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
-                          Icons.storefront_rounded,
+                          kFornecedoresModuleIcon,
                           color: Colors.white,
                           size: 24,
                         ),
@@ -605,7 +607,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                                   backgroundColor: ThemeCleanPremium.primary
                                       .withValues(alpha: 0.12),
                                   child: Icon(
-                                    Icons.storefront_rounded,
+                                    kFornecedoresModuleIcon,
                                     color: ThemeCleanPremium.primary,
                                     size: 22,
                                   ),

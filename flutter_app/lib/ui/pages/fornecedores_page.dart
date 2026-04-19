@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
+    show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
@@ -19,6 +21,7 @@ import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Moldura para o [TableCalendar] (sombras, borda, cantos) — alinhado ao painel premium.
 Widget _fornecedorAgendaCalendarPremiumShell({required Widget child}) {
@@ -998,7 +1001,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 tabs: const [
                   Tab(
                     text: 'Cadastros',
-                    icon: Icon(Icons.storefront_rounded, size: 20),
+                    icon: Icon(kFornecedoresModuleIcon, size: 20),
                   ),
                   Tab(
                     text: 'Agenda geral',
@@ -1015,12 +1018,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       floatingActionButton: _tabMain.index == 0
           ? Container(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 boxShadow: [
                   BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
+                    blurRadius: 28,
+                    offset: const Offset(0, 12),
+                    spreadRadius: -2,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 5),
                   ),
                 ],
               ),
@@ -1029,8 +1038,20 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 backgroundColor: ThemeCleanPremium.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                icon: const Icon(Icons.add_rounded, size: 26),
-                label: const Text('Novo cadastro', style: TextStyle(fontWeight: FontWeight.w800)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                ),
+                extendedPadding:
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                icon: const Icon(Icons.add_rounded, size: 24),
+                label: Text(
+                  'Novo cadastro',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    letterSpacing: -0.3,
+                  ),
+                ),
               ),
             )
           : null,
@@ -1050,7 +1071,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     tabs: const [
                       Tab(
                         text: 'Cadastros',
-                        icon: Icon(Icons.storefront_rounded, size: 18),
+                        icon: Icon(kFornecedoresModuleIcon, size: 18),
                       ),
                       Tab(
                         text: 'Agenda geral',
@@ -1068,7 +1089,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   padding: ThemeCleanPremium.pagePadding(context),
                   child: ModuleHeaderPremium(
                     title: 'Fornecedores & prestadores',
-                    icon: Icons.storefront_rounded,
+                    icon: kFornecedoresModuleIcon,
                     subtitle: 'Cadastro completo, financeiro e agenda de vencimentos',
                   ),
                 ),
@@ -1082,7 +1103,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   tabs: const [
                     Tab(
                       text: 'Cadastros',
-                      icon: Icon(Icons.storefront_rounded, size: 20),
+                      icon: Icon(kFornecedoresModuleIcon, size: 20),
                     ),
                     Tab(
                       text: 'Agenda geral',
@@ -1178,11 +1199,51 @@ class _FornecedoresPageState extends State<FornecedoresPage>
 
                     if (docs.isEmpty) {
                       return Center(
-                        child: Text(
-                          _q.isEmpty
-                              ? 'Nenhum fornecedor cadastrado.'
-                              : 'Nenhum resultado.',
-                          style: TextStyle(color: Colors.grey.shade600),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.08),
+                                  shape: BoxShape.circle,
+                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                ),
+                                child: Icon(
+                                  kFornecedoresModuleIcon,
+                                  size: 44,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                _q.isEmpty
+                                    ? 'Nenhum fornecedor cadastrado.'
+                                    : 'Nenhum resultado.',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade700,
+                                  height: 1.35,
+                                ),
+                              ),
+                              if (_q.isEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Toque em «Novo cadastro» para incluir o primeiro.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       );
                     }
@@ -1221,14 +1282,21 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                                     ],
                                   ),
                                   border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
+                                    color: ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.12),
                                     width: 1.1,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: ThemeCleanPremium.primary.withValues(alpha: 0.09),
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.1),
                                       blurRadius: 20,
                                       offset: const Offset(0, 8),
+                                    ),
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
                                     ),
                                   ],
                                 ),
@@ -1256,7 +1324,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                                             ),
                                           ],
                                         ),
-                                        child: const Icon(Icons.business_center_rounded,
+                                        child: Icon(kFornecedoresModuleIcon,
                                             color: Colors.white, size: 26),
                                       ),
                                       const SizedBox(width: 14),
@@ -1266,10 +1334,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                                           children: [
                                             Text(
                                               nome.isEmpty ? 'Sem nome' : nome,
-                                              style: const TextStyle(
+                                              style: GoogleFonts.inter(
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 16,
-                                                letterSpacing: -0.2,
+                                                letterSpacing: -0.35,
+                                                color: ThemeCleanPremium.onSurface,
                                               ),
                                             ),
                                             const SizedBox(height: 4),
@@ -1280,10 +1349,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                                               ].join(' · '),
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 13,
                                                 color: Colors.grey.shade700,
                                                 height: 1.25,
+                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
                                           ],
@@ -3268,8 +3338,34 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
             ),
             foregroundColor: Colors.white,
             iconTheme: const IconThemeData(color: Colors.white),
-            title: Text(nome, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      width: 1,
+                    ),
+                  ),
+                  child: Icon(kFornecedoresModuleIcon, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    nome,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      letterSpacing: -0.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             bottom: TabBar(
               controller: _tab,
               isScrollable: true,
@@ -3277,11 +3373,14 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               unselectedLabelColor: Colors.white.withValues(alpha: 0.72),
               indicatorColor: Colors.white,
               indicatorWeight: 3.2,
-              labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+              labelStyle: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
               tabs: const [
                 Tab(
                   text: 'Cadastro',
-                  icon: Icon(Icons.storefront_rounded, size: 20),
+                  icon: Icon(kFornecedoresModuleIcon, size: 20),
                 ),
                 Tab(
                   text: 'Financeiro',

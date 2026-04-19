@@ -536,19 +536,20 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
         mainAxisSize: pw.MainAxisSize.min,
         children: [
           if (img != null)
-            pw.Container(
-              width: 100,
-              height: 40,
-              margin: const pw.EdgeInsets.only(bottom: 6),
-              child: pw.Image(img, fit: pw.BoxFit.contain),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 6),
+              child: pw.SizedBox(
+                width: 108,
+                height: 44,
+                child: pw.Image(img, fit: pw.BoxFit.contain),
+              ),
             ),
-          if (img != null) pw.SizedBox(height: 4),
           pw.Container(width: 120, height: 1, color: accent),
           pw.SizedBox(height: 8),
           pw.Text(
             s.nome,
             style: pw.TextStyle(
-              fontSize: 12,
+              fontSize: 12.5,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -556,15 +557,16 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
             maxLines: 2,
             overflow: pw.TextOverflow.clip,
           ),
-          pw.SizedBox(height: 2),
+          pw.SizedBox(height: 3),
           pw.Text(
             s.cargo,
             style: pw.TextStyle(
               fontSize: 10,
-              color: accentClaro,
+              fontWeight: pw.FontWeight.bold,
+              color: accent,
             ),
             textAlign: pw.TextAlign.center,
-            maxLines: 1,
+            maxLines: 2,
             overflow: pw.TextOverflow.clip,
           ),
         ],
@@ -604,7 +606,11 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
         ),
         pw.Text(
           input.cargoManual,
-          style: pw.TextStyle(fontSize: 10, color: accentClaro),
+          style: pw.TextStyle(
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold,
+            color: accent,
+          ),
         ),
       ],
     );

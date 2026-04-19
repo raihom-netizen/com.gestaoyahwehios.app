@@ -9,7 +9,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shimmer/shimmer.dart';
+import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
+import 'package:gestao_yahweh/services/member_profile_image_disk_cache.dart';
 
 /// Tratamento definitivo de imagens em rede: logo, cadastro igreja, eventos, avisos.
 /// Garante exibição no painel e feed — evita tela preta ou erro ao carregar.
@@ -1388,6 +1391,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
 
     return CachedNetworkImage(
       imageUrl: url,
+      cacheManager: YahwehCacheManagers.images,
       fit: widget.fit,
       width: widget.width,
       height: widget.height,
@@ -1757,6 +1761,9 @@ class MemberProfilePhotoBytesCache {
     return 'u:$u';
   }
 
+  /// LRU em RAM, disco ([writeMemberProfileImageDisk]) e deduplicação de pré-carga.
+  static String stableKeyForUrl(String rawUrl) => _stableKey(rawUrl);
+
   static void clear() {
     _map.clear();
     _order.clear();
@@ -1986,6 +1993,27 @@ class _FirebaseStorageMemoryImageState
       MemberProfilePhotoBytesCache.remove(url);
     }
 
+    if (!kIsWeb) {
+      final sk = MemberProfilePhotoBytesCache.stableKeyForUrl(url);
+      if (sk.isNotEmpty && await MediaCachePreferences.isMemberPhotoDiskCacheEnabled()) {
+        final fromDisk = await readMemberProfileImageDisk(sk);
+        if (fromDisk != null) {
+          if (await storageBytesRenderWithImageMemory(fromDisk)) {
+            MemberProfilePhotoBytesCache.put(url, fromDisk);
+            if (!mounted) return;
+            setState(() {
+              _bytes = fromDisk;
+              _loading = false;
+              _failed = false;
+              _webBrowserImg = false;
+              _webBrowserUrl = '';
+            });
+            return;
+          }
+        }
+      }
+    }
+
     Uint8List? data;
     const storageTimeout = Duration(seconds: 28);
     try {
@@ -2035,6 +2063,12 @@ class _FirebaseStorageMemoryImageState
         }
       }
       MemberProfilePhotoBytesCache.put(url, data);
+      if (!kIsWeb) {
+        final sk = MemberProfilePhotoBytesCache.stableKeyForUrl(url);
+        if (sk.isNotEmpty) {
+          unawaited(writeMemberProfileImageDisk(sk, data));
+        }
+      }
       setState(() {
         _bytes = data;
         _loading = false;

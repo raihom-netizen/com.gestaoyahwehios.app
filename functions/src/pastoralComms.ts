@@ -476,6 +476,51 @@ export const archivePastoralMessage = functions.region("us-central1").https.onCa
   return { ok: true };
 });
 
+/** Atualiza título e texto de uma mensagem pastoral (não reenvia FCM). */
+export const updatePastoralMessage = functions.region("us-central1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+  }
+  const tenantId = String(data?.tenantId || "").trim();
+  const messageId = String(data?.messageId || "").trim();
+  const title = String(data?.title || "").trim();
+  const body = String(data?.body || "").trim();
+  if (!tenantId || !messageId || !title || !body) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "tenantId, messageId, title e body são obrigatórios."
+    );
+  }
+  const allowed = await canSendChurchCommunications(
+    context.auth.uid,
+    context.auth.token?.role,
+    context.auth.token?.igrejaId || context.auth.token?.tenantId,
+    tenantId
+  );
+  if (!allowed) {
+    throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+  }
+  const ref = db.collection("igrejas").doc(tenantId).collection("pastoral_mensagens").doc(messageId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError("not-found", "Mensagem não encontrada.");
+  }
+  const d = snap.data() || {};
+  if (d.archived === true) {
+    throw new functions.https.HttpsError("failed-precondition", "Mensagem arquivada — não pode editar.");
+  }
+  await ref.set(
+    {
+      title,
+      body,
+      editedAt: admin.firestore.FieldValue.serverTimestamp(),
+      editedByUid: context.auth.uid,
+    },
+    { merge: true }
+  );
+  return { ok: true };
+});
+
 /** Reenviar mesma notificação (novo push com o mesmo conteúdo). */
 export const resendPastoralMessage = functions.region("us-central1").https.onCall(async (data, context) => {
   if (!context.auth) {

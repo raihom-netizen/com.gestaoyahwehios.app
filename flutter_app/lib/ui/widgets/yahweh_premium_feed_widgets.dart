@@ -629,6 +629,35 @@ class YahwehPublicFloatingActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final blue = brandBlue ?? ThemeCleanPremium.primary;
     final narrow = MediaQuery.sizeOf(context).width < 640;
+    final deep = Color.lerp(blue, const Color(0xFF0F172A), 0.28)!;
+    final hi = Color.lerp(blue, Colors.white, 0.12)!;
+
+    Widget fabShell({
+      required Widget child,
+      required List<BoxShadow> shadows,
+      required Gradient gradient,
+      double size = 48,
+    }) {
+      return Material(
+        color: Colors.transparent,
+        elevation: 0,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: null,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: gradient,
+              boxShadow: shadows,
+            ),
+            child: child,
+          ),
+        ),
+      );
+    }
+
     return Material(
       type: MaterialType.transparency,
       child: Column(
@@ -636,46 +665,205 @@ class YahwehPublicFloatingActions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (onMaps != null) ...[
-            FloatingActionButton.small(
-              heroTag: 'gyh_pub_maps',
-              tooltip: 'Localização',
-              backgroundColor: Colors.white,
-              foregroundColor: blue,
-              elevation: 3,
-              onPressed: onMaps,
-              child: const Icon(Icons.map_rounded),
+            Material(
+              color: Colors.transparent,
+              child: Tooltip(
+                message: 'Localização',
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onMaps,
+                    child: Ink(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white,
+                          const Color(0xFFF1F5F9),
+                        ],
+                      ),
+                      boxShadow: [
+                        ...ThemeCleanPremium.softUiCardShadow,
+                        BoxShadow(
+                          color: blue.withValues(alpha: 0.2),
+                          blurRadius: 18,
+                          offset: const Offset(0, 7),
+                          spreadRadius: -1,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Color.lerp(
+                          const Color(0xFFE2E8F0),
+                          blue,
+                          0.12,
+                        )!,
+                        width: 1.15,
+                      ),
+                    ),
+                    child: Icon(Icons.map_rounded, color: blue, size: 24),
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
           ],
           if (onPrayer != null) ...[
-            FloatingActionButton.small(
-              heroTag: 'gyh_pub_oracao',
-              tooltip: 'Pedido de oração',
-              backgroundColor: const Color(0xFF16A34A),
-              foregroundColor: Colors.white,
-              elevation: 3,
-              onPressed: onPrayer,
-              child: const Icon(Icons.chat_rounded),
-            ),
-            const SizedBox(height: 10),
-          ],
-          narrow
-              ? FloatingActionButton(
-                  heroTag: 'gyh_pub_login',
-                  tooltip: 'Acessar sistema',
-                  onPressed: onLogin,
-                  backgroundColor: blue,
-                  foregroundColor: Colors.white,
-                  child: const Icon(Icons.login_rounded, size: 24),
-                )
-              : FloatingActionButton.extended(
-                  heroTag: 'gyh_pub_login',
-                  onPressed: onLogin,
-                  icon: const Icon(Icons.login_rounded, size: 22),
-                  label: const Text('Acessar sistema'),
-                  backgroundColor: blue,
-                  foregroundColor: Colors.white,
+            Material(
+              color: Colors.transparent,
+              child: Tooltip(
+                message: 'Pedido de oração',
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onPrayer,
+                  child: Ink(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF34D399),
+                          Color(0xFF22C55E),
+                          Color(0xFF15803D),
+                        ],
+                        stops: [0.0, 0.45, 1.0],
+                      ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.28),
+                        width: 1.05,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF16A34A).withValues(alpha: 0.42),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                          spreadRadius: -1,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.chat_rounded,
+                        color: Colors.white, size: 24),
+                  ),
                 ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Hero(
+            tag: 'gyh_pub_login',
+            child: narrow
+                ? Material(
+                    color: Colors.transparent,
+                    child: Tooltip(
+                      message: 'Acessar sistema',
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: onLogin,
+                        child: Ink(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.22),
+                              width: 1.1,
+                            ),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color.lerp(hi, Colors.white, 0.12)!,
+                                hi,
+                                deep,
+                              ],
+                              stops: const [0.0, 0.45, 1.0],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: blue.withValues(alpha: 0.4),
+                                blurRadius: 26,
+                                offset: const Offset(0, 11),
+                                spreadRadius: -2,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.login_rounded,
+                              color: Colors.white, size: 26),
+                        ),
+                      ),
+                    ),
+                  )
+                : Material(
+                    color: Colors.transparent,
+                    child: Tooltip(
+                      message: 'Acessar sistema',
+                      child: InkWell(
+                        onTap: onLogin,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        child: Ink(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 13,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              width: 1.1,
+                            ),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color.lerp(hi, Colors.white, 0.1)!,
+                                hi,
+                                deep,
+                              ],
+                              stops: const [0.0, 0.42, 1.0],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: blue.withValues(alpha: 0.38),
+                                blurRadius: 28,
+                                offset: const Offset(0, 11),
+                                spreadRadius: -2,
+                              ),
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.08),
+                                blurRadius: 14,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.login_rounded,
+                                  color: Colors.white, size: 22),
+                              SizedBox(width: 10),
+                              Text(
+                                'Acessar sistema',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
         ],
       ),
     );

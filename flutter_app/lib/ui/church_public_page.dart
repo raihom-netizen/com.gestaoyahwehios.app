@@ -2791,6 +2791,252 @@ class _PublicTopBar extends StatelessWidget {
   }
 }
 
+/// Chip de contato (WhatsApp / e-mail) — vidro suave + sombra premium.
+class _PublicFooterContactChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final List<Color> gradient;
+  final Color border;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _PublicFooterContactChip({
+    required this.icon,
+    required this.label,
+    required this.gradient,
+    required this.border,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = ThemeCleanPremium.radiusLg;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(r),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: gradient,
+            ),
+            border: Border.all(color: border, width: 1.15),
+            boxShadow: [
+              BoxShadow(
+                color: iconColor.withValues(alpha: 0.14),
+                blurRadius: 22,
+                offset: const Offset(0, 9),
+                spreadRadius: -1,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: iconColor),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      letterSpacing: -0.3,
+                      color: const Color(0xFF0F172A),
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PublicFooterPrimaryCta extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _PublicFooterPrimaryCta({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = ThemeCleanPremium.radiusLg;
+    final deep =
+        Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.3)!;
+    final hi = Color.lerp(ThemeCleanPremium.primary, Colors.white, 0.12)!;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(r),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.22),
+              width: 1.1,
+            ),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.lerp(hi, Colors.white, 0.08)!,
+                hi,
+                deep,
+              ],
+              stops: const [0.0, 0.4, 1.0],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.34),
+                blurRadius: 32,
+                offset: const Offset(0, 14),
+                spreadRadius: -3,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.1),
+                blurRadius: 18,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: ThemeCleanPremium.minTouchTarget,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 22, color: Colors.white),
+                  const SizedBox(width: 10),
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      letterSpacing: -0.4,
+                      color: Colors.white,
+                      height: 1.1,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black.withValues(alpha: 0.22),
+                          blurRadius: 8,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PublicFooterOutlineCta extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color foreground;
+  final VoidCallback onTap;
+
+  const _PublicFooterOutlineCta({
+    required this.label,
+    required this.icon,
+    required this.foreground,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = ThemeCleanPremium.radiusLg;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(r),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                const Color(0xFFF8FAFC),
+                ThemeCleanPremium.primaryLight.withValues(alpha: 0.35),
+              ],
+              stops: const [0.0, 0.55, 1.0],
+            ),
+            border: Border.all(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.26),
+              width: 1.15,
+            ),
+            boxShadow: [
+              ...ThemeCleanPremium.softUiCardShadow,
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: ThemeCleanPremium.minTouchTarget,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 21, color: ThemeCleanPremium.primary),
+                  const SizedBox(width: 10),
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      letterSpacing: -0.35,
+                      color: foreground,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Rodapé do site público da igreja: marca Gestão YAHWEH, desenvolvedor e links legais.
 class _PublicFooter extends StatelessWidget {
   final VoidCallback onAdquirirSistema;
@@ -2877,37 +3123,29 @@ class _PublicFooter extends StatelessWidget {
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 12,
-            runSpacing: 8,
+            runSpacing: 10,
             children: [
-              ActionChip(
-                avatar: Icon(Icons.chat_rounded,
-                    size: 18, color: Colors.green.shade700),
-                label: Text(
-                  kLegalSupportWhatsAppDisplay,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12.5,
-                  ),
-                ),
-                onPressed: onDeveloperWhatsApp,
-                backgroundColor: const Color(0xFFECFDF5),
-                side: BorderSide(color: Colors.green.shade200),
+              _PublicFooterContactChip(
+                icon: Icons.chat_rounded,
+                label: kLegalSupportWhatsAppDisplay,
+                gradient: const [
+                  Color(0xFFECFDF5),
+                  Color(0xFFD1FAE5),
+                ],
+                border: const Color(0xFF6EE7B7),
+                iconColor: const Color(0xFF047857),
+                onTap: onDeveloperWhatsApp,
               ),
-              ActionChip(
-                avatar: Icon(Icons.email_outlined,
-                    size: 18, color: ThemeCleanPremium.primary),
-                label: Text(
-                  kLegalSupportEmail,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12.5,
-                  ),
-                ),
-                onPressed: onDeveloperEmail,
-                backgroundColor: Colors.white,
-                side: BorderSide(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                ),
+              _PublicFooterContactChip(
+                icon: Icons.email_outlined,
+                label: kLegalSupportEmail,
+                gradient: [
+                  Colors.white,
+                  ThemeCleanPremium.primaryLight.withValues(alpha: 0.35),
+                ],
+                border: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                iconColor: ThemeCleanPremium.primary,
+                onTap: onDeveloperEmail,
               ),
             ],
           ),
@@ -2942,40 +3180,19 @@ class _PublicFooter extends StatelessWidget {
           const SizedBox(height: 20),
           Wrap(
             alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 12,
+            runSpacing: 12,
             children: [
-              FilledButton.icon(
-                onPressed: onAdquirirSistema,
-                icon: const Icon(Icons.shopping_bag_outlined, size: 20),
-                label: const Text('Adquirir sistema'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
+              _PublicFooterPrimaryCta(
+                label: 'Adquirir sistema',
+                icon: Icons.shopping_bag_outlined,
+                onTap: onAdquirirSistema,
               ),
-              OutlinedButton.icon(
-                onPressed: onDeveloperWhatsApp,
-                icon: const Icon(Icons.code_rounded, size: 20),
-                label: Text('Desenvolvedor $kDeveloperPublicName'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: deep,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  side: BorderSide(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.4),
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
+              _PublicFooterOutlineCta(
+                label: 'Desenvolvedor $kDeveloperPublicName',
+                icon: Icons.code_rounded,
+                foreground: deep,
+                onTap: onDeveloperWhatsApp,
               ),
             ],
           ),
@@ -3272,35 +3489,141 @@ class _PublicPremiumActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg =
-        emphasize ? Colors.white : const Color(0xFF1E3A5F).withOpacity(0.92);
-    final bg = emphasize ? const Color(0xFF2563EB) : Colors.white;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color.fromRGBO(15, 23, 42, 0.06),
-            blurRadius: 22,
-            offset: Offset(0, 10),
+    final r = ThemeCleanPremium.radiusLg;
+    final tap = onPressed;
+    if (emphasize) {
+      final deep =
+          Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.32)!;
+      final top = Color.lerp(ThemeCleanPremium.primary, Colors.white, 0.14)!;
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: tap,
+          borderRadius: BorderRadius.circular(r),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(r),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.22),
+                width: 1.1,
+              ),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.lerp(top, Colors.white, 0.1)!,
+                  top,
+                  deep,
+                ],
+                stops: const [0.0, 0.42, 1.0],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
+                  spreadRadius: -3,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.09),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minWidth: 48,
+                minHeight: ThemeCleanPremium.minTouchTarget,
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 20, color: Colors.white),
+                    const SizedBox(width: 10),
+                    Text(
+                      label,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        letterSpacing: -0.38,
+                        color: Colors.white,
+                        height: 1.15,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(48, ThemeCleanPremium.minTouchTarget),
-          backgroundColor: bg,
-          foregroundColor: fg,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: const Color(0xFFE2E8F0).withOpacity(0.9),
-              width: 1,
+        ),
+      );
+    }
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: tap,
+        borderRadius: BorderRadius.circular(r),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                const Color(0xFFF8FAFC),
+                ThemeCleanPremium.primaryLight.withValues(alpha: 0.28),
+              ],
+              stops: const [0.0, 0.55, 1.0],
+            ),
+            border: Border.all(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+              width: 1.1,
+            ),
+            boxShadow: [
+              ...ThemeCleanPremium.softUiCardShadow,
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: 48,
+              minHeight: ThemeCleanPremium.minTouchTarget,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 19, color: const Color(0xFF1E3A5F)),
+                  const SizedBox(width: 9),
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                      letterSpacing: -0.2,
+                      color: const Color(0xFF1E293B),
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

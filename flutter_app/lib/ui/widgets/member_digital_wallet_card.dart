@@ -1,17 +1,19 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/carteirinha_pdf_signature_enhance.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        FreshFirebaseStorageImage,
         isFirebaseStorageHttpUrl,
         isValidImageUrl,
         refreshFirebaseStorageDownloadUrl,
-        SafeNetworkImage,
         sanitizeImageUrl;
 
 /// Dimensões no estilo CR80 (cartão físico), em lógica de layout.
@@ -457,18 +459,20 @@ class WalletSignatureStrip extends StatelessWidget {
           Text(
             signatoryName.trim(),
             style: GoogleFonts.poppins(
-              fontSize: 9.5,
-              fontWeight: FontWeight.w800,
+              fontSize: 9.8,
+              fontWeight: FontWeight.w900,
               color: textColor,
+              height: 1.15,
             ),
           ),
         if (signatoryCargo.trim().isNotEmpty)
           Text(
             signatoryCargo.trim(),
             style: GoogleFonts.poppins(
-              fontSize: 8,
-              fontWeight: FontWeight.w600,
-              color: textColor.withValues(alpha: 0.88),
+              fontSize: 8.2,
+              fontWeight: FontWeight.w900,
+              color: textColor,
+              height: 1.15,
             ),
           ),
       ],
@@ -476,93 +480,104 @@ class WalletSignatureStrip extends StatelessWidget {
   }
 }
 
-/// Assinaturas escaneadas costumam vir claras: contraste + leve duplicação deslocada (traço mais «cheio»).
-class _SignatureInkEnhanced extends StatelessWidget {
-  final Widget Function() buildImage;
-
-  const _SignatureInkEnhanced({required this.buildImage});
-
-  static const List<double> _matrix = [
-    1.62, 0, 0, 0, -66,
-    0, 1.62, 0, 0, -66,
-    0, 0, 1.62, 0, -66,
-    0, 0, 0, 1, 0,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRect(
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        fit: StackFit.expand,
-        alignment: Alignment.centerLeft,
-        children: [
-          Transform.translate(
-            offset: const Offset(0.7, 0.22),
-            child: Opacity(
-              opacity: 0.4,
-              child: ColorFiltered(
-                colorFilter: const ColorFilter.matrix(_matrix),
-                child: buildImage(),
-              ),
-            ),
-          ),
-          ColorFiltered(
-            colorFilter: const ColorFilter.matrix(_matrix),
-            child: buildImage(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WalletSigImage extends StatelessWidget {
+/// Mesmo pipeline do PDF: traços realçados + fundo branco → transparente (assinatura «flutuando»).
+class _WalletSigImage extends StatefulWidget {
   final String url;
 
   const _WalletSigImage({required this.url});
 
+  @override
+  State<_WalletSigImage> createState() => _WalletSigImageState();
+}
+
+class _WalletSigImageState extends State<_WalletSigImage> {
   static const double _sigW = 140;
   static const double _sigH = 52;
 
-  Future<String> _resolve() async {
-    var u = sanitizeImageUrl(url);
-    if (u.isEmpty || !isValidImageUrl(u)) return '';
+  Uint8List? _pngBytes;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WalletSigImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _pngBytes = null;
+      _loading = true;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    var u = sanitizeImageUrl(widget.url);
+    if (u.isEmpty || !isValidImageUrl(u)) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     if (isFirebaseStorageHttpUrl(u)) {
       final fresh = await refreshFirebaseStorageDownloadUrl(u);
       u = sanitizeImageUrl(fresh ?? u);
     }
-    return isValidImageUrl(u) ? u : '';
-  }
-
-  Widget _rawImage(String u) {
-    if (isFirebaseStorageHttpUrl(u)) {
-      return FreshFirebaseStorageImage(
-        imageUrl: u,
-        fit: BoxFit.contain,
-        width: _sigW,
-        height: _sigH,
-        errorWidget: const SizedBox.shrink(),
-      );
+    if (!isValidImageUrl(u)) {
+      if (mounted) setState(() => _loading = false);
+      return;
     }
-    return SafeNetworkImage(
-      imageUrl: u,
-      fit: BoxFit.contain,
-      width: _sigW,
-      height: _sigH,
-      errorWidget: const SizedBox.shrink(),
+    final raw = await ImageHelper.getBytesFromUrlOrNull(
+      u,
+      timeout: const Duration(seconds: 18),
     );
+    if (!mounted) return;
+    if (raw == null || raw.length < 33) {
+      setState(() => _loading = false);
+      return;
+    }
+    Uint8List? out;
+    try {
+      out = kIsWeb
+          ? carteirinhaPdfSignaturePipelineSync(raw)
+          : await compute(carteirinhaPdfSignaturePipelineForCompute, raw);
+    } catch (_) {
+      out = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _pngBytes = (out != null && out.length > 32) ? out : raw;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String>(
-      future: _resolve(),
-      builder: (context, snap) {
-        final u = snap.data ?? '';
-        if (u.isEmpty) return const SizedBox.shrink();
-        return _SignatureInkEnhanced(buildImage: () => _rawImage(u));
-      },
+    if (_loading) {
+      return SizedBox(
+        width: _sigW,
+        height: _sigH,
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+            ),
+          ),
+        ),
+      );
+    }
+    final b = _pngBytes;
+    if (b == null || b.isEmpty) return const SizedBox.shrink();
+    return Image.memory(
+      b,
+      width: _sigW,
+      height: _sigH,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.high,
     );
   }
 }

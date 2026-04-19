@@ -170,23 +170,22 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                   if ((signatoryNome).trim().isNotEmpty ||
                       assinaturaImage != null ||
                       (signatoryCargo).trim().isNotEmpty) ...[
-                    pw.Container(
-                        width: 72,
-                        height: 0.6,
-                        color: PdfColor(fg.red, fg.green, fg.blue, 0.45)),
                     if (assinaturaImage != null)
-                      pw.Container(
-                        width: 80,
-                        height: 30,
-                        margin: const pw.EdgeInsets.only(top: 2),
-                        child: pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 4),
+                        child: pw.SizedBox(
+                          width: 88,
+                          height: 32,
+                          child:
+                              pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
+                        ),
                       ),
                     if (signatoryNome.trim().isNotEmpty)
                       pw.Text(
                         signatoryNome.trim(),
                         style: pw.TextStyle(
                           color: fg,
-                          fontSize: 6,
+                          fontSize: 6.2,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -194,10 +193,9 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                       pw.Text(
                         signatoryCargo.trim(),
                         style: pw.TextStyle(
-                          color: ink
-                              ? PdfColors.grey700
-                              : PdfColor(fg.red, fg.green, fg.blue, 0.8),
-                          fontSize: 5,
+                          color: fg,
+                          fontSize: 5.4,
+                          fontWeight: pw.FontWeight.bold,
                         ),
                       ),
                   ],

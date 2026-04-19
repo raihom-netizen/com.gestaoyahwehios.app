@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/utils/cert_pdf_image_optimize.dart'
         CertPdfImageMaxMemoryMessage,
         CertPdfLogoOptimizeMessage,
         optimizeCertPdfLogoBytes;
+import 'package:gestao_yahweh/utils/carteirinha_pdf_signature_enhance.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
 /// Signatário efetivo (com [memberId] para buscar imagem no Firestore/Storage).
@@ -611,6 +612,26 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
   }
 }
 
+Future<Uint8List?> _signatureBytesFloatingPipeline(
+  Uint8List b,
+  String signCacheKey,
+  int sigMaxW,
+  int sigMaxH,
+) async {
+  try {
+    final piped = kIsWeb
+        ? carteirinhaPdfSignaturePipelineSync(b)
+        : await compute(carteirinhaPdfSignaturePipelineForCompute, b);
+    if (piped != null && piped.length > 32) {
+      _signatureOptimizedBytesCache[signCacheKey] = piped;
+      return piped;
+    }
+  } catch (_) {}
+  final fallback = await _optimizeImageForPdf(b, sigMaxW, sigMaxH);
+  _signatureOptimizedBytesCache[signCacheKey] = fallback;
+  return fallback;
+}
+
 Future<Uint8List?> _optimizeImageForPdf(
   Uint8List bytes,
   int maxW,
@@ -817,10 +838,8 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
           .add(Future<Uint8List?>.value(_signatureOptimizedBytesCache[signCacheKey]));
       continue;
     }
-    sigOptFutures.add(_optimizeImageForPdf(b, sigMaxW, sigMaxH).then((opt) {
-      _signatureOptimizedBytesCache[signCacheKey] = opt;
-      return opt;
-    }));
+    sigOptFutures.add(
+        _signatureBytesFloatingPipeline(b, signCacheKey, sigMaxW, sigMaxH));
   }
 
   final bgOptFuture = () async {
@@ -845,7 +864,19 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         _institutionalPastorSigOptCache.containsKey(tidOpt)) {
       return _institutionalPastorSigOptCache[tidOpt];
     }
-    var instSigOpt = await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
+    Uint8List? instSigOpt;
+    try {
+      final piped = kIsWeb
+          ? carteirinhaPdfSignaturePipelineSync(instSigRaw)
+          : await compute(
+              carteirinhaPdfSignaturePipelineForCompute,
+              instSigRaw,
+            );
+      if (piped != null && piped.length > 32) {
+        instSigOpt = piped;
+      }
+    } catch (_) {}
+    instSigOpt ??= await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
     if (instSigOpt == null || instSigOpt.length <= 32) {
       instSigOpt = instSigRaw;
     }

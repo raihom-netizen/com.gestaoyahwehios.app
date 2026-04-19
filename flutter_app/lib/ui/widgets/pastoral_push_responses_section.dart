@@ -1,4 +1,7 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -24,6 +27,182 @@ class _PastoralPushResponsesSectionState
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _confirmArchive(
+    BuildContext context,
+    String messageId,
+  ) async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir mensagem'),
+        content: const Text(
+          'A mensagem deixa de aparecer para os membros e some desta lista. '
+          'O registo continua arquivado no sistema (não é apagamento físico imediato dos dados). '
+          'Deseja continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !context.mounted) return;
+    try {
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('archivePastoralMessage');
+      await fn.call(<String, dynamic>{
+        'tenantId': widget.tenantId.trim(),
+        'messageId': messageId,
+      });
+      if (!context.mounted) return;
+      setState(() => _expanded.remove(messageId));
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Mensagem excluída do painel e arquivada.',
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? e.code),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível excluir: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _editMessageDialog(
+    BuildContext context,
+    String messageId,
+    Map<String, dynamic> data,
+  ) async {
+    final titleCtrl = TextEditingController(
+      text: (data['title'] ?? '').toString(),
+    );
+    final bodyCtrl = TextEditingController(
+      text: (data['body'] ?? '').toString(),
+    );
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Editar mensagem'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Título',
+                    prefixIcon: const Icon(Icons.title_rounded, size: 22),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bodyCtrl,
+                  minLines: 3,
+                  maxLines: 8,
+                  decoration: InputDecoration(
+                    labelText: 'Texto',
+                    alignLabelWithHint: true,
+                    prefixIcon: const Icon(Icons.notes_rounded, size: 22),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'A edição atualiza o texto no histórico; não reenvia notificação push.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !context.mounted) return;
+      final title = titleCtrl.text.trim();
+      final body = bodyCtrl.text.trim();
+      if (title.isEmpty || body.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Título e texto não podem ficar vazios.')),
+        );
+        return;
+      }
+      try {
+        final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+            .httpsCallable('updatePastoralMessage');
+        await fn.call(<String, dynamic>{
+          'tenantId': widget.tenantId.trim(),
+          'messageId': messageId,
+          'title': title,
+          'body': body,
+        });
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Mensagem atualizada.'),
+        );
+      } on FirebaseFunctionsException catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message ?? e.code),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível salvar: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      titleCtrl.dispose();
+      bodyCtrl.dispose();
+    }
   }
 
   static String _msgTitle(Map<String, dynamic> d) {
@@ -313,17 +492,82 @@ class _PastoralPushResponsesSectionState
                             });
                           },
                           leading: _PastoralMessageLeadingBadge(),
-                          title: Text(
-                            _msgTitle(data),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                              letterSpacing: -0.2,
-                              color: ThemeCleanPremium.onSurface,
-                              height: 1.25,
-                            ),
+                          title: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _msgTitle(data),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    letterSpacing: -0.2,
+                                    color: ThemeCleanPremium.onSurface,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ),
+                              PopupMenuButton<String>(
+                                tooltip: 'Opções da mensagem',
+                                padding: EdgeInsets.zero,
+                                icon: Icon(
+                                  Icons.more_vert_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                  size: 22,
+                                ),
+                                onSelected: (v) {
+                                  if (v == 'edit') {
+                                    unawaited(_editMessageDialog(
+                                      context,
+                                      doc.id,
+                                      data,
+                                    ));
+                                  } else if (v == 'archive') {
+                                    unawaited(_confirmArchive(context, doc.id));
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  const PopupMenuItem(
+                                    value: 'edit',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading:
+                                          Icon(Icons.edit_outlined, size: 22),
+                                      title: Text('Editar texto'),
+                                      dense: true,
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'archive',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(
+                                        Icons.delete_outline_rounded,
+                                        size: 22,
+                                        color: ThemeCleanPremium.error,
+                                      ),
+                                      title: Text(
+                                        'Excluir',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: ThemeCleanPremium.error,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        'Remove do painel; registo arquivado no Firestore',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          color: ThemeCleanPremium.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      dense: true,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                           subtitle: Padding(
                             padding: const EdgeInsets.only(top: 6),

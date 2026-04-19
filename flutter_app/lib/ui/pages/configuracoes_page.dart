@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
@@ -53,6 +54,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool _bioCapable = false;
   bool _bioEnabled = false;
   bool _bioToggling = false;
+  bool _cacheFotosPerfilNoAparelho = true;
 
   @override
   void initState() {
@@ -112,6 +114,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notif60Min = prefs.getBool(_keyNotif60Min) ?? true;
       _bioCapable = capable;
       _bioEnabled = bioOn;
+      _cacheFotosPerfilNoAparelho =
+          prefs.getBool(kPrefMemberPhotoDiskCacheV1) ?? true;
       _loading = false;
     });
   }
@@ -291,6 +295,46 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                       ],
                     ),
                   ),
+                  if (!kIsWeb) ...[
+                    const SizedBox(height: 24),
+                    _SectionTitle(
+                        icon: Icons.speed_rounded, title: 'Desempenho do app'),
+                    _Card(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            secondary: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.photo_library_rounded,
+                                  color: ThemeCleanPremium.primary),
+                            ),
+                            title: const Text(
+                              'Guardar fotos de perfil no aparelho',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            subtitle: const Text(
+                              'Membros, escalas e módulos carregam mais rápido com cache local. '
+                              'O app sincroniza em segundo plano ao voltar ao painel (sem avisos). '
+                              'Desligue para poupar espaço — as fotos voltam a baixar da internet.',
+                              style: TextStyle(fontSize: 12.5),
+                            ),
+                            value: _cacheFotosPerfilNoAparelho,
+                            onChanged: (v) async {
+                              setState(() => _cacheFotosPerfilNoAparelho = v);
+                              await MediaCachePreferences
+                                  .setMemberPhotoDiskCacheEnabled(v);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _Card(

@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -1418,6 +1419,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                         final name = _memberName(m);
                         final cpf = _memberCpf(m);
                         final sel = _selectedIds.contains(d.id);
+                        final authUidRaw =
+                            (m['authUid'] ?? '').toString().trim();
+                        final authUidOpt =
+                            authUidRaw.isEmpty ? null : authUidRaw;
                         return Material(
                           color:
                               sel ? accent.withValues(alpha: 0.06) : Colors.white,
@@ -1440,15 +1445,31 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                 ? Text('CPF: $cpf',
                                     style: const TextStyle(fontSize: 12))
                                 : null,
-                            secondary: CircleAvatar(
-                              backgroundColor: accent.withValues(alpha: 0.15),
-                              child: Text(
-                                name.isNotEmpty
-                                    ? name.characters.first.toUpperCase()
-                                    : '?',
-                                style: TextStyle(
-                                  color: accent,
-                                  fontWeight: FontWeight.w800,
+                            secondary: SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: FotoMembroWidget(
+                                tenantId: _effectiveTenantId.isNotEmpty
+                                    ? _effectiveTenantId
+                                    : null,
+                                memberId: d.id,
+                                memberData: m,
+                                cpfDigits: cpf.length == 11 ? cpf : null,
+                                authUid: authUidOpt,
+                                size: 40,
+                                backgroundColor: accent.withValues(alpha: 0.15),
+                                fallbackChild: CircleAvatar(
+                                  backgroundColor:
+                                      accent.withValues(alpha: 0.15),
+                                  child: Text(
+                                    name.isNotEmpty
+                                        ? name.characters.first.toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                      color: accent,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

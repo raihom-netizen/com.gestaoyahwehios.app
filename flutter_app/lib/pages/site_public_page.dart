@@ -166,47 +166,47 @@ class _SitePublicPageState extends State<SitePublicPage> {
             borderRadius: BorderRadius.circular(999),
             child: Ink(
               decoration: BoxDecoration(
-                gradient: emphasize
-                    ? LinearGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.22),
-                          Colors.white.withValues(alpha: 0.1),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: emphasize
+                      ? [
+                          Colors.white.withValues(alpha: 0.3),
+                          Colors.white.withValues(alpha: 0.12),
+                        ]
+                      : [
+                          Colors.white.withValues(alpha: 0.2),
+                          Colors.white.withValues(alpha: 0.08),
                         ],
-                      )
-                    : null,
-                color: emphasize
-                    ? null
-                    : Colors.white.withValues(alpha: 0.12),
+                ),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.28),
-                  width: 1,
+                  color: Colors.white.withValues(alpha: emphasize ? 0.48 : 0.36),
+                  width: 1.05,
                 ),
-                boxShadow: emphasize
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.12),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: emphasize ? 0.16 : 0.1),
+                    blurRadius: emphasize ? 16 : 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
               ),
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 15, color: Colors.white),
-                    const SizedBox(width: 6),
+                    Icon(icon, size: 16, color: Colors.white),
+                    const SizedBox(width: 7),
                     Text(
                       label,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
                         fontSize: 11.5,
-                        letterSpacing: 0.25,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ],

@@ -78,8 +78,13 @@ class _LoginPageState extends State<LoginPage> {
   /// Após escolher persona: membro (true) ou gestor já cadastrado (false).
   bool _credentialsAsMembro = true;
 
-  /// iOS/macOS nativo: exibir «Continuar com Apple» quando o SO suportar.
+  /// iPhone/iPad: exibir «Continuar com Apple» quando o SO suportar (nunca Android).
   bool _appleSignInAvailable = false;
+
+  bool get _showAppleSignInButton =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      _appleSignInAvailable;
 
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
@@ -116,7 +121,7 @@ class _LoginPageState extends State<LoginPage> {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _completeGoogleRedirectIfNeeded());
     }
-    if (!kIsWeb) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       SignInWithApple.isAvailable().then((ok) {
         if (mounted) setState(() => _appleSignInAvailable = ok);
       });
@@ -497,13 +502,11 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onGoogleChurchLogin() async {
     if (!_showChurchGoogleButton || _loading) return;
-    setState(() {
-      _loading = true;
-      _errorMessage = null;
-    });
+    setState(() => _errorMessage = null);
     try {
       UserCredential cred;
       if (kIsWeb) {
+        setState(() => _loading = true);
         final provider = firebaseWebGoogleAuthProvider();
         try {
           cred =
@@ -520,14 +523,12 @@ class _LoginPageState extends State<LoginPage> {
           rethrow;
         }
       } else {
-        try {
-          await appGoogleSignIn().signOut();
-        } catch (_) {}
+        // Não bloqueia a tela durante o seletor de conta Google (evita “fundo escuro” preso).
         final googleUser = await appGoogleSignIn().signIn();
         if (googleUser == null) {
-          if (mounted) setState(() => _loading = false);
           return;
         }
+        if (mounted) setState(() => _loading = true);
         final ga = await googleUser.authentication;
         final idTok = ga.idToken;
         if (idTok == null || idTok.isEmpty) {
@@ -604,9 +605,12 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Painel igreja (iOS/macOS): mesmo pós-login que Google ([_afterGoogleSignInSuccess]).
+  /// Painel igreja (somente iOS): mesmo pós-login que Google ([_afterGoogleSignInSuccess]).
   Future<void> _onAppleChurchLogin() async {
-    if (!_showChurchGoogleButton || !_appleSignInAvailable || kIsWeb || _loading) {
+    if (!_showChurchGoogleButton ||
+        !_showAppleSignInButton ||
+        kIsWeb ||
+        _loading) {
       return;
     }
     setState(() {
@@ -627,6 +631,19 @@ class _LoginPageState extends State<LoginPage> {
       }
       if (!mounted || cred.user == null) return;
       await _afterGoogleSignInSuccess();
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (!mounted) return;
+      if (e.code == AuthorizationErrorCode.canceled) {
+        return;
+      }
+      final isUnknown = e.code == AuthorizationErrorCode.unknown;
+      final msg = isUnknown
+          ? 'Não foi possível concluir o login com a Apple (erro 1000). '
+              'Confira em Ajustes > Apple ID > Senha e segurança se «Usar o Apple ID» está ok, '
+              'ou use e-mail e senha. Em builds de desenvolvimento, teste em dispositivo real com «Entrar com a Apple» ativo no App ID.'
+          : 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
@@ -985,7 +1002,7 @@ class _LoginPageState extends State<LoginPage> {
             ],
           ),
         ),
-        if (!kIsWeb && _appleSignInAvailable) ...[
+        if (_showAppleSignInButton) ...[
           const SizedBox(height: 10),
           SignInWithAppleButton(
             onPressed: () {
@@ -1609,9 +1626,9 @@ class _LoginPageState extends State<LoginPage> {
                               Text(
                                 _credentialsAsMembro
                                     ? 'Membro: use o mesmo e-mail cadastrado na igreja. '
-                                        'Pode entrar com Google, Apple (iPhone/Mac) ou e-mail e senha.'
+                                        'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.'
                                     : 'Gestor: use o e-mail da conta da igreja. '
-                                        'Pode entrar com Google, Apple (iPhone/Mac) ou e-mail e senha.',
+                                        'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey.shade700,

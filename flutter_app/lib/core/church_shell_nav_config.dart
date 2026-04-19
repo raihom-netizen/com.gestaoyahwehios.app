@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+/// Ícone do módulo **Fornecedores** (menu + telas).
+/// `storefront_rounded` pode renderizar vazio na web/PWA (subset Material / tree-shake).
+const IconData kFornecedoresModuleIcon = Icons.local_shipping_rounded;
+
 /// Entrada do menu lateral do painel da igreja ([IgrejaCleanShell]).
 /// A ordem define os **índices** (`_selectedIndex`, cache de páginas, etc.).
 class ChurchShellNavEntry {
@@ -34,7 +38,7 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(Icons.church_rounded, 'Pastoral & comunicação'),
   ChurchShellNavEntry(Icons.payment_rounded, 'Financeiro'),
   ChurchShellNavEntry(Icons.inventory_2_rounded, 'Patrimônio'),
-  ChurchShellNavEntry(Icons.storefront_rounded, 'Fornecedores'),
+  ChurchShellNavEntry(kFornecedoresModuleIcon, 'Fornecedores'),
   ChurchShellNavEntry(Icons.card_giftcard_rounded, 'Doação'),
 ];
 

@@ -4235,8 +4235,8 @@ class _CertificatePdfProgressShell extends StatelessWidget {
                                       'Incluindo assinaturas no PDF',
                                       style: TextStyle(
                                         fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.blue.shade800,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.blue.shade900,
                                       ),
                                     ),
                                   ),

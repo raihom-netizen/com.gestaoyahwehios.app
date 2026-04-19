@@ -11,6 +11,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
+    show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
@@ -1871,7 +1873,7 @@ class _FinanceRelatoriosTabState extends State<_FinanceRelatoriosTab> {
                                 'financeiro_despesas_por_fornecedor_filtrado.pdf',
                           );
                         },
-                  icon: const Icon(Icons.storefront_rounded),
+                  icon: Icon(kFornecedoresModuleIcon),
                   label: const Text(
                     'PDF — despesas por fornecedor (filtros atuais)',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),

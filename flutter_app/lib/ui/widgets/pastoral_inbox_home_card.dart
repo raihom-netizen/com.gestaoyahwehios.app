@@ -465,12 +465,10 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
     super.dispose();
   }
 
-  Future<void> _playExitThenAck() async {
+  Future<void> _playExitAnimationOnly() async {
     if (!mounted) return;
     setState(() => _exiting = true);
     await _exitCtrl.forward();
-    if (!mounted) return;
-    widget.onAcknowledged();
   }
 
   Future<void> _submit({required bool includeReply}) async {
@@ -493,8 +491,10 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
         'readAt': FieldValue.serverTimestamp(),
       };
       if (includeReply && r.isNotEmpty) payload['reply'] = r;
-      await leituraRef.set(payload);
+      await leituraRef.set(payload, SetOptions(merge: true));
       if (!mounted) return;
+      // Some do painel na hora (o listener do Firestore pode atrasar offline).
+      widget.onAcknowledged();
       messenger.showSnackBar(
         ThemeCleanPremium.successSnackBar(
           includeReply && r.isNotEmpty
@@ -502,7 +502,7 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
               : 'Leitura confirmada. Obrigado!',
         ),
       );
-      await _playExitThenAck();
+      await _playExitAnimationOnly();
     } catch (e, st) {
       assert(() {
         debugPrint('pastoral leitura: $e\n$st');

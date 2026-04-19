@@ -6,6 +6,25 @@ int _clamp255(num v) => v.round().clamp(0, 255);
 
 /// Realça traços da assinatura para o PDF. Só trata como “papel branco” pixéis quase
 /// perfeitos (≥253), para não apagar traços a lápis/canetas claras (antes: >246 apagava cinzas).
+/// Papel/branco do scan vira transparente para a assinatura «flutuar» no cartão/PDF.
+img.Image _knockoutPaperToTransparent(img.Image work) {
+  for (var y = 0; y < work.height; y++) {
+    for (var x = 0; x < work.width; x++) {
+      final p = work.getPixel(x, y);
+      final a = p.a.toInt();
+      if (a < 8) continue;
+      final r = p.r.toInt();
+      final g = p.g.toInt();
+      final b = p.b.toInt();
+      final lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum >= 251 && r >= 246 && g >= 246 && b >= 246) {
+        p.set(img.ColorUint8.rgba(255, 255, 255, 0));
+      }
+    }
+  }
+  return work;
+}
+
 img.Image _enhanceSignatureRgba(img.Image work) {
   const mult = 1.92;
   const bias = -74.0;
@@ -48,7 +67,7 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
     final decoded = img.decodeImage(raw);
     if (decoded == null) return null;
     var work = decoded.convert(numChannels: 4);
-    const maxSide = 560;
+    const maxSide = 720;
     if (work.width > maxSide || work.height > maxSide) {
       final scale = work.width >= work.height
           ? maxSide / work.width
@@ -62,7 +81,8 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
         interpolation: img.Interpolation.linear,
       );
     }
-    final enhanced = _enhanceSignatureRgba(work);
+    var enhanced = _enhanceSignatureRgba(work);
+    enhanced = _knockoutPaperToTransparent(enhanced);
     return Uint8List.fromList(img.encodePng(enhanced, level: 6));
   } catch (_) {
     return null;
@@ -83,7 +103,8 @@ Uint8List? carteirinhaPdfEnhanceSignatureBytesSync(Uint8List bytes) {
   try {
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return null;
-    final work = _enhanceSignatureRgba(decoded.convert(numChannels: 4));
+    var work = _enhanceSignatureRgba(decoded.convert(numChannels: 4));
+    work = _knockoutPaperToTransparent(work);
     if (work.hasAlpha) {
       return Uint8List.fromList(img.encodePng(work, level: 6));
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -428,6 +429,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
       ],
     );
 
+    final acessarRadius = ThemeCleanPremium.radiusLg;
     final acessarBtn = ConstrainedBox(
       constraints: const BoxConstraints(
         minWidth: ThemeCleanPremium.minTouchTarget,
@@ -437,28 +439,68 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onAcessar,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(acessarRadius),
           child: Ink(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(acessarRadius),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.38),
+                color: Colors.white.withValues(alpha: 0.52),
                 width: 1.2,
               ),
-              color: Colors.white.withValues(alpha: 0.1),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Center(
-                child: Text(
-                  'Acessar Sistema',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: Colors.white,
-                    letterSpacing: -0.15,
-                  ),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.34),
+                  Colors.white.withValues(alpha: 0.14),
+                  Colors.white.withValues(alpha: 0.07),
+                ],
+                stops: const [0.0, 0.45, 1.0],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                  spreadRadius: -2,
                 ),
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  blurRadius: 0,
+                  offset: const Offset(0, -1),
+                  spreadRadius: 0,
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.login_rounded,
+                    size: 19,
+                    color: Colors.white.withValues(alpha: 0.98),
+                  ),
+                  const SizedBox(width: 9),
+                  Text(
+                    'Acessar Sistema',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                      color: Colors.white,
+                      letterSpacing: -0.35,
+                      height: 1.1,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 6,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -467,43 +509,70 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     );
 
     final deepAccent = Color.lerp(accentColor, const Color(0xFF0F172A), 0.35)!;
+    final donateRadius = ThemeCleanPremium.radiusLg;
+    final hiAccent = Color.lerp(accentColor, Colors.white, 0.18)!;
     final Widget? doacaoBtn = onDoacao == null
         ? null
         : Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: onDoacao,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(donateRadius),
               child: Ink(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [accentColor, deepAccent],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.lerp(hiAccent, Colors.white, 0.08)!,
+                      hiAccent,
+                      deepAccent,
+                    ],
+                    stops: const [0.0, 0.42, 1.0],
                   ),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(donateRadius),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.28),
+                    width: 1.1,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: accentColor.withValues(alpha: 0.28),
-                      blurRadius: 14,
-                      offset: const Offset(0, 5),
+                      color: accentColor.withValues(alpha: 0.38),
+                      blurRadius: 26,
+                      offset: const Offset(0, 11),
+                      spreadRadius: -3,
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.14),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6),
                     ),
                   ],
                 ),
                 child: Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.volunteer_activism_rounded,
-                          color: Colors.white, size: 18),
-                      const SizedBox(width: 6),
+                          color: Colors.white, size: 20),
+                      const SizedBox(width: 9),
                       Text(
                         layoutCompact ? 'Doar' : 'Doação PIX/Cartão',
-                        style: const TextStyle(
+                        style: GoogleFonts.inter(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                          letterSpacing: -0.2,
+                          fontSize: 13.5,
+                          letterSpacing: -0.35,
+                          height: 1.1,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withValues(alpha: 0.22),
+                              blurRadius: 8,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -760,30 +829,43 @@ class _ChurchPublicSocialLinkChip extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: gradient.last.withValues(alpha: 0.32),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  color: gradient.last.withValues(alpha: 0.36),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
+                  spreadRadius: -1,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.38),
-                width: 1,
+                color: Colors.white.withValues(alpha: 0.42),
+                width: 1.1,
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: Colors.white, size: 18),
+                  Icon(icon, color: Colors.white, size: 19),
                   const SizedBox(width: 8),
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: GoogleFonts.inter(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
-                      fontSize: 12.5,
-                      letterSpacing: -0.2,
+                      fontSize: 13,
+                      letterSpacing: -0.32,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 6,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -889,35 +971,118 @@ class ChurchPublicContactBar extends StatelessWidget {
               child: LayoutBuilder(
                 builder: (context, c) {
                   final narrow = c.maxWidth < 520;
+                  final chipR = ThemeCleanPremium.radiusLg;
                   final chips = <Widget>[
                     if (onWhatsApp != null)
-                      FilledButton.tonalIcon(
-                        onPressed: onWhatsApp,
-                        icon: const Icon(Icons.chat_rounded, size: 18),
-                        label: const Text('WhatsApp'),
-                        style: FilledButton.styleFrom(
-                          foregroundColor: const Color(0xFF047857),
-                          backgroundColor: const Color(0xFFECFDF5),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: onWhatsApp,
+                          borderRadius: BorderRadius.circular(chipR),
+                          child: Ink(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(chipR),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color(0xFFECFDF5),
+                                  Color(0xFFD1FAE5),
+                                ],
+                              ),
+                              border: Border.all(
+                                color: const Color(0xFF6EE7B7)
+                                    .withValues(alpha: 0.65),
+                                width: 1.15,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF047857)
+                                      .withValues(alpha: 0.12),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
+                                ),
+                                ...ThemeCleanPremium.softUiCardShadow,
+                              ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.chat_rounded,
+                                    size: 19,
+                                    color: Color(0xFF047857),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'WhatsApp',
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13.5,
+                                      letterSpacing: -0.3,
+                                      color: const Color(0xFF047857),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     if (onMaps != null)
-                      OutlinedButton.icon(
-                        onPressed: onMaps,
-                        icon: const Icon(Icons.map_outlined, size: 18),
-                        label: const Text('Localização'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: deep,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          side: BorderSide(
-                              color: accentColor.withValues(alpha: 0.35)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: onMaps,
+                          borderRadius: BorderRadius.circular(chipR),
+                          child: Ink(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(chipR),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white,
+                                  Color.lerp(accentColor, Colors.white, 0.92)!,
+                                ],
+                              ),
+                              border: Border.all(
+                                color: accentColor.withValues(alpha: 0.28),
+                                width: 1.15,
+                              ),
+                              boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.map_outlined,
+                                    size: 19,
+                                    color: accentColor,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Localização',
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13.5,
+                                      letterSpacing: -0.3,
+                                      color: deep,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),

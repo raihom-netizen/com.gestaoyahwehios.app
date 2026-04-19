@@ -133,28 +133,74 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
               ),
               if (isWide) ...[
                 const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: onAcessarSistema,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    minimumSize: const Size(
-                      ThemeCleanPremium.minTouchTarget,
-                      44,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    elevation: 0,
-                    shadowColor: Colors.black.withValues(alpha: 0.35),
-                  ),
-                  child: Text(
-                    'Acessar Sistema',
-                    style: GoogleFonts.inter(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onAcessarSistema,
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          width: 1.1,
+                        ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color.lerp(accent, Colors.white, 0.16)!,
+                            Color.lerp(accent, Colors.white, 0.06)!,
+                            Color.lerp(accent, const Color(0xFF0F172A), 0.26)!,
+                          ],
+                          stops: const [0.0, 0.45, 1.0],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.36),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
+                            spreadRadius: -2,
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.login_rounded,
+                                color: Colors.white, size: 20),
+                            const SizedBox(width: 9),
+                            Text(
+                              'Acessar Sistema',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13.5,
+                                letterSpacing: -0.35,
+                                color: Colors.white,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -162,23 +208,46 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
                 const SizedBox(width: 4),
                 Tooltip(
                   message: 'Acessar sistema',
-                  child: SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: FilledButton(
-                      onPressed: onAcessarSistema,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: accent,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(44, 44),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onAcessarSistema,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      child: SizedBox(
+                        width: 46,
+                        height: 46,
+                        child: Ink(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusMd),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.22),
+                              width: 1.05,
+                            ),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color.lerp(accent, Colors.white, 0.14)!,
+                                Color.lerp(accent, const Color(0xFF0F172A), 0.28)!,
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: accent.withValues(alpha: 0.38),
+                                blurRadius: 18,
+                                offset: const Offset(0, 7),
+                                spreadRadius: -1,
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.login_rounded,
+                                color: Colors.white, size: 22),
+                          ),
                         ),
-                        elevation: 0,
                       ),
-                      child: const Icon(Icons.login_rounded, size: 22),
                     ),
                   ),
                 ),
@@ -208,30 +277,61 @@ class _NavChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.only(right: 8),
       child: Material(
-        color: Colors.white.withValues(alpha: 0.14),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(999),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(999),
-          child: Ink(
+            child: Ink(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.32),
-                width: 1,
+                color: Colors.white.withValues(alpha: 0.5),
+                width: 1.15,
               ),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.34),
+                  Colors.white.withValues(alpha: 0.16),
+                  Colors.white.withValues(alpha: 0.07),
+                ],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.14),
+                  blurRadius: 20,
+                  offset: const Offset(0, 7),
+                  spreadRadius: -1,
+                ),
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  blurRadius: 0,
+                  offset: const Offset(0, -1),
+                ),
+              ],
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               child: Text(
                 label,
                 style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13.5,
                   color: Colors.white,
-                  letterSpacing: -0.1,
+                  letterSpacing: -0.35,
+                  height: 1.1,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 6,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
                 ),
               ),
             ),

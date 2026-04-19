@@ -38,20 +38,20 @@ void _appendGalaLuxoCertificatePage(
         mainAxisSize: pw.MainAxisSize.min,
         children: [
           if (img != null)
-            pw.Container(
-              width: 118,
-              height: 46,
-              margin: const pw.EdgeInsets.only(bottom: 6),
-              alignment: pw.Alignment.center,
-              child: pw.Image(img, fit: pw.BoxFit.contain),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 6),
+              child: pw.SizedBox(
+                width: 118,
+                height: 46,
+                child: pw.Image(img, fit: pw.BoxFit.contain),
+              ),
             ),
-          if (img != null) pw.SizedBox(height: 4),
           pw.Container(width: 120, height: 1, color: accent),
           pw.SizedBox(height: 8),
           pw.Text(
             s.nome,
             style: pw.TextStyle(
-              fontSize: 12,
+              fontSize: 12.5,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -59,15 +59,16 @@ void _appendGalaLuxoCertificatePage(
             maxLines: 2,
             overflow: pw.TextOverflow.clip,
           ),
-          pw.SizedBox(height: 2),
+          pw.SizedBox(height: 3),
           pw.Text(
             s.cargo,
             style: pw.TextStyle(
               fontSize: 10,
-              color: accentClaro,
+              fontWeight: pw.FontWeight.bold,
+              color: accent,
             ),
             textAlign: pw.TextAlign.center,
-            maxLines: 1,
+            maxLines: 2,
             overflow: pw.TextOverflow.clip,
           ),
         ],
@@ -108,7 +109,11 @@ void _appendGalaLuxoCertificatePage(
         ),
         pw.Text(
           input.cargoManual,
-          style: pw.TextStyle(fontSize: 10, color: accentClaro),
+          style: pw.TextStyle(
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold,
+            color: accent,
+          ),
         ),
       ],
     );

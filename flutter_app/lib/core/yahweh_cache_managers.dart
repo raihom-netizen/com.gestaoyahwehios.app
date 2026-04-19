@@ -7,11 +7,12 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 class YahwehCacheManagers {
   YahwehCacheManagers._();
 
+  /// Logos, capas e https não-Storage: disco + TTL — alinhado a listas grandes do painel.
   static final CacheManager images = CacheManager(
     Config(
       'yahweh_images_v1',
-      stalePeriod: const Duration(days: 30),
-      maxNrOfCacheObjects: 800,
+      stalePeriod: const Duration(days: 45),
+      maxNrOfCacheObjects: 1400,
     ),
   );
 

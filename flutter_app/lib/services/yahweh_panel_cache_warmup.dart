@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         preloadNetworkImages,
         sanitizeImageUrl;
 
+DateTime? _lastPanelImageWarmupAt;
+
 /// Coleta URLs de foto de um documento de membro (lista do painel).
 List<String> _memberPhotoUrls(Map<String, dynamic> m) {
   final out = <String>[];
@@ -86,11 +88,24 @@ List<String> _patrimonioPhotoUrls(Map<String, dynamic> m) {
 ///
 /// [resolvedTenantId]: quando já foi resolvido no painel, evita segunda ida ao Firestore
 /// só para resolver o id. Atraso curto: só o suficiente para não disputar o 1.º frame.
+///
+/// [force]: ignorar debounce (ex.: 1.ª abertura do painel). Ao voltar ao app, o debounce evita
+/// rajadas de Firestore + decode quando o SO retoma várias vezes seguidas.
 Future<void> scheduleYahwehPanelImageWarmup(
   BuildContext context,
   String tenantId, {
   String? resolvedTenantId,
+  bool force = false,
 }) async {
+  final now = DateTime.now();
+  if (!force &&
+      _lastPanelImageWarmupAt != null &&
+      now.difference(_lastPanelImageWarmupAt!) <
+          const Duration(seconds: 50)) {
+    return;
+  }
+  _lastPanelImageWarmupAt = now;
+
   // Não disputa com o 1.º frame / streams de membros e departamentos.
   await Future<void>.delayed(const Duration(milliseconds: 120));
   if (!context.mounted) return;
@@ -143,7 +158,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
     await preloadNetworkImages(
       context,
       dedupeImageRefsByStorageIdentity(urls),
-      maxItems: 36,
+      maxItems: 42,
     );
   } catch (_) {}
 }

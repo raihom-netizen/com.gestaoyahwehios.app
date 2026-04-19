@@ -2,7 +2,8 @@ import 'dart:async' show unawaited;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
@@ -29,7 +30,10 @@ class _SignupPageState extends State<SignupPage> {
   bool _obscure = true;
   bool _appleSignInAvailable = false;
 
-  bool get _showAppleButton => !kIsWeb && _appleSignInAvailable;
+  bool get _showAppleButton =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      _appleSignInAvailable;
 
   @override
   void initState() {
@@ -38,7 +42,7 @@ class _SignupPageState extends State<SignupPage> {
     if (init != null && init.isNotEmpty) {
       _email.text = init;
     }
-    if (!kIsWeb) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       SignInWithApple.isAvailable().then((ok) {
         if (mounted) setState(() => _appleSignInAvailable = ok);
       });
@@ -128,6 +132,13 @@ class _SignupPageState extends State<SignupPage> {
       }
       if (!mounted) return;
       await GestorOAuthOnboardingService.routeAfterOAuthSignIn(context);
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (!mounted) return;
+      if (e.code == AuthorizationErrorCode.canceled) return;
+      final msg = e.code == AuthorizationErrorCode.unknown
+          ? 'Não foi possível usar a Apple neste momento. Tente de novo ou use Google / e-mail e senha.'
+          : 'Falha no login com Apple. Tente de novo ou use outro método.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -187,9 +198,11 @@ class _SignupPageState extends State<SignupPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Entre com Google ou Apple (app). Depois você informa nome, CPF e os dados da igreja em duas etapas rápidas — ou crie só e-mail e senha abaixo.',
-          style: TextStyle(color: Colors.black54, height: 1.35),
+        Text(
+          defaultTargetPlatform == TargetPlatform.iOS
+              ? 'Entre com Google ou Apple (app). Depois você informa nome, CPF e os dados da igreja em duas etapas rápidas — ou crie só e-mail e senha abaixo.'
+              : 'Entre com Google (app). Depois você informa nome, CPF e os dados da igreja em duas etapas rápidas — ou crie só e-mail e senha abaixo.',
+          style: const TextStyle(color: Colors.black54, height: 1.35),
         ),
         const SizedBox(height: 16),
         FilledButton.icon(

@@ -121,7 +121,8 @@ class IgrejaDashboardModerno extends StatefulWidget {
   State<IgrejaDashboardModerno> createState() => _IgrejaDashboardModernoState();
 }
 
-class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
+class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
+    with WidgetsBindingObserver {
   final GlobalKey<ChurchMinistryHealthPanelState> _ministryHealthKey =
       GlobalKey<ChurchMinistryHealthPanelState>();
 
@@ -206,14 +207,33 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _effectiveTenantId = widget.tenantId;
     _loadStreams();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _engagementCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    if (kIsWeb) return;
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(scheduleYahwehPanelImageWarmup(
+        context,
+        tid,
+        resolvedTenantId: tid,
+      ));
+    });
   }
 
   /// Resolve o ID do tenant (documento em tenants): por id, slug ou alias (com normalização) — membros no mesmo path.
@@ -285,6 +305,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno> {
         context,
         resolved,
         resolvedTenantId: resolved,
+        force: true,
       ));
     });
   }

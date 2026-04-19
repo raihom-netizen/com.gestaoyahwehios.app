@@ -4,7 +4,8 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
@@ -95,8 +96,11 @@ class GestorOAuthOnboardingService {
     return digest.toString();
   }
 
-  /// iOS / macOS (e ambientes onde [SignInWithApple.isAvailable] é true). Senão retorna null.
+  /// Só **iPhone/iPad** (não Android/macOS/web). Em outros ambientes retorna null.
   static Future<UserCredential?> signInWithAppleIfAvailable() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+      return null;
+    }
     if (!await SignInWithApple.isAvailable()) {
       return null;
     }
