@@ -279,16 +279,20 @@ class FornecedorAgendaCalendarCells {
 
     final dayNum = day.day.toString();
     final multiDay = n >= 2;
+    final isWeekendCell =
+        day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
     final TextStyle numStyle = TextStyle(
       fontSize: cellFs,
       fontWeight:
           isSelected || isToday || multiDay ? FontWeight.w800 : FontWeight.w700,
-      color: Colors.white,
-      shadows: const [
+      color: isWeekendCell ? const Color(0xFFFFE4E8) : Colors.white,
+      shadows: [
         Shadow(
-          color: Color(0xA0000000),
-          blurRadius: 5,
-          offset: Offset(0, 1.5),
+          color: isWeekendCell
+              ? const Color(0xFF7F1D1D).withValues(alpha: 0.85)
+              : const Color(0xA0000000),
+          blurRadius: isWeekendCell ? 6 : 5,
+          offset: const Offset(0, 1.5),
         ),
       ],
     );
@@ -412,45 +416,6 @@ class FornecedorAgendaCalendarCells {
 String _capitalizePtFornecedorAgenda(String s) {
   if (s.isEmpty) return s;
   return '${s[0].toUpperCase()}${s.substring(1)}';
-}
-
-/// WhatsApp com gradiente e ícone Material (evita glifos quebrados de fontes externas na web).
-Widget _premiumWhatsAppToolbarButton({
-  required VoidCallback onPressed,
-  String tooltip = 'WhatsApp',
-  double iconSize = 20,
-}) {
-  return Tooltip(
-    message: tooltip,
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF25D366), Color(0xFF128C7E)],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF25D366).withValues(alpha: 0.38),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(9),
-            child: Icon(Icons.chat_rounded, color: Colors.white, size: iconSize),
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 Future<bool> _confirmDeleteFornecedorCompromisso(BuildContext context) async {
@@ -2197,6 +2162,8 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
                             startingDayOfWeek: StartingDayOfWeek.sunday,
                             firstDay: DateTime.utc(2020, 1, 1),
                             lastDay: DateTime.utc(2035, 12, 31),
+                            availableGestures:
+                                AvailableGestures.horizontalSwipe,
                             focusedDay: _focused,
                             sixWeekMonthsEnforced: true,
                             rowHeight: ThemeCleanPremium.isMobile(context)
@@ -2325,44 +2292,25 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
                   ),
                   SliverToBoxAdapter(
                     child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+                      child: _FornecedoresAgendaListaHintBanner(
+                          agendaGeral: true),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                       child: _FornecedoresAgendaFeriadosNacionaisCard(
                         focusedMonth: _focused,
                       ),
                     ),
                   ),
-                  if (docs.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                        child: Center(
-                          child: Text(
-                            'Nenhum compromisso registrado. Cadastre na agenda de cada fornecedor.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                      sliver: SliverToBoxAdapter(
-                        child: _FornecedoresAgendaCompromissosDataTable(
-                          docs: docs,
-                          nomePorId: nomePorId,
-                          onOpenFornecedor: widget.onOpenFornecedor,
-                          formatWhen:
-                              _FornecedoresAgendaGeralTabState._formatCompromissoWhen,
-                          onEditCompromisso: _editarCompromissoAgendaGeral,
-                          onDeleteCompromisso: _excluirCompromissoAgendaGeral,
-                        ),
-                      ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                      child: const _FornecedoresAgendaCalLegendaRodape(),
                     ),
+                  ),
                 ],
               ),
             );
@@ -2471,215 +2419,134 @@ class _FornecedoresAgendaFeriadosNacionaisCard extends StatelessWidget {
   }
 }
 
-class _FornecedoresAgendaCompromissosDataTable extends StatelessWidget {
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-  final Map<String, String> nomePorId;
-  final void Function(String fornecedorId) onOpenFornecedor;
-  final String Function(Timestamp ts) formatWhen;
-  final Future<void> Function(
-      QueryDocumentSnapshot<Map<String, dynamic>> doc) onEditCompromisso;
-  final Future<void> Function(
-      QueryDocumentSnapshot<Map<String, dynamic>> doc) onDeleteCompromisso;
+/// Direciona para a aba «Lista», onde está a grade/tabela sem precisar rolar o calendário.
+class _FornecedoresAgendaListaHintBanner extends StatelessWidget {
+  final bool agendaGeral;
 
-  const _FornecedoresAgendaCompromissosDataTable({
-    required this.docs,
-    required this.nomePorId,
-    required this.onOpenFornecedor,
-    required this.formatWhen,
-    required this.onEditCompromisso,
-    required this.onDeleteCompromisso,
-  });
+  const _FornecedoresAgendaListaHintBanner({required this.agendaGeral});
 
-  static Widget _headerCell(String t) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      child: Text(
-        t,
-        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFEFF6FF),
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.view_agenda_rounded,
+                color: ThemeCleanPremium.primary, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                agendaGeral
+                    ? 'Lista completa e grade de todos os compromissos: use a aba Lista.'
+                    : 'Todos os vencimentos deste fornecedor em lista: use a aba Lista.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Rodapé: fins de semana e feriados (alinha ao calendário).
+class _FornecedoresAgendaCalLegendaRodape extends StatelessWidget {
+  const _FornecedoresAgendaCalLegendaRodape();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Legenda',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _legRow(
+              label: 'Fins de semana',
+              dot: const Color(0xFFBE123C),
+              text:
+                  'cabeçalho do calendário e células sem compromisso com números em vermelho; com compromisso(s), número em tom claro.',
+            ),
+            const SizedBox(height: 8),
+            _legRow(
+              label: 'Feriado nacional',
+              dot: FornecedorAgendaCalendarCells.kNationalHolidayDot,
+              text:
+                  'célula em tom rosado e ponto vermelho (lista de datas abaixo).',
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  static Widget _cell(Widget child) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      child: child,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  static Widget _legRow({
+    required String label,
+    required Color dot,
+    required String text,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            children: [
-              Icon(Icons.table_rows_rounded,
-                  color: ThemeCleanPremium.primary, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Grade de compromissos (${docs.length})',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-            ],
+          padding: const EdgeInsets.only(top: 4),
+          child: Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
           ),
         ),
-        LayoutBuilder(
-          builder: (context, c) {
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: c.maxWidth),
-                child: Table(
-                  border: TableBorder.all(color: const Color(0xFFE2E8F0)),
-                  columnWidths: const {
-                    0: FlexColumnWidth(1.15),
-                    1: FlexColumnWidth(1.3),
-                    2: FlexColumnWidth(1.75),
-                    3: FlexColumnWidth(0.88),
-                    4: FixedColumnWidth(96),
-                  },
-                  children: [
-                    TableRow(
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                      ),
-                      children: [
-                        _headerCell('Data / hora'),
-                        _headerCell('Fornecedor'),
-                        _headerCell('Compromisso'),
-                        _headerCell('Valor est.'),
-                        _headerCell('Ações'),
-                      ],
-                    ),
-                    ...docs.map((d) {
-                      final m = d.data();
-                      final fid = (m['fornecedorId'] ?? '').toString();
-                      final nomeFn = nomePorId[fid] ??
-                          (fid.isEmpty ? '—' : 'Fornecedor #$fid');
-                      final ts = m['dataVencimento'];
-                      String when = '—';
-                      String wdShort = '';
-                      if (ts is Timestamp) {
-                        when = formatWhen(ts);
-                        wdShort =
-                            DateFormat('EEE', 'pt_BR').format(ts.toDate());
-                      }
-                      final valor = m['valorEstimado'];
-                      final vStr = valor is num
-                          ? NumberFormat.currency(
-                                  locale: 'pt_BR', symbol: r'R$')
-                              .format(valor.toDouble())
-                          : '—';
-                      final titulo = (m['titulo'] ?? '').toString().trim();
-                      void open() {
-                        if (fid.isEmpty) return;
-                        onOpenFornecedor(fid);
-                      }
-                      return TableRow(
-                        children: [
-                          _cell(
-                            InkWell(
-                              onTap: fid.isEmpty ? null : open,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    when,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  if (wdShort.isNotEmpty)
-                                    Text(
-                                      wdShort,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade600,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          _cell(
-                            InkWell(
-                              onTap: fid.isEmpty ? null : open,
-                              child: Text(
-                                nomeFn,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
-                                  color: ThemeCleanPremium.primary,
-                                ),
-                              ),
-                            ),
-                          ),
-                          _cell(
-                            InkWell(
-                              onTap: fid.isEmpty ? null : open,
-                              child: Text(
-                                titulo.isEmpty ? '—' : titulo,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ),
-                          _cell(
-                            Text(
-                              vStr,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                          ),
-                          _cell(
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  tooltip: 'Editar compromisso',
-                                  icon: const Icon(
-                                    Icons.edit_rounded,
-                                    color: Color(0xFF16A34A),
-                                    size: 22,
-                                  ),
-                                  onPressed: () => onEditCompromisso(d),
-                                ),
-                                IconButton(
-                                  tooltip: 'Excluir',
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Color(0xFFDC2626),
-                                    size: 22,
-                                  ),
-                                  onPressed: () => onDeleteCompromisso(d),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
-                  ],
-                ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w600,
               ),
-            );
-          },
+              children: [
+                TextSpan(
+                  text: '$label — ',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                TextSpan(text: text),
+              ],
+            ),
+          ),
         ),
       ],
     );
@@ -4293,6 +4160,8 @@ class _AgendaTabState extends State<_AgendaTab> {
                           startingDayOfWeek: StartingDayOfWeek.sunday,
                           firstDay: DateTime.utc(2020, 1, 1),
                           lastDay: DateTime.utc(2035, 12, 31),
+                          availableGestures:
+                              AvailableGestures.horizontalSwipe,
                           focusedDay: _focused,
                           sixWeekMonthsEnforced: true,
                           rowHeight: ThemeCleanPremium.isMobile(context)
@@ -4421,6 +4290,13 @@ class _AgendaTabState extends State<_AgendaTab> {
                   ),
                   SliverToBoxAdapter(
                     child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+                      child: _FornecedoresAgendaListaHintBanner(
+                          agendaGeral: false),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                       child: _FornecedoresAgendaFeriadosNacionaisCard(
                         focusedMonth: _focused,
@@ -4446,158 +4322,12 @@ class _AgendaTabState extends State<_AgendaTab> {
                         ),
                       ),
                     ),
-                  const SliverToBoxAdapter(child: Divider(height: 1)),
-                  if (docs.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Center(
-                          child: Text(
-                            'Nenhum compromisso. Toque em um dia no calendário ou use o botão acima.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, i) {
-                              final d = docs[i];
-                              final m = d.data();
-                              final ts = m['dataVencimento'];
-                              String when = '';
-                              if (ts is Timestamp) {
-                                when = _formatCompromissoWhen(ts);
-                              }
-                              final valor = m['valorEstimado'];
-                              final vStr = valor is num
-                                  ? NumberFormat.currency(
-                                          locale: 'pt_BR', symbol: r'R$')
-                                      .format(valor.toDouble())
-                                  : '';
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Material(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(18),
-                                  child: InkWell(
-                                    onTap: () {
-                                      final dt = ts is Timestamp
-                                          ? ts.toDate()
-                                          : DateTime.now();
-                                      _showDayAgendaSheet(
-                                        DateTime(dt.year, dt.month, dt.day),
-                                        [d],
-                                        waFornecedor,
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(18),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(18),
-                                        border: Border.all(
-                                            color: const Color(0xFFE2E8F0)),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.07),
-                                            blurRadius: 14,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 5,
-                                            height: 64,
-                                            decoration: const BoxDecoration(
-                                              color: Color(0xFF2563EB),
-                                              borderRadius:
-                                                  BorderRadius.horizontal(
-                                                left: Radius.circular(18),
-                                              ),
-                                            ),
-                                          ),
-                                          Expanded(
-                                            child: ListTile(
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 4),
-                                              leading: CircleAvatar(
-                                                backgroundColor:
-                                                    const Color(0xFFEFF6FF),
-                                                child: Icon(
-                                                  Icons.event_repeat_rounded,
-                                                  color:
-                                                      ThemeCleanPremium.primary,
-                                                ),
-                                              ),
-                                              title: Text(
-                                                (m['titulo'] ?? '').toString(),
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                              ),
-                                              subtitle: Text(
-                                                [when, if (vStr.isNotEmpty) vStr]
-                                                    .join(' · '),
-                                              ),
-                                              trailing: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  if (waFornecedor.length >= 10)
-                                                    _premiumWhatsAppToolbarButton(
-                                                      onPressed: () =>
-                                                          _openWa(
-                                                              waFornecedor),
-                                                    ),
-                                                  IconButton(
-                                                    tooltip: 'Editar',
-                                                    icon: const Icon(
-                                                      Icons.edit_rounded,
-                                                      color: Color(0xFF16A34A),
-                                                    ),
-                                                    onPressed: () =>
-                                                        _editarCompromissoFornecedor(
-                                                            d),
-                                                  ),
-                                                  IconButton(
-                                                    tooltip: 'Excluir',
-                                                    icon: const Icon(
-                                                      Icons
-                                                          .delete_outline_rounded,
-                                                      color: Color(0xFFDC2626),
-                                                    ),
-                                                    onPressed: () async {
-                                                      await _excluirCompromissoFornecedor(
-                                                          d);
-                                                    },
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          childCount: docs.length,
-                        ),
-                      ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                      child: const _FornecedoresAgendaCalLegendaRodape(),
                     ),
+                  ),
                 ],
               ),
             );

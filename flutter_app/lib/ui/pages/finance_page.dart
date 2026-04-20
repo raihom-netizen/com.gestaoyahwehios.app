@@ -11,8 +11,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
-    show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
@@ -225,29 +223,6 @@ Future<List<({String id, String nome})>> _financeContasAtivasTenant(
       .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
       .where((e) => e.nome.isNotEmpty)
       .toList();
-}
-
-DateTime? _financeDocDate(Map<String, dynamic> m) {
-  final ts = m['createdAt'];
-  if (ts is Timestamp) return ts.toDate();
-  return null;
-}
-
-bool _financeMatchesTipoMovimento(Map<String, dynamic> m, String filtro) {
-  if (filtro == 'todos') return true;
-  final t = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
-  if (filtro == 'receita') {
-    return t.contains('entrada') || t.contains('receita');
-  }
-  if (filtro == 'despesa') {
-    return t.contains('saida') ||
-        t.contains('saída') ||
-        t.contains('despesa');
-  }
-  if (filtro == 'transferencia') {
-    return t == 'transferencia';
-  }
-  return true;
 }
 
 /// PDF Super Premium — lançamentos financeiros (lista completa ou filtrada).
