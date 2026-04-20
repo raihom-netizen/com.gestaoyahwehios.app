@@ -140,7 +140,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
               ),
               const SizedBox(height: 4),
               Text(
-                'Versão atual do app: $appVersion',
+                'Versão atual do app: $appVersionFull',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: ThemeCleanPremium.primary,

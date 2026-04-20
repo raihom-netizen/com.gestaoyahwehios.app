@@ -35,10 +35,19 @@ Future<void> checkAndReloadIfNewVersion() async {
     String? serverVersion;
     try {
       final map = _jsonDecode(text);
-      serverVersion = map['version']?.toString() ?? map['build_number']?.toString();
+      final sv = map['version'];
+      final sb = map['build_number'];
+      if (sv != null &&
+          sv.isNotEmpty &&
+          sb != null &&
+          sb.isNotEmpty) {
+        serverVersion = '$sv+$sb';
+      } else {
+        serverVersion = (sv ?? sb)?.trim();
+      }
     } catch (_) {}
     if (serverVersion == null || serverVersion.isEmpty) return;
-    final current = appVersion.trim();
+    final current = appVersionFull.trim();
     if (current.isEmpty) return;
     // Só recarrega se o servidor tiver versão MAIS NOVA (evita reload quando version.json está atrás)
     if (_compareVersions(serverVersion, current) > 0) {
@@ -47,11 +56,11 @@ Future<void> checkAndReloadIfNewVersion() async {
   } catch (_) {}
 }
 
-dynamic _jsonDecode(String text) {
-  // Simple parse for {"version":"5.0",...}
+Map<String, String?> _jsonDecode(String text) {
   final vMatch = RegExp(r'"version"\s*:\s*"([^"]*)"').firstMatch(text);
-  if (vMatch != null) return {'version': vMatch.group(1)};
   final bMatch = RegExp(r'"build_number"\s*:\s*"([^"]*)"').firstMatch(text);
-  if (bMatch != null) return {'build_number': bMatch.group(1)};
-  return {};
+  return <String, String?>{
+    'version': vMatch?.group(1),
+    'build_number': bMatch?.group(1),
+  };
 }

@@ -144,7 +144,7 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Versão $appVersion',
+                                'Versão $appVersionFull',
                                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                               ),
                             ],

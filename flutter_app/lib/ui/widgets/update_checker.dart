@@ -88,7 +88,7 @@ Future<void> showPremiumVersionUpdateDialog(
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Sua versão: v$appVersion · Loja: v${vr.current}',
+                                'Sua versão: $appVersionLabel · Loja: v${vr.current}',
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w600,

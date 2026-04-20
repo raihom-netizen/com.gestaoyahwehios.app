@@ -43,9 +43,11 @@ if ($pubContent -match "version:\s*[\d.]+\+(\d+)") {
 }
 $versionLine = "version: $newVersion+$buildNum"
 
-# Atualizar app_version.dart
+# Atualizar app_version.dart (marketing + build; labels completos derivam em Dart)
 $content = $content -replace "appVersion\s*=\s*'[^']+'", "appVersion = '$newVersion'"
-$content = $content -replace "appVersionLabel\s*=\s*'[^']*'", "appVersionLabel = '$newVersion'"
+if ($content -match "appBuildNumber\s*=") {
+    $content = $content -replace "const String appBuildNumber = '\d+'", "const String appBuildNumber = '$buildNum'"
+}
 Set-Content $versionFile -Value $content -NoNewline -Encoding UTF8
 
 # Atualizar pubspec.yaml (linha version: X.Y.Z+N)

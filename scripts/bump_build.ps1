@@ -32,4 +32,13 @@ $vj = @{
 } | ConvertTo-Json
 Set-Content $webVersionFile -Value $vj -Encoding UTF8
 
-Write-Host "Build incrementado: $marketing+$buildNum (pubspec + web/version.json)" -ForegroundColor Green
+$versionDart = Join-Path $appDir "lib\app_version.dart"
+if (Test-Path $versionDart) {
+    $dart = Get-Content $versionDart -Raw -Encoding UTF8
+    if ($dart -match "appBuildNumber\s*=") {
+        $dart = $dart -replace "const String appBuildNumber = '\d+'", "const String appBuildNumber = '$buildNum'"
+        Set-Content $versionDart -Value $dart -NoNewline -Encoding UTF8
+    }
+}
+
+Write-Host "Build incrementado: $marketing+$buildNum (pubspec + web/version.json + app_version.dart)" -ForegroundColor Green
