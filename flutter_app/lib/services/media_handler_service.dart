@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show BuildContext;
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 
 // Condicional: mobile usa compressão nativa; web só usa image_picker com qualidade.
@@ -18,15 +19,15 @@ class MediaHandlerService {
 
   /// Padrão "feed social": arquivo leve com qualidade visual boa.
   /// Objetivo: uploads mais rápidos (especialmente em rede móvel).
-  static const int quality = 70;
-  static const int maxWidth = 800;
-  static const int maxHeight = 800;
+  static int get quality => mediaPickerImageQuality;
+  static int get maxWidth => mediaPickerImageMaxWidth;
+  static int get maxHeight => mediaPickerImageMaxHeight;
 
   /// Padrão rígido para logos no app/site:
   /// - max 800px e qualidade 70 para evitar payload pesado.
-  static const int logoQuality = 70;
-  static const int logoMaxWidth = 800;
-  static const int logoMaxHeight = 800;
+  static int get logoQuality => mediaPickerLogoQuality;
+  static int get logoMaxWidth => mediaPickerLogoMaxWidth;
+  static int get logoMaxHeight => mediaPickerLogoMaxHeight;
 
   /// Captura imagem (galeria ou câmera) e processa antes do upload.
   /// No mobile: comprime com [flutter_image_compress] (quality 70, largura ~1024).

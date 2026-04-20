@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
+
 /// Tipos compartilhados do serviço de vídeo (evita import circular).
 class VideoUploadResult {
   final String videoUrl;
@@ -13,7 +15,7 @@ abstract class IVideoHandlerService {
     required String tenantId,
     required String eventPostDocId,
     required int videoSlotIndex,
-    Duration maxDuration = const Duration(seconds: 60),
+    Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
   });
 }

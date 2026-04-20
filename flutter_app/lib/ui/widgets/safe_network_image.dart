@@ -196,11 +196,18 @@ int memCacheExtentForLogicalSize(
 
 /// Miniaturas (decode pequeno): [FilterQuality.medium] alivia GPU em listas; detalhe mantém [high].
 FilterQuality filterQualityForMemCache(int? cacheWidth, int? cacheHeight) {
-  const threshold = 512;
-  if (cacheWidth != null && cacheWidth <= threshold) {
+  const lowThreshold = 320;
+  const mediumThreshold = 1024;
+  if (cacheWidth != null && cacheWidth <= lowThreshold) {
+    return FilterQuality.low;
+  }
+  if (cacheHeight != null && cacheHeight <= lowThreshold) {
+    return FilterQuality.low;
+  }
+  if (cacheWidth != null && cacheWidth <= mediumThreshold) {
     return FilterQuality.medium;
   }
-  if (cacheHeight != null && cacheHeight <= threshold) {
+  if (cacheHeight != null && cacheHeight <= mediumThreshold) {
     return FilterQuality.medium;
   }
   return FilterQuality.high;

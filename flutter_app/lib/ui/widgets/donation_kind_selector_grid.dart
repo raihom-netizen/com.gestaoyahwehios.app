@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Grid 2 colunas — Dízimo vs Oferta (UX Super Premium).
+/// Grid 2 colunas — Dízimo vs Oferta Missionária (UX Super Premium).
 /// [value] é `dizimo` ou `oferta`.
 class DonationKindSelectorGrid extends StatelessWidget {
   final String value;
@@ -34,7 +34,7 @@ class DonationKindSelectorGrid extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Obrigatório: dízimo e oferta são lançados em categorias diferentes no financeiro (Dízimos vs Ofertas voluntárias) e no extrato.',
+          'Obrigatório: dízimo e oferta missionária são lançados em categorias diferentes no financeiro e no extrato.',
           style: TextStyle(
             fontSize: 12.5,
             color: Colors.grey.shade600,
@@ -66,7 +66,7 @@ class DonationKindSelectorGrid extends StatelessWidget {
                     selected: !isDizimo,
                     accent: accentColor,
                     icon: Icons.volunteer_activism_rounded,
-                    title: 'Oferta voluntária',
+                    title: 'Oferta missionária',
                     subtitle: 'Diferente do dízimo no extrato',
                     onTap: () => onChanged('oferta'),
                   ),

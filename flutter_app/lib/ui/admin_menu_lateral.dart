@@ -192,39 +192,141 @@ class AdminMenuLateral extends StatelessWidget {
 
   Widget _tile(AdminMenuItem item, IconData icon, String label, bool collapsed) {
     final selected = selectedItem == item;
-    return Material(
-      color: selected ? ThemeCleanPremium.navSidebarHover : Colors.transparent,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-      child: InkWell(
-        onTap: () => onItemSelected(item),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: collapsed ? 8 : ThemeCleanPremium.spaceSm,
-            vertical: 12,
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 22,
-                color: selected ? ThemeCleanPremium.navSidebarAccent : Colors.white70,
+    final accent = _itemAccent(item);
+    return _AdminMenuPremiumTile(
+      icon: icon,
+      label: label,
+      collapsed: collapsed,
+      selected: selected,
+      accent: accent,
+      onTap: () => onItemSelected(item),
+    );
+  }
+
+  Color _itemAccent(AdminMenuItem item) {
+    switch (item) {
+      case AdminMenuItem.igrejasDashboard:
+      case AdminMenuItem.sistemaDashboard:
+        return const Color(0xFF38BDF8);
+      case AdminMenuItem.igrejasLista:
+      case AdminMenuItem.igrejasUsuarios:
+      case AdminMenuItem.igrejasGestores:
+      case AdminMenuItem.sistemaMigrarMembros:
+        return const Color(0xFF22C55E);
+      case AdminMenuItem.igrejasPlanos:
+      case AdminMenuItem.sistemaPrecos:
+      case AdminMenuItem.igrejasRecebimentos:
+        return const Color(0xFFF59E0B);
+      case AdminMenuItem.igrejasMercadoPago:
+      case AdminMenuItem.sistemaAcessos:
+        return const Color(0xFF06B6D4);
+      case AdminMenuItem.igrejasTorreComando:
+      case AdminMenuItem.sistemaMultiAdmin:
+      case AdminMenuItem.sistemaNiveisAcesso:
+        return const Color(0xFF8B5CF6);
+      case AdminMenuItem.sistemaAlertas:
+      case AdminMenuItem.sistemaAvisoGlobal:
+      case AdminMenuItem.sistemaVersaoMinima:
+        return const Color(0xFFF43F5E);
+      case AdminMenuItem.sistemaAuditoria:
+      case AdminMenuItem.sistemaSuporte:
+      case AdminMenuItem.sistemaCustomizacao:
+      case AdminMenuItem.sistemaArmazenamento:
+      case AdminMenuItem.sistemaSugestoes:
+      case AdminMenuItem.sistemaDivulgacao:
+      case AdminMenuItem.sistemaHome:
+        return const Color(0xFF60A5FA);
+    }
+  }
+}
+
+class _AdminMenuPremiumTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool collapsed;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _AdminMenuPremiumTile({
+    required this.icon,
+    required this.label,
+    required this.collapsed,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  State<_AdminMenuPremiumTile> createState() => _AdminMenuPremiumTileState();
+}
+
+class _AdminMenuPremiumTileState extends State<_AdminMenuPremiumTile> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final active = selected || _hover;
+    final scale = _pressed ? 0.985 : (active ? 1.01 : 1.0);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _pressed = false;
+      }),
+      child: AnimatedScale(
+        scale: scale,
+        duration: const Duration(milliseconds: 120),
+        child: Material(
+          color: active
+              ? widget.accent.withValues(alpha: selected ? 0.19 : 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          child: InkWell(
+            onTap: widget.onTap,
+            onHighlightChanged: (v) => setState(() => _pressed = v),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal:
+                    widget.collapsed ? 8 : ThemeCleanPremium.spaceSm,
+                vertical: 12,
               ),
-              if (!collapsed) ...[
-                const SizedBox(width: ThemeCleanPremium.spaceSm),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: selected ? ThemeCleanPremium.navSidebarAccent : Colors.white,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      fontSize: 14,
+              child: Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: widget.accent.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    overflow: TextOverflow.ellipsis,
+                    child: Icon(
+                      widget.icon,
+                      size: 19,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-              ],
-            ],
+                  if (!widget.collapsed) ...[
+                    const SizedBox(width: ThemeCleanPremium.spaceSm),
+                    Expanded(
+                      child: Text(
+                        widget.label,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),

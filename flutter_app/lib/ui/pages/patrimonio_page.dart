@@ -559,6 +559,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtrl;
   late final TextEditingController _searchCtrl;
+  final List<StreamSubscription<dynamic>> _patrimonioRealtimeSubs =
+      <StreamSubscription<dynamic>>[];
+  Timer? _patrimonioRealtimeDebounce;
 
   String _q = '';
   String _filterCategoria = '';
@@ -639,6 +642,33 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     _inventarioTabKey.currentState?.refresh();
   }
 
+  void _schedulePatrimonioRealtimeRefresh() {
+    _patrimonioRealtimeDebounce?.cancel();
+    _patrimonioRealtimeDebounce = Timer(const Duration(milliseconds: 260), () {
+      if (!mounted) return;
+      _refreshPatrimonioTabs();
+      unawaited(_loadCategoriasExtras());
+    });
+  }
+
+  void _startPatrimonioRealtimeSync() {
+    for (final s in _patrimonioRealtimeSubs) {
+      unawaited(s.cancel());
+    }
+    _patrimonioRealtimeSubs.clear();
+    final db = FirebaseFirestore.instance;
+    _patrimonioRealtimeSubs.addAll([
+      _col.limit(1).snapshots().listen((_) => _schedulePatrimonioRealtimeRefresh()),
+      db
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('config')
+          .doc('patrimonio')
+          .snapshots()
+          .listen((_) => _schedulePatrimonioRealtimeRefresh()),
+    ]);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -653,6 +683,17 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     }
     FirebaseAuth.instance.currentUser?.getIdToken(true);
     unawaited(_loadCategoriasExtras());
+    _startPatrimonioRealtimeSync();
+  }
+
+  @override
+  void didUpdateWidget(covariant PatrimonioPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _startPatrimonioRealtimeSync();
+      _refreshPatrimonioTabs();
+      unawaited(_loadCategoriasExtras());
+    }
   }
 
   Future<void> _loadCategoriasExtras() async {
@@ -675,6 +716,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   @override
   void dispose() {
+    _patrimonioRealtimeDebounce?.cancel();
+    for (final s in _patrimonioRealtimeSubs) {
+      unawaited(s.cancel());
+    }
+    _patrimonioRealtimeSubs.clear();
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();

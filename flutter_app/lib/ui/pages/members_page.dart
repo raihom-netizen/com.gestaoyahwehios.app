@@ -281,6 +281,9 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Uma única leitura pontual (.get()) para evitar INTERNAL ASSERTION FAILED (web/mobile).
   late Future<List<QuerySnapshot<Map<String, dynamic>>>> _membersDataFuture;
+  final List<StreamSubscription<dynamic>> _membersRealtimeSubs = [];
+  Timer? _membersRealtimeDebounce;
+  String _membersRealtimeTenant = '';
 
   /// UI otimista: some da lista após confirmar exclusão (reverte se falhar).
   final Set<String> _optimisticRemovedMemberIds = <String>{};
@@ -498,8 +501,10 @@ class _MembersPageState extends State<MembersPage> {
     _deptsFuture = _loadDeptsForFilter();
     // Resolve tenant o mais cedo possível para que _effectiveTenantId esteja correto em ações (add/edit).
     _resolveEffectiveTenantId().then((resolved) {
-      if (mounted && _resolvedTenantId != resolved)
+      if (mounted && _resolvedTenantId != resolved) {
         setState(() => _resolvedTenantId = resolved);
+      }
+      _startMembersRealtimeWatch(resolved.isNotEmpty ? resolved : widget.tenantId);
     });
   }
 
@@ -529,16 +534,69 @@ class _MembersPageState extends State<MembersPage> {
         if (mounted && _resolvedTenantId != resolved) {
           setState(() => _resolvedTenantId = resolved);
         }
+        _startMembersRealtimeWatch(
+            resolved.isNotEmpty ? resolved : widget.tenantId);
       });
     }
   }
 
   @override
   void dispose() {
+    _membersRealtimeDebounce?.cancel();
+    for (final sub in _membersRealtimeSubs) {
+      sub.cancel();
+    }
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
     _membersScrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleMembersAutoRefresh() {
+    _membersRealtimeDebounce?.cancel();
+    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted) return;
+      _refreshMembers();
+    });
+  }
+
+  void _startMembersRealtimeWatch(String tenantIdRaw) {
+    final tenantId = tenantIdRaw.trim();
+    if (tenantId.isEmpty) return;
+    if (_membersRealtimeTenant == tenantId && _membersRealtimeSubs.isNotEmpty) {
+      return;
+    }
+    for (final sub in _membersRealtimeSubs) {
+      sub.cancel();
+    }
+    _membersRealtimeSubs.clear();
+    _membersRealtimeTenant = tenantId;
+    final db = FirebaseFirestore.instance;
+    _membersRealtimeSubs.add(
+      db
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('membros')
+          .limit(_membersLoadLimit)
+          .snapshots()
+          .listen((_) => _scheduleMembersAutoRefresh()),
+    );
+    _membersRealtimeSubs.add(
+      db
+          .collection('users')
+          .where('tenantId', isEqualTo: tenantId)
+          .limit(_membersLoadLimit)
+          .snapshots()
+          .listen((_) => _scheduleMembersAutoRefresh()),
+    );
+    _membersRealtimeSubs.add(
+      db
+          .collection('users')
+          .where('igrejaId', isEqualTo: tenantId)
+          .limit(_membersLoadLimit)
+          .snapshots()
+          .listen((_) => _scheduleMembersAutoRefresh()),
+    );
   }
 
   Future<void> _loadDeptsForFilter() async {

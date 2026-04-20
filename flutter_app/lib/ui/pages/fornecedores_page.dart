@@ -2152,6 +2152,8 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
                 ),
               ),
               child: CustomScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 physics: AlwaysScrollableScrollPhysics(
                   parent: kIsWeb
                       ? const ClampingScrollPhysics()
@@ -4228,6 +4230,8 @@ class _AgendaTabState extends State<_AgendaTab> {
                 ),
               ),
               child: CustomScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 physics: AlwaysScrollableScrollPhysics(
                   parent: kIsWeb
                       ? const ClampingScrollPhysics()

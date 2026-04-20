@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
@@ -18,20 +19,21 @@ class VideoHandlerService implements IVideoHandlerService {
 
   final ImagePicker _picker = ImagePicker();
 
-  /// Acima disto o cliente re-encode para reduzir tempo de upload (HEVC/MOV grandes).
-  static const int _maxBytesSkipTranscode = 26 * 1024 * 1024;
-
   @override
   Future<VideoUploadResult?> pickCompressAndUpload({
     required String tenantId,
     required String eventPostDocId,
     required int videoSlotIndex,
-    Duration maxDuration = const Duration(seconds: 60),
+    Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
   }) async {
+    final effectiveMaxDuration =
+        maxDuration < mediaVideoMaxDurationEffective
+            ? maxDuration
+            : mediaVideoMaxDurationEffective;
     final xfile = await _picker.pickVideo(
       source: ImageSource.gallery,
-      maxDuration: maxDuration,
+      maxDuration: effectiveMaxDuration,
     );
     if (xfile == null || xfile.path.isEmpty) return null;
 
@@ -41,7 +43,13 @@ class VideoHandlerService implements IVideoHandlerService {
     try {
       final lower = path.toLowerCase();
       final byteLen = await File(path).length();
-      final useOriginal = byteLen <= _maxBytesSkipTranscode &&
+      final hardLimitBytes = mediaVideoHardMaxBytesEffective;
+      if (byteLen > hardLimitBytes) {
+        final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+        throw StateError(
+            'Video muito grande para envio rápido. Reduza para até ${limitMb}MB.');
+      }
+      final useOriginal = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
           (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
       late final File compressed;
@@ -65,7 +73,7 @@ class VideoHandlerService implements IVideoHandlerService {
         thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
       } catch (_) {}
 
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirebaseAuth.instance.currentUser?.getIdToken();
       final slot = videoSlotIndex.clamp(0, 1);
       await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
         tenantId: tenantId,

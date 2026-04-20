@@ -4,3 +4,4 @@ const String appVersion = '11.2.293';
 
 /// Rótulo exibido onde cabível (ex.: rodapé): versão + marca da edição.
 const String appVersionLabel = '11.2.293';
+

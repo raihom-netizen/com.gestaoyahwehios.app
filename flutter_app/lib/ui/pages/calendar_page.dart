@@ -2171,8 +2171,6 @@ class _CalendarPageState extends State<CalendarPage>
                     ],
                     _buildViewToggleRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildCategoryFilterRow(),
-                    const SizedBox(height: 8),
                     _buildSourceFilterRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     AnimatedSwitcher(
@@ -2234,10 +2232,6 @@ class _CalendarPageState extends State<CalendarPage>
               ),
               const SliverToBoxAdapter(
                   child: SizedBox(height: ThemeCleanPremium.spaceSm)),
-              SliverToBoxAdapter(
-                child: _buildCategoryFilterRow(),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 8)),
               SliverToBoxAdapter(
                 child: _buildSourceFilterRow(),
               ),

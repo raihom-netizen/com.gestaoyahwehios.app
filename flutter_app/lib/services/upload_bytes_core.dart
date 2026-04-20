@@ -23,17 +23,22 @@ Future<String> uploadStoragePutDataWithRetry({
         bytes,
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
       );
+      StreamSubscription<TaskSnapshot>? sub;
       if (onProgress != null) {
-        task.snapshotEvents.listen((snapshot) {
+        sub = task.snapshotEvents.listen((snapshot) {
           final total = snapshot.totalBytes;
           if (total <= 0) return;
           final p = (snapshot.bytesTransferred / total).clamp(0.0, 1.0);
           onProgress(p);
         });
       }
-      final snap = await task;
-      onProgress?.call(1.0);
-      return await snap.ref.getDownloadURL();
+      try {
+        final snap = await task;
+        onProgress?.call(1.0);
+        return await snap.ref.getDownloadURL();
+      } finally {
+        await sub?.cancel();
+      }
     } catch (e) {
       lastError = e;
       if (attempt >= maxAttempts) break;

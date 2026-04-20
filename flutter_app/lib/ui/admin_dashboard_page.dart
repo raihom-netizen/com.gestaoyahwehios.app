@@ -763,33 +763,13 @@ class _KpiGrid extends StatelessWidget {
           crossAxisSpacing: 14,
           childAspectRatio: isNarrow ? 1.0 : 1.5,
           children: items.map((e) {
-            final card = Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                border: Border.all(color: const Color(0xFFF1F5F9)),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: e.color.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
-                    child: Icon(e.icon, color: e.color, size: 26),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(e.label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-                  const SizedBox(height: 4),
-                  Text('${e.prefix}${e.value.toStringAsFixed(0)}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: e.color)),
-                ],
-              ),
+            return _MasterKpiTile(
+              icon: e.icon,
+              label: e.label,
+              valueText: '${e.prefix}${e.value.toStringAsFixed(0)}',
+              accent: e.color,
+              onTap: onNavigateTo == null ? null : () => onNavigateTo!(e.item),
             );
-            if (onNavigateTo != null) {
-              return Material(color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd), onTap: () => onNavigateTo!(e.item), child: card));
-            }
-            return card;
           }).toList(),
         );
       },
@@ -1197,50 +1177,232 @@ class _MasterModuleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+    return _MasterModuleInteractiveTile(
+      icon: icon,
+      label: label,
+      pastelBg: pastelBg,
+      iconColor: iconColor,
+      onTap: onTap,
+    );
+  }
+}
+
+class _MasterKpiTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final String valueText;
+  final Color accent;
+  final VoidCallback? onTap;
+
+  const _MasterKpiTile({
+    required this.icon,
+    required this.label,
+    required this.valueText,
+    required this.accent,
+    this.onTap,
+  });
+
+  @override
+  State<_MasterKpiTile> createState() => _MasterKpiTileState();
+}
+
+class _MasterKpiTileState extends State<_MasterKpiTile> {
+  bool _hover = false;
+  bool _press = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hover || _press;
+    final scale = _press ? 0.985 : (_hover ? 1.01 : 1.0);
+    final card = AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: [
+          ...ThemeCleanPremium.softUiCardShadow,
+          if (active)
+            BoxShadow(
+              color: widget.accent.withValues(alpha: 0.16),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+        ],
+        border: Border.all(
+          color: active
+              ? widget.accent.withValues(alpha: 0.30)
+              : const Color(0xFFF1F5F9),
+          width: active ? 1.5 : 1.0,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: widget.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(widget.icon, color: widget.accent, size: 26),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(11),
-                decoration: BoxDecoration(
-                  color: pastelBg,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13.5,
-                    height: 1.25,
-                    color: ThemeCleanPremium.onSurface,
+          const SizedBox(height: 12),
+          Text(
+            widget.label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.valueText,
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: widget.accent),
+          ),
+        ],
+      ),
+    );
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _press = false;
+      }),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _press = true),
+        onTapUp: (_) => setState(() => _press = false),
+        onTapCancel: () => setState(() => _press = false),
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 120),
+          child: widget.onTap == null
+              ? card
+              : Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    onTap: widget.onTap,
+                    child: card,
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MasterModuleInteractiveTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color pastelBg;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _MasterModuleInteractiveTile({
+    required this.icon,
+    required this.label,
+    required this.pastelBg,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  State<_MasterModuleInteractiveTile> createState() =>
+      _MasterModuleInteractiveTileState();
+}
+
+class _MasterModuleInteractiveTileState extends State<_MasterModuleInteractiveTile> {
+  bool _hover = false;
+  bool _press = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hover || _press;
+    final scale = _press ? 0.986 : (_hover ? 1.01 : 1.0);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _press = false;
+      }),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _press = true),
+        onTapUp: (_) => setState(() => _press = false),
+        onTapCancel: () => setState(() => _press = false),
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 120),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 170),
+                curve: Curves.easeOutCubic,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    ...ThemeCleanPremium.softUiCardShadow,
+                    if (active)
+                      BoxShadow(
+                        color: widget.iconColor.withValues(alpha: 0.18),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                  ],
+                  border: Border.all(
+                    color: active
+                        ? widget.iconColor.withValues(alpha: 0.35)
+                        : const Color(0xFFE2E8F0),
+                    width: active ? 1.5 : 1.0,
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: widget.pastelBg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(widget.icon, color: widget.iconColor, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13.5,
+                          height: 1.25,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: active
+                          ? widget.iconColor.withValues(alpha: 0.95)
+                          : Colors.grey.shade400,
+                      size: 22,
+                    ),
+                  ],
+                ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: Colors.grey.shade400,
-                size: 22,
-              ),
-            ],
+            ),
           ),
         ),
       ),

@@ -67,7 +67,8 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
     final decoded = img.decodeImage(raw);
     if (decoded == null) return null;
     var work = decoded.convert(numChannels: 4);
-    const maxSide = 720;
+    // Mais definição no PDF (traços finos): mantém assinatura até 1024px no maior lado.
+    const maxSide = 1024;
     if (work.width > maxSide || work.height > maxSide) {
       final scale = work.width >= work.height
           ? maxSide / work.width
@@ -78,7 +79,7 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
         work,
         width: rw,
         height: rh,
-        interpolation: img.Interpolation.linear,
+        interpolation: img.Interpolation.cubic,
       );
     }
     var enhanced = _enhanceSignatureRgba(work);

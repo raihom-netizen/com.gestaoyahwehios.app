@@ -713,7 +713,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'O valor cai na conta MP da igreja. Super Premium: escolha dízimo ou oferta — extrato e financeiro com nome completo do membro (cadastro) ou nome informado.',
+                              'O valor cai na conta MP da igreja. Super Premium: escolha dízimo ou oferta missionária — extrato e financeiro com nome completo do membro (cadastro) ou nome informado.',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade700,
@@ -1101,7 +1101,12 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   bool _passesKind(Map<String, dynamic> d) {
     if (_kindFilter == null) return true;
     final k = (d['donationKind'] ?? '').toString().toLowerCase().trim();
-    if (_kindFilter == 'oferta') return k == 'oferta';
+    if (_kindFilter == 'oferta') {
+      return k == 'oferta' ||
+          k == 'oferta_missionaria' ||
+          k == 'oferta missionaria' ||
+          k == 'oferta missionária';
+    }
     return k.isEmpty || k == 'dizimo' || k == 'dízimo';
   }
 
@@ -1298,7 +1303,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
               children: [
                 _kindChip('Todos', null, primary),
                 _kindChip('Dízimo', 'dizimo', primary),
-                _kindChip('Oferta', 'oferta', primary),
+                _kindChip('Oferta Missionária', 'oferta', primary),
               ],
             ),
             const SizedBox(height: 20),
@@ -1421,11 +1426,18 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
                                   const SizedBox(height: 6),
                                   Builder(
                                     builder: (context) {
-                                      final dk =
-                                          (d['donationKind'] ?? '').toString();
+                                      final dk = (d['donationKind'] ?? '')
+                                          .toString()
+                                          .toLowerCase();
                                       final kindLabel = (d['donationKindLabel'] ??
-                                              (dk == 'oferta'
-                                                  ? 'Oferta'
+                                              (dk == 'oferta' ||
+                                                      dk ==
+                                                          'oferta_missionaria' ||
+                                                      dk ==
+                                                          'oferta missionaria' ||
+                                                      dk ==
+                                                          'oferta missionária'
+                                                  ? 'Oferta Missionária'
                                                   : 'Dízimo'))
                                           .toString();
                                       return Container(

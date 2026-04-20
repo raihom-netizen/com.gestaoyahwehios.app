@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
+
 import 'firebase_storage_cleanup_service.dart';
 import 'image_helper.dart';
 import 'storage_upload_queue_service.dart';
@@ -23,12 +25,19 @@ class MediaUploadService {
     required String contentType,
   }) async {
     if (!_shouldCompressJpeg(contentType)) return bytes;
-    return ImageHelper.compressImage(
+    var prepared = await ImageHelper.compressImage(
       bytes,
       minWidth: 800,
       minHeight: 600,
       quality: 70,
     );
+    if (prepared.length > mediaImagePreferredMaxBytesEffective) {
+      prepared = await ImageHelper.compressImageUnderMaxBytes(
+        prepared,
+        maxBytes: mediaImagePreferredMaxBytesEffective,
+      );
+    }
+    return prepared;
   }
 
   /// Resultado padrão de upload para persistir no Firestore:

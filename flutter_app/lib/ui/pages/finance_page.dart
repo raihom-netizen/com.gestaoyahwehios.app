@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -796,10 +796,53 @@ class _FinancePageState extends State<FinancePage>
   late final DocumentReference<Map<String, dynamic>> _tenantRef;
   /// Incrementado após salvar/excluir lançamento — atualiza Resumo + Lançamentos.
   int _financeRevision = 0;
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
+      _financeRealtimeSubs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+  Timer? _financeRealtimeDebounce;
 
   void _notifyFinanceChanged() {
     if (!mounted) return;
     setState(() => _financeRevision++);
+  }
+
+  void _scheduleFinanceRealtimeRefresh() {
+    _financeRealtimeDebounce?.cancel();
+    _financeRealtimeDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _notifyFinanceChanged();
+    });
+  }
+
+  void _startFinanceRealtimeSync() {
+    for (final s in _financeRealtimeSubs) {
+      unawaited(s.cancel());
+    }
+    _financeRealtimeSubs.clear();
+    final db = FirebaseFirestore.instance;
+    _financeRealtimeSubs.addAll([
+      _financeCol.limit(1).snapshots().listen((_) => _scheduleFinanceRealtimeRefresh()),
+      db
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('contas')
+          .limit(1)
+          .snapshots()
+          .listen((_) => _scheduleFinanceRealtimeRefresh()),
+      db
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('despesas_fixas')
+          .limit(1)
+          .snapshots()
+          .listen((_) => _scheduleFinanceRealtimeRefresh()),
+      db
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('receitas_fixas')
+          .limit(1)
+          .snapshots()
+          .listen((_) => _scheduleFinanceRealtimeRefresh()),
+    ]);
   }
 
   @override
@@ -812,9 +855,19 @@ class _FinancePageState extends State<FinancePage>
         FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
     _financeCol = _tenantRef.collection('finance');
     FirebaseAuth.instance.currentUser?.getIdToken(true);
+    _startFinanceRealtimeSync();
     final openId = widget.openLancamentoId?.trim();
     if (openId != null && openId.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLancamento(openId));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant FinancePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _startFinanceRealtimeSync();
+      _notifyFinanceChanged();
     }
   }
 
@@ -834,6 +887,11 @@ class _FinancePageState extends State<FinancePage>
 
   @override
   void dispose() {
+    _financeRealtimeDebounce?.cancel();
+    for (final s in _financeRealtimeSubs) {
+      unawaited(s.cancel());
+    }
+    _financeRealtimeSubs.clear();
     _tabCtrl.dispose();
     super.dispose();
   }
@@ -2011,10 +2069,34 @@ class _FinanceRelatoriosTabState extends State<_FinanceRelatoriosTab> {
   }
 }
 
+String _financeDonationKindLabel(Map<String, dynamic> m) {
+  final kindRaw = (m['donationKindLabel'] ?? m['donationKind'] ?? '')
+      .toString()
+      .toLowerCase()
+      .trim();
+  if (kindRaw.contains('ofert')) return 'Oferta';
+  if (kindRaw.contains('diz') || kindRaw.contains('díz')) return 'Dízimo';
+  final cat = (m['categoria'] ?? '').toString().toLowerCase();
+  if (cat.contains('ofert')) return 'Oferta';
+  if (cat.contains('diz') || cat.contains('díz')) return 'Dízimo';
+  final desc = (m['descricao'] ?? '').toString().toLowerCase();
+  if (desc.contains('oferta')) return 'Oferta';
+  if (desc.contains('dizimo') || desc.contains('dízimo')) return 'Dízimo';
+  return '';
+}
+
+bool _financeIsDonationLancamento(Map<String, dynamic> m) {
+  return _financeDonationKindLabel(m).isNotEmpty;
+}
+
 String _financeTipoLabel(Map<String, dynamic> m) {
   final t = (m['type'] ?? '').toString().toLowerCase();
   if (t == 'transferencia') return 'Transferência';
-  if (t.contains('entrada') || t.contains('receita')) return 'Receita';
+  if (t.contains('entrada') || t.contains('receita')) {
+    final donation = _financeDonationKindLabel(m);
+    if (donation.isNotEmpty) return donation;
+    return 'Receita';
+  }
   if (t.contains('saida') || t.contains('despesa') || t.contains('saída')) {
     return 'Despesa';
   }
@@ -4131,6 +4213,8 @@ class _LancamentosTab extends StatefulWidget {
 
 class _LancamentosTabState extends State<_LancamentosTab> {
   String _filtroTipo = 'todos';
+  /// todos | dizimo | oferta_missionaria
+  String _filtroDoacaoKind = 'todos';
   String _filtroCategoria = 'todas';
   /// todos | pendente_aprovacao | nao_conciliados | a_pagar | pagos | a_receber | recebidos | futuras_despesas | futuras_receitas
   String _filtroExtra = 'todos';
@@ -4270,6 +4354,15 @@ class _LancamentosTabState extends State<_LancamentosTab> {
               return tipo.contains('entrada') || tipo.contains('receita');
             }
             return tipo.contains('saida') || tipo.contains('despesa');
+          }).toList();
+        }
+        if (_filtroDoacaoKind != 'todos') {
+          docs = docs.where((d) {
+            final data = d.data();
+            if (!_financeIsDonationLancamento(data)) return false;
+            final kind = _financeDonationKindLabel(data).toLowerCase();
+            if (_filtroDoacaoKind == 'dizimo') return kind.contains('díz') || kind.contains('diz');
+            return kind.contains('oferta');
           }).toList();
         }
         if (_filtroContaId != '__geral__' && _filtroContaId.isNotEmpty) {
@@ -4439,124 +4532,173 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                         ),
                       ),
                     ),
-                    Row(
+                    Column(
                       children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
-                              border: Border.all(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12)),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _filtroTipo,
-                                isExpanded: true,
-                                icon: const Icon(Icons.filter_list_rounded,
-                                    size: 20),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: 'todos', child: Text('Todos')),
-                                  DropdownMenuItem(
-                                      value: 'entrada', child: Text('Receitas')),
-                                  DropdownMenuItem(
-                                      value: 'saida', child: Text('Despesas')),
-                                ],
-                                onChanged: (v) =>
-                                    setState(() => _filtroTipo = v ?? 'todos'),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
-                              border: Border.all(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12)),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _filtroCategoria,
-                                isExpanded: true,
-                                icon: const Icon(Icons.category_rounded, size: 20),
-                                items: [
-                                  const DropdownMenuItem(
-                                      value: 'todas',
-                                      child: Text('Todas categorias')),
-                                  ...distinctCats.map(
-                                    (c) => DropdownMenuItem(
-                                        value: c,
-                                        child: Text(c,
-                                            overflow: TextOverflow.ellipsis)),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                  border: Border.all(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.12)),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _filtroDoacaoKind,
+                                    isExpanded: true,
+                                    icon: const Icon(
+                                        Icons.volunteer_activism_rounded,
+                                        size: 20),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: 'todos',
+                                          child: Text('Todas doações')),
+                                      DropdownMenuItem(
+                                          value: 'dizimo', child: Text('Dízimo')),
+                                      DropdownMenuItem(
+                                          value: 'oferta_missionaria',
+                                          child: Text('Oferta Missionária')),
+                                    ],
+                                    onChanged: (v) => setState(
+                                        () => _filtroDoacaoKind = v ?? 'todos'),
                                   ),
-                                ],
-                                onChanged: (v) => setState(
-                                    () => _filtroCategoria = v ?? 'todas'),
+                                ),
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                  border: Border.all(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.12)),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _filtroTipo,
+                                    isExpanded: true,
+                                    icon: const Icon(Icons.filter_list_rounded,
+                                        size: 20),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: 'todos', child: Text('Todos')),
+                                      DropdownMenuItem(
+                                          value: 'entrada',
+                                          child: Text('Receitas')),
+                                      DropdownMenuItem(
+                                          value: 'saida', child: Text('Despesas')),
+                                    ],
+                                    onChanged: (v) => setState(
+                                        () => _filtroTipo = v ?? 'todos'),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
-                              border: Border.all(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12)),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _filtroExtra,
-                                isExpanded: true,
-                                icon: const Icon(Icons.filter_alt_rounded,
-                                    size: 20),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: 'todos',
-                                      child: Text('Todos (extra)')),
-                                  DropdownMenuItem(
-                                      value: 'pendente_aprovacao',
-                                      child: Text('Pendente aprovação')),
-                                  DropdownMenuItem(
-                                      value: 'nao_conciliados',
-                                      child: Text('Pend. conciliação')),
-                                  DropdownMenuItem(
-                                      value: 'a_pagar',
-                                      child: Text('A pagar')),
-                                  DropdownMenuItem(
-                                      value: 'pagos', child: Text('Pagos')),
-                                  DropdownMenuItem(
-                                      value: 'a_receber',
-                                      child: Text('A receber')),
-                                  DropdownMenuItem(
-                                      value: 'recebidos',
-                                      child: Text('Recebidos')),
-                                  DropdownMenuItem(
-                                      value: 'futuras_despesas',
-                                      child: Text('Despesas futuras pend.')),
-                                  DropdownMenuItem(
-                                      value: 'futuras_receitas',
-                                      child: Text('Receitas futuras pend.')),
-                                ],
-                                onChanged: (v) =>
-                                    setState(() => _filtroExtra = v ?? 'todos'),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                  border: Border.all(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.12)),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _filtroCategoria,
+                                    isExpanded: true,
+                                    icon:
+                                        const Icon(Icons.category_rounded, size: 20),
+                                    items: [
+                                      const DropdownMenuItem(
+                                          value: 'todas',
+                                          child: Text('Todas categorias')),
+                                      ...distinctCats.map(
+                                        (c) => DropdownMenuItem(
+                                            value: c,
+                                            child: Text(c,
+                                                overflow: TextOverflow.ellipsis)),
+                                      ),
+                                    ],
+                                    onChanged: (v) => setState(
+                                        () => _filtroCategoria = v ?? 'todas'),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                  border: Border.all(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.12)),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _filtroExtra,
+                                    isExpanded: true,
+                                    icon: const Icon(Icons.filter_alt_rounded,
+                                        size: 20),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: 'todos',
+                                          child: Text('Todos (extra)')),
+                                      DropdownMenuItem(
+                                          value: 'pendente_aprovacao',
+                                          child: Text('Pendente aprovação')),
+                                      DropdownMenuItem(
+                                          value: 'nao_conciliados',
+                                          child: Text('Pend. conciliação')),
+                                      DropdownMenuItem(
+                                          value: 'a_pagar',
+                                          child: Text('A pagar')),
+                                      DropdownMenuItem(
+                                          value: 'pagos', child: Text('Pagos')),
+                                      DropdownMenuItem(
+                                          value: 'a_receber',
+                                          child: Text('A receber')),
+                                      DropdownMenuItem(
+                                          value: 'recebidos',
+                                          child: Text('Recebidos')),
+                                      DropdownMenuItem(
+                                          value: 'futuras_despesas',
+                                          child: Text('Despesas futuras pend.')),
+                                      DropdownMenuItem(
+                                          value: 'futuras_receitas',
+                                          child: Text('Receitas futuras pend.')),
+                                    ],
+                                    onChanged: (v) => setState(
+                                        () => _filtroExtra = v ?? 'todos'),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -4731,6 +4873,8 @@ class _LancamentoCard extends StatelessWidget {
     final isTransfer = tipo == 'transferencia';
     final isEntrada =
         !isTransfer && (tipo.contains('entrada') || tipo.contains('receita'));
+    final isDonation = !isTransfer && isEntrada && _financeIsDonationLancamento(data);
+    final donationLabel = _financeDonationKindLabel(data);
     final valor = _parseValor(data['amount'] ?? data['valor']);
     final categoria =
         (data['categoria'] ?? data['title'] ?? 'Sem categoria').toString();
@@ -4753,12 +4897,16 @@ class _LancamentoCard extends StatelessWidget {
     final color = isTransfer
         ? _financeTransferencia
         : (isEntrada ? _financeEntradas : _financeSaidas);
-    final titulo = isTransfer ? 'Transferência' : categoria;
+    final titulo = isTransfer
+        ? 'Transferência'
+        : (isDonation ? '$donationLabel • Extrato' : categoria);
     final subtitulo = isTransfer
         ? (origemNome.isNotEmpty && destinoNome.isNotEmpty
             ? '$origemNome → $destinoNome'
             : descricao)
-        : descricao;
+        : (isDonation
+            ? (descricao.isNotEmpty ? descricao : categoria)
+            : descricao);
 
     final baseBorder = const Color(0xFFE8EEF4);
     return Container(

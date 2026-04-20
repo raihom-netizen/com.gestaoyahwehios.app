@@ -509,18 +509,27 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () => _openWhiteLabelSheet(doc.id, data),
-                                          icon: const Icon(Icons.language_rounded, size: 18),
-                                          label: const Text('Domínios / API'),
+                                        child: _MasterMicroButton(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () =>
+                                                _openWhiteLabelSheet(doc.id, data),
+                                            icon: const Icon(Icons.language_rounded,
+                                                size: 18),
+                                            label: const Text('Domínios / API'),
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () => _supportAccessFlow(doc.id, data),
-                                          icon: const Icon(Icons.support_agent_rounded, size: 18),
-                                          label: const Text('Suporte'),
+                                        child: _MasterMicroButton(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () =>
+                                                _supportAccessFlow(doc.id, data),
+                                            icon: const Icon(
+                                                Icons.support_agent_rounded,
+                                                size: 18),
+                                            label: const Text('Suporte'),
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -678,36 +687,11 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   Widget _metricCard(String title, String value, IconData icon, Color c) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: c.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: c, size: 26),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  const SizedBox(height: 4),
-                  Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                ],
-              ),
-            ),
-          ],
-        ),
+      child: _MasterPremiumMetricCard(
+        title: title,
+        value: value,
+        icon: icon,
+        color: c,
       ),
     );
   }
@@ -815,4 +799,128 @@ class _MasterBizSnapshot {
     required this.monthlyBars,
     required this.maxMonthly,
   });
+}
+
+class _MasterMicroButton extends StatefulWidget {
+  final Widget child;
+  const _MasterMicroButton({required this.child});
+
+  @override
+  State<_MasterMicroButton> createState() => _MasterMicroButtonState();
+}
+
+class _MasterMicroButtonState extends State<_MasterMicroButton> {
+  bool _hover = false;
+  bool _press = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = _press ? 0.985 : (_hover ? 1.01 : 1.0);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() {
+        _hover = false;
+        _press = false;
+      }),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTapDown: (_) => setState(() => _press = true),
+        onTapUp: (_) => setState(() => _press = false),
+        onTapCancel: () => setState(() => _press = false),
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 120),
+          child: AnimatedOpacity(
+            opacity: _press ? 0.94 : 1.0,
+            duration: const Duration(milliseconds: 120),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MasterPremiumMetricCard extends StatefulWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _MasterPremiumMetricCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  State<_MasterPremiumMetricCard> createState() =>
+      _MasterPremiumMetricCardState();
+}
+
+class _MasterPremiumMetricCardState extends State<_MasterPremiumMetricCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _hover
+                ? widget.color.withValues(alpha: 0.32)
+                : const Color(0xFFE2E8F0),
+            width: _hover ? 1.6 : 1.0,
+          ),
+          boxShadow: [
+            ...ThemeCleanPremium.softUiCardShadow,
+            if (_hover)
+              BoxShadow(
+                color: widget.color.withValues(alpha: 0.16),
+                blurRadius: 18,
+                offset: const Offset(0, 7),
+              ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(widget.icon, color: widget.color, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.value,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

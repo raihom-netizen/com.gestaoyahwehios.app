@@ -233,7 +233,15 @@ function normalizeDonationKind(raw: unknown): "dizimo" | "oferta" {
     .trim()
     .toLowerCase();
   if (s === "dizimo" || s === "dízimo" || s === "diezmo") return "dizimo";
-  if (s === "oferta" || s === "offer" || s === "oferta_voluntaria" || s === "oferta voluntária") {
+  if (
+    s === "oferta" ||
+    s === "offer" ||
+    s === "oferta_voluntaria" ||
+    s === "oferta voluntária" ||
+    s === "oferta_missionaria" ||
+    s === "oferta missionaria" ||
+    s === "oferta missionária"
+  ) {
     return "oferta";
   }
   return "dizimo";
@@ -241,11 +249,11 @@ function normalizeDonationKind(raw: unknown): "dizimo" | "oferta" {
 
 /** Categoria no módulo Financeiro — alinhado a `_categoriasReceitaPadrao` no app. */
 function categoriaForDonationKind(kind: "dizimo" | "oferta"): string {
-  return kind === "dizimo" ? "Dízimos" : "Ofertas Voluntárias";
+  return kind === "dizimo" ? "Dízimos" : "Oferta Missionária";
 }
 
 function labelForDonationKind(kind: "dizimo" | "oferta"): string {
-  return kind === "dizimo" ? "Dízimo" : "Oferta";
+  return kind === "dizimo" ? "Dízimo" : "Oferta Missionária";
 }
 
 /** Nome completo do cadastro de membro (extrato / conciliação). */

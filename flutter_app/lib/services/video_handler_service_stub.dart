@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -17,23 +18,32 @@ class VideoHandlerService implements IVideoHandlerService {
   static final VideoHandlerService instance = VideoHandlerService._();
 
   final ImagePicker _picker = ImagePicker();
-
   @override
   Future<VideoUploadResult?> pickCompressAndUpload({
     required String tenantId,
     required String eventPostDocId,
     required int videoSlotIndex,
-    Duration maxDuration = const Duration(seconds: 60),
+    Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
   }) async {
+    final effectiveMaxDuration =
+        maxDuration < mediaVideoMaxDurationEffective
+            ? maxDuration
+            : mediaVideoMaxDurationEffective;
     final xfile = await _picker.pickVideo(
       source: ImageSource.gallery,
-      maxDuration: maxDuration,
+      maxDuration: effectiveMaxDuration,
     );
     if (xfile == null) return null;
 
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final bytes = await xfile.readAsBytes();
+    final hardLimitBytes = mediaVideoHardMaxBytesEffective;
+    if (bytes.length > hardLimitBytes) {
+      final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+      throw StateError(
+          'Video muito grande para envio rápido. Reduza para até ${limitMb}MB.');
+    }
+    await FirebaseAuth.instance.currentUser?.getIdToken();
     final slot = videoSlotIndex.clamp(0, 1);
     await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
       tenantId: tenantId,

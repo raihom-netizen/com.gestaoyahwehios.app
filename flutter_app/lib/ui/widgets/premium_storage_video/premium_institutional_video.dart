@@ -55,6 +55,10 @@ String? _posterUrlFromMap(Map<String, dynamic> data) {
     'institutionalVideoPosterUrl',
     'heroVideoPosterUrl',
     'videoPosterUrl',
+    'thumbnailUrl',
+    'thumbUrl',
+    'videoThumb',
+    'videoThumbUrl',
     'institutional_video_poster_url',
   ]) {
     final v = (data[k] ?? '').toString().trim();
@@ -70,6 +74,9 @@ String? _posterStoragePathFromMap(Map<String, dynamic> data) {
     'institutionalVideoPosterStoragePath',
     'heroVideoPosterStoragePath',
     'videoPosterStoragePath',
+    'thumbnailStoragePath',
+    'thumbStoragePath',
+    'videoThumbStoragePath',
   ]) {
     final v = (data[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v.replaceAll('\\', '/');

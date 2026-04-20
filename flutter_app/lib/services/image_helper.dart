@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
 import 'package:gestao_yahweh/services/member_profile_image_isolate.dart';
@@ -11,7 +12,7 @@ class ImageHelper {
   static const int _fallbackQuality = 75;
 
   /// Teto recomendado para foto de perfil antes do Firebase Storage (~1 MB).
-  static const int memberPhotoMaxUploadBytes = 1024 * 1024;
+  static int get memberPhotoMaxUploadBytes => mediaImagePreferredMaxBytesEffective;
 
   static bool _bytesLookLikeWebp(Uint8List list) {
     return list.length >= 12 &&
@@ -28,13 +29,14 @@ class ImageHelper {
   /// Reduz WebP até caber em [maxBytes] (foto de perfil já em WebP de alta resolução).
   static Future<Uint8List> compressWebpUnderMaxBytes(
     Uint8List list, {
-    int maxBytes = memberPhotoMaxUploadBytes,
+    int? maxBytes,
   }) async {
+    final targetMaxBytes = maxBytes ?? memberPhotoMaxUploadBytes;
     if (list.isEmpty) return list;
     var current = list;
     var quality = 88;
     for (var i = 0; i < 22; i++) {
-      if (current.length <= maxBytes) return current;
+      if (current.length <= targetMaxBytes) return current;
       try {
         final next = await FlutterImageCompress.compressWithList(
           current,
@@ -43,7 +45,7 @@ class ImageHelper {
         );
         if (next.isEmpty) break;
         current = Uint8List.fromList(next);
-        if (current.length <= maxBytes) return current;
+        if (current.length <= targetMaxBytes) return current;
       } catch (_) {
         break;
       }
@@ -71,14 +73,15 @@ class ImageHelper {
   /// Comprime em JPEG até o tamanho ficar em torno de [maxBytes] (várias passadas).
   static Future<Uint8List> compressImageUnderMaxBytes(
     Uint8List list, {
-    int maxBytes = memberPhotoMaxUploadBytes,
+    int? maxBytes,
   }) async {
+    final targetMaxBytes = maxBytes ?? memberPhotoMaxUploadBytes;
     if (list.isEmpty) return list;
     Uint8List current = list;
     var quality = 78;
     var minSide = 1600;
     for (var i = 0; i < 22; i++) {
-      if (current.length <= maxBytes) return current;
+      if (current.length <= targetMaxBytes) return current;
       try {
         final next = await FlutterImageCompress.compressWithList(
           current,
@@ -89,7 +92,7 @@ class ImageHelper {
         );
         if (next.isEmpty) break;
         current = Uint8List.fromList(next);
-        if (current.length <= maxBytes) return current;
+        if (current.length <= targetMaxBytes) return current;
       } catch (_) {
         break;
       }

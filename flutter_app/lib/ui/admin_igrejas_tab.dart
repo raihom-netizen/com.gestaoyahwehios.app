@@ -23,6 +23,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   late final TextEditingController _searchCtrl;
   Future<List<_BenchmarkTenant>>? _benchmarkFuture;
   String _benchmarkKey = '';
+  DateTime? _benchmarkFetchedAt;
+  static const Duration _benchmarkCacheTtl = Duration(minutes: 4);
 
   @override
   void initState() {
@@ -586,9 +588,15 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               final allDocs = snap.data!.docs;
               final docs = allDocs.where(_passesFilters).toList();
               final benchKey = docs.take(20).map((e) => e.id).join('|');
-              if (_benchmarkFuture == null || _benchmarkKey != benchKey) {
+              final benchmarkCacheValid = _benchmarkFetchedAt != null &&
+                  DateTime.now().difference(_benchmarkFetchedAt!) <
+                      _benchmarkCacheTtl;
+              if (_benchmarkFuture == null ||
+                  _benchmarkKey != benchKey ||
+                  !benchmarkCacheValid) {
                 _benchmarkKey = benchKey;
                 _benchmarkFuture = _loadBenchmark(docs);
+                _benchmarkFetchedAt = DateTime.now();
               }
               final total = allDocs.length;
               final ativas = allDocs

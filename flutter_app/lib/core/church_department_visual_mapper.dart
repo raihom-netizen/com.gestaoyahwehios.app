@@ -38,6 +38,10 @@ abstract final class ChurchDepartmentVisualMapper {
     'library_books': 'escola_biblica',
     'school': 'escola_biblica',
     'auto_stories': 'escola_biblica',
+    'escola_dominical': 'escola_biblica',
+    'dominical': 'escola_biblica',
+    'ebd': 'escola_biblica',
+    'sunday_school': 'escola_biblica',
     'door': 'recepcao',
     'video': 'media',
     'pray': 'intercessao',
@@ -61,6 +65,7 @@ abstract final class ChurchDepartmentVisualMapper {
   static String mapIconNameToCanonicalKey(String raw) {
     final n = raw.trim().toLowerCase().replaceAll('-', '_');
     if (n.isEmpty) return '';
+    if (n.contains('dominical')) return 'escola_biblica';
     return _iconNameToCanonical[n] ?? n;
   }
 

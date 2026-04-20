@@ -110,11 +110,13 @@ String signatoryCargoDisplayLabel(Map<String, dynamic> d) {
   if (list.contains('gestor')) return 'Gestor(a)';
   if (list.contains('secretario')) return 'Secretário(a)';
   if (list.contains('secretaria')) return 'Secretária(o)';
-  if (list.contains('tesoureiro')) return 'Tesoureiro(a)';
+  if (list.contains('tesoureiro') || list.contains('tesouraria')) {
+    return 'Tesoureiro(a)';
+  }
 
   final leadership = list.where((s) => s != 'membro').toList();
   if (leadership.isNotEmpty) {
-    return leadership.map(_formatCargoKeyForDisplay).join(', ');
+    return _formatCargoKeyForDisplay(leadership.first);
   }
   if (list.isNotEmpty) return _formatCargoKeyForDisplay(list.first);
   return 'Liderança';
@@ -142,6 +144,8 @@ List<String> signatoryCargoDisplayOptions(Map<String, dynamic> d) {
     } else if (n == 'secretaria') {
       label = 'Secretária(o)';
     } else if (n == 'tesoureiro') {
+      label = 'Tesoureiro(a)';
+    } else if (n == 'tesouraria') {
       label = 'Tesoureiro(a)';
     } else {
       label = _formatCargoKeyForDisplay(n);
