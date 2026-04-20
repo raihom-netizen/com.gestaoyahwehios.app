@@ -83,7 +83,7 @@ double churchMuralCarouselClipHeight(
   final idealH = cardWidth / ar;
   // Tectos mais generosos: antes ~320px cortava demais e o cover “esmagava” a composição.
   final capScreen = screenH * (narrow ? 0.52 : 0.46);
-  final capAbs = narrow ? 480.0 : 440.0;
+  final capAbs = narrow ? 560.0 : 520.0;
   final maxH = math.min(capScreen, capAbs);
   return idealH.clamp(188.0, maxH);
 }
@@ -100,8 +100,8 @@ class ChurchPublicConstrainedMedia extends StatelessWidget {
       builder: (context, constraints) {
         final fullW = constraints.maxWidth;
         if (fullW <= 0) return const SizedBox.shrink();
-        // ~4:5 com teto moderado — menos altura no site, mídia com contain no filho.
-        final targetH = (fullW * 5 / 4).clamp(200.0, 330.0);
+        // Área mais alta para pôsteres/eventos: mídia com [BoxFit.contain] no filho.
+        final targetH = (fullW * 5 / 4).clamp(200.0, 560.0);
         return SizedBox(
           width: fullW,
           height: targetH,

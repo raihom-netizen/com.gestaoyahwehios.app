@@ -300,8 +300,27 @@ class _AdminMenuPremiumTileState extends State<_AdminMenuPremiumTile> {
                     width: 30,
                     height: 30,
                     decoration: BoxDecoration(
-                      color: widget.accent.withValues(alpha: 0.22),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          widget.accent.withValues(alpha: 0.55),
+                          Color.lerp(
+                                  widget.accent, const Color(0xFF0F172A), 0.35)!
+                              .withValues(alpha: 0.85),
+                        ],
+                      ),
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: widget.accent.withValues(alpha: 0.5),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: widget.accent.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Icon(
                       widget.icon,

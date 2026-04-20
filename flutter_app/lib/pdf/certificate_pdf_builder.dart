@@ -191,11 +191,14 @@ class CertSignatoryPdfData {
   final String nome;
   final String cargo;
   final Uint8List? signatureImageBytes;
+  /// CPF só dígitos (11) para o selo «digital» estilo Adobe; vazio omite no selo.
+  final String cpfDigits;
 
   const CertSignatoryPdfData({
     required this.nome,
     required this.cargo,
     this.signatureImageBytes,
+    this.cpfDigits = '',
   });
 }
 
@@ -241,6 +244,11 @@ class CertificatePdfInput {
   final Uint8List? fontPinyonScriptBytes;
   final Uint8List? fontLibreBaskervilleBytes;
 
+  /// Selo textual «Assinado de forma digital…» + duas colunas (padrão Adobe-like).
+  final bool useDigitalSignatureStamp;
+  /// Ex.: `Dados: 2026.03.09 14:29:13 -03'00'` (preenchido na emissão).
+  final String digitalSignatureDadosLine;
+
   const CertificatePdfInput({
     required this.titulo,
     this.subtitulo = '',
@@ -269,7 +277,280 @@ class CertificatePdfInput {
     this.fontCinzelDecorativeBytes,
     this.fontPinyonScriptBytes,
     this.fontLibreBaskervilleBytes,
+    this.useDigitalSignatureStamp = false,
+    this.digitalSignatureDadosLine = '',
   });
+}
+
+String _certPdfCpfDigitsOnly(String raw) {
+  final d = raw.replaceAll(RegExp(r'\D'), '');
+  if (d.length <= 11) return d;
+  return d.substring(d.length - 11);
+}
+
+/// Máximo de caracteres por linha na introdução do selo (coluna direita).
+const int _kCertPdfDigitalSigIntroMaxChars = 40;
+
+/// Prefixo fixo do selo (coluna direita), alinhado ao padrão visual tipo Adobe.
+const String _kCertPdfDigitalSigPor = 'Assinado de forma digital por';
+
+/// Quebra [text] por palavras em linhas de até [maxChars] caracteres; palavras
+/// muito longas são partidas ao meio se necessário.
+List<String> _certPdfWrapLineByWords(String text, int maxChars) {
+  final t = text.trim();
+  if (t.isEmpty) return [];
+  if (maxChars < 8) return [t];
+  if (t.length <= maxChars) return [t];
+
+  List<String> hardSplitWord(String w) {
+    final out = <String>[];
+    var s = w;
+    while (s.isNotEmpty) {
+      out.add(s.length <= maxChars ? s : s.substring(0, maxChars));
+      s = s.length <= maxChars ? '' : s.substring(maxChars);
+    }
+    return out;
+  }
+
+  final words = t.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+  if (words.isEmpty) return [t];
+  final lines = <String>[];
+  var buf = '';
+
+  void flushBuf() {
+    final b = buf.trim();
+    if (b.isNotEmpty) lines.add(b);
+    buf = '';
+  }
+
+  for (final w in words) {
+    if (w.length > maxChars) {
+      flushBuf();
+      lines.addAll(hardSplitWord(w));
+      continue;
+    }
+    if (buf.isEmpty) {
+      buf = w;
+    } else if ('$buf $w'.length <= maxChars) {
+      buf = '$buf $w';
+    } else {
+      flushBuf();
+      buf = w;
+    }
+  }
+  flushBuf();
+  return lines.isEmpty ? [t] : lines;
+}
+
+int _certPdfNomeMembroLenTotal(CertificatePdfInput input) =>
+    input.nomeMembro.trim().length + input.nomeMembroLinha2.trim().length;
+
+/// Reduz a altura reservada ao corpo para «subir» o rodapé quando o nome é longo.
+double _certPdfBodyReductionForLongNome(int totalChars) {
+  if (totalChars <= 42) return 0;
+  if (totalChars <= 58) return 14;
+  if (totalChars <= 78) return 24;
+  if (totalChars <= 100) return 34;
+  return 44;
+}
+
+/// Aumenta ligeiramente o bloco do nome para não cortar caligrafia quando o nome é longo.
+double _certPdfNameBlockBoostForLongNome(int totalChars) {
+  if (totalChars <= 42) return 0;
+  if (totalChars <= 58) return 10;
+  if (totalChars <= 78) return 16;
+  if (totalChars <= 100) return 22;
+  return 28;
+}
+
+double _alturaBlocoNomeDecorativoCert(CertificatePdfInput input) =>
+    _alturaBlocoNomeDecorativo(input) +
+    _certPdfNameBlockBoostForLongNome(_certPdfNomeMembroLenTotal(input));
+
+double _alturaBlocoNomeDecorativoTradicionalCert(CertificatePdfInput input) =>
+    _alturaBlocoNomeDecorativoTradicional(input) +
+    _certPdfNameBlockBoostForLongNome(_certPdfNomeMembroLenTotal(input));
+
+double _certPdfBodyBlockHeightPremium(CertificatePdfInput input) =>
+    (_CertPdfLayoutHeights.bodyBlock -
+            _certPdfBodyReductionForLongNome(_certPdfNomeMembroLenTotal(input)))
+        .clamp(168.0, _CertPdfLayoutHeights.bodyBlock);
+
+double _certPdfBodyBlockHeightMinimal(CertificatePdfInput input) =>
+    (_CertPdfLayoutHeights.bodyBlock +
+            20 -
+            _certPdfBodyReductionForLongNome(_certPdfNomeMembroLenTotal(input)))
+        .clamp(178.0, _CertPdfLayoutHeights.bodyBlock + 20);
+
+double _certPdfBodyBlockHeightTradicional(CertificatePdfInput input) =>
+    (_CertPdfLayoutHeights.bodyBlock +
+            24 -
+            _certPdfBodyReductionForLongNome(_certPdfNomeMembroLenTotal(input)))
+        .clamp(188.0, _CertPdfLayoutHeights.bodyBlock + 24);
+
+/// Linhas da coluna direita do selo digital (pt-BR).
+/// Sempre: (1) «Assinado de forma digital por» + nomes próprios em maiúsculas,
+/// com quebra manual (~[maxChars] caracteres por linha); (2) «SOBRENOME:» + CPF.
+List<String> _certPdfDigitalStampRightColumnLines(
+  String nomeCompleto,
+  String cpfDigits,
+) {
+  final nome = nomeCompleto.trim();
+  final parts =
+      nome.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+  final cpf = _certPdfCpfDigitsOnly(cpfDigits);
+
+  if (parts.isEmpty) {
+    final out = <String>[..._certPdfWrapLineByWords(
+      _kCertPdfDigitalSigPor,
+      _kCertPdfDigitalSigIntroMaxChars,
+    )];
+    if (cpf.isNotEmpty) {
+      out.add('CPF:$cpf');
+    }
+    return out;
+  }
+
+  final lastU = parts.last.toUpperCase();
+  if (parts.length == 1) {
+    final p0 = parts.first.toUpperCase();
+    final intro =
+        _certPdfWrapLineByWords('$_kCertPdfDigitalSigPor $p0', _kCertPdfDigitalSigIntroMaxChars);
+    return <String>[
+      ...intro,
+      cpf.isNotEmpty ? '$p0:$cpf' : p0,
+    ];
+  }
+
+  final givenU =
+      parts.sublist(0, parts.length - 1).map((e) => e.toUpperCase()).join(' ');
+  final intro = _certPdfWrapLineByWords(
+    '$_kCertPdfDigitalSigPor $givenU',
+    _kCertPdfDigitalSigIntroMaxChars,
+  );
+  return <String>[
+    ...intro,
+    cpf.isNotEmpty ? '$lastU:$cpf' : lastU,
+  ];
+}
+
+pw.Widget _pwCertPdfDigitalSignatureStamp({
+  required CertificatePdfInput input,
+  required CertSignatoryPdfData signatory,
+  required pw.ImageProvider? watermark,
+  required bool galaFooterCompact,
+}) {
+  final nome = signatory.nome.trim();
+  final cpfDigits = _certPdfCpfDigitsOnly(signatory.cpfDigits);
+  final leftCore =
+      cpfDigits.isNotEmpty ? '${nome.toUpperCase()}:$cpfDigits' : nome.toUpperCase();
+  final rightLines = _certPdfDigitalStampRightColumnLines(nome, cpfDigits);
+  final dados = input.digitalSignatureDadosLine.trim().isNotEmpty
+      ? input.digitalSignatureDadosLine.trim()
+      : 'Dados: —';
+
+  final leftSize = galaFooterCompact ? 9.4 : 11.0;
+  final rightSize = galaFooterCompact ? 6.9 : 7.7;
+  final dadosSize = galaFooterCompact ? 6.6 : 7.3;
+  final leftW = galaFooterCompact ? 118.0 : 132.0;
+  final introExtraLines =
+      rightLines.length > 2 ? rightLines.length - 2 : 0;
+  final stackH = (galaFooterCompact ? 68.0 : 80.0) + introExtraLines * 9.4;
+
+  final inner = pw.Container(
+    constraints: pw.BoxConstraints(minHeight: stackH),
+    child: pw.Stack(
+      alignment: pw.Alignment.centerLeft,
+      children: [
+        if (watermark != null)
+          pw.Positioned(
+            left: galaFooterCompact ? 40 : 48,
+            child: pw.Opacity(
+              opacity: 0.15,
+              child: pw.SizedBox(
+                width: galaFooterCompact ? 52 : 64,
+                height: galaFooterCompact ? 52 : 64,
+                child: pw.Image(watermark, fit: pw.BoxFit.contain),
+              ),
+            ),
+          ),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.SizedBox(
+              width: leftW,
+              child: pw.Text(
+                leftCore,
+                style: pw.TextStyle(
+                  fontSize: leftSize,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                  lineSpacing: 1.05,
+                  font: pw.Font.helvetica(),
+                ),
+                maxLines: 5,
+                overflow: pw.TextOverflow.clip,
+              ),
+            ),
+            pw.SizedBox(width: galaFooterCompact ? 8 : 12),
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                mainAxisSize: pw.MainAxisSize.min,
+                children: [
+                  for (final line in rightLines)
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(
+                        line,
+                        style: pw.TextStyle(
+                          fontSize: rightSize,
+                          fontWeight: pw.FontWeight.normal,
+                          color: PdfColors.black,
+                          lineSpacing: 1.08,
+                          font: pw.Font.helvetica(),
+                        ),
+                        maxLines: 1,
+                        overflow: pw.TextOverflow.clip,
+                      ),
+                    ),
+                  pw.SizedBox(height: 3),
+                  pw.Text(
+                    dados,
+                    style: pw.TextStyle(
+                      fontSize: dadosSize,
+                      fontWeight: pw.FontWeight.normal,
+                      color: PdfColors.grey800,
+                      font: pw.Font.helvetica(),
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  return pw.Container(
+    decoration: pw.BoxDecoration(
+      color: PdfColors.white,
+      borderRadius: pw.BorderRadius.circular(7),
+      border: pw.Border.all(color: PdfColor.fromInt(0xFF94A3B8), width: 1.25),
+      boxShadow: const [
+        pw.BoxShadow(
+          color: PdfColors.grey300,
+          spreadRadius: 0,
+          blurRadius: 2,
+          offset: PdfPoint(0, 1),
+        ),
+      ],
+    ),
+    padding: const pw.EdgeInsets.fromLTRB(10, 9, 10, 9),
+    child: inner,
+  );
 }
 
 String _hexRgb(int argb) =>
@@ -285,6 +566,45 @@ abstract final class _CertPdfLayoutHeights {
   static const double issueBlock = 36;
   static const double footerBlock = 96;
 }
+
+double _certPdfFooterHeight(CertificatePdfInput input) {
+  if (!input.useDigitalSignatureStamp || input.signatories.isEmpty) {
+    return _CertPdfLayoutHeights.footerBlock;
+  }
+  var wrapExtra = 0.0;
+  for (final s in input.signatories) {
+    final n = _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
+    if (n > 2) wrapExtra += (n - 2) * 9.2;
+  }
+  return (52.0 + input.signatories.length * 86.0 + wrapExtra)
+      .clamp(128.0, 300.0);
+}
+
+/// Espaço inferior da coluna Gala: menos «reserva» quando o nome é longo (sobe o conteúdo).
+double _certPdfGalaContentBottomPad(CertificatePdfInput input) {
+  final r = _certPdfBodyReductionForLongNome(_certPdfNomeMembroLenTotal(input));
+  return (102.0 - r * 0.38).clamp(82.0, 102.0);
+}
+
+/// Posição inferior do bloco de assinaturas Gala (pt): maior valor = mais acima na página.
+double _certPdfGalaSignaturesBottom(CertificatePdfInput input) {
+  var b = 12.0;
+  final l = _certPdfNomeMembroLenTotal(input);
+  if (l > 48) b += 5;
+  if (l > 72) b += 6;
+  if (input.useDigitalSignatureStamp) {
+    for (final s in input.signatories) {
+      final n =
+          _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
+      if (n > 2) b += (n - 2) * 2.9;
+    }
+  }
+  return b.clamp(12.0, 36.0);
+}
+
+double _certPdfGalaNomeSlotExtra(CertificatePdfInput input) =>
+    _certPdfNameBlockBoostForLongNome(_certPdfNomeMembroLenTotal(input))
+        .clamp(0.0, 22.0);
 
 String _nomeCasamentoLinha2EfetivaParaDestaque(CertificatePdfInput input) {
   final n1 = input.nomeMembro.trim();
@@ -531,6 +851,15 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
         : null;
     return pw.Container(
       width: signatoryBlockWidth,
+      padding: const pw.EdgeInsets.fromLTRB(6, 8, 6, 10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: pw.BorderRadius.circular(8),
+        border: pw.Border.all(
+          color: PdfColor(accent.red, accent.green, accent.blue, 0.42),
+          width: 1.2,
+        ),
+      ),
       alignment: pw.Alignment.center,
       child: pw.Column(
         mainAxisSize: pw.MainAxisSize.min,
@@ -539,17 +868,17 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 6),
               child: pw.SizedBox(
-                width: 108,
-                height: 44,
+                width: 120,
+                height: 48,
                 child: pw.Image(img, fit: pw.BoxFit.contain),
               ),
             ),
-          pw.Container(width: 120, height: 1, color: accent),
-          pw.SizedBox(height: 8),
+          pw.Container(width: 124, height: 2.2, color: accent),
+          pw.SizedBox(height: 9),
           pw.Text(
             s.nome,
             style: pw.TextStyle(
-              fontSize: 12.5,
+              fontSize: 12.8,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -561,7 +890,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           pw.Text(
             s.cargo,
             style: pw.TextStyle(
-              fontSize: 10,
+              fontSize: 10.2,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -575,6 +904,23 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
   }
 
   pw.Widget buildFooterSignatures(PdfColor accent, PdfColor accentClaro) {
+    if (input.useDigitalSignatureStamp && input.signatories.isNotEmpty) {
+      return pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < input.signatories.length; i++) ...[
+            if (i > 0) pw.SizedBox(height: 6),
+            _pwCertPdfDigitalSignatureStamp(
+              input: input,
+              signatory: input.signatories[i],
+              watermark: logoImage,
+              galaFooterCompact: false,
+            ),
+          ],
+        ],
+      );
+    }
     if (input.signatories.isNotEmpty) {
       final count = input.signatories.length;
       final blocks = List<pw.Widget>.generate(
@@ -780,7 +1126,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                             ),
                           ),
                           pw.SizedBox(
-                            height: _alturaBlocoNomeDecorativo(input),
+                            height: _alturaBlocoNomeDecorativoCert(input),
                             child: pw.Center(
                               child: _pwDecorativeCertificateNames(
                                 input: input,
@@ -792,7 +1138,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                             ),
                           ),
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.bodyBlock,
+                            height: _certPdfBodyBlockHeightPremium(input),
                             child: pw.Center(
                               child: pw.Container(
                                 constraints:
@@ -830,7 +1176,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                                 : pw.SizedBox(),
                           ),
                           pw.SizedBox(
-                            height: _CertPdfLayoutHeights.footerBlock,
+                            height: _certPdfFooterHeight(input),
                             child: pw.Center(
                               child: buildFooterSignatures(
                                   pdfCor, pdfCorClaro),
@@ -925,7 +1271,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                         ),
                         pw.SizedBox(height: 8),
                         pw.SizedBox(
-                          height: _alturaBlocoNomeDecorativoTradicional(input),
+                          height: _alturaBlocoNomeDecorativoTradicionalCert(input),
                           child: pw.Center(
                             child: _pwDecorativeCertificateNames(
                               input: input,
@@ -937,7 +1283,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                           ),
                         ),
                         pw.SizedBox(
-                          height: _CertPdfLayoutHeights.bodyBlock + 24,
+                          height: _certPdfBodyBlockHeightTradicional(input),
                           child: pw.Center(
                             child: pw.Container(
                               constraints:
@@ -1099,7 +1445,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                           ),
                         ),
                         pw.SizedBox(
-                          height: _alturaBlocoNomeDecorativo(input),
+                          height: _alturaBlocoNomeDecorativoCert(input),
                           child: pw.Center(
                             child: _pwDecorativeCertificateNames(
                               input: input,
@@ -1111,7 +1457,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
                           ),
                         ),
                         pw.SizedBox(
-                          height: _CertPdfLayoutHeights.bodyBlock + 20,
+                          height: _certPdfBodyBlockHeightMinimal(input),
                           child: pw.Center(
                             child: pw.Container(
                               constraints:

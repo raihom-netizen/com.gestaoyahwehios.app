@@ -241,8 +241,8 @@ double postFeedCarouselAspectRatioForIndex(
   if (mi is Map) {
     final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
     if (oar is num) {
-      // Largura÷altura. Flyers retrato ~0,52–0,78; paisagem ~1,2–1,85. Evitar só extremos.
-      return oar.toDouble().clamp(0.62, 1.75);
+      // Largura÷altura. Flyers muito altos (~0,45+) e paisagem larga até ~1,85.
+      return oar.toDouble().clamp(0.45, 1.85);
     }
   }
   return 4 / 5;

@@ -429,53 +429,143 @@ class WalletSignatureStrip extends StatelessWidget {
   final String? imageUrl;
   final String signatoryName;
   final String signatoryCargo;
-  final Color lineColor;
   final Color textColor;
+  /// Cor de destaque da credencial (faixa lateral + chip).
+  final Color stripAccent;
 
   const WalletSignatureStrip({
     super.key,
     required this.imageUrl,
     required this.signatoryName,
     required this.signatoryCargo,
-    required this.lineColor,
     required this.textColor,
+    required this.stripAccent,
   });
 
   @override
   Widget build(BuildContext context) {
     final u = (imageUrl ?? '').trim();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(width: 140, height: 1, color: lineColor.withValues(alpha: 0.45)),
-        if (u.isNotEmpty)
-          SizedBox(
-            height: 52,
-            width: 140,
-            child: _WalletSigImage(url: u),
+    final hasSig =
+        u.isNotEmpty || signatoryName.trim().isNotEmpty || signatoryCargo.trim().isNotEmpty;
+    if (!hasSig) return const SizedBox.shrink();
+
+    final a = stripAccent;
+    final chipBg = Color.lerp(a, Colors.white, 0.82)!.withValues(alpha: 0.95);
+    final faixaBg = Color.lerp(Colors.white, a, 0.06)!;
+
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(maxHeight: 92),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: a.withValues(alpha: 0.42),
+          width: 1,
+        ),
+        color: faixaBg,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        if (signatoryName.trim().isNotEmpty)
-          Text(
-            signatoryName.trim(),
-            style: GoogleFonts.poppins(
-              fontSize: 9.8,
-              fontWeight: FontWeight.w900,
-              color: textColor,
-              height: 1.15,
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 4,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    a.withValues(alpha: 0.95),
+                    a.withValues(alpha: 0.55),
+                  ],
+                ),
+              ),
             ),
-          ),
-        if (signatoryCargo.trim().isNotEmpty)
-          Text(
-            signatoryCargo.trim(),
-            style: GoogleFonts.poppins(
-              fontSize: 8.2,
-              fontWeight: FontWeight.w900,
-              color: textColor,
-              height: 1.15,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: chipBg,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: a.withValues(alpha: 0.28),
+                              ),
+                            ),
+                            child: Text(
+                              'ASSINATURA INSTITUCIONAL',
+                              style: GoogleFonts.poppins(
+                                fontSize: 6.4,
+                                fontWeight: FontWeight.w800,
+                                color: a.withValues(alpha: 0.95),
+                                letterSpacing: 0.35,
+                              ),
+                            ),
+                          ),
+                          if (signatoryName.trim().isNotEmpty) ...[
+                            const SizedBox(height: 5),
+                            Text(
+                              signatoryName.trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                fontSize: 9.4,
+                                fontWeight: FontWeight.w800,
+                                color: textColor,
+                                height: 1.12,
+                              ),
+                            ),
+                          ],
+                          if (signatoryCargo.trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              signatoryCargo.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                fontSize: 7.2,
+                                fontWeight: FontWeight.w600,
+                                color: textColor.withValues(alpha: 0.82),
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (u.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 96,
+                        height: 34,
+                        child: _WalletSigImage(url: u),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -491,8 +581,8 @@ class _WalletSigImage extends StatefulWidget {
 }
 
 class _WalletSigImageState extends State<_WalletSigImage> {
-  static const double _sigW = 140;
-  static const double _sigH = 52;
+  static const double _sigW = 96;
+  static const double _sigH = 34;
 
   Uint8List? _pngBytes;
   bool _loading = true;
@@ -680,8 +770,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
                           imageUrl: signatureImageUrl,
                           signatoryName: signatoryName,
                           signatoryCargo: signatoryCargo,
-                          lineColor: textColor,
                           textColor: textColor,
+                          stripAccent: accentGold,
                         ),
                       ],
                     ),

@@ -16,9 +16,13 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
-import 'package:gestao_yahweh/core/event_noticia_media.dart' show looksLikeHostedVideoFileUrl;
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show eventNoticiaPhotoStoragePathAt, looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show resolveNoticiaShareSheetMedia;
+    show noticiaGalleryRefsForShare, resolveNoticiaShareSheetMedia;
+import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
+    show StableStorageImage;
 
 /// Retângulo do botão para o popover de partilha no iPad.
 Rect? shareRectFromContext(BuildContext context) {
@@ -158,7 +162,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
     try {
       final m = await resolveNoticiaShareSheetMedia(
         noticiaDataForLazyMedia,
-        resolveTimeout: const Duration(seconds: 8),
+        resolveTimeout: const Duration(seconds: 5),
       );
       img = m.previewImageUrl;
       vid = m.videoPlayUrl;
@@ -191,6 +195,9 @@ Future<void> showChurchNoticiaShareSheet(
   Rect? sharePositionOrigin,
   Map<String, dynamic>? noticiaDataForLazyMedia,
 }) async {
+  final galleryUrls = noticiaDataForLazyMedia != null
+      ? noticiaGalleryRefsForShare(noticiaDataForLazyMedia)
+      : <String>[];
   final rootContext = context;
   await showModalBottomSheet<void>(
     context: context,
@@ -236,6 +243,79 @@ Future<void> showChurchNoticiaShareSheet(
                   ),
                 ),
               ),
+              if (galleryUrls.length > 1 && noticiaDataForLazyMedia != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: SizedBox(
+                    height: 86,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: galleryUrls.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) {
+                        final u = sanitizeImageUrl(galleryUrls[i]);
+                        final path = eventNoticiaPhotoStoragePathAt(
+                            noticiaDataForLazyMedia, i);
+                        return Material(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              if (!rootContext.mounted) return;
+                              Navigator.of(rootContext).push(
+                                MaterialPageRoute<void>(
+                                  fullscreenDialog: true,
+                                  builder: (_) => NoticiaPhotoGalleryPage(
+                                    firestoreData: noticiaDataForLazyMedia,
+                                    imageRefs: galleryUrls,
+                                    title: shareSubject,
+                                    isEvento: (noticiaDataForLazyMedia['type'] ??
+                                                '')
+                                            .toString() ==
+                                        'evento',
+                                    initialIndex: i,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: SizedBox(
+                              width: 86,
+                              height: 86,
+                              child: ColoredBox(
+                                color: const Color(0xFFF1F5F9),
+                                child: StableStorageImage(
+                                  storagePath: path,
+                                  imageUrl:
+                                      isValidImageUrl(u) ? u : null,
+                                  width: 86,
+                                  height: 86,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: 200,
+                                  memCacheHeight: 200,
+                                  skipFreshDisplayUrl: false,
+                                  placeholder: const Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                  ),
+                                  errorWidget: Icon(
+                                    Icons.image_not_supported_outlined,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               _ShareSheetTile(
                 icon: Icons.link_rounded,
                 label: 'Copiar link',

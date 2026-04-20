@@ -39,7 +39,6 @@ Future<Uint8List> buildScheduleEscalaPdf({
   final accent = branding.accent;
   final ink = PdfColor.fromInt(0xFF0F172A);
   final muted = PdfColor.fromInt(0xFF64748B);
-  final line = PdfColor.fromInt(0xFF94A3B8);
 
   pw.Widget logoBlock() {
     final b = branding.logoBytes;
@@ -88,15 +87,19 @@ Future<Uint8List> buildScheduleEscalaPdf({
         pw.Container(
           width: double.infinity,
           decoration: pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: line, width: 1.1)),
+            border: pw.Border(bottom: pw.BorderSide(color: accent, width: 2.2)),
           ),
-          padding: const pw.EdgeInsets.only(bottom: 2),
-          child: pw.SizedBox(height: 22),
+          padding: const pw.EdgeInsets.only(bottom: 3),
+          child: pw.SizedBox(height: 26),
         ),
-        pw.SizedBox(height: 4),
+        pw.SizedBox(height: 5),
         pw.Text(
           pdfSafeText(captionBelow),
-          style: pw.TextStyle(fontSize: 9, color: muted),
+          style: pw.TextStyle(
+            fontSize: 9.2,
+            color: muted,
+            fontWeight: pw.FontWeight.bold,
+          ),
         ),
       ],
     );
@@ -294,37 +297,61 @@ Future<Uint8List> buildScheduleEscalaPdf({
               ),
           ],
         ),
-        pw.SizedBox(height: 32),
-        pw.Text(
-          'Assinaturas',
-          style: pw.TextStyle(
-            fontSize: 17,
-            fontWeight: pw.FontWeight.bold,
-            color: ink,
+        pw.SizedBox(height: 28),
+        pw.Container(
+          padding: const pw.EdgeInsets.fromLTRB(14, 14, 14, 16),
+          decoration: pw.BoxDecoration(
+            color: PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.circular(10),
+            border: pw.Border.all(
+              color: PdfColor(accent.red, accent.green, accent.blue, 0.38),
+              width: 1.25,
+            ),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Container(
+                height: 3,
+                decoration: pw.BoxDecoration(
+                  color: accent,
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Assinaturas',
+                style: pw.TextStyle(
+                  fontSize: 17,
+                  fontWeight: pw.FontWeight.bold,
+                  color: ink,
+                ),
+              ),
+              pw.SizedBox(height: 14),
+              pw.Text(
+                'Responsável pela elaboração desta escala',
+                style: pw.TextStyle(
+                  fontSize: 13,
+                  fontWeight: pw.FontWeight.bold,
+                  color: ink,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              signatureLine('Nome completo (letra de forma legível)'),
+              pw.SizedBox(height: 22),
+              pw.Text(
+                'Líder do ministério / Pastor responsável (conferência)',
+                style: pw.TextStyle(
+                  fontSize: 13,
+                  fontWeight: pw.FontWeight.bold,
+                  color: ink,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              signatureLine('Nome, função e data'),
+            ],
           ),
         ),
-        pw.SizedBox(height: 14),
-        pw.Text(
-          'Responsável pela elaboração desta escala',
-          style: pw.TextStyle(
-            fontSize: 13,
-            fontWeight: pw.FontWeight.bold,
-            color: ink,
-          ),
-        ),
-        pw.SizedBox(height: 10),
-        signatureLine('Nome completo (letra de forma legível)'),
-        pw.SizedBox(height: 22),
-        pw.Text(
-          'Líder do ministério / Pastor responsável (conferência)',
-          style: pw.TextStyle(
-            fontSize: 13,
-            fontWeight: pw.FontWeight.bold,
-            color: ink,
-          ),
-        ),
-        pw.SizedBox(height: 10),
-        signatureLine('Nome, função e data'),
         pw.SizedBox(height: 24),
         pw.Text(
           'Data de impressão: ${DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(DateTime.now())}',

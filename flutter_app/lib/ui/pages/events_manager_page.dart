@@ -63,7 +63,7 @@ import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
-import 'package:gestao_yahweh/utils/share_text_polish.dart';
+import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
         BrDateDdMmYyyyInputFormatter,
@@ -2574,7 +2574,7 @@ class _EventoPostState extends State<_EventoPost>
         gsUrl: url.toLowerCase().startsWith('gs://') ? url : null,
         width: w,
         height: h,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         memCacheWidth: memW,
         memCacheHeight: memH,
         placeholder: ph,
@@ -2587,7 +2587,7 @@ class _EventoPostState extends State<_EventoPost>
       return FreshFirebaseStorageImage(
         key: ValueKey('evt_ff_$displayUrl'),
         imageUrl: displayUrl,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: w,
         height: h,
         memCacheWidth: memW,
@@ -2600,7 +2600,7 @@ class _EventoPostState extends State<_EventoPost>
       return SafeNetworkImage(
         key: ValueKey('evt_sn_$displayUrl'),
         imageUrl: displayUrl,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: w,
         height: h,
         memCacheWidth: memW,
@@ -4441,15 +4441,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'location': _localSalvo(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
+    final batch = FirebaseFirestore.instance.batch();
     if (existing.docs.isEmpty) {
       payload['createdAt'] = FieldValue.serverTimestamp();
       payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
-      await agendaCol.add(payload);
+      batch.set(agendaCol.doc(), payload);
     } else {
       for (final d in existing.docs) {
-        await d.reference.set(payload, SetOptions(merge: true));
+        batch.set(d.reference, payload, SetOptions(merge: true));
       }
     }
+    await batch.commit();
   }
 
   Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
@@ -4977,6 +4979,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
+  double? _aspectRatioFromBytes(Uint8List bytes) {
+    try {
+      final im = img.decodeImage(bytes);
+      if (im == null || im.height <= 0) return null;
+      return im.width / im.height;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _save() async {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
@@ -4987,14 +4999,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final postId = docRef.id;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await Future.delayed(const Duration(milliseconds: 200));
       final allUrls = List<String>.from(_existingUrls);
-      for (var i = 0; i < _newImages.length; i++) {
-        if (allUrls.length >= _maxPhotosPerEvent) break;
-        final slot = allUrls.length;
-        final up = await _upload(_newImages[i], postId, slot);
-        allUrls.add(up.downloadUrl);
+      final initialLen = allUrls.length;
+      final room = (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
+      if (room > 0) {
+        final uploads = List<Future<MediaUploadResult>>.generate(
+          room,
+          (i) => _upload(_newImages[i], postId, initialLen + i),
+        );
+        for (final up in await Future.wait(uploads)) {
+          allUrls.add(up.downloadUrl);
+        }
       }
       if (allUrls.length > _maxPhotosPerEvent) {
         allUrls.removeRange(_maxPhotosPerEvent, allUrls.length);
@@ -5015,6 +5030,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .where((m) => (m['videoUrl'] as String).isNotEmpty)
           .toList();
       final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
+      final arFromNew =
+          _newImages.isNotEmpty ? _aspectRatioFromBytes(_newImages.first) : null;
       final payload = <String, dynamic>{
         'type': 'evento',
         'title': _title.text.trim(),
@@ -5037,6 +5054,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         'publicSite': _publicSite,
         ..._schedulingAndCategoryFields(merge: widget.doc != null),
         ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
+        if (arFromNew != null)
+          'media_info': {
+            'aspect_ratio': arFromNew.clamp(0.45, 1.9),
+          },
       };
       if (firstUrl.isNotEmpty) {
         payload['imagemUrl'] = firstUrl;
@@ -5085,16 +5106,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied');
       if (mounted && isAssertionOrPerm) {
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
-          await Future.delayed(const Duration(milliseconds: 400));
+          await FirebaseAuth.instance.currentUser?.getIdToken();
+          await Future.delayed(const Duration(milliseconds: 150));
           if (widget.doc == null) {
             final retryUrls = List<String>.from(_existingUrls);
-            for (var i = 0;
-                i < _newImages.length && retryUrls.length < _maxPhotosPerEvent;
-                i++) {
-              final slot = retryUrls.length;
-              final up = await _upload(_newImages[i], postId, slot);
-              retryUrls.add(up.downloadUrl);
+            final rInit = retryUrls.length;
+            final rRoom =
+                (_maxPhotosPerEvent - rInit).clamp(0, _newImages.length);
+            if (rRoom > 0) {
+              final rUp = List<Future<MediaUploadResult>>.generate(
+                rRoom,
+                (i) => _upload(_newImages[i], postId, rInit + i),
+              );
+              for (final up in await Future.wait(rUp)) {
+                retryUrls.add(up.downloadUrl);
+              }
             }
             if (retryUrls.length > _maxPhotosPerEvent)
               retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
@@ -5103,6 +5129,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 .toList();
             final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
             final retryDerived = _pathsFromImageUrls(retrySafe);
+            final arRetry = _newImages.isNotEmpty
+                ? _aspectRatioFromBytes(_newImages.first)
+                : null;
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')
                 : _videoUrl.text.trim();
@@ -5145,6 +5174,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'commentsCount': 0,
               ..._schedulingAndCategoryFields(merge: false),
               ..._locationFieldsForSave(allowDeleteSentinels: false),
+              if (arRetry != null)
+                'media_info': {
+                  'aspect_ratio': arRetry.clamp(0.45, 1.9),
+                },
             };
             if (_validUntil != null)
               payload['validUntil'] = Timestamp.fromDate(_validUntil!);
@@ -5158,12 +5191,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             }
           } else {
             final retryUrls = List<String>.from(_existingUrls);
-            for (var i = 0;
-                i < _newImages.length && retryUrls.length < _maxPhotosPerEvent;
-                i++) {
-              final slot = retryUrls.length;
-              final up = await _upload(_newImages[i], postId, slot);
-              retryUrls.add(up.downloadUrl);
+            final mInit = retryUrls.length;
+            final mRoom =
+                (_maxPhotosPerEvent - mInit).clamp(0, _newImages.length);
+            if (mRoom > 0) {
+              final mUp = List<Future<MediaUploadResult>>.generate(
+                mRoom,
+                (i) => _upload(_newImages[i], postId, mInit + i),
+              );
+              for (final up in await Future.wait(mUp)) {
+                retryUrls.add(up.downloadUrl);
+              }
             }
             if (retryUrls.length > _maxPhotosPerEvent)
               retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
@@ -5172,6 +5210,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 .toList();
             final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
             final mergeDerived = _pathsFromImageUrls(mergeSafe);
+            final arMerge = _newImages.isNotEmpty
+                ? _aspectRatioFromBytes(_newImages.first)
+                : null;
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')
                 : _videoUrl.text.trim();
@@ -5207,6 +5248,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'imageVariants': FieldValue.delete(),
               ..._schedulingAndCategoryFields(merge: true),
               ..._locationFieldsForSave(allowDeleteSentinels: true),
+              if (arMerge != null)
+                'media_info': {
+                  'aspect_ratio': arMerge.clamp(0.45, 1.9),
+                },
             };
             if (_validUntil != null)
               merge['validUntil'] = Timestamp.fromDate(_validUntil!);
@@ -5581,31 +5626,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         labelText: 'Descrição / legenda',
                         prefixIcon: Icon(Icons.notes_rounded),
                         alignLabelWithHint: true)),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _title.text = modernizeShareText(_title.text);
-                        _text.text = modernizeShareText(_text.text);
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        ThemeCleanPremium.successSnackBar(
-                            'Texto ajustado para compartilhar.'),
-                      );
-                    },
-                    icon: Icon(Icons.auto_fix_high_rounded,
-                        size: 18, color: ThemeCleanPremium.primary),
-                    label: Text(
-                      'Corrigir e modernizar texto',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 18),
                 Row(
                   children: [

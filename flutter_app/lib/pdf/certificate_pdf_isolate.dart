@@ -31,6 +31,8 @@ Map<String, dynamic> certificatePdfInputToMap(CertificatePdfInput input) {
     'backgroundTemplateBytes': input.backgroundTemplateBytes,
     'visualTemplateId': input.visualTemplateId,
     'useLuxuryPdfFonts': input.useLuxuryPdfFonts,
+    'useDigitalSignatureStamp': input.useDigitalSignatureStamp,
+    'digitalSignatureDadosLine': input.digitalSignatureDadosLine,
     'fontCinzelDecorativeBytes': input.fontCinzelDecorativeBytes,
     'fontPinyonScriptBytes': input.fontPinyonScriptBytes,
     'fontLibreBaskervilleBytes': input.fontLibreBaskervilleBytes,
@@ -39,6 +41,7 @@ Map<String, dynamic> certificatePdfInputToMap(CertificatePdfInput input) {
         <String, dynamic>{
           'nome': s.nome,
           'cargo': s.cargo,
+          'cpfDigits': s.cpfDigits,
           if (s.signatureImageBytes != null)
             'signatureImageBytes': s.signatureImageBytes,
         },
@@ -82,6 +85,11 @@ CertificatePdfInput _certificatePdfInputFromMap(Map<String, dynamic> m) {
     useLuxuryPdfFonts: m['useLuxuryPdfFonts'] is bool
         ? m['useLuxuryPdfFonts'] as bool
         : true,
+    useDigitalSignatureStamp: m['useDigitalSignatureStamp'] is bool
+        ? m['useDigitalSignatureStamp'] as bool
+        : false,
+    digitalSignatureDadosLine:
+        (m['digitalSignatureDadosLine'] as String?) ?? '',
     fontCinzelDecorativeBytes: m['fontCinzelDecorativeBytes'] is Uint8List
         ? m['fontCinzelDecorativeBytes'] as Uint8List
         : null,
@@ -97,6 +105,7 @@ CertificatePdfInput _certificatePdfInputFromMap(Map<String, dynamic> m) {
           CertSignatoryPdfData(
             nome: (raw['nome'] as String?) ?? '',
             cargo: (raw['cargo'] as String?) ?? '',
+            cpfDigits: (raw['cpfDigits'] as String?) ?? '',
             signatureImageBytes: raw['signatureImageBytes'] is Uint8List
                 ? raw['signatureImageBytes'] as Uint8List
                 : null,

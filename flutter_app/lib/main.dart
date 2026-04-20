@@ -57,6 +57,7 @@ import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -543,7 +544,6 @@ class _AppWithTheme extends StatefulWidget {
 class _AppWithThemeState extends State<_AppWithTheme>
     with WidgetsBindingObserver {
   late final ThemeModeProvider _themeProvider;
-  final _navigatorKey = GlobalKey<NavigatorState>();
   Timer? _webResumeRepaintDebounce;
   void _onThemeChanged() => setState(() {});
 
@@ -572,7 +572,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      window_close_handler.initWindowCloseHandler(_navigatorKey);
+      window_close_handler.initWindowCloseHandler(appRootNavigatorKey);
     });
   }
 
@@ -600,7 +600,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     return ThemeModeScope(
         notifier: _themeProvider,
         child: MaterialApp(
-          navigatorKey: _navigatorKey,
+          navigatorKey: appRootNavigatorKey,
           scrollBehavior: const GestaoYahwehScrollBehavior(),
           title: 'Gestão Yahweh - Igrejas',
           theme: ThemeCleanPremium.themeData,

@@ -170,34 +170,134 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                   if ((signatoryNome).trim().isNotEmpty ||
                       assinaturaImage != null ||
                       (signatoryCargo).trim().isNotEmpty) ...[
-                    if (assinaturaImage != null)
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.only(bottom: 4),
-                        child: pw.SizedBox(
-                          width: 88,
-                          height: 32,
-                          child:
-                              pw.Image(assinaturaImage!, fit: pw.BoxFit.contain),
+                    pw.Container(
+                      width: double.infinity,
+                      constraints: const pw.BoxConstraints(maxHeight: 52),
+                      decoration: pw.BoxDecoration(
+                        borderRadius: pw.BorderRadius.circular(9),
+                        border: pw.Border.all(
+                          color: PdfColor(
+                            gradientStart.red,
+                            gradientStart.green,
+                            gradientStart.blue,
+                            ink ? 0.42 : 0.38,
+                          ),
+                          width: 0.95,
+                        ),
+                        color: ink
+                            ? PdfColor.fromInt(0xFFFDFDFE)
+                            : PdfColor(1, 1, 1, 0.11),
+                      ),
+                      child: pw.ClipRRect(
+                        horizontalRadius: 8,
+                        verticalRadius: 8,
+                        child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                          children: [
+                            pw.Container(
+                              width: 3.2,
+                              color: gradientStart,
+                            ),
+                            pw.Expanded(
+                              child: pw.Padding(
+                                padding: const pw.EdgeInsets.fromLTRB(
+                                    6.5, 5, 6.5, 5),
+                                child: pw.Row(
+                                  crossAxisAlignment:
+                                      pw.CrossAxisAlignment.center,
+                                  children: [
+                                    pw.Expanded(
+                                      child: pw.Column(
+                                        crossAxisAlignment:
+                                            pw.CrossAxisAlignment.start,
+                                        mainAxisSize: pw.MainAxisSize.min,
+                                        children: [
+                                          pw.Container(
+                                            padding:
+                                                const pw.EdgeInsets.symmetric(
+                                              horizontal: 5.5,
+                                              vertical: 2,
+                                            ),
+                                            decoration: pw.BoxDecoration(
+                                              color: PdfColor(
+                                                gradientStart.red,
+                                                gradientStart.green,
+                                                gradientStart.blue,
+                                                ink ? 0.12 : 0.16,
+                                              ),
+                                              borderRadius:
+                                                  pw.BorderRadius.circular(99),
+                                            ),
+                                            child: pw.Text(
+                                              'ASSINATURA INSTITUCIONAL',
+                                              style: pw.TextStyle(
+                                                color: gradientStart,
+                                                fontSize: 4.9,
+                                                fontWeight:
+                                                    pw.FontWeight.bold,
+                                                letterSpacing: 0.35,
+                                              ),
+                                            ),
+                                          ),
+                                          if (signatoryNome
+                                              .trim()
+                                              .isNotEmpty) ...[
+                                            pw.SizedBox(height: 3.5),
+                                            pw.Text(
+                                              signatoryNome.trim(),
+                                              maxLines: 2,
+                                              overflow: pw.TextOverflow.clip,
+                                              style: pw.TextStyle(
+                                                color: fg,
+                                                fontSize: 6.1,
+                                                fontWeight:
+                                                    pw.FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                          if (signatoryCargo
+                                              .trim()
+                                              .isNotEmpty) ...[
+                                            pw.SizedBox(height: 1.5),
+                                            pw.Text(
+                                              signatoryCargo.trim(),
+                                              maxLines: 1,
+                                              overflow: pw.TextOverflow.clip,
+                                              style: pw.TextStyle(
+                                                color: PdfColor(
+                                                  fg.red,
+                                                  fg.green,
+                                                  fg.blue,
+                                                  ink ? 0.78 : 0.82,
+                                                ),
+                                                fontSize: 5.2,
+                                                fontWeight:
+                                                    pw.FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    if (assinaturaImage != null) ...[
+                                      pw.SizedBox(width: 5),
+                                      pw.SizedBox(
+                                        width: 58,
+                                        height: 28,
+                                        child: pw.Image(
+                                          assinaturaImage!,
+                                          fit: pw.BoxFit.contain,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    if (signatoryNome.trim().isNotEmpty)
-                      pw.Text(
-                        signatoryNome.trim(),
-                        style: pw.TextStyle(
-                          color: fg,
-                          fontSize: 6.2,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    if (signatoryCargo.trim().isNotEmpty)
-                      pw.Text(
-                        signatoryCargo.trim(),
-                        style: pw.TextStyle(
-                          color: fg,
-                          fontSize: 5.4,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
+                    ),
                   ],
                   if (showRegrasUso) ...[
                     pw.SizedBox(height: 4),

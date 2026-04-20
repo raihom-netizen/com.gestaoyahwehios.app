@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -13,6 +14,7 @@ Future<void> showPremiumVersionUpdateDialog(
   final hasUrl = vr.updateUrl.isNotEmpty;
   await showDialog<void>(
     context: context,
+    useRootNavigator: true,
     barrierDismissible: true,
     builder: (ctx) {
       final isAndroidStore = !kIsWeb &&
@@ -253,7 +255,19 @@ class _UpdateCheckerState extends State<UpdateChecker> {
     _checked = true;
     if (!vr.outdated) return;
     if (!mounted) return;
-    await showPremiumVersionUpdateDialog(context, vr);
+    // Contexto do [UpdateChecker] fica *acima* do [Navigator] do [MaterialApp]:
+    // usar a chave raiz evita barrier escuro + diálogo em branco no mobile.
+    final navCtx = appRootNavigatorKey.currentContext;
+    if (navCtx != null && navCtx.mounted) {
+      await showPremiumVersionUpdateDialog(navCtx, vr);
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final ctx2 = appRootNavigatorKey.currentContext;
+      if (ctx2 == null || !ctx2.mounted) return;
+      await showPremiumVersionUpdateDialog(ctx2, vr);
+    });
   }
 
   @override

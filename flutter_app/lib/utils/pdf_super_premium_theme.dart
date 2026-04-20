@@ -363,6 +363,170 @@ class PdfSuperPremiumTheme {
     );
   }
 
+  static PdfColor _accentStrokeSoft(PdfColor a) => PdfColor(
+        a.red,
+        a.green,
+        a.blue,
+        (a.alpha * 0.45).clamp(0.22, 0.58),
+      );
+
+  /// Duas colunas com traço forte e rótulos — fechamentos financeiros e relatórios similares.
+  static pw.Widget reportDualSignatureAttestation({
+    required PdfColor accent,
+    String leftTitle = 'Tesoureiro(a)',
+    String rightTitle = 'Pastor Presidente',
+    String subtitle = 'Assinatura e carimbo',
+    double signatureSpacePt = 40,
+  }) {
+    final stroke = _accentStrokeSoft(accent);
+    pw.Widget slot(String title) {
+      return pw.Expanded(
+        child: pw.Container(
+          margin: const pw.EdgeInsets.symmetric(horizontal: 5),
+          padding: const pw.EdgeInsets.fromLTRB(11, 10, 11, 10),
+          decoration: pw.BoxDecoration(
+            color: _cardBg,
+            borderRadius: pw.BorderRadius.circular(8),
+            border: pw.Border.all(color: stroke, width: 1.35),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [
+              pw.Container(
+                height: 3.2,
+                decoration: pw.BoxDecoration(
+                  color: accent,
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+              ),
+              pw.SizedBox(height: 9),
+              pw.Text(
+                pdfSafeText(title),
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(
+                  fontSize: 10.8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: accent,
+                ),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Text(
+                pdfSafeText(subtitle),
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(fontSize: 7.6, color: _muted),
+              ),
+              pw.SizedBox(height: signatureSpacePt),
+              pw.Container(
+                height: 2,
+                decoration: pw.BoxDecoration(
+                  color: accent,
+                  borderRadius: pw.BorderRadius.circular(0.5),
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                'Nome legível',
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(fontSize: 7.4, color: _muted),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        slot(leftTitle),
+        slot(rightTitle),
+      ],
+    );
+  }
+
+  /// Caixa única de validação pastoral (inventário / termos no papel).
+  static pw.Widget reportPastoralSignatureBox({
+    required PdfColor accent,
+    String sectionTitle = 'Validação pastoral',
+    String label = 'Assinatura do pastor responsável',
+    String hintLeft = 'Nome legível e carimbo (opcional)',
+    String hintRight = 'Data: _______________',
+    double lineSpaceBeforeBarPt = 22,
+  }) {
+    final stroke = _accentStrokeSoft(accent);
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.SizedBox(height: 6),
+        pw.Text(
+          pdfSafeText(sectionTitle),
+          style: pw.TextStyle(
+            fontSize: 11.5,
+            fontWeight: pw.FontWeight.bold,
+            color: accent,
+          ),
+        ),
+        pw.SizedBox(height: 8),
+        pw.Container(
+          decoration: pw.BoxDecoration(
+            color: PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.circular(8),
+            border: pw.Border.all(color: stroke, width: 1.35),
+          ),
+          padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Container(
+                height: 3,
+                decoration: pw.BoxDecoration(
+                  color: accent,
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                pdfSafeText(label),
+                style: pw.TextStyle(
+                  fontSize: 9.8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _ink,
+                ),
+              ),
+              pw.SizedBox(height: lineSpaceBeforeBarPt),
+              pw.Container(
+                width: double.infinity,
+                height: 2,
+                decoration: pw.BoxDecoration(
+                  color: accent,
+                  borderRadius: pw.BorderRadius.circular(0.5),
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Expanded(
+                    child: pw.Text(
+                      pdfSafeText(hintLeft),
+                      style: pw.TextStyle(fontSize: 8, color: _muted),
+                    ),
+                  ),
+                  pw.SizedBox(width: 12),
+                  pw.Text(
+                    pdfSafeText(hintRight),
+                    style: pw.TextStyle(fontSize: 8, color: _muted),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Tabela estilo premium: bordas suaves, cabeçalho com traço na cor da igreja.
   ///
   /// Coluna `0` com [pw.FixedColumnWidth] (ex.: índice #) fica centralizada; [zebraStripes] alterna o fundo.

@@ -55,6 +55,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   final paragraphs = _buildChurchLetterBodyWidgetsPremium(
     bodyAfterReplacements,
     bodyStyle: bodyStyle,
+    signatureFrameColor: branding.accent,
   );
 
   doc.addPage(
@@ -243,7 +244,11 @@ pw.Widget _normaCultaBodyParagraph(String chunk, {required pw.TextStyle bodyStyl
   );
 }
 
-pw.Widget _normaCultaSignatureBlock(String sigPart, {required pw.TextStyle bodyStyle}) {
+pw.Widget _normaCultaSignatureBlock(
+  String sigPart, {
+  required pw.TextStyle bodyStyle,
+  PdfColor? signatureFrameColor,
+}) {
   final t = sigPart.trim();
   if (t.isEmpty) return pw.SizedBox();
 
@@ -278,7 +283,12 @@ pw.Widget _normaCultaSignatureBlock(String sigPart, {required pw.TextStyle bodyS
 
   final fs = bodyStyle.fontSize ?? 11;
   final lh = bodyStyle.lineSpacing ?? 1.45;
-  final gap4 = fs * lh * 2;
+  final gap4 = fs * lh * 2.1;
+  final frame = signatureFrameColor ?? PdfColor.fromInt(0xFF64748B);
+  final nameStyle = bodyStyle.copyWith(
+    fontSize: (bodyStyle.fontSize ?? 10.5) + 1.0,
+    fontWeight: pw.FontWeight.bold,
+  );
 
   return pw.Padding(
     padding: const pw.EdgeInsets.only(top: 4, bottom: 10),
@@ -291,14 +301,38 @@ pw.Widget _normaCultaSignatureBlock(String sigPart, {required pw.TextStyle bodyS
           textAlign: pw.TextAlign.left,
         ),
         pw.SizedBox(height: gap4),
-        ...rest.map(
-          (line) => pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 3),
-            child: pw.Text(
-              pdfSafeText(line),
-              style: bodyStyle,
-              textAlign: pw.TextAlign.center,
+        pw.Container(
+          padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: pw.BoxDecoration(
+            color: PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.circular(7),
+            border: pw.Border.all(
+              color: PdfColor(frame.red, frame.green, frame.blue, 0.4),
+              width: 1.2,
             ),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Container(
+                height: 3,
+                decoration: pw.BoxDecoration(
+                  color: frame,
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              ...rest.map(
+                (line) => pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 4),
+                  child: pw.Text(
+                    pdfSafeText(line),
+                    style: nameStyle,
+                    textAlign: pw.TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -309,6 +343,7 @@ pw.Widget _normaCultaSignatureBlock(String sigPart, {required pw.TextStyle bodyS
 List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
   String bodyAfterReplacements, {
   required pw.TextStyle bodyStyle,
+  PdfColor? signatureFrameColor,
 }) {
   final raw = bodyAfterReplacements.replaceAll('\r\n', '\n').trim();
   if (raw.isEmpty) return [];
@@ -334,7 +369,11 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
     }
   }
   if (sigPart != null && sigPart.isNotEmpty) {
-    out.add(_normaCultaSignatureBlock(sigPart, bodyStyle: bodyStyle));
+    out.add(_normaCultaSignatureBlock(
+      sigPart,
+      bodyStyle: bodyStyle,
+      signatureFrameColor: signatureFrameColor,
+    ));
   }
   return out;
 }

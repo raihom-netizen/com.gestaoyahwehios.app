@@ -39,7 +39,6 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         youtubeThumbnailUrlForVideoUrl;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
-import 'package:gestao_yahweh/utils/share_text_polish.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -3746,31 +3745,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               labelText: 'Texto / Descrição',
                               prefixIcon: Icon(Icons.notes_rounded),
                               alignLabelWithHint: true)),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _title.text = modernizeShareText(_title.text);
-                              _text.text = modernizeShareText(_text.text);
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              ThemeCleanPremium.successSnackBar(
-                                  'Texto ajustado para compartilhar.'),
-                            );
-                          },
-                          icon: Icon(Icons.auto_fix_high_rounded,
-                              size: 18, color: ThemeCleanPremium.primary),
-                          label: Text(
-                            'Corrigir e modernizar texto',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: ThemeCleanPremium.primary,
-                            ),
-                          ),
-                        ),
-                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [

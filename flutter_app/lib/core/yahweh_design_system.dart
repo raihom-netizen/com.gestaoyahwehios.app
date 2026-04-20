@@ -36,6 +36,9 @@ abstract final class YahwehDesignSystem {
   static const Color onSurfaceVariantDark = Color(0xFF94A3B8);
   static const Color cardBackgroundDark = Color(0xFF1E293B);
 
+  /// Ponta escura dos gradientes em chips de ícone (login, shell, Torre Master).
+  static const Color chipIconGradientEnd = surfaceVariantDark;
+
   // ——— Raios (cards 16, modais 20) ———
   static const double radiusSm = 10;
   static const double radiusMd = 16;

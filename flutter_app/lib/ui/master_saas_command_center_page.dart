@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/saas_plan_limits.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -38,6 +39,43 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
     _tab.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Widget _saasIconChip(
+    Color accent,
+    IconData icon, {
+    double dim = 34,
+    double iconSz = 18,
+  }) {
+    return Container(
+      width: dim,
+      height: dim,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(Colors.white, accent, 0.2)!.withValues(alpha: 0.95),
+            Color.lerp(accent, YahwehDesignSystem.chipIconGradientEnd, 0.4)!
+                .withValues(alpha: 0.9),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusSm),
+        border: Border.all(
+          color: Color.lerp(accent, Colors.white, 0.32)!.withValues(alpha: 0.52),
+        ),
+        boxShadow: [
+          ...YahwehDesignSystem.softCardShadow,
+          BoxShadow(
+            color: accent.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Icon(icon, color: Colors.white, size: iconSz),
+    );
   }
 
   Future<void> _audit(String action, String details) async {
@@ -278,9 +316,35 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
               title: const Text('Torre de comando SaaS'),
               bottom: TabBar(
                 controller: _tab,
-                tabs: const [
-                  Tab(icon: Icon(Icons.apartment_rounded), text: 'Clientes'),
-                  Tab(icon: Icon(Icons.trending_up_rounded), text: 'Negócio'),
+                tabs: [
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _saasIconChip(
+                          ChurchShellAccentTokens.masterSaasClientes,
+                          Icons.apartment_rounded,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Clientes'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _saasIconChip(
+                          ChurchShellAccentTokens.masterSaasNegocio,
+                          Icons.trending_up_rounded,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Negócio'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -295,9 +359,25 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                   labelColor: Colors.white,
                   unselectedLabelColor: Colors.white70,
                   indicatorColor: ThemeCleanPremium.navSidebarAccent,
-                  tabs: const [
-                    Tab(text: 'Clientes'),
-                    Tab(text: 'Negócio'),
+                  tabs: [
+                    Tab(
+                      icon: _saasIconChip(
+                        ChurchShellAccentTokens.masterSaasClientes,
+                        Icons.apartment_rounded,
+                        dim: 30,
+                        iconSz: 16,
+                      ),
+                      text: 'Clientes',
+                    ),
+                    Tab(
+                      icon: _saasIconChip(
+                        ChurchShellAccentTokens.masterSaasNegocio,
+                        Icons.trending_up_rounded,
+                        dim: 30,
+                        iconSz: 16,
+                      ),
+                      text: 'Negócio',
+                    ),
                   ],
                 ),
               ),
@@ -328,7 +408,20 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                 controller: _searchCtrl,
                 decoration: InputDecoration(
                   hintText: 'Buscar nome ou ID…',
-                  prefixIcon: const Icon(Icons.search_rounded),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      child: _saasIconChip(
+                        ThemeCleanPremium.primary,
+                        Icons.search_rounded,
+                        dim: 36,
+                        iconSz: 18,
+                      ),
+                    ),
+                  ),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
@@ -434,9 +527,11 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                       side: BorderSide(color: Colors.grey.shade200),
                     ),
                     child: ExpansionTile(
-                      leading: CircleAvatar(
-                        backgroundColor: _licenseColor(guard).withOpacity(0.15),
-                        child: Icon(Icons.church_rounded, color: _licenseColor(guard), size: 22),
+                      leading: _saasIconChip(
+                        _licenseColor(guard),
+                        Icons.church_rounded,
+                        dim: 40,
+                        iconSz: 20,
                       ),
                       title: Text(nome, style: const TextStyle(fontWeight: FontWeight.w700)),
                       subtitle: Column(
@@ -613,7 +708,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
               'Receita confirmada (30 dias)',
               brl.format(m.revenue30d),
               Icons.payments_rounded,
-              const Color(0xFF0F766E),
+              kChurchShellNavEntries[20].accent,
             ),
             _metricCard(
               'MRR estimado',
@@ -625,19 +720,19 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
               'Churn (90 dias) — assinaturas inativas/canceladas',
               '${m.churn90}',
               Icons.trending_down_rounded,
-              const Color(0xFFB45309),
+              YahwehDesignSystem.error,
             ),
             _metricCard(
               'Igrejas na base',
               '${m.totalChurches}',
               Icons.church_rounded,
-              const Color(0xFF4F46E5),
+              kChurchShellNavEntries[19].accent,
             ),
             _metricCard(
               'Membros (soma nas igrejas consultadas)',
               '${m.totalMembersSample}',
               Icons.people_rounded,
-              const Color(0xFF15803D),
+              kChurchShellNavEntries[2].accent,
             ),
             if (m.monthlyBars.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -672,7 +767,12 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
             ],
             const SizedBox(height: 24),
             ListTile(
-              leading: const Icon(Icons.campaign_rounded),
+              leading: _saasIconChip(
+                kChurchShellNavEntries[17].accent,
+                Icons.campaign_rounded,
+                dim: 40,
+                iconSz: 20,
+              ),
               title: const Text('Aviso global / manutenção'),
               subtitle: const Text(
                 'Use no menu lateral: Sistema → Aviso global / Manutenção (banner em todas as igrejas).',
@@ -873,7 +973,7 @@ class _MasterPremiumMetricCardState extends State<_MasterPremiumMetricCard> {
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusMd),
           border: Border.all(
             color: _hover
                 ? widget.color.withValues(alpha: 0.32)
@@ -893,12 +993,35 @@ class _MasterPremiumMetricCardState extends State<_MasterPremiumMetricCard> {
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: widget.color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(14),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(Colors.white, widget.color, 0.2)!
+                        .withValues(alpha: 0.95),
+                    Color.lerp(
+                            widget.color, YahwehDesignSystem.chipIconGradientEnd, 0.4)!
+                        .withValues(alpha: 0.9),
+                  ],
+                ),
+                borderRadius:
+                    BorderRadius.circular(YahwehDesignSystem.radiusMd - 2),
+                border: Border.all(
+                  color: Color.lerp(widget.color, Colors.white, 0.32)!
+                      .withValues(alpha: 0.52),
+                ),
+                boxShadow: [
+                  ...YahwehDesignSystem.softCardShadow,
+                  BoxShadow(
+                    color: widget.color.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              child: Icon(widget.icon, color: widget.color, size: 26),
+              child: Icon(widget.icon, color: Colors.white, size: 26),
             ),
             const SizedBox(width: 14),
             Expanded(

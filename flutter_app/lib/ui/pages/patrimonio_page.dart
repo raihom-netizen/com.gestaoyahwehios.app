@@ -353,6 +353,12 @@ Future<void> _exportPatrimonioRelatorioPdf({
           accent: branding.accent,
           columnWidths: PdfSuperPremiumTheme.columnWidthsPatrimonioListaSimples,
         ),
+        pw.SizedBox(height: 18),
+        PdfSuperPremiumTheme.reportPastoralSignatureBox(
+          accent: branding.accent,
+          sectionTitle: 'Conferência e validação',
+          label: 'Assinatura do responsável pelo patrimônio ou pastor',
+        ),
       ],
     ),
   );
@@ -450,39 +456,9 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
               style: const pw.TextStyle(fontSize: 9.5, color: PdfColors.grey700),
             ),
           ),
-        pw.SizedBox(height: 28),
-        pw.Text(
-          'Validação pastoral',
-          style: pw.TextStyle(
-            fontSize: 11,
-            fontWeight: pw.FontWeight.bold,
-            color: branding.accent,
-          ),
-        ),
-        pw.SizedBox(height: 8),
-        pw.Text(
-          'Assinatura do pastor responsável',
-          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800),
-        ),
-        pw.SizedBox(height: 36),
-        pw.Container(
-          decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
-          ),
-        ),
-        pw.SizedBox(height: 6),
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(
-              'Nome legível e carimbo (opcional)',
-              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-            ),
-            pw.Text(
-              'Data: _______________',
-              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-            ),
-          ],
+        pw.SizedBox(height: 20),
+        PdfSuperPremiumTheme.reportPastoralSignatureBox(
+          accent: branding.accent,
         ),
       ],
     ),

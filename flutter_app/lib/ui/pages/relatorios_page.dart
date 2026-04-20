@@ -250,7 +250,12 @@ class RelatoriosPage extends StatelessWidget {
 
   void _openRelatorioFinanceiro(BuildContext context) {
     if (!_canFinance) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioFinanceiroPage(tenantId: tenantId)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RelatorioFinanceiroPage(tenantId: tenantId),
+      ),
+    );
   }
 
   void _openRelatorioGastosFornecedores(BuildContext context) {
@@ -1628,16 +1633,27 @@ _FinanceEvolucao _computeFinanceEvolucao(
 /// BI financeiro no cliente (Firestore `igrejas/{id}/finance`).
 /// Igrejas muito grandes (ex.: milhares de lançamentos/mês) podem evoluir para
 /// agregação via Cloud Function para não sobrecarregar o dispositivo.
-class _RelatorioFinanceiroPage extends StatefulWidget {
+///
+/// [embeddedInFinanceModule]: quando true, usado na aba «Relatórios» do módulo
+/// Financeiro — sem AppBar próprio e com [onEmbeddedBackToResumo] para voltar ao resumo.
+class RelatorioFinanceiroPage extends StatefulWidget {
   final String tenantId;
+  final bool embeddedInFinanceModule;
+  final VoidCallback? onEmbeddedBackToResumo;
 
-  const _RelatorioFinanceiroPage({required this.tenantId});
+  const RelatorioFinanceiroPage({
+    super.key,
+    required this.tenantId,
+    this.embeddedInFinanceModule = false,
+    this.onEmbeddedBackToResumo,
+  });
 
   @override
-  State<_RelatorioFinanceiroPage> createState() => _RelatorioFinanceiroPageState();
+  State<RelatorioFinanceiroPage> createState() =>
+      RelatorioFinanceiroPageState();
 }
 
-class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
+class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   late int _mes;
   late int _ano;
   String _filtroTipo = 'todos'; // todos, receitas, despesas, transferencias
@@ -1658,6 +1674,8 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
       FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
+
+  bool get _embedded => widget.embeddedInFinanceModule;
 
   Future<void> _loadCategoriasContas() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
@@ -2030,35 +2048,10 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                   style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700, fontStyle: pw.FontStyle.italic),
                 ),
               ),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.SizedBox(
-                  width: 200,
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                    mainAxisSize: pw.MainAxisSize.min,
-                    children: [
-                      pw.Container(height: 1, color: PdfColors.grey500),
-                      pw.SizedBox(height: 3),
-                      pw.Center(child: pw.Text('Tesoureiro', style: const pw.TextStyle(fontSize: 9))),
-                    ],
-                  ),
-                ),
-                pw.SizedBox(
-                  width: 200,
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                    mainAxisSize: pw.MainAxisSize.min,
-                    children: [
-                      pw.Container(height: 1, color: PdfColors.grey500),
-                      pw.SizedBox(height: 3),
-                      pw.Center(child: pw.Text('Pastor Presidente', style: const pw.TextStyle(fontSize: 9))),
-                    ],
-                  ),
-                ),
-              ],
+            PdfSuperPremiumTheme.reportDualSignatureAttestation(
+              accent: branding.accent,
+              leftTitle: 'Tesoureiro(a)',
+              rightTitle: 'Pastor Presidente',
             ),
           ],
         ),
@@ -2162,25 +2155,91 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
     final anos = List<int>.generate(6, (i) => DateTime.now().year - 3 + i);
     const finEmerald = Color(0xFF059669);
     final isNarrow = MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile;
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => _popUmaRotaRelatorio(context),
-          tooltip: 'Voltar',
-          style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
-        ),
-        title: const Text('Relatório Financeiro', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2)),
-        backgroundColor: finEmerald,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        shadowColor: finEmerald.withValues(alpha: 0.35),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: ThemeCleanPremium.pagePadding(context),
-          children: [
+    final listChildren = <Widget>[
+            if (_embedded && widget.onEmbeddedBackToResumo != null) ...[
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: widget.onEmbeddedBackToResumo,
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white,
+                          ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      border: Border.all(
+                        color:
+                            ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                      ),
+                      boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.arrow_back_rounded,
+                              color: ThemeCleanPremium.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Voltar ao resumo financeiro',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14.5,
+                                    letterSpacing: -0.2,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Retorna à aba Resumo sem sair do módulo Financeiro.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.25,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.dashboard_rounded,
+                            color: ThemeCleanPremium.primary
+                                .withValues(alpha: 0.65),
+                            size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             Container(
               padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
               decoration: BoxDecoration(
@@ -2901,7 +2960,31 @@ class _RelatorioFinanceiroPageState extends State<_RelatorioFinanceiroPage> {
                 ),
               ],
             ),
-          ],
+    ];
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      appBar: _embedded
+          ? null
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => _popUmaRotaRelatorio(context),
+                tooltip: 'Voltar',
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(
+                    ThemeCleanPremium.minTouchTarget,
+                    ThemeCleanPremium.minTouchTarget,
+                  ),
+                ),
+              ),
+              title: const Text('Relatório financeiro'),
+              backgroundColor: const Color(0xFF059669),
+              foregroundColor: Colors.white,
+            ),
+      body: SafeArea(
+        child: ListView(
+          padding: ThemeCleanPremium.pagePadding(context),
+          children: listChildren,
         ),
       ),
     );
@@ -3779,6 +3862,12 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
               accent: branding.accent,
               columnWidths:
                   PdfSuperPremiumTheme.columnWidthsPatrimonioReport(keys),
+            ),
+            pw.SizedBox(height: 18),
+            PdfSuperPremiumTheme.reportPastoralSignatureBox(
+              accent: branding.accent,
+              sectionTitle: 'Conferência e validação',
+              label: 'Assinatura do responsável pelo patrimônio ou pastor',
             ),
           ],
         ),

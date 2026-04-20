@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -524,6 +525,10 @@ class _LoginPageState extends State<LoginPage> {
         }
       } else {
         // Não bloqueia a tela durante o seletor de conta Google (evita “fundo escuro” preso).
+        FocusManager.instance.primaryFocus?.unfocus();
+        WidgetsBinding.instance.scheduleFrame();
+        await Future<void>.delayed(const Duration(milliseconds: 48));
+        if (!mounted) return;
         final googleUser = await appGoogleSignIn().signIn();
         if (googleUser == null) {
           return;
@@ -613,10 +618,10 @@ class _LoginPageState extends State<LoginPage> {
         _loading) {
       return;
     }
-    setState(() {
-      _loading = true;
-      _errorMessage = null;
-    });
+    setState(() => _errorMessage = null);
+    // Não usar `_loading` durante o sheet nativo da Apple — combina mal com o barrier
+    // do Flutter e parece “tela escura” até o utilizador escolher a conta.
+    FocusManager.instance.primaryFocus?.unfocus();
     try {
       final cred = await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
       if (cred == null) {
@@ -630,6 +635,7 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
       if (!mounted || cred.user == null) return;
+      setState(() => _loading = true);
       await _afterGoogleSignInSuccess();
     } on SignInWithAppleAuthorizationException catch (e) {
       if (!mounted) return;
@@ -1018,6 +1024,43 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Ícone em chip com gradiente (alinhado ao menu admin / navegação premium).
+  Widget _loginPremiumIconChip(
+    Color accent,
+    IconData icon, {
+    double size = 46,
+    double iconSize = 24,
+  }) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(Colors.white, accent, 0.22)!.withValues(alpha: 0.95),
+            Color.lerp(accent, YahwehDesignSystem.chipIconGradientEnd, 0.42)!
+                .withValues(alpha: 0.92),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusMd),
+        border: Border.all(
+          color: Color.lerp(accent, Colors.white, 0.35)!.withValues(alpha: 0.55),
+        ),
+        boxShadow: [
+          ...YahwehDesignSystem.softCardShadow,
+          BoxShadow(
+            color: accent.withValues(alpha: 0.32),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Icon(icon, color: Colors.white, size: iconSize),
+    );
+  }
+
   Widget _buildSmartChoosePersonaBody(Color theme, {required bool usePoppins}) {
     TextStyle titleStyle() => usePoppins
         ? GoogleFonts.poppins(
@@ -1033,6 +1076,7 @@ class _LoginPageState extends State<LoginPage> {
 
     Widget card({
       required IconData icon,
+      required Color accent,
       required String title,
       required String subtitle,
       required VoidCallback onTap,
@@ -1042,7 +1086,7 @@ class _LoginPageState extends State<LoginPage> {
         color: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: theme.withValues(alpha: 0.35)),
+          side: BorderSide(color: accent.withValues(alpha: 0.45)),
         ),
         child: InkWell(
           onTap: _loading ? null : onTap,
@@ -1052,7 +1096,7 @@ class _LoginPageState extends State<LoginPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(icon, color: theme, size: 32),
+                _loginPremiumIconChip(accent, icon),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1078,7 +1122,10 @@ class _LoginPageState extends State<LoginPage> {
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded, color: Colors.grey.shade500),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: accent.withValues(alpha: 0.55),
+                ),
               ],
             ),
           ),
@@ -1107,6 +1154,7 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 18),
         card(
           icon: Icons.person_rounded,
+          accent: ChurchShellAccentTokens.loginMembro,
           title: 'Sou membro',
           subtitle:
               'Já sou cadastrado na minha igreja. Entrar com Google ou e-mail e senha.',
@@ -1119,6 +1167,7 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 12),
         card(
           icon: Icons.manage_accounts_rounded,
+          accent: ChurchShellAccentTokens.loginGestor,
           title: 'Sou gestor ou quero conhecer o sistema',
           subtitle:
               'Primeiro crie a conta (Google ou e-mail). Depois seu perfil e os dados da igreja em etapas — ou entre se já tiver conta.',
@@ -1172,7 +1221,24 @@ class _LoginPageState extends State<LoginPage> {
               borderRadius: BorderRadius.circular(12),
             ),
           ),
-          icon: const Icon(Icons.add_business_rounded),
+          icon: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.38),
+                  Colors.white.withValues(alpha: 0.12),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.45),
+              ),
+            ),
+            child: const Icon(Icons.add_business_rounded, color: Colors.white),
+          ),
           label: const Text(
             'Quero cadastrar minha igreja (30 dias grátis)',
             textAlign: TextAlign.center,
@@ -1195,7 +1261,12 @@ class _LoginPageState extends State<LoginPage> {
               borderRadius: BorderRadius.circular(12),
             ),
           ),
-          icon: Icon(Icons.login_rounded, color: theme),
+          icon: _loginPremiumIconChip(
+            ChurchShellAccentTokens.loginGestor,
+            Icons.login_rounded,
+            size: 40,
+            iconSize: 20,
+          ),
           label: Text(
             'Já sou gestor — entrar com Google ou e-mail',
             textAlign: TextAlign.center,
@@ -1230,10 +1301,16 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildGestorCadastroCallout(Color theme) {
     return Card(
       elevation: 0,
-      color: const Color(0xFFEEF2FF),
+      color: Color.lerp(
+        Colors.white,
+        ChurchShellAccentTokens.loginGestor,
+        0.07,
+      ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: theme.withValues(alpha: 0.25)),
+        side: BorderSide(
+          color: ChurchShellAccentTokens.loginGestor.withValues(alpha: 0.28),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1243,7 +1320,12 @@ class _LoginPageState extends State<LoginPage> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.add_business_rounded, color: theme, size: 26),
+                _loginPremiumIconChip(
+                  ChurchShellAccentTokens.loginGestor,
+                  Icons.add_business_rounded,
+                  size: 44,
+                  iconSize: 22,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -1311,7 +1393,12 @@ class _LoginPageState extends State<LoginPage> {
           children: [
             Row(
               children: [
-                Icon(Icons.layers_outlined, color: theme, size: 22),
+                _loginPremiumIconChip(
+                  ChurchShellAccentTokens.loginPlanos,
+                  Icons.layers_outlined,
+                  size: 40,
+                  iconSize: 20,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(

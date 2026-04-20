@@ -63,13 +63,13 @@ const double _breakpointDesktop = 900;
 
 const double _breakpointPhone = 600;
 
-/// Ícone e label para cada item do menu
+/// Ícone, label e cor do módulo (menu lateral + drawer + rodapé).
 class _NavItem {
   final IconData icon;
   final String label;
-  final String? sublabel;
+  final Color accent;
 
-  const _NavItem(this.icon, this.label, [this.sublabel]);
+  const _NavItem(this.icon, this.label, this.accent);
 }
 
 /// Shell Clean Premium — Sidebar vertical azul escuro (Desktop) / Drawer (Mobile).
@@ -163,7 +163,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   /// omitir glifos — [kChurchShellNavEntries] + [_ChurchShellNavMaterialIconsKeepalive]
   /// e `--no-tree-shake-icons` nos scripts.
   late final List<_NavItem> _items = [
-    for (final e in kChurchShellNavEntries) _NavItem(e.icon, e.label),
+    for (final e in kChurchShellNavEntries) _NavItem(e.icon, e.label, e.accent),
   ];
 
   bool get _isDesktop => MediaQuery.sizeOf(context).width >= _breakpointDesktop;
@@ -172,31 +172,31 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé + atalhos coloridos Super Premium (substitui NavigationBar única-cor).
-    const shortcuts = <_ChurchShellFooterShortcut>[
+    // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
+    final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
         shortLabel: 'Painel',
-        accent: Color(0xFF2563EB),
+        accent: kChurchShellNavEntries[0].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: 2,
         shortLabel: 'Membros',
-        accent: Color(0xFF0D9488),
+        accent: kChurchShellNavEntries[2].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: 7,
         shortLabel: 'Eventos',
-        accent: Color(0xFFF97316),
+        accent: kChurchShellNavEntries[7].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: 6,
         shortLabel: 'Mural',
-        accent: Color(0xFFEC4899),
+        accent: kChurchShellNavEntries[6].accent,
       ),
       _ChurchShellFooterShortcut.menu(
         shortLabel: 'Menu',
-        accent: Color(0xFF6366F1),
+        accent: const Color(0xFF6366F1),
       ),
     ];
 
@@ -586,40 +586,48 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
     }
   }
 
-  /// Ícone em “chip” glass sobre o azul do menu (desktop + drawer).
+  /// Ícone em chip com gradiente da cor do módulo (desktop + drawer).
   Widget _navMenuIconChip(int i, bool selected, {bool compact = false}) {
     final s = compact ? 20.0 : 22.0;
     final box = compact ? 36.0 : 40.0;
+    final ac = _items[i].accent;
+    final deep = Color.lerp(ac, const Color(0xFF0F172A), 0.38)!;
     return Container(
       width: box,
       height: box,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: selected
-            ? Colors.white.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.07),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: selected
+              ? [
+                  Color.lerp(ac, Colors.white, 0.22)!,
+                  deep,
+                ]
+              : [
+                  ac.withValues(alpha: 0.42),
+                  ac.withValues(alpha: 0.18),
+                ],
+        ),
         border: Border.all(
           color: selected
-              ? Colors.white.withValues(alpha: 0.32)
-              : Colors.white.withValues(alpha: 0.1),
+              ? Colors.white.withValues(alpha: 0.45)
+              : ac.withValues(alpha: 0.55),
         ),
-        boxShadow: selected
-            ? [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.22),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : null,
+        boxShadow: [
+          BoxShadow(
+            color: ac.withValues(alpha: selected ? 0.45 : 0.28),
+            blurRadius: selected ? 12 : 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Icon(
         _items[i].icon,
         size: s,
-        color: selected
-            ? ThemeCleanPremium.navSidebarAccent
-            : Colors.white.withValues(alpha: 0.9),
+        color: Colors.white.withValues(alpha: 0.96),
       ),
     );
   }

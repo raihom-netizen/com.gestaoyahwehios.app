@@ -19,7 +19,8 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaImageStoragePath,
         eventNoticiaPostHasFeedCoverRow,
         eventNoticiaThumbStoragePath,
-        looksLikeHostedVideoFileUrl;
+        looksLikeHostedVideoFileUrl,
+        postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -1862,10 +1863,36 @@ class _PublicNoticiaDeepLinkOpenerState
                 if (u.isNotEmpty && isValidImageUrl(u)) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: FreshFirebaseStorageImage(
-                          imageUrl: u, fit: BoxFit.cover),
+                    child: LayoutBuilder(
+                      builder: (ctx, c) {
+                        final w = c.maxWidth.isFinite && c.maxWidth > 0
+                            ? c.maxWidth
+                            : MediaQuery.sizeOf(ctx).width - 40;
+                        final nPhotos = eventNoticiaPhotoUrls(p)
+                            .where((x) =>
+                                sanitizeImageUrl(x.toString()).isNotEmpty)
+                            .length;
+                        final ar = postFeedCarouselAspectRatioForIndex(
+                          p,
+                          0,
+                          nPhotos > 0 ? nPhotos : 1,
+                        );
+                        final maxH = MediaQuery.sizeOf(ctx).height * 0.58;
+                        final h = (w / ar).clamp(160.0, maxH);
+                        return SizedBox(
+                          width: w,
+                          height: h,
+                          child: ColoredBox(
+                            color: const Color(0xFFF1F5F9),
+                            child: FreshFirebaseStorageImage(
+                              imageUrl: u,
+                              fit: BoxFit.contain,
+                              width: w,
+                              height: h,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -4231,7 +4258,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                                               imageUrl: cover,
                                               width: c.maxWidth,
                                               height: c.maxHeight,
-                                              fit: BoxFit.cover,
+                                              fit: BoxFit.contain,
                                               memCacheWidth: 900,
                                               memCacheHeight: 900,
                                               errorWidget: Container(

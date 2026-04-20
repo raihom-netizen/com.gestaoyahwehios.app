@@ -53,6 +53,7 @@ import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/utils/cert_digital_signature_format.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/cert_zip_opener.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart'
@@ -568,6 +569,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         nome: nome,
         cargo: cargoOptions.first,
         cargoOptions: cargoOptions,
+        cpfRaw: cpf,
         assinaturaUrl:
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
       );
@@ -597,11 +599,14 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
       if (nome.isEmpty) continue;
       final cargoOptions = signatoryCargoDisplayOptions(d);
+      final cpfSlot =
+          (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
       list.add(_SignatoryOption(
         memberId: doc.id,
         nome: nome,
         cargo: cargoOptions.first,
         cargoOptions: cargoOptions,
+        cpfRaw: cpfSlot,
         assinaturaUrl:
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
       ));
@@ -1562,6 +1567,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     required String institutionalPastorNome,
     required String institutionalPastorCargo,
     required List<_SignatoryOption> effectiveSignatories,
+    required String digitalSignatureDadosLine,
   }) {
     return <String, dynamic>{
       'memberId': memberId,
@@ -1584,6 +1590,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       'colorTextArgb': colorTextArgb,
       'includeInstitutionalPastorSignature': includeInstitutionalPastorSignature,
       'useDigitalSignature': useDigitalSignature,
+      'digitalSignatureDadosLine': digitalSignatureDadosLine,
       'pastorManual': pastorManual,
       'cargoManual': cargoManual,
       'institutionalPastorNome': institutionalPastorNome,
@@ -1594,6 +1601,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             'memberId': s.memberId,
             'nome': s.nome,
             'cargo': s.cargo,
+            'cpfDigits': s.cpfRaw,
           },
       ],
     };
@@ -1657,6 +1665,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
               memberId: (raw['memberId'] ?? '').toString(),
               nome: (raw['nome'] ?? '').toString(),
               cargo: (raw['cargo'] ?? '').toString(),
+              cpfDigits: (raw['cpfDigits'] ?? '').toString(),
             ),
           );
         } else if (raw is Map) {
@@ -1665,6 +1674,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
               memberId: (raw['memberId'] ?? '').toString(),
               nome: (raw['nome'] ?? '').toString(),
               cargo: (raw['cargo'] ?? '').toString(),
+              cpfDigits: (raw['cpfDigits'] ?? '').toString(),
             ),
           );
         }
@@ -1705,6 +1715,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
           pastorManual: (d['pastorManual'] ?? '').toString(),
           cargoManual: (d['cargoManual'] ?? '').toString(),
           useDigitalSignature: d['useDigitalSignature'] == true,
+          digitalSignatureDadosLine: () {
+            final s = (d['digitalSignatureDadosLine'] ?? '').toString().trim();
+            return s.isNotEmpty
+                ? s
+                : formatCertificadoDigitalDadosLinha(DateTime.now());
+          }(),
           qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(cid),
           signatoriesForPdf: sigs,
         ),
@@ -1751,6 +1767,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             nome: o.nome,
             cargo: _cargoExibicaoParaSignatario(id, o.cargo),
             cargoOptions: o.cargoOptions,
+            cpfRaw: o.cpfRaw,
             assinaturaUrl: o.assinaturaUrl,
           ),
         );
@@ -2264,6 +2281,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
               institutionalPastorNome: fallbackNome,
               institutionalPastorCargo: fallbackCargo,
               effectiveSignatories: effective,
+              digitalSignatureDadosLine:
+                  formatCertificadoDigitalDadosLinha(DateTime.now()),
             ),
           );
           sliceRows.add((nome: nome, cpf: cpf, texto: textoFinal));
@@ -2305,6 +2324,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
               memberId: s.memberId,
               nome: s.nome,
               cargo: s.cargo,
+              cpfDigits: s.cpfRaw,
               assinaturaUrlHint:
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
             ),
@@ -2336,6 +2356,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
             pastorManual: fallbackNome,
             cargoManual: fallbackCargo,
             useDigitalSignature: useDigital,
+            digitalSignatureDadosLine:
+                formatCertificadoDigitalDadosLinha(DateTime.now()),
             qrValidationUrl: slices.first.qrValidationUrl,
             signatoriesForPdf: signatoriesForPdf,
           ),
@@ -2450,6 +2472,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
             institutionalPastorNome: fallbackNome,
             institutionalPastorCargo: fallbackCargo,
             effectiveSignatories: effective,
+            digitalSignatureDadosLine:
+                formatCertificadoDigitalDadosLinha(DateTime.now()),
           ),
         );
         zipRows.add((
@@ -2475,6 +2499,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             memberId: s.memberId,
             nome: s.nome,
             cargo: s.cargo,
+            cpfDigits: s.cpfRaw,
             assinaturaUrlHint:
                 s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
           ),
@@ -2510,6 +2535,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
           pastorManual: fallbackNome,
           cargoManual: fallbackCargo,
           useDigitalSignature: useDigital,
+          digitalSignatureDadosLine:
+              formatCertificadoDigitalDadosLinha(DateTime.now()),
           qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
               protocolIdsZip.first),
           signatoriesForPdf: signatoriesForZip,
@@ -2558,6 +2585,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
             pastorManual: fallbackNome,
             cargoManual: fallbackCargo,
             useDigitalSignature: useDigital,
+            digitalSignatureDadosLine:
+                formatCertificadoDigitalDadosLinha(DateTime.now()),
             qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
                 protocolIdsZip[i]),
             signatoriesForPdf: signatoriesForZip,
@@ -4614,6 +4643,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 ? o.cargo
                 : (_selectedCargoByMemberId[o.memberId] ?? o.cargo),
             cargoOptions: o.cargoOptions,
+            cpfRaw: o.cpfRaw,
             assinaturaUrl: o.assinaturaUrl,
           ),
         )
@@ -4976,7 +5006,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 items: const [
                   DropdownMenuItem<String>(
                     value: 'digital',
-                    child: Text('Com assinatura digital no PDF'),
+                    child: Text(
+                      'Assinatura digital no PDF (carimbo + data, estilo documento assinado)',
+                    ),
                   ),
                   DropdownMenuItem<String>(
                     value: 'manual',
@@ -4992,7 +5024,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               Text(
                 _signatureMode == 'manual'
                     ? 'O PDF sai com linhas e nomes para assinatura manual no papel.'
-                    : 'O PDF sai com as imagens de assinatura cadastradas.',
+                    : 'Rodapé com carimbo em duas colunas (nome e CPF em destaque, texto «Assinado de forma digital…», data/hora e fuso) e marca d’água suave com o logo da igreja — no lugar do bloco clássico com imagem manuscrita e linha.',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -5825,6 +5857,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     if (institutionalCargo.isEmpty) {
       institutionalCargo = widget.cargoCtrl.text.trim();
     }
+    final digitalDadosLinha = formatCertificadoDigitalDadosLinha(DateTime.now());
     final protocolId = await CertificateEmitidoService.registerEmissao(
       tenantId: widget.tenantId,
       snapshot: <String, dynamic>{
@@ -5853,6 +5886,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         'includeInstitutionalPastorSignature':
             _includeInstitutionalPastorSignature,
         'useDigitalSignature': useDigitalSignature,
+        'digitalSignatureDadosLine': digitalDadosLinha,
         'pastorManual': widget.pastorCtrl.text,
         'cargoManual': widget.cargoCtrl.text,
         'institutionalPastorNome': institutionalNome,
@@ -5863,6 +5897,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               'memberId': s.memberId,
               'nome': s.nome,
               'cargo': s.cargo,
+              'cpfDigits': s.cpfRaw,
             },
         ],
       },
@@ -5896,6 +5931,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         pastorManual: widget.pastorCtrl.text,
         cargoManual: widget.cargoCtrl.text,
         useDigitalSignature: useDigitalSignature,
+        digitalSignatureDadosLine: digitalDadosLinha,
         qrValidationUrl: qrUrl,
         signatoriesForPdf: [
           for (final s in selectedForPdf)
@@ -5903,6 +5939,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               memberId: s.memberId,
               nome: s.nome,
               cargo: s.cargo,
+              cpfDigits: s.cpfRaw,
               assinaturaUrlHint:
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
             ),
@@ -7333,6 +7370,8 @@ class _SignatoryOption {
   final String nome;
   final String cargo;
   final List<String> cargoOptions;
+  /// CPF só dígitos (até 11) para o selo de assinatura digital.
+  final String cpfRaw;
   /// URL da assinatura (evita leitura extra no Firestore ao gerar o PDF).
   final String assinaturaUrl;
   const _SignatoryOption({
@@ -7340,6 +7379,7 @@ class _SignatoryOption {
     required this.nome,
     required this.cargo,
     this.cargoOptions = const [],
+    this.cpfRaw = '',
     this.assinaturaUrl = '',
   });
 }

@@ -33,6 +33,15 @@ void _appendGalaLuxoCertificatePage(
         : null;
     return pw.Container(
       width: signatoryBlockWidth,
+      padding: const pw.EdgeInsets.fromLTRB(6, 8, 6, 10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: pw.BorderRadius.circular(8),
+        border: pw.Border.all(
+          color: PdfColor(accent.red, accent.green, accent.blue, 0.42),
+          width: 1.2,
+        ),
+      ),
       alignment: pw.Alignment.center,
       child: pw.Column(
         mainAxisSize: pw.MainAxisSize.min,
@@ -41,17 +50,17 @@ void _appendGalaLuxoCertificatePage(
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 6),
               child: pw.SizedBox(
-                width: 118,
-                height: 46,
+                width: 122,
+                height: 50,
                 child: pw.Image(img, fit: pw.BoxFit.contain),
               ),
             ),
-          pw.Container(width: 120, height: 1, color: accent),
-          pw.SizedBox(height: 8),
+          pw.Container(width: 124, height: 2.2, color: accent),
+          pw.SizedBox(height: 9),
           pw.Text(
             s.nome,
             style: pw.TextStyle(
-              fontSize: 12.5,
+              fontSize: 12.8,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -63,7 +72,7 @@ void _appendGalaLuxoCertificatePage(
           pw.Text(
             s.cargo,
             style: pw.TextStyle(
-              fontSize: 10,
+              fontSize: 10.2,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -77,6 +86,23 @@ void _appendGalaLuxoCertificatePage(
   }
 
   pw.Widget buildFooterSignatures(PdfColor accent, PdfColor accentClaro) {
+    if (input.useDigitalSignatureStamp && input.signatories.isNotEmpty) {
+      return pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < input.signatories.length; i++) ...[
+            if (i > 0) pw.SizedBox(height: 4),
+            _pwCertPdfDigitalSignatureStamp(
+              input: input,
+              signatory: input.signatories[i],
+              watermark: logoImage,
+              galaFooterCompact: true,
+            ),
+          ],
+        ],
+      );
+    }
     if (input.signatories.isNotEmpty) {
       final count = input.signatories.length;
       final blocks = List<pw.Widget>.generate(
@@ -470,7 +496,12 @@ void _appendGalaLuxoCertificatePage(
                     child: pw.Padding(
                       // Espaço inferior reservado para selo/QR + faixa de assinaturas
                       // (fora desta coluna), evitando overflow que cortava o rodapé no PDF.
-                      padding: const pw.EdgeInsets.fromLTRB(36, 18, 36, 102),
+                      padding: pw.EdgeInsets.fromLTRB(
+                        36,
+                        18,
+                        36,
+                        _certPdfGalaContentBottomPad(input),
+                      ),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.center,
                         children: [
@@ -523,9 +554,10 @@ void _appendGalaLuxoCertificatePage(
                           ],
                           pw.SizedBox(height: 10),
                           pw.SizedBox(
-                            height: nomeMembroLinha2Efetiva.isEmpty
-                                ? 68.0
-                                : 118.0,
+                            height: (nomeMembroLinha2Efetiva.isEmpty
+                                    ? 68.0
+                                    : 118.0) +
+                                _certPdfGalaNomeSlotExtra(input),
                             width: double.infinity,
                             child: pw.Center(
                               child: pw.Padding(
@@ -608,7 +640,7 @@ void _appendGalaLuxoCertificatePage(
                   pw.Positioned(
                     left: 124,
                     right: 18,
-                    bottom: 8,
+                    bottom: _certPdfGalaSignaturesBottom(input),
                     child: pw.Center(
                       child: buildFooterSignatures(
                           galaBronze, galaBronzeLight),

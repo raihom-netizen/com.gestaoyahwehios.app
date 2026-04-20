@@ -32,6 +32,8 @@ class CertPdfPipelineSignatory {
   final String memberId;
   final String nome;
   final String cargo;
+  /// CPF só dígitos (até 11) para o selo de assinatura digital no PDF.
+  final String cpfDigits;
   /// Quando preenchido (ex.: lista de membros já carregada), evita leitura extra no Firestore.
   final String? assinaturaUrlHint;
 
@@ -39,6 +41,7 @@ class CertPdfPipelineSignatory {
     required this.memberId,
     required this.nome,
     required this.cargo,
+    this.cpfDigits = '',
     this.assinaturaUrlHint,
   });
 }
@@ -66,6 +69,8 @@ class CertPdfPipelineParams {
   final String pastorManual;
   final String cargoManual;
   final bool useDigitalSignature;
+  /// Linha «Dados: …» do selo digital (preenchida na emissão; vazio usa texto mínimo no PDF).
+  final String digitalSignatureDadosLine;
   final List<CertPdfPipelineSignatory> signatoriesForPdf;
   /// URL para QR no layout [gala_luxo]; vazio omite o QR no selo.
   final String qrValidationUrl;
@@ -105,6 +110,7 @@ class CertPdfPipelineParams {
     required this.pastorManual,
     required this.cargoManual,
     required this.useDigitalSignature,
+    this.digitalSignatureDadosLine = '',
     required this.signatoriesForPdf,
     this.qrValidationUrl = '',
     this.visualTemplateId = 'classico_dourado',
@@ -929,6 +935,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         nome: p.signatoriesForPdf[i].nome,
         cargo: p.signatoriesForPdf[i].cargo,
         signatureImageBytes: effectiveSignatureBytesForIndex(i),
+        cpfDigits: p.signatoriesForPdf[i].cpfDigits,
       ),
   ];
   if (p.includeInstitutionalPastorSignature &&
@@ -949,6 +956,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
             ? 'Assinatura institucional'
             : p.institutionalPastorCargo.trim(),
         signatureImageBytes: instSigOpt,
+        cpfDigits: '',
       ),
     );
   }
@@ -1032,6 +1040,8 @@ Future<Uint8List> runCertificatePdfPipeline(
         ? 'classico_dourado'
         : p.visualTemplateId.trim(),
     useLuxuryPdfFonts: true,
+    useDigitalSignatureStamp: p.useDigitalSignature,
+    digitalSignatureDadosLine: p.digitalSignatureDadosLine.trim(),
   );
 
   report('Processando certificado 1 de 1 — compactando PDF…', 0.88);
@@ -1111,6 +1121,8 @@ Future<Uint8List> runCertificateGalaLuxoBatchPdfPipeline({
       backgroundTemplateBytes: resolved.bgOpt,
       visualTemplateId: visualId,
       useLuxuryPdfFonts: true,
+      useDigitalSignatureStamp: shared.useDigitalSignature,
+      digitalSignatureDadosLine: shared.digitalSignatureDadosLine.trim(),
     );
     maps.add(certificatePdfInputToMap(input));
   }

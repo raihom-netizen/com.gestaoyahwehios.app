@@ -10,7 +10,6 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
-        eventNoticiaPhotoUrls,
         eventNoticiaThumbStoragePath,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -24,49 +23,20 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
         SafeNetworkImage,
-        dedupeImageRefsByStorageIdentity,
         firebaseStorageMediaUrlLooksLike,
-        imageUrlFromMap,
-        imageUrlsListFromMap,
         isDataImageUrl,
         isFirebaseStorageHttpUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show noticiaGalleryRefsForShare;
+import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
 
 /// URLs/paths utilizáveis como foto no feed (inclui caminhos Storage sem https — painel fazia drop).
-List<String> yahwehPostGalleryRefs(Map<String, dynamic> p) {
-  final seen = <String>{};
-  final out = <String>[];
-  void add(String? raw) {
-    final s = sanitizeImageUrl(raw ?? '');
-    if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return;
-    final low = s.toLowerCase();
-    if (low.contains('youtube.com') ||
-        low.contains('youtu.be') ||
-        low.contains('vimeo.com')) {
-      return;
-    }
-    final ok = isValidImageUrl(s) ||
-        isDataImageUrl(s) ||
-        low.startsWith('gs://') ||
-        firebaseStorageMediaUrlLooksLike(s);
-    if (!ok) return;
-    if (seen.add(s)) out.add(s);
-  }
-
-  for (final u in eventNoticiaPhotoUrls(p)) {
-    add(u);
-  }
-  for (final u in imageUrlsListFromMap(p)) {
-    add(u);
-  }
-  if (out.isEmpty) {
-    add(imageUrlFromMap(p));
-  }
-  return dedupeImageRefsByStorageIdentity(out);
-}
+List<String> yahwehPostGalleryRefs(Map<String, dynamic> p) =>
+    noticiaGalleryRefsForShare(p);
 
 String? _yahwehPostVideoPosterUrl(Map<String, dynamic>? p) {
   if (p == null) return null;
@@ -138,7 +108,7 @@ class YahwehPostCard extends StatelessWidget {
     if (isDataImageUrl(u)) {
       return SafeNetworkImage(
         imageUrl: u,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: double.infinity,
         height: double.infinity,
         memCacheWidth: memCacheW,
@@ -153,7 +123,7 @@ class YahwehPostCard extends StatelessWidget {
     if (storageLike) {
       return FreshFirebaseStorageImage(
         imageUrl: u,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: double.infinity,
         height: double.infinity,
         memCacheWidth: memCacheW,
@@ -164,7 +134,7 @@ class YahwehPostCard extends StatelessWidget {
     }
     return SafeNetworkImage(
       imageUrl: u,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: memCacheW,
@@ -215,8 +185,21 @@ class YahwehPostCard extends StatelessWidget {
               InkWell(
                 onTap: webEmbedVideo
                     ? null
-                    : (gallery.length > 1
-                        ? null
+                    : (gallery.length > 1 && data != null
+                        ? () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                fullscreenDialog: true,
+                                builder: (_) => NoticiaPhotoGalleryPage(
+                                  firestoreData: data,
+                                  imageRefs: gallery,
+                                  title: title,
+                                  isEvento: isEvento,
+                                  initialIndex: 0,
+                                ),
+                              ),
+                            );
+                          }
                         : (showVideoOverlay
                             ? () async {
                                 await onOpenVideo();
@@ -224,8 +207,9 @@ class YahwehPostCard extends StatelessWidget {
                             : () {
                                 final u = sanitizeImageUrl(coverUrl);
                                 if (isValidImageUrl(u)) {
-                                  showYahwehFullscreenZoomableImage(context,
-                                      imageUrl: u);
+                                  unawaited(showYahwehFullscreenZoomableImage(
+                                      context,
+                                      imageUrl: u));
                                 }
                               })),
                 child: ChurchPublicConstrainedMedia(
@@ -260,7 +244,7 @@ class YahwehPostCard extends StatelessWidget {
                                     FreshFirebaseStorageImage(
                                       imageUrl:
                                           _yahwehPostVideoPosterUrl(data)!,
-                                      fit: BoxFit.cover,
+                                      fit: BoxFit.contain,
                                       width: double.infinity,
                                       height: double.infinity,
                                       memCacheWidth: memCacheW,
@@ -641,7 +625,7 @@ class _HostedVideoTapPoster extends StatelessWidget {
             if (posterOk)
               FreshFirebaseStorageImage(
                 imageUrl: td,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 width: double.infinity,
                 height: double.infinity,
                 memCacheWidth: memCacheW,
@@ -715,7 +699,7 @@ class _YahwehPublicGalleryStackState extends State<_YahwehPublicGalleryStack> {
                 imageUrl: url,
                 width: double.infinity,
                 height: double.infinity,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 memCacheWidth: widget.memCacheW,
                 memCacheHeight: widget.memCacheH,
                 placeholder: YahwehPremiumFeedShimmer.mediaCover(),

@@ -99,6 +99,15 @@ class ThemeCleanPremium {
         onError: Colors.white,
       ),
       scaffoldBackgroundColor: surfaceVariant,
+      /// Ícones em listas, cartões e ações secundárias — tom índigo vivo (moderno, legível).
+      iconTheme: IconThemeData(
+        color: primary.withValues(alpha: 0.92),
+        size: 22,
+      ),
+      primaryIconTheme: IconThemeData(
+        color: Colors.white,
+        size: 24,
+      ),
       appBarTheme: const AppBarTheme(
         elevation: 0,
         scrolledUnderElevation: 0.5,

@@ -8,13 +8,18 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
+        eventNoticiaPhotoUrls,
         eventNoticiaThumbStoragePath,
         eventNoticiaVideosFromDoc,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
+        dedupeImageRefsByStorageIdentity,
         firebaseStorageMediaUrlLooksLike,
+        imageUrlFromMap,
+        imageUrlsListFromMap,
+        isDataImageUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
@@ -190,4 +195,37 @@ Future<String?> resolveNoticiaHostedVideoShareUrl(Map<String, dynamic> d) async 
     return h;
   }
   return null;
+}
+
+/// URLs/paths utilizáveis como fotos no feed e na partilha (mesma lógica do cartão público).
+List<String> noticiaGalleryRefsForShare(Map<String, dynamic> p) {
+  final seen = <String>{};
+  final out = <String>[];
+  void add(String? raw) {
+    final s = sanitizeImageUrl(raw ?? '');
+    if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return;
+    final low = s.toLowerCase();
+    if (low.contains('youtube.com') ||
+        low.contains('youtu.be') ||
+        low.contains('vimeo.com')) {
+      return;
+    }
+    final ok = isValidImageUrl(s) ||
+        isDataImageUrl(s) ||
+        low.startsWith('gs://') ||
+        firebaseStorageMediaUrlLooksLike(s);
+    if (!ok) return;
+    if (seen.add(s)) out.add(s);
+  }
+
+  for (final u in eventNoticiaPhotoUrls(p)) {
+    add(u);
+  }
+  for (final u in imageUrlsListFromMap(p)) {
+    add(u);
+  }
+  if (out.isEmpty) {
+    add(imageUrlFromMap(p));
+  }
+  return dedupeImageRefsByStorageIdentity(out);
 }
