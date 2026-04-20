@@ -15,7 +15,7 @@ flutter pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "`n=== flutter build web --release (HTML / FLUTTER_WEB_USE_SKIA=false) ===" -ForegroundColor Cyan
-flutter build web --release --no-tree-shake-icons --dart-define=FLUTTER_WEB_USE_SKIA=false
+flutter build web --release --no-tree-shake-icons --pwa-strategy=none --dart-define=FLUTTER_WEB_USE_SKIA=false
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Set-Location $RepoRoot

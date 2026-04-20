@@ -30,7 +30,7 @@ firebase deploy --only "firestore:rules,firestore:indexes,functions" --project $
 Write-Host "==> Build Flutter Web" -ForegroundColor Cyan
 cd "$ROOT\flutter_app"
 flutter pub get
-flutter build web --release --no-tree-shake-icons
+flutter build web --release --no-tree-shake-icons --pwa-strategy=none
 
 Write-Host "==> Deploy Hosting" -ForegroundColor Cyan
 cd "$ROOT"
