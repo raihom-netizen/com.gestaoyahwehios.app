@@ -1,4 +1,7 @@
 import 'dart:async' show TimeoutException;
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
 
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -16,13 +19,67 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
+        firebaseStorageBytesFromDownloadUrl,
         firebaseStorageMediaUrlLooksLike,
         imageUrlFromMap,
         imageUrlsListFromMap,
         isDataImageUrl,
+        isFirebaseStorageHttpUrl,
         isValidImageUrl,
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
+
+/// Extensão/MIME coerentes com os bytes (evita anexar PNG como `*.jpg` no share / galeria).
+({String mime, String filename}) noticiaShareImageDescriptorFromBytes(
+    Uint8List bytes) {
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return (mime: 'image/png', filename: 'publicacao.png');
+  }
+  if (bytes.length >= 4 &&
+      bytes[0] == 0x47 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x38) {
+    return (mime: 'image/gif', filename: 'publicacao.gif');
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+    return (mime: 'image/jpeg', filename: 'publicacao.jpg');
+  }
+  return (mime: 'image/jpeg', filename: 'publicacao.jpg');
+}
+
+/// Baixa a mesma capa usada na partilha nativa (até ~4 MB).
+Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async {
+  final imgHttps = await resolveNoticiaSharePreviewImageUrl(post);
+  if (imgHttps == null || !isValidImageUrl(imgHttps)) return null;
+  final u = sanitizeImageUrl(imgHttps);
+  Uint8List? bytes;
+  try {
+    if (isFirebaseStorageHttpUrl(u)) {
+      bytes = await firebaseStorageBytesFromDownloadUrl(u,
+          maxBytes: 4 * 1024 * 1024);
+    }
+    if (bytes == null) {
+      final response = await http
+          .get(
+            Uri.parse(u),
+            headers: const {'Accept': 'image/*'},
+          )
+          .timeout(const Duration(seconds: 22));
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        bytes = response.bodyBytes;
+      }
+    }
+  } catch (_) {
+    return null;
+  }
+  if (bytes == null || bytes.length <= 32) return null;
+  return bytes;
+}
 
 /// Dias da semana (Dart: weekday 1 = segunda … 7 = domingo).
 const _kWeekdayPtShort = <String>[

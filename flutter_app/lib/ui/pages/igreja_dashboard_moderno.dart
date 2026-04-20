@@ -60,6 +60,8 @@ import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
+    show churchMuralCarouselClipHeight;
 import 'package:gestao_yahweh/ui/widgets/church_ministry_health_panel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
     show ChurchHostedVideoSurface, showChurchHostedVideoDialog;
@@ -4917,39 +4919,20 @@ const double _kPainelDestaqueThumbSide = 140;
 /// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
 const double _kPainelDestaqueWebSplitMinWidth = 720;
 
-/// Altura mínima da mídia no split web (lado esquerdo).
-const double _kPainelDestaqueWebMediaHeight = 260;
-
-/// Altura da faixa de mídia (mobile / estreito): respeita proporção quando existir em [media_info].
-/// Antes o teto era 152px — cartazes e fotos verticais ficavam visualmente “achatados”.
-double _painelDestaqueMediaHeight(double width,
-    [Map<String, dynamic>? postData]) {
+/// Mesmo critério do site público / mural: [churchMuralCarouselClipHeight] +
+/// [postFeedCarouselAspectRatioForIndex] (incl. [media_info.aspect_ratio]).
+double _painelDestaqueMediaClipHeight(
+  BuildContext context,
+  double width,
+  Map<String, dynamic> postData, {
+  required int nPhotosForAr,
+  int carouselIndex = 0,
+}) {
   final w = width > 0 ? width : 360.0;
-  // Razão largura÷altura do retângulo (w/h). Ex.: 0.65 ≈ cartaz vertical.
-  double ar;
-  if (postData != null) {
-    final mi = postData['media_info'];
-    if (mi is Map) {
-      final ow = mi['width'];
-      final oh = mi['height'];
-      if (ow is num && oh is num && ow > 0 && oh > 0) {
-        ar = (ow.toDouble() / oh.toDouble()).clamp(0.35, 3.2);
-      } else {
-        final oar = mi['aspect_ratio'] ?? mi['aspectRatio'];
-        ar = (oar is num)
-            ? oar.toDouble().clamp(0.35, 3.2)
-            : 1.0;
-      }
-    } else {
-      ar = 1.0;
-    }
-  } else {
-    ar = 1.0;
-  }
-  final raw = w / ar;
-  const minH = 140.0;
-  final maxH = (w * 1.18).clamp(260.0, 520.0);
-  return raw.clamp(minH, maxH);
+  final denom = nPhotosForAr > 0 ? nPhotosForAr : 1;
+  final safeIdx = carouselIndex.clamp(0, denom - 1);
+  final ar = postFeedCarouselAspectRatioForIndex(postData, safeIdx, denom);
+  return churchMuralCarouselClipHeight(context, w, ar);
 }
 
 /// Retorna datas expandidas de um template (evento fixo) dentro do intervalo.
@@ -5907,6 +5890,8 @@ class _PainelDestaqueMediaCarousel extends StatefulWidget {
   final void Function(int photoIndex)? onGalleryPhotoTap;
   /// Dois toques na foto: curtir (estilo Instagram).
   final Future<void> Function()? onLikeDoubleTap;
+  /// Altura do cartão no painel segue o slide atual (site público).
+  final ValueChanged<int>? onCarouselPageChanged;
 
   const _PainelDestaqueMediaCarousel({
     required this.data,
@@ -5914,6 +5899,7 @@ class _PainelDestaqueMediaCarousel extends StatefulWidget {
     required this.title,
     this.onGalleryPhotoTap,
     this.onLikeDoubleTap,
+    this.onCarouselPageChanged,
   });
 
   @override
@@ -6061,7 +6047,10 @@ class _PainelDestaqueMediaCarouselState
       children: [
         PageView.builder(
           controller: _pageCtrl,
-          onPageChanged: (p) => setState(() => _page = p),
+          onPageChanged: (p) {
+            setState(() => _page = p);
+            widget.onCarouselPageChanged?.call(p);
+          },
           itemCount: n,
           itemBuilder: (ctx, idx) {
             if (idx < refs.length) {
@@ -6320,7 +6309,7 @@ void _openPainelDestaqueFotoAmpliar(
   );
 }
 
-class _DestaqueCard extends StatelessWidget {
+class _DestaqueCard extends StatefulWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   final String tenantId;
   final String role;
@@ -6333,6 +6322,9 @@ class _DestaqueCard extends StatelessWidget {
     required this.churchSlug,
     required this.nomeIgreja,
   });
+
+  @override
+  State<_DestaqueCard> createState() => _DestaqueCardState();
 
   /// Área de imagem do card: [StableStorageImage] (path + URL renováveis), thumb de vídeo com token fresco, gradiente.
   static Widget _DestaqueCardImage({
@@ -6560,15 +6552,27 @@ class _DestaqueCard extends StatelessWidget {
     if (vimeoMatch != null) return 'https://vumbnail.com/${vimeoMatch.group(1)}.jpg';
     return null;
   }
+}
+
+class _DestaqueCardState extends State<_DestaqueCard> {
+  int _carouselPage = 0;
+
+  @override
+  void didUpdateWidget(covariant _DestaqueCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.doc.id != widget.doc.id) {
+      _carouselPage = 0;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final data = doc.data();
+    final data = widget.doc.data();
     final title = (data['title'] ?? '').toString();
     final text = (data['text'] ?? '').toString();
     final type = (data['type'] ?? 'aviso').toString();
     final fromAvisosCol = ChurchTenantPostsCollections.segmentFromPostRef(
-            doc.reference) ==
+            widget.doc.reference) ==
         ChurchTenantPostsCollections.avisos;
     final galleryRefs = yahwehPostGalleryRefs(data);
     var firstImg = '';
@@ -6641,8 +6645,8 @@ class _DestaqueCard extends StatelessWidget {
         context,
         ThemeCleanPremium.fadeSlideRoute(
           isEvento
-              ? EventsManagerPage(tenantId: tenantId, role: role)
-              : MuralPage(tenantId: tenantId, role: role),
+              ? EventsManagerPage(tenantId: widget.tenantId, role: widget.role)
+              : MuralPage(tenantId: widget.tenantId, role: widget.role),
         ),
       );
     };
@@ -6676,11 +6680,7 @@ class _DestaqueCard extends StatelessWidget {
                 (storagePathPrimary?.trim().isNotEmpty ?? false))
             ? 1
             : 0);
-    final panelMediaAspect = postFeedCarouselAspectRatioForIndex(
-      data,
-      0,
-      nPhotosForAr > 0 ? nPhotosForAr : 1,
-    );
+    final denomPhotos = nPhotosForAr > 0 ? nPhotosForAr : 1;
 
     final panelW = MediaQuery.sizeOf(context).width;
     final useWebSplit =
@@ -6702,9 +6702,11 @@ class _DestaqueCard extends StatelessWidget {
                       photoIndex: i,
                     ),
             onLikeDoubleTap: () =>
-                _painelDestaqueToggleLike(context, doc, tenantId),
+                _painelDestaqueToggleLike(context, widget.doc, widget.tenantId),
+            onCarouselPageChanged:
+                (i) => setState(() => _carouselPage = i),
           )
-        : _DestaqueCardImage(
+        : _DestaqueCard._DestaqueCardImage(
             displayImageUrl: urlForStable,
             storagePath: pathForStable,
             gsUrl: gsForStable,
@@ -6715,7 +6717,8 @@ class _DestaqueCard extends StatelessWidget {
             isEvento: isEvento,
             onMediaTap: tapMediaAmpliar,
             onDoubleTapMedia: () => unawaited(
-                _painelDestaqueToggleLike(context, doc, tenantId)),
+                _painelDestaqueToggleLike(
+                    context, widget.doc, widget.tenantId)),
           );
 
     return ClipRRect(
@@ -6769,8 +6772,14 @@ class _DestaqueCard extends StatelessWidget {
                           if (gw <= 0) {
                             return const SizedBox.shrink();
                           }
-                          var mh = gw / panelMediaAspect;
-                          mh = mh.clamp(160.0, _kPainelDestaqueWebMediaHeight);
+                          final mh = _painelDestaqueMediaClipHeight(
+                            context,
+                            gw,
+                            data,
+                            nPhotosForAr: denomPhotos,
+                            carouselIndex:
+                                showCarousel ? _carouselPage : 0,
+                          );
                           return ClipRRect(
                             borderRadius: BorderRadius.circular(14),
                             child: SizedBox(
@@ -6903,12 +6912,16 @@ class _DestaqueCard extends StatelessWidget {
                   children: [
                     SizedBox(
                       width: _kPainelDestaqueThumbSide.toDouble(),
-                      child: AspectRatio(
-                        aspectRatio: 3 / 4,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: carouselOrImage,
-                        ),
+                      height: _painelDestaqueMediaClipHeight(
+                        context,
+                        _kPainelDestaqueThumbSide.toDouble(),
+                        data,
+                        nPhotosForAr: denomPhotos,
+                        carouselIndex: showCarousel ? _carouselPage : 0,
+                      ).clamp(140.0, 260.0),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: carouselOrImage,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -7073,7 +7086,13 @@ class _DestaqueCard extends StatelessWidget {
               LayoutBuilder(
                 builder: (context, c) {
                   final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
-                  final mediaH = _painelDestaqueMediaHeight(mw, data);
+                  final mediaH = _painelDestaqueMediaClipHeight(
+                    context,
+                    mw,
+                    data,
+                    nPhotosForAr: denomPhotos,
+                    carouselIndex: showCarousel ? _carouselPage : 0,
+                  );
                   return SizedBox(
                     width: double.infinity,
                     height: mediaH,
@@ -7107,11 +7126,11 @@ class _DestaqueCard extends StatelessWidget {
                 ),
               ),
             _PainelDestaqueSocialBar(
-              doc: doc,
-              tenantId: tenantId,
-              role: role,
-              churchSlug: churchSlug,
-              nomeIgreja: nomeIgreja,
+              doc: widget.doc,
+              tenantId: widget.tenantId,
+              role: widget.role,
+              churchSlug: widget.churchSlug,
+              nomeIgreja: widget.nomeIgreja,
               isEvento: isEvento,
             ),
           ],

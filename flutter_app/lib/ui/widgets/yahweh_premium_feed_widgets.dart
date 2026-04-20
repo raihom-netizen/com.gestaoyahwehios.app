@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 import 'package:http/http.dart' as http;
 import 'package:photo_view/photo_view.dart';
 import 'package:share_plus/share_plus.dart';
@@ -9,9 +10,15 @@ import 'package:shimmer/shimmer.dart';
 
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show resolveNoticiaSharePreviewImageUrl;
+    show
+        fetchNoticiaCoverImageBytes,
+        noticiaShareImageDescriptorFromBytes;
 export 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show resolveNoticiaSharePreviewImageUrl, resolveNoticiaShareSheetMedia;
+    show
+        fetchNoticiaCoverImageBytes,
+        noticiaShareImageDescriptorFromBytes,
+        resolveNoticiaSharePreviewImageUrl,
+        resolveNoticiaShareSheetMedia;
 
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
@@ -26,8 +33,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         SafeNetworkImage,
         dedupeImageRefsByStorageIdentity,
-        firebaseStorageBytesFromDownloadUrl,
-        isFirebaseStorageHttpUrl,
         isValidImageUrl,
         preloadNetworkImages,
         sanitizeImageUrl;
@@ -385,40 +390,76 @@ Future<void> shareChurchNoticiaForOgPreview({
   // não envia mídia ao WhatsApp como no app — o preview vem do link OG (/igreja/.../evento/...).
   if (postFirestore != null && !kIsWeb) {
     try {
-      final imgHttps = await resolveNoticiaSharePreviewImageUrl(postFirestore);
-      if (imgHttps != null && isValidImageUrl(imgHttps)) {
-        final u = sanitizeImageUrl(imgHttps);
-        Uint8List? bytes;
-        if (isFirebaseStorageHttpUrl(u)) {
-          bytes = await firebaseStorageBytesFromDownloadUrl(u,
-              maxBytes: 4 * 1024 * 1024);
-        }
-        if (bytes == null) {
-          final response = await http
-              .get(
-                Uri.parse(u),
-                headers: const {'Accept': 'image/*'},
-              )
-              .timeout(const Duration(seconds: 22));
-          if (response.statusCode == 200 &&
-              response.bodyBytes.isNotEmpty) {
-            bytes = response.bodyBytes;
-          }
-        }
-        if (bytes != null && bytes.length > 32) {
-          final xFile = XFile.fromData(
-            bytes,
-            name: 'publicacao.jpg',
-            mimeType: 'image/jpeg',
-          );
-          await Share.shareXFiles([xFile], text: text, subject: title);
-          return;
-        }
+      final bytes = await fetchNoticiaCoverImageBytes(postFirestore);
+      if (bytes != null) {
+        final d = noticiaShareImageDescriptorFromBytes(bytes);
+        final xFile = XFile.fromData(
+          bytes,
+          name: d.filename,
+          mimeType: d.mime,
+        );
+        await Share.shareXFiles([xFile], text: text, subject: title);
+        return;
       }
     } catch (_) {}
   }
 
   await Share.share(text, subject: title);
+}
+
+/// Salva a mesma capa da partilha na galeria do telemóvel (Android / iOS). Na web, mostra aviso.
+Future<void> saveNoticiaCoverToGallery(
+  BuildContext context,
+  Map<String, dynamic> post,
+) async {
+  if (kIsWeb) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar(
+        'Na web, use «Compartilhar» ou copie o link do convite.',
+      ),
+    );
+    return;
+  }
+  try {
+    final permitted = await Gal.hasAccess(toAlbum: true);
+    if (!permitted && !await Gal.requestAccess(toAlbum: true)) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Permita o acesso à galeria para guardar a imagem.',
+        ),
+      );
+      return;
+    }
+  } catch (_) {}
+  final bytes = await fetchNoticiaCoverImageBytes(post);
+  if (!context.mounted) return;
+  if (bytes == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar(
+        'Não foi possível obter a imagem para guardar.',
+      ),
+    );
+    return;
+  }
+  final stamp = DateTime.now().millisecondsSinceEpoch;
+  try {
+    await Gal.putImageBytes(
+      bytes,
+      album: 'Gestão YAHWEH',
+      name: 'convite_yahweh_$stamp',
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar('Imagem guardada na galeria.'),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar('Erro ao guardar: $e'),
+    );
+  }
 }
 
 /// Lightbox com pinch-to-zoom; usa [SafeNetworkImage] (Firebase / web sem CORS quebrado).

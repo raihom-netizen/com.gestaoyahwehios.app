@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
@@ -73,6 +74,8 @@ class _LoginPageState extends State<LoginPage> {
   /// App iOS/Android: com biometria + credenciais salvas, o usuário pode exibir e-mail/senha.
   bool _showManualCredentialFields = false;
   String? _errorMessage;
+  /// Indicador só no botão «Continuar com Google» durante OAuth.
+  bool _oauthGoogleInFlight = false;
 
   _SmartStep _smartStep = _SmartStep.choosePersona;
 
@@ -131,6 +134,16 @@ class _LoginPageState extends State<LoginPage> {
 
   void _clearError() {
     if (_errorMessage != null && mounted) setState(() => _errorMessage = null);
+  }
+
+  void _showFirebaseAuthErrorSnack(FirebaseAuthException e) {
+    final msg = googleAuthErrorMessagePt(e);
+    if (msg == null) return;
+    if (!mounted) return;
+    setState(() => _errorMessage = msg);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context)
+        .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
   }
 
   @override
@@ -424,34 +437,6 @@ class _LoginPageState extends State<LoginPage> {
     await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
   }
 
-  /// Mensagens em português para erros comuns do Google Auth na web.
-  String _messageForGoogleWebAuth(FirebaseAuthException e) {
-    final code = e.code.toLowerCase();
-    if (code.contains('account-exists-with-different-credential')) {
-      return 'Este e-mail já tem login com senha. Use e-mail e senha ou peça ao gestor para alinhar o acesso.';
-    }
-    if (code.contains('invalid-credential')) {
-      return 'Não foi possível validar o login com Google. Tente de novo ou use e-mail e senha.';
-    }
-    if (code.contains('popup-closed') || code.contains('cancel')) {
-      return 'Login Google cancelado.';
-    }
-    if (code.contains('unauthorized-domain')) {
-      return 'Este domínio não está autorizado para login Google. '
-          'Em Firebase Console → Authentication → Settings, adicione o domínio em "Authorized domains".';
-    }
-    if (code.contains('operation-not-allowed')) {
-      return 'Login com Google não está ativado no projeto. '
-          'Ative o provedor Google em Firebase Console → Authentication → Sign-in method.';
-    }
-    if (code.contains('web-storage-unsupported') ||
-        code.contains('storage-unsupported')) {
-      return 'O navegador bloqueou armazenamento necessário para o login. '
-          'Saia do modo anônimo ou permita cookies e armazenamento para este site.';
-    }
-    return e.message ?? e.code;
-  }
-
   /// Web: conclui login após `signInWithRedirect` (quando popup falha ou navegador bloqueia).
   Future<void> _completeGoogleRedirectIfNeeded() async {
     if (!kIsWeb || !mounted) return;
@@ -469,10 +454,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
-      final msg = _messageForGoogleWebAuth(e);
-      setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
+      _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
@@ -487,14 +469,16 @@ class _LoginPageState extends State<LoginPage> {
                   'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
           : (e.message ?? e.code);
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
       setState(() => _errorMessage = 'Falha ao concluir login Google.');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao concluir login Google: $e')),
+        ThemeCleanPremium.feedbackSnackBar(
+            'Falha ao concluir login Google. Tente de novo ou use e-mail e senha.'),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -503,11 +487,14 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onGoogleChurchLogin() async {
     if (!_showChurchGoogleButton || _loading) return;
-    setState(() => _errorMessage = null);
+    setState(() {
+      _errorMessage = null;
+      _loading = true;
+      _oauthGoogleInFlight = true;
+    });
     try {
       UserCredential cred;
       if (kIsWeb) {
-        setState(() => _loading = true);
         final provider = firebaseWebGoogleAuthProvider();
         try {
           cred =
@@ -521,10 +508,10 @@ class _LoginPageState extends State<LoginPage> {
             await FirebaseAuth.instance.signInWithRedirect(provider);
             return;
           }
+          if (googleAuthErrorMessagePt(e) == null) return;
           rethrow;
         }
       } else {
-        // Não bloqueia a tela durante o seletor de conta Google (evita “fundo escuro” preso).
         FocusManager.instance.primaryFocus?.unfocus();
         WidgetsBinding.instance.scheduleFrame();
         await Future<void>.delayed(const Duration(milliseconds: 48));
@@ -533,18 +520,16 @@ class _LoginPageState extends State<LoginPage> {
         if (googleUser == null) {
           return;
         }
-        if (mounted) setState(() => _loading = true);
         final ga = await googleUser.authentication;
         final idTok = ga.idToken;
         if (idTok == null || idTok.isEmpty) {
-          if (mounted) setState(() => _loading = false);
           const msg =
               'Google não retornou o token de identificação. Atualize o Google Play Services (Android), '
               'verifique data e hora do aparelho e tente de novo. Se persistir, use e-mail e senha.';
           if (mounted) {
             setState(() => _errorMessage = msg);
             ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text(msg)));
+                .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
           }
           return;
         }
@@ -562,9 +547,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
-      final msg = _messageForGoogleWebAuth(e);
-      setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
@@ -579,15 +562,20 @@ class _LoginPageState extends State<LoginPage> {
                   'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
           : (e.message ?? e.code);
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } on MissingPluginException catch (e) {
       if (!mounted) return;
       final msg =
           'Login com Google não está disponível nesta plataforma. Use e-mail e senha ou acesse pelo navegador.';
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n${e.message}')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n${e.message}'));
     } on PlatformException catch (e) {
       if (!mounted) return;
+      if (isGoogleSignInUserCancellation(e)) {
+        return;
+      }
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
       final isDevErr = isGoogleSignInAndroidConfigError(e);
@@ -597,16 +585,23 @@ class _LoginPageState extends State<LoginPage> {
               'conferir o SHA-1 no Firebase Console ou reinstalar o app pela loja.'
           : 'Falha no login com Google. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n(${e.code})')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('$msg\n(${e.code})'));
     } catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
       final msg = 'Falha no login com Google. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n$e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _oauthGoogleInFlight = false;
+        });
+      }
     }
   }
 
@@ -649,14 +644,13 @@ class _LoginPageState extends State<LoginPage> {
               'ou use e-mail e senha. Em builds de desenvolvimento, teste em dispositivo real com «Entrar com a Apple» ativo no App ID.'
           : 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
       if (!mounted) return;
-      final msg = _messageForGoogleWebAuth(e);
-      setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
@@ -671,7 +665,8 @@ class _LoginPageState extends State<LoginPage> {
                   'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
           : (e.message ?? e.code);
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } catch (e) {
       if (!mounted) return;
       final low = e.toString().toLowerCase();
@@ -680,7 +675,8 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       const msg = 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg\n$e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -959,60 +955,80 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  static Widget _googleMark() {
-    return Container(
-      width: 22,
-      height: 22,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFFdadce0)),
-      ),
-      child: const Text(
-        'G',
-        style: TextStyle(
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF4285F4),
-          fontSize: 13,
-        ),
-      ),
-    );
-  }
-
   Widget _buildChurchOAuthButtons(Color theme) {
     if (!_showChurchGoogleButton) return const SizedBox.shrink();
+    final radius = BorderRadius.circular(ThemeCleanPremium.radiusMd);
+    final busy = _loading || _oauthGoogleInFlight;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        OutlinedButton(
-          onPressed: _loading ? null : _onGoogleChurchLogin,
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            side: BorderSide(color: Colors.grey.shade400),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _googleMark(),
-              const SizedBox(width: 10),
-              Text(
-                'Continuar com Google',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                  color: theme,
+        Semantics(
+          button: true,
+          label: 'Continuar com Google',
+          child: Material(
+            color: Colors.white,
+            elevation: 2,
+            shadowColor: Colors.black.withValues(alpha: 0.1),
+            borderRadius: radius,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: busy ? null : _onGoogleChurchLogin,
+              borderRadius: radius,
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  border: Border.all(color: const Color(0xFFDADCE0)),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minHeight: ThemeCleanPremium.minTouchTarget,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_oauthGoogleInFlight)
+                          SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: theme,
+                            ),
+                          )
+                        else
+                          const FaIcon(
+                            FontAwesomeIcons.google,
+                            size: 22,
+                            color: Color(0xFF4285F4),
+                          ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _oauthGoogleInFlight
+                              ? 'A ligar ao Google…'
+                              : 'Continuar com Google',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15.5,
+                            letterSpacing: -0.25,
+                            color: const Color(0xFF3C4043),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
         ),
         if (_showAppleSignInButton) ...[
           const SizedBox(height: 10),
           SignInWithAppleButton(
             onPressed: () {
-              if (_loading) return;
+              if (busy) return;
               unawaited(_onAppleChurchLogin());
             },
             style: SignInWithAppleButtonStyle.black,

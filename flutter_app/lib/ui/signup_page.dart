@@ -8,6 +8,9 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class SignupPage extends StatefulWidget {
@@ -72,43 +75,33 @@ class _SignupPageState extends State<SignupPage> {
       await GestorOAuthOnboardingService.routeAfterOAuthSignIn(context);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      final msg = e.message ?? e.code;
-      final low = msg.toString().toLowerCase();
-      final isDomain =
-          low.contains('domain') || low.contains('authorized');
-      final isCancel = e.code == 'cancelled' ||
-          low.contains('cancel') ||
-          low.contains('popup-closed');
-      if (isCancel) {
-        return;
-      }
+      final mapped = googleAuthErrorMessagePt(e);
+      if (mapped == null) return;
+      final low = mapped.toLowerCase();
+      final isDomain = low.contains('domain') || low.contains('authorized');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isDomain
-              ? 'Adicione este domínio em Firebase Console > Authentication > Authorized domains.'
-              : 'Falha no login Google: $msg'),
-          duration: const Duration(seconds: 5),
+        ThemeCleanPremium.feedbackSnackBar(
+          isDomain
+              ? 'Adicione este domínio em Firebase Console → Authentication → Authorized domains.'
+              : mapped,
         ),
       );
     } on PlatformException catch (e) {
       if (!mounted) return;
+      if (isGoogleSignInUserCancellation(e)) return;
       final isDevErr = isGoogleSignInAndroidConfigError(e);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isDevErr
-                ? 'Login Google indisponível neste aparelho (assinatura/SHA-1). '
-                    'Adicione o SHA-1 do keystore em Firebase Console → Configurações do projeto → App Android, '
-                    'ou use e-mail e senha. Depois de alterar o SHA-1, aguarde alguns minutos e tente de novo.'
-                : 'Falha no Google: ${e.code} ${e.message ?? ''}',
-          ),
-          duration: const Duration(seconds: 8),
+        ThemeCleanPremium.feedbackSnackBar(
+          isDevErr
+              ? 'Login Google indisponível neste aparelho (SHA-1). '
+                  'Verifique o keystore em Firebase Console → App Android ou use e-mail e senha.'
+              : 'Falha no Google: ${e.code} ${e.message ?? ''}',
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro: $e')),
+        ThemeCleanPremium.feedbackSnackBar('Erro: $e'),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -205,24 +198,60 @@ class _SignupPageState extends State<SignupPage> {
           style: const TextStyle(color: Colors.black54, height: 1.35),
         ),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: _loading ? null : _cadastroRapidoGoogle,
-          icon: _loading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+        Material(
+          color: Colors.white,
+          elevation: 2,
+          shadowColor: Colors.black.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: _loading ? null : _cadastroRapidoGoogle,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                border: Border.all(color: const Color(0xFFDADCE0)),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: ThemeCleanPremium.minTouchTarget,
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_loading)
+                        SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                        )
+                      else
+                        const FaIcon(
+                          FontAwesomeIcons.google,
+                          size: 22,
+                          color: Color(0xFF4285F4),
+                        ),
+                      const SizedBox(width: 12),
+                      Text(
+                        _loading ? 'A ligar ao Google…' : 'Continuar com Google',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15.5,
+                          letterSpacing: -0.25,
+                          color: const Color(0xFF3C4043),
+                        ),
+                      ),
+                    ],
                   ),
-                )
-              : const Icon(Icons.g_mobiledata_rounded, size: 26),
-          label: const Text('Continuar com Google'),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF4285F4),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            textStyle:
-                const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           ),
         ),
         if (_showAppleButton) ...[

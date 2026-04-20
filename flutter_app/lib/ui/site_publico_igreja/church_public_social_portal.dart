@@ -16,10 +16,13 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaPhotoUrls,
-        looksLikeHostedVideoFileUrl;
+        looksLikeHostedVideoFileUrl,
+        postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
+    show churchMuralCarouselClipHeight;
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -30,7 +33,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show shareChurchNoticiaForOgPreview;
+    show saveNoticiaCoverToGallery, shareChurchNoticiaForOgPreview;
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 
 /// Miniatura rápida quando o post tem [media_info] (mural Instagram).
@@ -433,33 +436,25 @@ Widget churchPublicSocialFeedTile({
     String postId,
   ) onOpenHostedVideo,
 }) {
-  return LayoutBuilder(
-    builder: (context, c) {
-      final tileH = (c.maxWidth * 0.92).clamp(240.0, 420.0);
-      return SizedBox(
-        height: tileH,
-        child: _SocialGridTile(
-          postId: doc.id,
-          post: doc.data(),
+  return _SocialGridTile(
+    postId: doc.id,
+    post: doc.data(),
+    igrejaId: igrejaId,
+    churchSlug: churchSlug,
+    accent: accent,
+    memCacheW: memCacheW,
+    memCacheH: memCacheH,
+    onOpenHostedVideo: onOpenHostedVideo,
+    onOpenDetail: () => unawaited(ChurchPublicPostLightbox.show(
+          context,
+          doc: doc,
           igrejaId: igrejaId,
           churchSlug: churchSlug,
           accent: accent,
           memCacheW: memCacheW,
           memCacheH: memCacheH,
           onOpenHostedVideo: onOpenHostedVideo,
-          onOpenDetail: () => unawaited(ChurchPublicPostLightbox.show(
-                context,
-                doc: doc,
-                igrejaId: igrejaId,
-                churchSlug: churchSlug,
-                accent: accent,
-                memCacheW: memCacheW,
-                memCacheH: memCacheH,
-                onOpenHostedVideo: onOpenHostedVideo,
-              )),
-        ),
-      );
-    },
+        )),
   );
 }
 
@@ -496,6 +491,7 @@ class _SocialGridTile extends StatefulWidget {
 
 class _SocialGridTileState extends State<_SocialGridTile> {
   bool _hover = false;
+  int _galleryPage = 0;
 
   Future<void> _copyLink(BuildContext context) async {
     final url = AppConstants.shareNoticiaSocialPreviewUrl(
@@ -510,6 +506,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
   @override
   Widget build(BuildContext context) {
     final p = widget.post;
+    final galleryUrls = eventNoticiaPhotoUrls(p);
     final type = (p['type'] ?? 'aviso').toString();
     final isEvento = type == 'evento';
     final title = (p['title'] ?? '').toString();
@@ -551,6 +548,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
                 path: null,
                 memW: widget.memCacheW,
                 memH: widget.memCacheH,
+                fit: BoxFit.contain,
               )
             else if (displayRef.isNotEmpty)
               _gridImageOrStable(
@@ -558,6 +556,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
                 path: path,
                 memW: widget.memCacheW,
                 memH: widget.memCacheH,
+                fit: BoxFit.contain,
               )
             else
               Container(color: const Color(0xFFE5E7EB)),
@@ -567,7 +566,59 @@ class _SocialGridTileState extends State<_SocialGridTile> {
               showControls: false,
               posterUrl: poster.isNotEmpty ? poster : null,
               startLoadingImmediately: true,
-              videoObjectFitContain: false,
+              videoObjectFitContain: true,
+            ),
+          ],
+        ),
+      );
+    } else if (!playWeb && galleryUrls.length > 1) {
+      mediaChild = ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PageView.builder(
+              itemCount: galleryUrls.length,
+              onPageChanged: (i) => setState(() => _galleryPage = i),
+              itemBuilder: (ctx, idx) {
+                final raw = sanitizeImageUrl(galleryUrls[idx]);
+                final pathI = eventNoticiaPhotoStoragePathAt(p, idx);
+                return ColoredBox(
+                  color: const Color(0xFFF1F5F9),
+                  child: _gridImageOrStable(
+                    displayRef: raw,
+                    path: pathI,
+                    memW: widget.memCacheW,
+                    memH: widget.memCacheH,
+                    fit: BoxFit.contain,
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              bottom: 10,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  galleryUrls.length,
+                  (i) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: _galleryPage == i ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _galleryPage == i
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black26, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -583,6 +634,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
               path: path,
               memW: widget.memCacheW,
               memH: widget.memCacheH,
+              fit: BoxFit.contain,
             ),
             const Center(
               child: Icon(Icons.play_circle_fill_rounded,
@@ -594,11 +646,15 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     } else if (displayRef.isNotEmpty || (path != null && path.isNotEmpty)) {
       mediaChild = ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: _gridImageOrStable(
-          displayRef: displayRef,
-          path: path,
-          memW: widget.memCacheW,
-          memH: widget.memCacheH,
+        child: ColoredBox(
+          color: const Color(0xFFF1F5F9),
+          child: _gridImageOrStable(
+            displayRef: displayRef,
+            path: path,
+            memW: widget.memCacheW,
+            memH: widget.memCacheH,
+            fit: BoxFit.contain,
+          ),
         ),
       );
     } else {
@@ -623,6 +679,10 @@ class _SocialGridTileState extends State<_SocialGridTile> {
       child: InkWell(
         onTap: () {
           if (playWeb) {
+            widget.onOpenDetail();
+            return;
+          }
+          if (galleryUrls.length > 1) {
             widget.onOpenDetail();
             return;
           }
@@ -730,10 +790,27 @@ class _SocialGridTileState extends State<_SocialGridTile> {
       ),
     );
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: tile,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cw =
+            constraints.maxWidth.isFinite && constraints.maxWidth > 0
+                ? constraints.maxWidth
+                : 360.0;
+        final ar = postFeedCarouselAspectRatioForIndex(
+          p,
+          galleryUrls.length > 1 ? _galleryPage : 0,
+          galleryUrls.isNotEmpty ? galleryUrls.length : 1,
+        );
+        final tileH = churchMuralCarouselClipHeight(context, cw, ar);
+        return SizedBox(
+          height: tileH,
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() => _hover = false),
+            child: tile,
+          ),
+        );
+      },
     );
   }
 }
@@ -743,6 +820,7 @@ Widget _gridImageOrStable({
   required String? path,
   required int memW,
   required int memH,
+  BoxFit fit = BoxFit.contain,
 }) {
   final url = sanitizeImageUrl(displayRef);
   if (path != null && path.isNotEmpty) {
@@ -751,7 +829,7 @@ Widget _gridImageOrStable({
       imageUrl: url.isNotEmpty ? url : null,
       width: double.infinity,
       height: double.infinity,
-      fit: BoxFit.cover,
+      fit: fit,
       memCacheWidth: memW,
       memCacheHeight: memH,
     );
@@ -763,7 +841,7 @@ Widget _gridImageOrStable({
   if (storageLike) {
     return FreshFirebaseStorageImage(
       imageUrl: url,
-      fit: BoxFit.cover,
+      fit: fit,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: memW,
@@ -775,7 +853,7 @@ Widget _gridImageOrStable({
   if (url.isNotEmpty && isValidImageUrl(url)) {
     return SafeNetworkImage(
       imageUrl: url,
-      fit: BoxFit.cover,
+      fit: fit,
       memCacheWidth: memW,
       memCacheHeight: memH,
     );
@@ -859,7 +937,19 @@ class ChurchPublicPostLightbox {
                         doc.reference),
               );
 
-              final dialogH = (screenH * 0.88).clamp(380.0, 720.0);
+              final mqSize = MediaQuery.sizeOf(context);
+              final dialogH =
+                  (screenH * 0.92).clamp(400.0, mqSize.height * 0.94);
+              final lbPhotos = eventNoticiaPhotoUrls(p);
+              final lbAr = postFeedCarouselAspectRatioForIndex(
+                p,
+                0,
+                lbPhotos.isNotEmpty ? lbPhotos.length : 1,
+              );
+              final mobileMediaClip =
+                  churchMuralCarouselClipHeight(context, c.maxWidth, lbAr);
+              final mobileMediaH =
+                  mobileMediaClip.clamp(240.0, mqSize.height * 0.62);
               return ClipRRect(
                 borderRadius: radius,
                 child: Material(
@@ -889,9 +979,12 @@ class ChurchPublicPostLightbox {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 SizedBox(
-                                  height: (dialogH * 0.42).clamp(200.0, 320.0),
+                                  height: mobileMediaH,
                                   width: double.infinity,
-                                  child: mediaSection,
+                                  child: ColoredBox(
+                                    color: const Color(0xFFF1F5F9),
+                                    child: mediaSection,
+                                  ),
                                 ),
                                 Expanded(
                                   child: textSection,
@@ -946,8 +1039,9 @@ class _LightboxMediaPagerState extends State<_LightboxMediaPager> {
       slides.add(_gridImageOrStable(
         displayRef: raw,
         path: path,
-        memW: (widget.memCacheW * 1.2).round().clamp(200, 1440),
-        memH: (widget.memCacheH * 1.2).round().clamp(200, 1440),
+        memW: (widget.memCacheW * 1.5).round().clamp(320, 1600),
+        memH: (widget.memCacheH * 1.5).round().clamp(320, 1600),
+        fit: BoxFit.contain,
       ));
     }
     if (widget.playWeb) {
@@ -960,7 +1054,7 @@ class _LightboxMediaPagerState extends State<_LightboxMediaPager> {
                 isValidImageUrl(widget.videoPoster))
               SafeNetworkImage(
                 imageUrl: widget.videoPoster,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 memCacheWidth: widget.memCacheW,
                 memCacheHeight: widget.memCacheH,
               ),
@@ -1127,6 +1221,13 @@ class _LightboxTextPanel extends StatelessWidget {
                       icon: const Icon(Icons.share_rounded, size: 18),
                       label: const Text('Compartilhar…'),
                     ),
+                    if (!kIsWeb)
+                      TextButton.icon(
+                        onPressed: () =>
+                            saveNoticiaCoverToGallery(context, post),
+                        icon: const Icon(Icons.photo_library_outlined, size: 18),
+                        label: const Text('Guardar na galeria'),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 20),

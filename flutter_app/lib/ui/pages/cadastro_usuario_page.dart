@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 
 class CadastroUsuarioPage extends StatefulWidget {
@@ -47,34 +51,48 @@ class _CadastroUsuarioPageState extends State<CadastroUsuarioPage> {
       Navigator.of(context).pushReplacementNamed('/painel');
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      final msg = e.message ?? e.code;
-      final isDomainError = msg.toString().toLowerCase().contains('domain') && msg.toString().toLowerCase().contains('authorized');
+      final msg = googleAuthErrorMessagePt(e);
+      if (msg == null) {
+        setState(() => _loading = false);
+        return;
+      }
+      final isDomainError =
+          msg.toLowerCase().contains('domínio') &&
+              msg.toLowerCase().contains('autorizado');
       setState(() {
         _loading = false;
-        _error = isDomainError
-            ? 'Domínio não autorizado no Firebase. Adicione este domínio em Firebase Console > Authentication > Authorized domains (ex.: gestaoyahweh.com.br).'
-            : msg;
+        _error = msg;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isDomainError ? 'Login Google: adicione este domínio em Firebase Console > Authentication > Authorized domains.' : 'Falha no login: $msg'),
-          duration: const Duration(seconds: 6),
+        ThemeCleanPremium.feedbackSnackBar(
+          isDomainError
+              ? 'Adicione este domínio em Firebase Console → Authentication → Authorized domains.'
+              : msg,
         ),
       );
     } catch (e) {
       if (!mounted) return;
+      if (e is PlatformException && isGoogleSignInUserCancellation(e)) {
+        setState(() => _loading = false);
+        return;
+      }
       final s = e.toString();
-      final isDomainError = s.toLowerCase().contains('domain') && s.toLowerCase().contains('authorized');
+      final lower = s.toLowerCase();
+      final isDomainError =
+          lower.contains('domain') && lower.contains('authorized');
+      final msg = isDomainError
+          ? 'Este domínio não está autorizado para login Google. '
+              'Em Firebase Console → Authentication → Settings, adicione em «Authorized domains».'
+          : s;
       setState(() {
         _loading = false;
-        _error = isDomainError
-            ? 'Domínio não autorizado. Firebase Console > Authentication > Authorized domains (ex.: gestaoyahweh.com.br).'
-            : s;
+        _error = msg;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isDomainError ? 'Adicione este domínio em Firebase Console > Authentication > Authorized domains.' : 'Erro: $e'),
-          duration: const Duration(seconds: 6),
+        ThemeCleanPremium.feedbackSnackBar(
+          isDomainError
+              ? 'Adicione este domínio em Firebase Console → Authentication → Authorized domains.'
+              : msg,
         ),
       );
     }
@@ -112,20 +130,64 @@ class _CadastroUsuarioPageState extends State<CadastroUsuarioPage> {
                 ),
                 const SizedBox(height: 28),
                 if (kIsWeb)
-                  FilledButton.icon(
-                    onPressed: _loading ? null : _signInWithGoogle,
-                    icon: _loading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.g_mobiledata_rounded, size: 28),
-                    label: Text(_loading ? 'Entrando...' : 'Entrar com Google'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF4285F4),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  Material(
+                    color: Colors.white,
+                    elevation: 2,
+                    shadowColor: Colors.black.withValues(alpha: 0.1),
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: _loading ? null : _signInWithGoogle,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      child: Ink(
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          border: Border.all(color: const Color(0xFFDADCE0)),
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: ThemeCleanPremium.minTouchTarget,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 12),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (_loading)
+                                  SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      color: ThemeCleanPremium.primary,
+                                    ),
+                                  )
+                                else
+                                  const FaIcon(
+                                    FontAwesomeIcons.google,
+                                    size: 22,
+                                    color: Color(0xFF4285F4),
+                                  ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  _loading
+                                      ? 'A ligar ao Google…'
+                                      : 'Entrar com Google',
+                                  style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15.5,
+                                    color: const Color(0xFF3C4043),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 if (kIsWeb) const SizedBox(height: 16),

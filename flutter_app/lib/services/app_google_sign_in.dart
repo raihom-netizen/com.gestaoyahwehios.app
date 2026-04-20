@@ -1,4 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart' show GoogleAuthProvider;
+import 'package:firebase_auth/firebase_auth.dart'
+    show FirebaseAuthException, GoogleAuthProvider;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
@@ -58,4 +59,64 @@ bool isGoogleSignInAndroidConfigError(PlatformException e) {
       m.contains('code: 10') ||
       m.contains('developer_error') ||
       m.contains('12500');
+}
+
+/// Utilizador fechou o seletor Google / tocou voltar — não mostrar erro.
+bool isGoogleSignInUserCancellation(PlatformException e) {
+  final c = e.code.toLowerCase();
+  if (c == 'sign_in_canceled' || c == 'sign_in_cancelled') return true;
+  final m = (e.message ?? '').toLowerCase();
+  if (c == 'sign_in_failed' &&
+      (m.contains('12501') ||
+          m.contains('user_canceled') ||
+          m.contains('cancelled'))) {
+    return true;
+  }
+  if (m.contains('canceled') && m.contains('12501')) return true;
+  return false;
+}
+
+/// Mensagens PT-BR para login Google (Firebase Auth Web/Android/iOS).
+/// Devolve `null` quando não deve ser mostrada mensagem (cancelamento).
+String? googleAuthErrorMessagePt(FirebaseAuthException e) {
+  final code = e.code.toLowerCase();
+  final raw = (e.message ?? '').toLowerCase();
+  if (code.contains('popup-closed') ||
+      code.contains('popup_closed_by_user') ||
+      code == 'cancelled' ||
+      code.contains('auth/cancelled') ||
+      raw.contains('popup closed') ||
+      raw.contains('popup_closed')) {
+    return null;
+  }
+  if (code.contains('account-exists-with-different-credential')) {
+    return 'Este e-mail já tem login com senha. Use e-mail e senha ou peça ao gestor para alinhar o acesso.';
+  }
+  if (code.contains('invalid-credential')) {
+    return 'Não foi possível validar o login com Google. Tente de novo ou use e-mail e senha.';
+  }
+  if (code.contains('unauthorized-domain')) {
+    return 'Este domínio não está autorizado para login Google. '
+        'Em Firebase Console → Authentication → Settings, adicione o domínio em «Authorized domains».';
+  }
+  if (code.contains('operation-not-allowed')) {
+    return 'Login com Google não está ativado no projeto. '
+        'Ative o provedor Google em Firebase Console → Authentication → Sign-in method.';
+  }
+  if (code.contains('web-storage-unsupported') ||
+      code.contains('storage-unsupported')) {
+    return 'O navegador bloqueou armazenamento necessário para o login. '
+        'Saia do modo anónimo ou permita cookies e armazenamento para este site.';
+  }
+  if (code.contains('network-request-failed') ||
+      raw.contains('network')) {
+    return 'Sem ligação estável. Verifique a internet e tente de novo.';
+  }
+  if (code.contains('too-many-requests')) {
+    return 'Demasiadas tentativas. Aguarde alguns minutos ou use e-mail e senha.';
+  }
+  if (code.contains('user-disabled')) {
+    return 'Esta conta foi desativada. Contacte o gestor ou o suporte.';
+  }
+  return e.message ?? e.code;
 }
