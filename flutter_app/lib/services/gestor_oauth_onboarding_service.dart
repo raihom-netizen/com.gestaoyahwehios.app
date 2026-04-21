@@ -7,7 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/app_google_sign_in.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart'
+    show appGoogleSignIn, appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -53,14 +54,9 @@ class GestorOAuthOnboardingService {
     if (kIsWeb) {
       throw StateError('Use signInWithPopup na web.');
     }
-    // Sempre abrir seletor de conta (inclui "usar outra conta"),
-    // evitando login silencioso com a última conta usada no aparelho.
-    try {
-      await appGoogleSignIn().disconnect();
-    } catch (_) {}
-    try {
-      await appGoogleSignIn().signOut();
-    } catch (_) {}
+    // Sempre abrir seletor de conta — só signOut local (rápido). Evitar `disconnect()`
+    // (revoga no servidor e demora; parecia tela escura até responder).
+    await appGoogleSignOutForAccountPicker();
     final googleUser = await appGoogleSignIn().signIn();
     if (googleUser == null) {
       throw FirebaseAuthException(

@@ -30,8 +30,12 @@ class _SignupPageState extends State<SignupPage> {
   final _senha = TextEditingController();
 
   bool _loading = false;
+  /// Só o botão Google — evita bloquear o ecrã inteiro enquanto o seletor de contas abre.
+  bool _googleBusy = false;
   bool _obscure = true;
   bool _appleSignInAvailable = false;
+
+  bool get _formLocked => _loading || _googleBusy;
 
   bool get _showAppleButton =>
       !kIsWeb &&
@@ -63,7 +67,8 @@ class _SignupPageState extends State<SignupPage> {
       (v == null || v.trim().isEmpty) ? msg : null;
 
   Future<void> _cadastroRapidoGoogle() async {
-    setState(() => _loading = true);
+    if (_formLocked) return;
+    setState(() => _googleBusy = true);
     try {
       if (kIsWeb) {
         await FirebaseAuth.instance
@@ -104,7 +109,12 @@ class _SignupPageState extends State<SignupPage> {
         ThemeCleanPremium.feedbackSnackBar('Erro: $e'),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _googleBusy = false;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -205,7 +215,7 @@ class _SignupPageState extends State<SignupPage> {
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: _loading ? null : _cadastroRapidoGoogle,
+            onTap: _formLocked ? null : _cadastroRapidoGoogle,
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             child: Ink(
               decoration: BoxDecoration(
@@ -222,7 +232,7 @@ class _SignupPageState extends State<SignupPage> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (_loading)
+                      if (_googleBusy)
                         SizedBox(
                           width: 22,
                           height: 22,
@@ -239,7 +249,7 @@ class _SignupPageState extends State<SignupPage> {
                         ),
                       const SizedBox(width: 12),
                       Text(
-                        _loading ? 'A ligar ao Google…' : 'Continuar com Google',
+                        _googleBusy ? 'Escolha a conta Google…' : 'Continuar com Google',
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w700,
                           fontSize: 15.5,
@@ -258,7 +268,7 @@ class _SignupPageState extends State<SignupPage> {
           const SizedBox(height: 10),
           SignInWithAppleButton(
             onPressed: () {
-              if (_loading) return;
+              if (_formLocked) return;
               unawaited(_cadastroRapidoApple());
             },
             style: SignInWithAppleButtonStyle.black,
@@ -347,7 +357,7 @@ class _SignupPageState extends State<SignupPage> {
                   SizedBox(
                     height: 46,
                     child: ElevatedButton.icon(
-                      onPressed: _loading ? null : _submit,
+                      onPressed: _formLocked ? null : _submit,
                       icon: const Icon(Icons.check_circle),
                       label: _loading
                           ? const SizedBox(
@@ -360,7 +370,7 @@ class _SignupPageState extends State<SignupPage> {
                   ),
                   const SizedBox(height: 10),
                   TextButton(
-                    onPressed: _loading
+                    onPressed: _formLocked
                         ? null
                         : () {
                             final e = _email.text.trim();

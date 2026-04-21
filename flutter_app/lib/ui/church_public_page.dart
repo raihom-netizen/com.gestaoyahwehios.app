@@ -414,7 +414,10 @@ class _ChurchPublicMuralStreamSliverState
         .toList();
     const avisosAccent = Color(0xFF7C3AED);
 
-    Widget feedTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    Widget feedTile(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+      bool galleryArchivePremium = false,
+    }) {
       return RepaintBoundary(
         child: churchPublicSocialFeedTile(
           context: context,
@@ -424,6 +427,7 @@ class _ChurchPublicMuralStreamSliverState
           accent: widget.accent,
           memCacheW: memW,
           memCacheH: memH,
+          galleryArchivePremiumLayout: galleryArchivePremium,
           onOpenHostedVideo: (ctx, p, __) async {
             await widget.onOpenHostedVideoFromMap(ctx, p);
           },
@@ -517,7 +521,10 @@ class _ChurchPublicMuralStreamSliverState
                                       : eventosArquivo.length);
                                   j++) ...[
                               if (j > 0) const SizedBox(height: 18),
-                                feedTile(eventosArquivo[j]),
+                                feedTile(
+                                  eventosArquivo[j],
+                                  galleryArchivePremium: true,
+                                ),
                               ],
                               if (eventosArquivo.length > 6) ...[
                                 const SizedBox(height: 10),
@@ -529,6 +536,12 @@ class _ChurchPublicMuralStreamSliverState
                                         builder: (_) => _PublicEventsGalleryPage(
                                           docs: eventosArquivo,
                                           accent: widget.accent,
+                                          igrejaId: widget.igrejaId,
+                                          churchSlug: widget.slugClean,
+                                          memCacheW: memW,
+                                          memCacheH: memH,
+                                          onOpenHostedVideoFromMap:
+                                              widget.onOpenHostedVideoFromMap,
                                         ),
                                       ),
                                     );
@@ -624,10 +637,21 @@ class _ChurchPublicEmptySubsection extends StatelessWidget {
 class _PublicEventsGalleryPage extends StatefulWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final Color accent;
+  final String igrejaId;
+  final String churchSlug;
+  final int memCacheW;
+  final int memCacheH;
+  final Future<void> Function(BuildContext context, Map<String, dynamic> p)
+      onOpenHostedVideoFromMap;
 
   const _PublicEventsGalleryPage({
     required this.docs,
     required this.accent,
+    required this.igrejaId,
+    required this.churchSlug,
+    required this.memCacheW,
+    required this.memCacheH,
+    required this.onOpenHostedVideoFromMap,
   });
 
   @override
@@ -652,11 +676,6 @@ class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
     final c = p['createdAt'];
     if (c is Timestamp) return c.toDate();
     return null;
-  }
-
-  String _formatDate(DateTime? d) {
-    if (d == null) return 'Sem data';
-    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
   String _monthYearKey(DateTime? d) {
@@ -831,127 +850,28 @@ class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
               child: Center(child: Text('Nenhum evento encontrado.')),
             )
           else
-            GridView.builder(
+            ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 300,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 0.84,
-              ),
               itemCount: docs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 18),
               itemBuilder: (context, i) {
-                final p = docs[i].data();
-                final photos = eventNoticiaPhotoUrls(p);
-                final videos = eventNoticiaVideosFromDoc(p);
-                final cover = photos.isNotEmpty
-                    ? sanitizeImageUrl(photos.first)
-                    : sanitizeImageUrl(
-                        eventNoticiaDisplayVideoThumbnailUrl(p) ?? '');
-                return Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () {
-                      final title = (p['title'] ?? 'Evento').toString();
-                      final text = (p['text'] ?? '').toString();
-                      showModalBottomSheet<void>(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (_) => ChurchPublicEventDetailSheet(
-                          title: title,
-                          subtitle: _formatDate(_eventDate(p)),
-                          body: text,
-                          imageUrl: cover,
-                          videoUrl:
-                              eventNoticiaHostedVideoPlayUrl(p) ??
-                                  eventNoticiaExternalVideoUrl(p) ??
-                                  '',
-                          accentColor: widget.accent,
-                        ),
-                      );
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(14),
-                            ),
-                            child: isValidImageUrl(cover)
-                                ? SafeNetworkImage(
-                                    imageUrl: cover,
-                                    fit: BoxFit.cover,
-                                    errorWidget: Container(
-                                      color: const Color(0xFFF1F5F9),
-                                    ),
-                                  )
-                                : Container(color: const Color(0xFFF1F5F9)),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                (p['title'] ?? 'Evento').toString(),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800, fontSize: 14),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                _formatDate(_eventDate(p)),
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 7),
-                              Wrap(
-                                spacing: 6,
-                                children: [
-                                  _galleryMiniChip(
-                                      Icons.photo_library_rounded,
-                                      '${photos.length} fotos'),
-                                  _galleryMiniChip(
-                                      Icons.videocam_rounded,
-                                      '${videos.length} vídeos'),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                final doc = docs[i];
+                return churchPublicSocialFeedTile(
+                  context: context,
+                  doc: doc,
+                  igrejaId: widget.igrejaId,
+                  churchSlug: widget.churchSlug,
+                  accent: widget.accent,
+                  memCacheW: widget.memCacheW,
+                  memCacheH: widget.memCacheH,
+                  galleryArchivePremiumLayout: true,
+                  onOpenHostedVideo: (ctx, p, _) async {
+                    await widget.onOpenHostedVideoFromMap(ctx, p);
+                  },
                 );
               },
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _galleryMiniChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: widget.accent),
-          const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
         ],
       ),
     );

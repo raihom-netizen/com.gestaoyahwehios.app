@@ -49,6 +49,17 @@ GoogleSignIn appGoogleSignIn() {
   return _cached!;
 }
 
+/// Limpa a sessão local do Google no aparelho para o próximo [GoogleSignIn.signIn] abrir
+/// o seletor de contas (e "Usar outra conta"), sem a demora de [GoogleSignIn.disconnect].
+///
+/// Use antes de cada login no painel/signup quando quiser sempre escolher o e-mail.
+Future<void> appGoogleSignOutForAccountPicker() async {
+  if (kIsWeb) return;
+  try {
+    await appGoogleSignIn().signOut();
+  } catch (_) {}
+}
+
 /// `sign_in_failed` com DEVELOPER_ERROR (10) — costuma ser SHA-1 ausente/errado no Firebase
 /// ou keystore diferente; também variações da mensagem entre versões do Play Services.
 bool isGoogleSignInAndroidConfigError(PlatformException e) {

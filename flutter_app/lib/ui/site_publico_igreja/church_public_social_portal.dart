@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/event_gallery_archive.dart'
+    show eventArchiveBaseDate;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
@@ -50,6 +52,13 @@ String? churchPublicPostThumbUrl(Map<String, dynamic> p) {
           .toString());
   if (img.isNotEmpty && isValidImageUrl(img)) return img;
   return null;
+}
+
+String _formatArchiveEventDatePt(DateTime? d) {
+  if (d == null) return 'Data a confirmar';
+  const w = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  final wd = w[d.weekday - 1];
+  return '$wd · ${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 }
 
 /// Barra de navegação fixa (abaixo da AppBar): âncoras da página.
@@ -435,6 +444,7 @@ Widget churchPublicSocialFeedTile({
     Map<String, dynamic> post,
     String postId,
   ) onOpenHostedVideo,
+  bool galleryArchivePremiumLayout = false,
 }) {
   return _SocialGridTile(
     postId: doc.id,
@@ -444,6 +454,7 @@ Widget churchPublicSocialFeedTile({
     accent: accent,
     memCacheW: memCacheW,
     memCacheH: memCacheH,
+    galleryArchivePremiumLayout: galleryArchivePremiumLayout,
     onOpenHostedVideo: onOpenHostedVideo,
     onOpenDetail: () => unawaited(ChurchPublicPostLightbox.show(
           context,
@@ -454,6 +465,18 @@ Widget churchPublicSocialFeedTile({
           memCacheW: memCacheW,
           memCacheH: memCacheH,
           onOpenHostedVideo: onOpenHostedVideo,
+          mediaFocus: ChurchPublicPostLightboxMediaFocus.start,
+        )),
+    onOpenGalleryFocus: () => unawaited(ChurchPublicPostLightbox.show(
+          context,
+          doc: doc,
+          igrejaId: igrejaId,
+          churchSlug: churchSlug,
+          accent: accent,
+          memCacheW: memCacheW,
+          memCacheH: memCacheH,
+          onOpenHostedVideo: onOpenHostedVideo,
+          mediaFocus: ChurchPublicPostLightboxMediaFocus.firstPhoto,
         )),
   );
 }
@@ -466,7 +489,11 @@ class _SocialGridTile extends StatefulWidget {
   final Color accent;
   final int memCacheW;
   final int memCacheH;
+  /// Card em quadrado premium (arquivo da galeria): título, data, “Ver detalhes” / “Mais fotos”.
+  final bool galleryArchivePremiumLayout;
   final VoidCallback onOpenDetail;
+  /// Abre o lightbox com foco na primeira foto (pula vídeo web). Se null, «Mais fotos» usa [onOpenDetail].
+  final VoidCallback? onOpenGalleryFocus;
   final Future<void> Function(
     BuildContext context,
     Map<String, dynamic> post,
@@ -481,7 +508,9 @@ class _SocialGridTile extends StatefulWidget {
     required this.accent,
     required this.memCacheW,
     required this.memCacheH,
+    this.galleryArchivePremiumLayout = false,
     required this.onOpenDetail,
+    this.onOpenGalleryFocus,
     required this.onOpenHostedVideo,
   });
 
@@ -531,6 +560,10 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     final badgeBg = isEvento
         ? const Color(0xFF0369A1).withValues(alpha: 0.92)
         : const Color(0xFF6D28D9).withValues(alpha: 0.92);
+
+    if (widget.galleryArchivePremiumLayout) {
+      return _buildGalleryArchivePremiumLayout(context);
+    }
 
     Widget mediaChild;
     if (playWeb) {
@@ -813,6 +846,345 @@ class _SocialGridTileState extends State<_SocialGridTile> {
       },
     );
   }
+
+  /// Cartão “super premium” em quadrado (mídia 1:1 + título, data, ações).
+  Widget _buildGalleryArchivePremiumLayout(BuildContext context) {
+    final p = widget.post;
+    final galleryUrls = eventNoticiaPhotoUrls(p);
+    final type = (p['type'] ?? 'aviso').toString();
+    final isEvento = type == 'evento';
+    final rawTitle = (p['title'] ?? '').toString().trim();
+    final displayTitle = rawTitle.isEmpty ? 'Evento' : rawTitle;
+    final hosted =
+        sanitizeImageUrl((eventNoticiaHostedVideoPlayUrl(p) ?? '').trim());
+    final ext = eventNoticiaExternalVideoUrl(p);
+    final legacy = (p['videoUrl'] ?? '').toString().trim();
+    final hasVideo = hosted.isNotEmpty ||
+        (ext != null && ext.isNotEmpty) ||
+        legacy.isNotEmpty;
+    final playWeb = kIsWeb &&
+        hosted.isNotEmpty &&
+        looksLikeHostedVideoFileUrl(hosted);
+    final thumb = churchPublicPostThumbUrl(p);
+    final cover = eventNoticiaFeedCoverHintUrl(p);
+    var displayRef =
+        ((thumb != null && thumb.isNotEmpty) ? thumb : cover).trim();
+    final pathFirst = eventNoticiaPhotoStoragePathAt(p, 0) ??
+        eventNoticiaImageStoragePath(p);
+    final poster = sanitizeImageUrl(
+        (eventNoticiaDisplayVideoThumbnailUrl(p) ?? '').trim());
+    final badge = isEvento ? 'Evento' : 'Aviso';
+    final badgeBg = isEvento
+        ? const Color(0xFF0C4A6E).withValues(alpha: 0.94)
+        : const Color(0xFF6D28D9).withValues(alpha: 0.94);
+
+    DateTime? eventDay = eventArchiveBaseDate(p);
+    if (eventDay == null) {
+      final c = p['createdAt'];
+      if (c is Timestamp) eventDay = c.toDate();
+    }
+    final dateLabel = _formatArchiveEventDatePt(eventDay);
+    final photoAlbumCount = galleryUrls.length;
+
+    late final Widget heroInner;
+    if (galleryUrls.isNotEmpty) {
+      final raw = sanitizeImageUrl(galleryUrls.first);
+      final path0 = eventNoticiaPhotoStoragePathAt(p, 0);
+      heroInner = _gridImageOrStable(
+        displayRef: raw,
+        path: path0,
+        memW: widget.memCacheW,
+        memH: widget.memCacheH,
+        fit: BoxFit.cover,
+      );
+    } else if (poster.isNotEmpty &&
+        (isValidImageUrl(poster) ||
+            isFirebaseStorageHttpUrl(poster) ||
+            firebaseStorageMediaUrlLooksLike(poster))) {
+      heroInner = _gridImageOrStable(
+        displayRef: poster,
+        path: null,
+        memW: widget.memCacheW,
+        memH: widget.memCacheH,
+        fit: BoxFit.cover,
+      );
+    } else if (displayRef.isNotEmpty ||
+        (pathFirst != null && pathFirst.isNotEmpty)) {
+      heroInner = _gridImageOrStable(
+        displayRef: displayRef,
+        path: pathFirst,
+        memW: widget.memCacheW,
+        memH: widget.memCacheH,
+        fit: BoxFit.cover,
+      );
+    } else {
+      heroInner = ColoredBox(
+        color: const Color(0xFFF8FAFC),
+        child: Center(
+          child: Icon(
+            Icons.photo_library_rounded,
+            size: 52,
+            color: widget.accent.withValues(alpha: 0.28),
+          ),
+        ),
+      );
+    }
+
+    final Widget hero = Stack(
+      fit: StackFit.expand,
+      children: [
+        heroInner,
+        if (hasVideo && !playWeb)
+          const IgnorePointer(
+            child: Center(
+              child: Icon(Icons.play_circle_fill_rounded,
+                  size: 54, color: Colors.white),
+            ),
+          ),
+        if (hasVideo && playWeb)
+          IgnorePointer(
+            child: Container(
+              alignment: Alignment.center,
+              color: Colors.black.withValues(alpha: 0.22),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.play_arrow_rounded,
+                    color: Colors.white, size: 36),
+              ),
+            ),
+          ),
+      ],
+    );
+
+    final radius = BorderRadius.circular(24);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        scale: _hover ? 1.006 : 1.0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: widget.accent.withValues(alpha: 0.14),
+                blurRadius: 36,
+                offset: const Offset(0, 20),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: radius,
+            child: Material(
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            if (playWeb) {
+                              widget.onOpenDetail();
+                              return;
+                            }
+                            if (hasVideo &&
+                                (hosted.isNotEmpty ||
+                                    (ext != null && ext.isNotEmpty) ||
+                                    legacy.isNotEmpty)) {
+                              unawaited(widget.onOpenHostedVideo(
+                                  context, p, widget.postId));
+                              return;
+                            }
+                            widget.onOpenDetail();
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: hero,
+                        ),
+                        Positioned(
+                          left: 12,
+                          top: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 11, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: badgeBg,
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              badge,
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.35,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Material(
+                            color: Colors.white.withValues(alpha: 0.95),
+                            elevation: 3,
+                            shadowColor: Colors.black26,
+                            shape: const CircleBorder(),
+                            clipBehavior: Clip.antiAlias,
+                            child: IconButton(
+                              tooltip: 'Copiar link',
+                              icon: Icon(Icons.near_me_rounded,
+                                  size: 20, color: widget.accent),
+                              onPressed: () => _copyLink(context),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayTitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            height: 1.22,
+                            letterSpacing: -0.4,
+                            color: const Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Icon(
+                                Icons.calendar_month_rounded,
+                                size: 18,
+                                color: widget.accent.withValues(alpha: 0.92),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dateLabel,
+                                style: GoogleFonts.inter(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                  color: const Color(0xFF475569),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (photoAlbumCount > 0) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '$photoAlbumCount ${photoAlbumCount == 1 ? 'foto no álbum' : 'fotos no álbum'}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: const Color(0xFF64748B),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed:
+                                    widget.onOpenGalleryFocus ??
+                                        widget.onOpenDetail,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: widget.accent,
+                                  side: BorderSide(
+                                    color:
+                                        widget.accent.withValues(alpha: 0.55),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 13),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Mais fotos',
+                                  style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: widget.onOpenDetail,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: widget.accent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 13),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Ver detalhes',
+                                  style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 Widget _gridImageOrStable({
@@ -861,6 +1233,46 @@ Widget _gridImageOrStable({
   return Container(color: const Color(0xFFE5E7EB));
 }
 
+/// Foco da área de mídia ao abrir [ChurchPublicPostLightbox].
+enum ChurchPublicPostLightboxMediaFocus {
+  /// Primeiro slide (vídeo web no índice 0, quando existir).
+  start,
+  /// Primeira **foto** do álbum: pula o slide do vídeo web quando há fotos (botão «Mais fotos»).
+  firstPhoto,
+}
+
+int _lightboxMediaSlideCount(Map<String, dynamic> p, bool playWeb) {
+  final n = eventNoticiaPhotoUrls(p).length;
+  if (playWeb) {
+    return n == 0 ? 1 : n + 1;
+  }
+  return n;
+}
+
+/// Índice inicial do [PageView] do lightbox (alinhado à ordem dos slides em [_LightboxMediaPager]).
+int lightboxInitialMediaPage(
+  Map<String, dynamic> p,
+  bool playWeb,
+  ChurchPublicPostLightboxMediaFocus focus,
+) {
+  final count = _lightboxMediaSlideCount(p, playWeb);
+  if (count <= 0) return 0;
+  int idx;
+  if (focus == ChurchPublicPostLightboxMediaFocus.start) {
+    idx = 0;
+  } else {
+    final photos = eventNoticiaPhotoUrls(p);
+    if (photos.isEmpty) {
+      idx = 0;
+    } else if (playWeb) {
+      idx = 1;
+    } else {
+      idx = 0;
+    }
+  }
+  return idx.clamp(0, count - 1);
+}
+
 /// Modal estilo Instagram (desktop: mídia à esquerda, texto à direita).
 class ChurchPublicPostLightbox {
   ChurchPublicPostLightbox._();
@@ -878,6 +1290,8 @@ class ChurchPublicPostLightbox {
       Map<String, dynamic> post,
       String postId,
     ) onOpenHostedVideo,
+    ChurchPublicPostLightboxMediaFocus mediaFocus =
+        ChurchPublicPostLightboxMediaFocus.start,
   }) async {
     final p = doc.data();
     final postId = doc.id;
@@ -906,6 +1320,7 @@ class ChurchPublicPostLightbox {
               final screenH = MediaQuery.sizeOf(context).height;
               final wide = c.maxWidth >= 880;
               final radius = BorderRadius.circular(24);
+              final initialPage = lightboxInitialMediaPage(p, playWeb, mediaFocus);
               final mediaSection = _LightboxMediaPager(
                 post: p,
                 postId: postId,
@@ -914,6 +1329,7 @@ class ChurchPublicPostLightbox {
                 playWeb: playWeb,
                 hostedVideoUrl: hosted,
                 videoPoster: poster,
+                initialPage: initialPage,
               );
               final extVid = eventNoticiaExternalVideoUrl(p);
               final legacyV = (p['videoUrl'] ?? '').toString().trim();
@@ -1011,6 +1427,8 @@ class _LightboxMediaPager extends StatefulWidget {
   final bool playWeb;
   final String hostedVideoUrl;
   final String videoPoster;
+  /// Índice inicial do carrossel (ex.: primeira foto após vídeo web).
+  final int initialPage;
 
   const _LightboxMediaPager({
     required this.post,
@@ -1020,6 +1438,7 @@ class _LightboxMediaPager extends StatefulWidget {
     required this.playWeb,
     required this.hostedVideoUrl,
     required this.videoPoster,
+    this.initialPage = 0,
   });
 
   @override
@@ -1027,7 +1446,25 @@ class _LightboxMediaPager extends StatefulWidget {
 }
 
 class _LightboxMediaPagerState extends State<_LightboxMediaPager> {
-  int _page = 0;
+  late final PageController _controller;
+  late int _page;
+
+  @override
+  void initState() {
+    super.initState();
+    final count =
+        _lightboxMediaSlideCount(widget.post, widget.playWeb);
+    final maxIdx = count > 0 ? count - 1 : 0;
+    final safe = widget.initialPage.clamp(0, maxIdx);
+    _page = safe;
+    _controller = PageController(initialPage: safe);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1084,6 +1521,7 @@ class _LightboxMediaPagerState extends State<_LightboxMediaPager> {
       fit: StackFit.expand,
       children: [
         PageView(
+          controller: _controller,
           onPageChanged: (i) => setState(() => _page = i),
           children: slides,
         ),

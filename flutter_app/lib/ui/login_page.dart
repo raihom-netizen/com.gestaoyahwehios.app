@@ -10,7 +10,14 @@ import 'package:flutter/services.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:gestao_yahweh/services/app_google_sign_in.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart'
+    show
+        appGoogleSignIn,
+        appGoogleSignOutForAccountPicker,
+        firebaseWebGoogleAuthProvider,
+        googleAuthErrorMessagePt,
+        isGoogleSignInAndroidConfigError,
+        isGoogleSignInUserCancellation;
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
@@ -486,15 +493,12 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _onGoogleChurchLogin() async {
-    if (!_showChurchGoogleButton || _loading) return;
-    final nativeOAuth = !kIsWeb;
+    if (!_showChurchGoogleButton || _loading || _oauthGoogleInFlight) return;
     setState(() {
       _errorMessage = null;
       _oauthGoogleInFlight = true;
-      // No fluxo nativo, manter a tela clara até o seletor do Google aparecer.
-      if (!nativeOAuth) {
-        _loading = true;
-      }
+      // Web e nativo: não usar `_loading` aqui — escurecia a página inteira até o popup
+      // ou o fluxo Play Services aparecer (igual fluxo Apple comentado abaixo).
     });
     try {
       UserCredential cred;
@@ -520,14 +524,9 @@ class _LoginPageState extends State<LoginPage> {
         WidgetsBinding.instance.scheduleFrame();
         await Future<void>.delayed(const Duration(milliseconds: 48));
         if (!mounted) return;
-        // Força o seletor de conta (inclui "Usar outra conta"), evitando login
-        // silencioso na conta anterior.
-        try {
-          await appGoogleSignIn().disconnect();
-        } catch (_) {}
-        try {
-          await appGoogleSignIn().signOut();
-        } catch (_) {}
+        // Só signOut local — rápido e abre o seletor. `disconnect()` era mais lento e
+        // parecia «tela escura» até o Play Services responder.
+        await appGoogleSignOutForAccountPicker();
         final googleUser = await appGoogleSignIn().signIn();
         if (googleUser == null) {
           return;
@@ -609,12 +608,7 @@ class _LoginPageState extends State<LoginPage> {
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
     } finally {
       if (mounted) {
-        setState(() {
-          if (!nativeOAuth) {
-            _loading = false;
-          }
-          _oauthGoogleInFlight = false;
-        });
+        setState(() => _oauthGoogleInFlight = false);
       }
     }
   }
