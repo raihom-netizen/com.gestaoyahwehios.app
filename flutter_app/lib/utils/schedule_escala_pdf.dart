@@ -15,6 +15,11 @@ Future<Uint8List> buildScheduleEscalaPdf({
   required ReportPdfBranding branding,
   String churchAddress = '',
   String churchPhone = '',
+  String preparedByName = '',
+  String approverName = '',
+  bool showDigitalSignatures = false,
+  Uint8List? preparedBySignatureBytes,
+  Uint8List? approverSignatureBytes,
 }) async {
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
   final title = (escalaData['title'] ?? 'Escala').toString().trim();
@@ -80,21 +85,41 @@ Future<Uint8List> buildScheduleEscalaPdf({
     );
   }
 
-  pw.Widget signatureLine(String captionBelow) {
+  pw.Widget signatureLine(
+    String captionBelow, {
+    String signerName = '',
+    Uint8List? signatureBytes,
+  }) {
+    final hasSig = showDigitalSignatures &&
+        signatureBytes != null &&
+        signatureBytes.length > 24;
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
+        if (hasSig)
+          pw.Center(
+            child: pw.SizedBox(
+              width: 150,
+              height: 34,
+              child: pw.Image(
+                pw.MemoryImage(signatureBytes),
+                fit: pw.BoxFit.contain,
+              ),
+            ),
+          ),
         pw.Container(
           width: double.infinity,
           decoration: pw.BoxDecoration(
             border: pw.Border(bottom: pw.BorderSide(color: accent, width: 2.2)),
           ),
           padding: const pw.EdgeInsets.only(bottom: 3),
-          child: pw.SizedBox(height: 26),
+          child: pw.SizedBox(height: hasSig ? 8 : 26),
         ),
         pw.SizedBox(height: 5),
         pw.Text(
-          pdfSafeText(captionBelow),
+          pdfSafeText(
+            signerName.trim().isNotEmpty ? signerName.trim() : captionBelow,
+          ),
           style: pw.TextStyle(
             fontSize: 9.2,
             color: muted,
@@ -337,7 +362,11 @@ Future<Uint8List> buildScheduleEscalaPdf({
                 ),
               ),
               pw.SizedBox(height: 10),
-              signatureLine('Nome completo (letra de forma legível)'),
+              signatureLine(
+                'Nome completo (letra de forma legível)',
+                signerName: preparedByName,
+                signatureBytes: preparedBySignatureBytes,
+              ),
               pw.SizedBox(height: 22),
               pw.Text(
                 'Líder do ministério / Pastor responsável (conferência)',
@@ -348,7 +377,11 @@ Future<Uint8List> buildScheduleEscalaPdf({
                 ),
               ),
               pw.SizedBox(height: 10),
-              signatureLine('Nome, função e data'),
+              signatureLine(
+                'Nome, função e data',
+                signerName: approverName,
+                signatureBytes: approverSignatureBytes,
+              ),
             ],
           ),
         ),

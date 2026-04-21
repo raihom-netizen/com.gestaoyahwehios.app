@@ -763,6 +763,22 @@ class DashboardPage extends StatelessWidget {
                               final isNarrow = constraints.maxWidth < ThemeCleanPremium.breakpointTablet;
                               final muralCard = _SectionCard(
                                 title: 'Mural de Avisos',
+                                trailing: TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => EventsManagerPage(
+                                          tenantId: tenantId,
+                                          role: role,
+                                          initialTabIndex: 1,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.photo_library_rounded, size: 18),
+                                  label: const Text('Galeria de eventos'),
+                                ),
                                 child: _MuralPreview(tenantId: tenantId),
                               );
                               final statsCard = _SectionCard(

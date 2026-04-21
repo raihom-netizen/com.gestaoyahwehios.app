@@ -669,7 +669,7 @@ class _AuthGateState extends State<AuthGate> {
         }
 
         final user = snap.data;
-        if (user == null) {
+        if (user == null || user.isAnonymous) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -680,7 +680,10 @@ class _AuthGateState extends State<AuthGate> {
             _scheduledLoginRedirect = true;
             WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
-              if (FirebaseAuth.instance.currentUser != null) return;
+              final currentUser = FirebaseAuth.instance.currentUser;
+              if (currentUser != null && !currentUser.isAnonymous) {
+                return;
+              }
               final nav = Navigator.of(context, rootNavigator: true);
               if (kIsWeb) {
                 try {
@@ -689,7 +692,11 @@ class _AuthGateState extends State<AuthGate> {
                 } catch (_) {}
               }
               if (!mounted) return;
-              if (FirebaseAuth.instance.currentUser != null) return;
+              final currentUserAfterCleanup = FirebaseAuth.instance.currentUser;
+              if (currentUserAfterCleanup != null &&
+                  !currentUserAfterCleanup.isAnonymous) {
+                return;
+              }
               // Web → site de divulgação (/); app → /login.
               final dest = kIsWeb ? '/' : '/login';
               nav.pushNamedAndRemoveUntil(dest, (_) => false);

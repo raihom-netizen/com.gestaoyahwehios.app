@@ -16,13 +16,14 @@ import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show SafeCircleAvatarImage, churchTenantLogoUrl, imageUrlFromMap, isValidImageUrl, memCacheExtentForLogicalSize;
+    show SafeCircleAvatarImage, churchTenantLogoUrl, imageUrlFromMap, isValidImageUrl, memCacheExtentForLogicalSize, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentNameFromDoc,
@@ -35,8 +36,6 @@ import 'package:gestao_yahweh/utils/schedule_escala_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-
-const bool kScheduleAutoGenerationEnabled = false;
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -225,7 +224,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   bool _escalaFiltersExpanded = false;
 
   /// Pastoral / gestão / papel global com escala geral.
-  bool get _canWriteFull => AppPermissions.canEditSchedules(widget.role);
+  bool get _canWriteFull {
+    if (AppPermissions.canEditSchedules(widget.role)) return true;
+    final r = widget.role.trim().toLowerCase();
+    return r == 'gestor' ||
+        r == 'pastor' ||
+        r == 'pastora' ||
+        r == 'pastor_presidente' ||
+        r == 'admin' ||
+        r == 'adm' ||
+        r == 'administrador' ||
+        r == 'administradora' ||
+        r == 'lider' ||
+        r == 'lider_departamento';
+  }
 
   /// Inclui líder ou vice-líder de departamento (CPF no doc do grupo), mesmo com papel [membro].
   bool get _canWrite => _canWriteFull || _managedDeptIds.isNotEmpty;
@@ -428,11 +440,28 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone =
           (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final ed = doc.data() ?? {};
+      final sigCfg = await _pickScheduleSignatureConfig(
+        tid,
+        initialPreparedByMemberId:
+            (ed['preparedByMemberId'] ?? '').toString().trim(),
+        initialApproverMemberId:
+            (ed['approverMemberId'] ?? '').toString().trim(),
+        initialShowDigitalSignatures:
+            (ed['signatureMode'] ?? '').toString().trim().toLowerCase() ==
+                'digital',
+      );
+      if (sigCfg == null) return;
       final bytes = await buildScheduleEscalaPdf(
-        escalaData: doc.data() ?? {},
+        escalaData: ed,
         branding: branding,
         churchAddress: address,
         churchPhone: phone,
+        preparedByName: sigCfg.preparedByName,
+        approverName: sigCfg.approverName,
+        showDigitalSignatures: sigCfg.showDigitalSignatures,
+        preparedBySignatureBytes: sigCfg.preparedBySignatureBytes,
+        approverSignatureBytes: sigCfg.approverSignatureBytes,
       );
       if (!mounted) return;
       await showPdfActions(
@@ -447,6 +476,167 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
     }
+  }
+
+  Future<({
+    String preparedByName,
+    String approverName,
+    Uint8List? preparedBySignatureBytes,
+    Uint8List? approverSignatureBytes,
+    bool showDigitalSignatures
+  })?> _pickScheduleSignatureConfig(
+    String tid, {
+    String initialPreparedByMemberId = '',
+    String initialApproverMemberId = '',
+    bool initialShowDigitalSignatures = false,
+  }) async {
+    final snap = await _membersCol(tid).get();
+    final options = snap.docs
+        .map((d) {
+          final m = d.data();
+          return (
+            id: d.id,
+            nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+                .toString()
+                .trim(),
+            assinatura:
+                (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+    if (!mounted) return null;
+    String? preparedId =
+        initialPreparedByMemberId.isNotEmpty ? initialPreparedByMemberId : null;
+    String? approverId =
+        initialApproverMemberId.isNotEmpty ? initialApproverMemberId : null;
+    var digital = initialShowDigitalSignatures;
+    return showDialog<
+        ({
+          String preparedByName,
+          String approverName,
+          Uint8List? preparedBySignatureBytes,
+          Uint8List? approverSignatureBytes,
+          bool showDigitalSignatures
+        })>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          DropdownButtonFormField<String> signer({
+            required String label,
+            required String? value,
+            required ValueChanged<String?> onChanged,
+          }) {
+            return DropdownButtonFormField<String>(
+              value: value,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: label,
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('— Não definido —'),
+                ),
+                ...options.map((e) => DropdownMenuItem<String>(
+                      value: e.id,
+                      child: Text(e.nome, overflow: TextOverflow.ellipsis),
+                    )),
+              ],
+              onChanged: onChanged,
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Assinaturas da escala'),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  signer(
+                    label: 'Quem montou a escala',
+                    value: preparedId,
+                    onChanged: (v) => setDlg(() => preparedId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  signer(
+                    label: 'Quem aprova/assina',
+                    value: approverId,
+                    onChanged: (v) => setDlg(() => approverId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    value: digital,
+                    onChanged: (v) => setDlg(() => digital = v),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Usar assinatura digital no PDF'),
+                    subtitle: const Text(
+                      'Desative para assinatura manual quando impresso.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  ({String id, String nome, String assinatura})? byId(String? id) {
+                    if (id == null || id.isEmpty) return null;
+                    for (final e in options) {
+                      if (e.id == id) return e;
+                    }
+                    return null;
+                  }
+
+                  final prep = byId(preparedId);
+                  final appr = byId(approverId);
+                  Uint8List? prepSig;
+                  Uint8List? apprSig;
+                  if (digital) {
+                    if (prep != null && prep.assinatura.isNotEmpty) {
+                      prepSig = await ImageHelper.getBytesFromUrlOrNull(
+                        sanitizeImageUrl(prep.assinatura),
+                        timeout: const Duration(seconds: 14),
+                      );
+                    }
+                    if (appr != null && appr.assinatura.isNotEmpty) {
+                      apprSig = await ImageHelper.getBytesFromUrlOrNull(
+                        sanitizeImageUrl(appr.assinatura),
+                        timeout: const Duration(seconds: 14),
+                      );
+                    }
+                  }
+                  if (!ctx.mounted) return;
+                  Navigator.pop(
+                    ctx,
+                    (
+                      preparedByName: prep?.nome ?? '',
+                      approverName: appr?.nome ?? '',
+                      preparedBySignatureBytes: prepSig,
+                      approverSignatureBytes: apprSig,
+                      showDigitalSignatures: digital,
+                    ),
+                  );
+                },
+                child: const Text('Aplicar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _notifySchedulePublished(String scheduleId) async {
@@ -695,7 +885,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   /// Diálogo premium: período explícito (início/fim) — evita “próximos 30 dias” ou mês inteiro sem controlo.
-  Future<({DateTime start, DateTime end, int members})?> _showPremiumGenerateScheduleDialog() async {
+  Future<({
+    DateTime start,
+    DateTime end,
+    int members,
+    String preparedByName,
+    String approverName,
+    String preparedByMemberId,
+    String approverMemberId,
+    bool showDigitalSignatures,
+    Uint8List? preparedBySignatureBytes,
+    Uint8List? approverSignatureBytes
+  })?> _showPremiumGenerateScheduleDialog() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     var rangeStart = today;
@@ -707,9 +908,41 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final endCtrl = TextEditingController(
       text: DateFormat('dd/MM/yyyy').format(rangeEnd),
     );
+    final tid = await _effectiveTidFuture;
+    final membersSnap = await _membersCol(tid).get();
+    final signerOptions = membersSnap.docs
+        .map((d) {
+          final m = d.data();
+          return (
+            id: d.id,
+            nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+                .toString()
+                .trim(),
+            assinatura:
+                (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+    String? preparedByMemberId;
+    String? approverMemberId;
+    var showDigitalSignatures = false;
     String? errText;
 
-    final result = await showDialog<({DateTime start, DateTime end, int members})?>(
+    final result = await showDialog<
+        ({
+          DateTime start,
+          DateTime end,
+          int members,
+          String preparedByName,
+          String approverName,
+          String preparedByMemberId,
+          String approverMemberId,
+          bool showDigitalSignatures,
+          Uint8List? preparedBySignatureBytes,
+          Uint8List? approverSignatureBytes
+        })?>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (ctx) {
@@ -967,6 +1200,70 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           ),
                         ),
                         const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          value: preparedByMemberId,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Quem montou a escala',
+                            filled: true,
+                            fillColor:
+                                ThemeCleanPremium.surface.withValues(alpha: 0.65),
+                            border: border,
+                            enabledBorder: border,
+                            focusedBorder: focusedBorder,
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('— Não definido —'),
+                            ),
+                            ...signerOptions.map((e) => DropdownMenuItem<String>(
+                                  value: e.id,
+                                  child: Text(e.nome),
+                                )),
+                          ],
+                          onChanged: (v) =>
+                              setS(() => preparedByMemberId = v),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: approverMemberId,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Quem aprova/assina',
+                            filled: true,
+                            fillColor:
+                                ThemeCleanPremium.surface.withValues(alpha: 0.65),
+                            border: border,
+                            enabledBorder: border,
+                            focusedBorder: focusedBorder,
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('— Não definido —'),
+                            ),
+                            ...signerOptions.map((e) => DropdownMenuItem<String>(
+                                  value: e.id,
+                                  child: Text(e.nome),
+                                )),
+                          ],
+                          onChanged: (v) =>
+                              setS(() => approverMemberId = v),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          value: showDigitalSignatures,
+                          onChanged: (v) =>
+                              setS(() => showDigitalSignatures = v),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('Assinatura digital no PDF'),
+                          subtitle: const Text(
+                            'Desative para assinar manualmente após impressão.',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
@@ -1035,7 +1332,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             Expanded(
                               flex: 2,
                               child: FilledButton(
-                                onPressed: () {
+                                onPressed: () async {
                                   final n = int.tryParse(membersCtrl.text.trim()) ?? 5;
                                   final pS = _parseBrDateDdMmYyyy(startCtrl.text);
                                   final pE = _parseBrDateDdMmYyyy(endCtrl.text);
@@ -1065,12 +1362,46 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                         errText = 'Informe ao menos 1 membro por escala.');
                                     return;
                                   }
+                                  ({String id, String nome, String assinatura})? pickById(
+                                      String? id) {
+                                    if (id == null || id.isEmpty) return null;
+                                    for (final e in signerOptions) {
+                                      if (e.id == id) return e;
+                                    }
+                                    return null;
+                                  }
+
+                                  final prep = pickById(preparedByMemberId);
+                                  final appr = pickById(approverMemberId);
+                                  Uint8List? prepSig;
+                                  Uint8List? apprSig;
+                                  if (showDigitalSignatures) {
+                                    if (prep != null && prep.assinatura.isNotEmpty) {
+                                      prepSig = await ImageHelper.getBytesFromUrlOrNull(
+                                        sanitizeImageUrl(prep.assinatura),
+                                        timeout: const Duration(seconds: 14),
+                                      );
+                                    }
+                                    if (appr != null && appr.assinatura.isNotEmpty) {
+                                      apprSig = await ImageHelper.getBytesFromUrlOrNull(
+                                        sanitizeImageUrl(appr.assinatura),
+                                        timeout: const Duration(seconds: 14),
+                                      );
+                                    }
+                                  }
                                   Navigator.pop(
                                     ctx,
                                     (
                                       start: pS,
                                       end: pE,
                                       members: n.clamp(1, 999),
+                                      preparedByName: prep?.nome ?? '',
+                                      approverName: appr?.nome ?? '',
+                                      preparedByMemberId: prep?.id ?? '',
+                                      approverMemberId: appr?.id ?? '',
+                                      showDigitalSignatures: showDigitalSignatures,
+                                      preparedBySignatureBytes: prepSig,
+                                      approverSignatureBytes: apprSig,
                                     ),
                                   );
                                 },
@@ -1101,16 +1432,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   // ── Gerar escalas no período escolhido (rodízio + conflitos) ───────────────
   Future<void> _generate(DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!kScheduleAutoGenerationEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'A geração automática de escala está desativada no momento.',
-          ),
-        );
-      }
-      return;
-    }
+    // Geração manual permanece disponível mesmo quando o modo automático global está desligado.
     if (!_canWrite) return;
     final tplDept = (doc.data()?['departmentId'] ?? '').toString();
     if (!_canWriteFull &&
@@ -1274,6 +1596,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'confirmations': {},
         'templateId': doc.id,
         'observations': '',
+        'preparedByName': pick.preparedByName,
+        'approverName': pick.approverName,
+        'preparedByMemberId': pick.preparedByMemberId,
+        'approverMemberId': pick.approverMemberId,
+        'signatureMode': pick.showDigitalSignatures ? 'digital' : 'manual',
         'createdAt': tsNow,
         'updatedAt': tsNow,
         'active': true,
@@ -1452,7 +1779,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     doc: docs[i],
                     deptColor: _colorForDept(allDepts.indexWhere((d) => d.id == (docs[i].data()['departmentId'] ?? '')).clamp(0, 99)),
                     canWrite: canTpl,
-                    canGenerate: kScheduleAutoGenerationEnabled,
+                    canGenerate: canTpl,
                     onEdit: () => _editTemplate(doc: docs[i]),
                     onGenerate: () => _generate(docs[i]),
                     onDelete: () async {

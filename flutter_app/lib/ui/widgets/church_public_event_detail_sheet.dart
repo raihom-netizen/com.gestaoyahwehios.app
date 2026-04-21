@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -26,6 +27,10 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
   final String? timeLabel;
   /// Endereço / local (linha própria com ícone).
   final String? locationLine;
+  /// Texto para compartilhar (título + link, etc.).
+  final String? shareText;
+  /// URL de mapa (Google Maps) para abrir rota/local.
+  final String? mapsUrl;
 
   const ChurchPublicEventDetailSheet({
     super.key,
@@ -40,6 +45,8 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
     this.dateLabel,
     this.timeLabel,
     this.locationLine,
+    this.shareText,
+    this.mapsUrl,
   });
 
   bool get _hasStructuredSchedule {
@@ -289,6 +296,36 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
                     ),
                     icon: const Icon(Icons.play_circle_fill_rounded),
                     label: const Text('Assistir vídeo'),
+                  ),
+                ],
+                if ((locationLine ?? '').trim().isNotEmpty ||
+                    (mapsUrl ?? '').trim().isNotEmpty ||
+                    (shareText ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if ((mapsUrl ?? '').trim().isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            final uri = Uri.tryParse((mapsUrl ?? '').trim());
+                            if (uri != null) {
+                              launchUrl(uri, mode: LaunchMode.externalApplication);
+                            }
+                          },
+                          icon: const Icon(Icons.place_rounded),
+                          label: const Text('Localização'),
+                        ),
+                      if ((shareText ?? '').trim().isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Share.share((shareText ?? '').trim());
+                          },
+                          icon: const Icon(Icons.share_rounded),
+                          label: const Text('Compartilhar'),
+                        ),
+                    ],
                   ),
                 ],
               ],

@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -18,6 +19,7 @@ import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -3211,6 +3213,112 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     final ts = m['createdAt'];
     DateTime? dt;
     if (ts is Timestamp) dt = ts.toDate();
+    final membrosSnap = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('membros')
+        .get();
+    if (!mounted) return;
+    final signers = membrosSnap.docs
+        .map((d) {
+          final md = d.data();
+          return (
+            id: d.id,
+            nome: (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
+                .toString()
+                .trim(),
+            cargo:
+                (md['CARGO'] ?? md['FUNCAO'] ?? md['cargo'] ?? '').toString().trim(),
+            assinatura:
+                (md['assinaturaUrl'] ?? md['assinatura_url'] ?? '').toString().trim(),
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+
+    String? signerId;
+    var useDigital = true;
+    final cfg = await showDialog<({String? signerId, bool useDigital})>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Assinatura do recibo'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: signerId,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Assinante da igreja',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('— Não definido —'),
+                    ),
+                    ...signers.map((s) => DropdownMenuItem<String>(
+                          value: s.id,
+                          child: Text(
+                            s.cargo.isEmpty ? s.nome : '${s.nome} — ${s.cargo}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                  ],
+                  onChanged: (v) => setDlg(() => signerId = v),
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile.adaptive(
+                  value: useDigital,
+                  onChanged: (v) => setDlg(() => useDigital = v),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Carregar assinatura digital da igreja'),
+                  subtitle: const Text(
+                    'Desative para assinar manualmente no papel.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                ctx,
+                (signerId: signerId, useDigital: useDigital),
+              ),
+              child: const Text('Aplicar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (cfg == null || !mounted) return;
+    final sel = signers.where((s) => s.id == cfg.signerId);
+    final signer = sel.isNotEmpty ? sel.first : null;
+    Uint8List? sigBytes;
+    if (cfg.useDigital && signer != null && signer.assinatura.isNotEmpty) {
+      final url = sanitizeImageUrl(signer.assinatura);
+      if (url.isNotEmpty) {
+        sigBytes = await ImageHelper.getBytesFromUrlOrNull(
+          url,
+          timeout: const Duration(seconds: 14),
+        );
+      }
+    }
     final branding = await loadReportPdfBranding(widget.tenantId);
     if (!mounted) return;
     final bytes = await buildFornecedorReciboPdf(
@@ -3221,6 +3329,10 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
       valor: v,
       referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
       dataPagamento: dt,
+      showDigitalSignature: cfg.useDigital,
+      churchSignatureImageBytes: sigBytes,
+      churchSignerName: signer?.nome ?? '',
+      churchSignerRole: signer?.cargo ?? '',
     );
     if (!context.mounted) return;
     await showPdfActions(context, bytes: bytes, filename: 'recibo_fornecedor.pdf');

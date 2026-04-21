@@ -146,16 +146,14 @@ String _financeContaBancoNome(Map<String, dynamic> d) {
 
 /// Cor por banco (determinística) para facilitar leitura rápida das contas.
 Color _financeContaBancoColor(Map<String, dynamic> d) {
+  final branding = brasilBancoBrandingFor(
+    codigo: (d['bancoCodigo'] ?? '').toString(),
+    nome: _financeContaBancoNome(d),
+  );
+  if (branding != kBrasilBancoBrandingFallback) {
+    return Color(branding.colorHex);
+  }
   final banco = _financeContaBancoNome(d).toLowerCase();
-  if (banco.contains('nubank')) return const Color(0xFF8A05BE);
-  if (banco.contains('itaú') || banco.contains('itau')) return const Color(0xFFEC7000);
-  if (banco.contains('bradesco')) return const Color(0xFFCC092F);
-  if (banco.contains('santander')) return const Color(0xFFEC0000);
-  if (banco.contains('caixa')) return const Color(0xFF0066B3);
-  if (banco.contains('banco do brasil')) return const Color(0xFFF9D300);
-  if (banco.contains('inter')) return const Color(0xFFFF7A00);
-  if (banco.contains('mercado pago')) return const Color(0xFF00A1EA);
-  if (banco.contains('picpay')) return const Color(0xFF21C25E);
   const palette = <Color>[
     Color(0xFF2563EB),
     Color(0xFF7C3AED),
@@ -167,6 +165,50 @@ Color _financeContaBancoColor(Map<String, dynamic> d) {
   ];
   final idx = banco.hashCode.abs() % palette.length;
   return palette[idx];
+}
+
+Widget _financeBankMiniLogo({
+  required String bancoCodigo,
+  required String bancoNome,
+  double size = 28,
+  double fontSize = 11,
+}) {
+  final branding = brasilBancoBrandingFor(codigo: bancoCodigo, nome: bancoNome);
+  final color = Color(branding.colorHex);
+  final bg = color.withValues(alpha: 0.16);
+  final initials = branding.initials.trim().isNotEmpty
+      ? branding.initials.trim()
+      : (bancoNome.trim().isEmpty ? 'BK' : bancoNome.trim().substring(0, 1).toUpperCase());
+  final logoPath = (branding.miniLogoAssetPath ?? '').trim();
+  final fallback = Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: bg,
+      shape: BoxShape.circle,
+      border: Border.all(color: color.withValues(alpha: 0.42)),
+    ),
+    alignment: Alignment.center,
+    child: Text(
+      initials,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w900,
+        letterSpacing: -0.1,
+        color: color,
+      ),
+    ),
+  );
+  if (logoPath.isEmpty) return fallback;
+  return ClipOval(
+    child: Image.asset(
+      logoPath,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => fallback,
+    ),
+  );
 }
 
 /// Retorna categorias de despesa do tenant (com seed se vazio). Usado por Despesas Fixas. Sem repetição por nome.
@@ -225,6 +267,209 @@ Future<List<({String id, String nome})>> _financeContasAtivasTenant(
       .toList();
 }
 
+class _FinancePdfSignerOption {
+  final String memberId;
+  final String nome;
+  final String cargo;
+  final String assinaturaUrl;
+
+  const _FinancePdfSignerOption({
+    required this.memberId,
+    required this.nome,
+    required this.cargo,
+    required this.assinaturaUrl,
+  });
+}
+
+class _FinancePdfSignerSelection {
+  final String leftName;
+  final String rightName;
+  final Uint8List? leftSignatureBytes;
+  final Uint8List? rightSignatureBytes;
+  final bool showDigitalSignatures;
+
+  const _FinancePdfSignerSelection({
+    required this.leftName,
+    required this.rightName,
+    required this.leftSignatureBytes,
+    required this.rightSignatureBytes,
+    required this.showDigitalSignatures,
+  });
+}
+
+Future<Uint8List?> _financeTryLoadSignatureBytes(String rawUrl) async {
+  final url = sanitizeImageUrl(rawUrl.trim());
+  if (url.isEmpty) return null;
+  final bytes = await ImageHelper.getBytesFromUrlOrNull(
+    url,
+    timeout: const Duration(seconds: 14),
+  );
+  if (bytes == null || bytes.length < 24) return null;
+  return bytes;
+}
+
+Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
+  BuildContext context, {
+  required String tenantId,
+}) async {
+  final snap = await FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('membros')
+      .get();
+
+  final opts = snap.docs.map((d) {
+    final m = d.data();
+    final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+        .toString()
+        .trim();
+    final cargo =
+        (m['CARGO'] ?? m['FUNCAO'] ?? m['funcao'] ?? m['cargo'] ?? '')
+            .toString()
+            .trim();
+    final assinaturaUrl =
+        (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim();
+    return _FinancePdfSignerOption(
+      memberId: d.id,
+      nome: nome,
+      cargo: cargo,
+      assinaturaUrl: assinaturaUrl,
+    );
+  }).where((e) => e.nome.isNotEmpty).toList()
+    ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+
+  if (!context.mounted) return null;
+
+  String? leftId;
+  String? rightId;
+  bool showDigital = true;
+
+  final result = await showDialog<_FinancePdfSignerSelection>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDlg) {
+        DropdownButtonFormField<String> signerField({
+          required String label,
+          required String? value,
+          required ValueChanged<String?> onChanged,
+        }) {
+          return DropdownButtonFormField<String>(
+            value: value,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: label,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+            items: [
+              const DropdownMenuItem<String>(
+                value: null,
+                child: Text('— Não definido —'),
+              ),
+              ...opts.map(
+                (e) => DropdownMenuItem<String>(
+                  value: e.memberId,
+                  child: Text(
+                    e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+            onChanged: onChanged,
+          );
+        }
+
+        return AlertDialog(
+          title: const Text('Assinaturas do PDF financeiro'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                signerField(
+                  label: 'Nome da caixa esquerda',
+                  value: leftId,
+                  onChanged: (v) => setDlg(() => leftId = v),
+                ),
+                const SizedBox(height: 10),
+                signerField(
+                  label: 'Nome da caixa direita',
+                  value: rightId,
+                  onChanged: (v) => setDlg(() => rightId = v),
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile.adaptive(
+                  value: showDigital,
+                  onChanged: (v) => setDlg(() => showDigital = v),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Carregar assinatura digital'),
+                  subtitle: const Text(
+                    'Desative para deixar apenas linhas para assinatura manual.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                _FinancePdfSignerOption? pickById(String? id) {
+                  if (id == null || id.isEmpty) return null;
+                  for (final e in opts) {
+                    if (e.memberId == id) return e;
+                  }
+                  return null;
+                }
+
+                final leftOpt = pickById(leftId);
+                final rightOpt = pickById(rightId);
+
+                Uint8List? leftSig;
+                Uint8List? rightSig;
+                if (showDigital) {
+                  if (leftOpt != null && leftOpt.assinaturaUrl.isNotEmpty) {
+                    leftSig =
+                        await _financeTryLoadSignatureBytes(leftOpt.assinaturaUrl);
+                  }
+                  if (rightOpt != null && rightOpt.assinaturaUrl.isNotEmpty) {
+                    rightSig =
+                        await _financeTryLoadSignatureBytes(rightOpt.assinaturaUrl);
+                  }
+                }
+                if (!ctx.mounted) return;
+                Navigator.pop(
+                  ctx,
+                  _FinancePdfSignerSelection(
+                    leftName:
+                        leftOpt?.nome ?? (leftId == null ? 'Tesoureiro(a)' : ''),
+                    rightName:
+                        rightOpt?.nome ?? (rightId == null ? 'Pastor Presidente' : ''),
+                    leftSignatureBytes: leftSig,
+                    rightSignatureBytes: rightSig,
+                    showDigitalSignatures: showDigital,
+                  ),
+                );
+              },
+              child: const Text('Aplicar'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  return result;
+}
+
 /// PDF Super Premium — lançamentos financeiros (lista completa ou filtrada).
 Future<void> exportFinanceiroRelatorioPdf({
   required BuildContext context,
@@ -232,6 +477,11 @@ Future<void> exportFinanceiroRelatorioPdf({
   required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   List<String> filterSummaryLines = const [],
   String filename = 'financeiro_relatorio.pdf',
+  String leftSignerName = 'Tesoureiro(a)',
+  String rightSignerName = 'Pastor Presidente',
+  Uint8List? leftSignatureBytes,
+  Uint8List? rightSignatureBytes,
+  bool showDigitalSignatures = false,
 }) async {
   if (docs.isEmpty) {
     if (context.mounted) {
@@ -309,6 +559,11 @@ Future<void> exportFinanceiroRelatorioPdf({
           pw.SizedBox(height: 22),
           PdfSuperPremiumTheme.reportDualSignatureAttestation(
             accent: branding.accent,
+            leftSignerName: leftSignerName,
+            rightSignerName: rightSignerName,
+            leftSignatureImageBytes: leftSignatureBytes,
+            rightSignatureImageBytes: rightSignatureBytes,
+            showDigitalSignatures: showDigitalSignatures,
           ),
         ],
       ),
@@ -333,6 +588,11 @@ Future<void> exportFinanceiroDespesasPorFornecedorPdf({
   required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   List<String> filterSummaryLines = const [],
   String filename = 'financeiro_despesas_por_fornecedor.pdf',
+  String leftSignerName = 'Tesoureiro(a)',
+  String rightSignerName = 'Pastor Presidente',
+  Uint8List? leftSignatureBytes,
+  Uint8List? rightSignatureBytes,
+  bool showDigitalSignatures = false,
 }) async {
   final despesas = docs.where((d) {
     final m = d.data();
@@ -419,6 +679,11 @@ Future<void> exportFinanceiroDespesasPorFornecedorPdf({
           pw.SizedBox(height: 22),
           PdfSuperPremiumTheme.reportDualSignatureAttestation(
             accent: branding.accent,
+            leftSignerName: leftSignerName,
+            rightSignerName: rightSignerName,
+            leftSignatureImageBytes: leftSignatureBytes,
+            rightSignatureImageBytes: rightSignatureBytes,
+            showDigitalSignatures: showDigitalSignatures,
           ),
         ],
       ),
@@ -785,6 +1050,22 @@ class _FinancePageState extends State<FinancePage>
       _financeRealtimeSubs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
   Timer? _financeRealtimeDebounce;
 
+  Future<void> _warmupBankBrandingAssets() async {
+    if (!mounted) return;
+    final paths = <String>{};
+    for (final b in kBrasilBancosComuns) {
+      final p =
+          (brasilBancoBrandingFor(codigo: b.codigo, nome: b.nome).miniLogoAssetPath ?? '')
+              .trim();
+      if (p.isNotEmpty) paths.add(p);
+    }
+    for (final p in paths) {
+      try {
+        await precacheImage(AssetImage(p), context);
+      } catch (_) {}
+    }
+  }
+
   void _notifyFinanceChanged() {
     if (!mounted) return;
     setState(() => _financeRevision++);
@@ -841,6 +1122,9 @@ class _FinancePageState extends State<FinancePage>
     _financeCol = _tenantRef.collection('finance');
     FirebaseAuth.instance.currentUser?.getIdToken(true);
     _startFinanceRealtimeSync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_warmupBankBrandingAssets());
+    });
     final openId = widget.openLancamentoId?.trim();
     if (openId != null && openId.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLancamento(openId));
@@ -1306,6 +1590,9 @@ class _FinancePageState extends State<FinancePage>
   }
 
   Future<void> _exportarPdf(BuildContext context) async {
+    final signers =
+        await _pickFinancePdfSigners(context, tenantId: widget.tenantId);
+    if (!mounted || signers == null) return;
     final snap = await _financeCol
         .orderBy('createdAt', descending: true)
         .limit(500)
@@ -1316,6 +1603,11 @@ class _FinancePageState extends State<FinancePage>
       tenantId: widget.tenantId,
       docs: snap.docs,
       filename: 'financeiro_relatorio.pdf',
+      leftSignerName: signers.leftName,
+      rightSignerName: signers.rightName,
+      leftSignatureBytes: signers.leftSignatureBytes,
+      rightSignatureBytes: signers.rightSignatureBytes,
+      showDigitalSignatures: signers.showDigitalSignatures,
     );
   }
 }
@@ -1715,6 +2007,17 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(right: 10),
+                                                  child: _financeBankMiniLogo(
+                                                    bancoCodigo: (contaData['bancoCodigo'] ?? '')
+                                                        .toString(),
+                                                    bancoNome: bancoNome,
+                                                    size: 30,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                                 Expanded(
                                                   child: Text(
                                                     nome,
@@ -5995,9 +6298,20 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                       items: bankOptions
                           .map((b) => DropdownMenuItem(
                                 value: b,
-                                child: Text(
-                                  b.label,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Row(
+                                  children: [
+                                    _financeBankMiniLogo(
+                                      bancoCodigo: b.codigo,
+                                      bancoNome: b.nome,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        b.label,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ))
                           .toList(),
@@ -6102,6 +6416,8 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
       'nome': nome,
       'bancoCodigo': bancoSel.codigo,
       'bancoNome': bancoSel.nome,
+      'bancoBrandSlug':
+          brasilBancoBrandingFor(codigo: bancoSel.codigo, nome: bancoSel.nome).slug,
       'agencia': agenciaCtrl.text.trim(),
       'numeroConta': contaCtrl.text.trim(),
       'tipoConta': tipoConta,

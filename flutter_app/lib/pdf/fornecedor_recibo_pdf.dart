@@ -18,12 +18,19 @@ Future<Uint8List> buildFornecedorReciboPdf({
   required String referente,
   DateTime? dataPagamento,
   String textoLegalExtra = '',
+  bool showDigitalSignature = false,
+  Uint8List? churchSignatureImageBytes,
+  String churchSignerName = '',
+  String churchSignerRole = '',
 }) async {
   final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
   final dataStr = dataPagamento != null
       ? DateFormat("dd 'de' MMMM 'de' yyyy", 'pt_BR').format(dataPagamento)
       : DateFormat("dd 'de' MMMM 'de' yyyy", 'pt_BR').format(DateTime.now());
   final extenso = valorRealPorExtenso(valor);
+  final hasChurchSig = showDigitalSignature &&
+      churchSignatureImageBytes != null &&
+      churchSignatureImageBytes.length > 24;
 
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   pdf.addPage(
@@ -94,7 +101,16 @@ Future<Uint8List> buildFornecedorReciboPdf({
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text('Data: $dataStr', style: const pw.TextStyle(fontSize: 10)),
-                  pw.SizedBox(height: 28),
+                  pw.SizedBox(height: hasChurchSig ? 8 : 28),
+                  if (hasChurchSig)
+                    pw.SizedBox(
+                      width: 170,
+                      height: 30,
+                      child: pw.Image(
+                        pw.MemoryImage(churchSignatureImageBytes),
+                        fit: pw.BoxFit.contain,
+                      ),
+                    ),
                   pw.Container(
                     width: 220,
                     decoration: const pw.BoxDecoration(
@@ -104,8 +120,35 @@ Future<Uint8List> buildFornecedorReciboPdf({
                   pw.SizedBox(height: 4),
                   pw.Text(
                     pdfSafeText(
-                        'Assinatura / carimbo - ${branding.churchName}'),
+                      churchSignerName.trim().isEmpty
+                          ? 'Assinatura / carimbo - ${branding.churchName}'
+                          : churchSignerRole.trim().isEmpty
+                              ? churchSignerName.trim()
+                              : '${churchSignerName.trim()} — ${churchSignerRole.trim()}',
+                    ),
                     style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.SizedBox(height: hasChurchSig ? 38 : 66),
+                  pw.Container(
+                    width: 220,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    pdfSafeText(
+                      fornecedorCpfCnpj != null && fornecedorCpfCnpj.trim().isNotEmpty
+                          ? 'Assinatura do fornecedor/prestador — $fornecedorNome (${fornecedorCpfCnpj.trim()})'
+                          : 'Assinatura do fornecedor/prestador — $fornecedorNome',
+                    ),
+                    style: const pw.TextStyle(fontSize: 9),
+                    textAlign: pw.TextAlign.right,
                   ),
                 ],
               ),

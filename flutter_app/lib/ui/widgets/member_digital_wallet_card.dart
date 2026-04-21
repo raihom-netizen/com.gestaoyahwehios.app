@@ -455,7 +455,7 @@ class WalletSignatureStrip extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(maxHeight: 92),
+      constraints: const BoxConstraints(maxHeight: 78),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(11),
         border: Border.all(
@@ -491,7 +491,7 @@ class WalletSignatureStrip extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -502,7 +502,7 @@ class WalletSignatureStrip extends StatelessWidget {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                                horizontal: 7, vertical: 2),
                             decoration: BoxDecoration(
                               color: chipBg,
                               borderRadius: BorderRadius.circular(999),
@@ -513,7 +513,7 @@ class WalletSignatureStrip extends StatelessWidget {
                             child: Text(
                               'ASSINATURA INSTITUCIONAL',
                               style: GoogleFonts.poppins(
-                                fontSize: 6.4,
+                                fontSize: 6.0,
                                 fontWeight: FontWeight.w800,
                                 color: a.withValues(alpha: 0.95),
                                 letterSpacing: 0.35,
@@ -521,13 +521,13 @@ class WalletSignatureStrip extends StatelessWidget {
                             ),
                           ),
                           if (signatoryName.trim().isNotEmpty) ...[
-                            const SizedBox(height: 5),
+                            const SizedBox(height: 3),
                             Text(
                               signatoryName.trim(),
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.poppins(
-                                fontSize: 9.4,
+                                fontSize: 8.7,
                                 fontWeight: FontWeight.w800,
                                 color: textColor,
                                 height: 1.12,
@@ -535,13 +535,13 @@ class WalletSignatureStrip extends StatelessWidget {
                             ),
                           ],
                           if (signatoryCargo.trim().isNotEmpty) ...[
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 1),
                             Text(
                               signatoryCargo.trim(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.poppins(
-                                fontSize: 7.2,
+                                fontSize: 6.8,
                                 fontWeight: FontWeight.w600,
                                 color: textColor.withValues(alpha: 0.82),
                                 height: 1.1,
@@ -554,8 +554,8 @@ class WalletSignatureStrip extends StatelessWidget {
                     if (u.isNotEmpty) ...[
                       const SizedBox(width: 6),
                       SizedBox(
-                        width: 96,
-                        height: 34,
+                        width: 118,
+                        height: 42,
                         child: _WalletSigImage(url: u),
                       ),
                     ],
@@ -581,8 +581,8 @@ class _WalletSigImage extends StatefulWidget {
 }
 
 class _WalletSigImageState extends State<_WalletSigImage> {
-  static const double _sigW = 96;
-  static const double _sigH = 34;
+  static const double _sigW = 118;
+  static const double _sigH = 42;
 
   Uint8List? _pngBytes;
   bool _loading = true;
@@ -665,7 +665,7 @@ class _WalletSigImageState extends State<_WalletSigImage> {
       b,
       width: _sigW,
       height: _sigH,
-      fit: BoxFit.contain,
+      fit: BoxFit.fitHeight,
       gaplessPlayback: true,
       filterQuality: FilterQuality.high,
     );

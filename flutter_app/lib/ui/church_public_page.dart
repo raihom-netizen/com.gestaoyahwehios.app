@@ -65,6 +65,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
+import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_social_portal.dart';
 import 'package:gestao_yahweh/ui/pages/legal_pages.dart'
     show
@@ -94,6 +95,9 @@ bool _churchPublicDocIsNoticiaEvento(
 
 /// Site público: oculta após validade ou expiração de aviso (documento excluído some do stream).
 bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
+  // Eventos marcados para galeria permanente continuam visíveis no site público
+  // via seção de arquivo, mesmo quando já passaram da validade padrão.
+  if (eventShouldMoveToGalleryArchive(m, now)) return true;
   final v = m['validUntil'];
   if (v is Timestamp && !v.toDate().isAfter(now)) return false;
   final type = (m['type'] ?? 'aviso').toString();
@@ -401,6 +405,13 @@ class _ChurchPublicMuralStreamSliverState
     final memH = mem.$2;
     final avisos = items.where(_churchPublicDocIsAviso).toList();
     final eventos = items.where(_churchPublicDocIsNoticiaEvento).toList();
+    final now = DateTime.now();
+    final eventosArquivo = eventos
+        .where((e) => eventShouldMoveToGalleryArchive(e.data(), now))
+        .toList();
+    final eventosAtivos = eventos
+        .where((e) => !eventShouldMoveToGalleryArchive(e.data(), now))
+        .toList();
     const avisosAccent = Color(0xFF7C3AED);
 
     Widget feedTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -464,7 +475,7 @@ class _ChurchPublicMuralStreamSliverState
                   kicker: 'Eventos',
                   title: 'Fotos e vídeos',
                   subtitle:
-                      'Mural com mídia: cultos especiais, confraternizações e campanhas. Separado dos avisos oficiais e da agenda de horários abaixo.',
+                      'Mural com mídia: cultos especiais, confraternizações e campanhas. Após o evento, fica 1 dia no destaque e depois vai para a galeria de arquivo.',
                   icon: Icons.photo_library_rounded,
                   accentColor: widget.accent,
                   child: eventos.isEmpty
@@ -476,9 +487,57 @@ class _ChurchPublicMuralStreamSliverState
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            for (var j = 0; j < eventos.length; j++) ...[
+                            if (eventosAtivos.isNotEmpty) ...[
+                              for (var j = 0; j < eventosAtivos.length; j++) ...[
+                                if (j > 0) const SizedBox(height: 18),
+                                feedTile(eventosAtivos[j]),
+                              ],
+                            ],
+                            if (eventosArquivo.isNotEmpty) ...[
+                              const SizedBox(height: 18),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Text(
+                                  'Arquivo da Galeria de Eventos',
+                                  style: TextStyle(
+                                    color: widget.accent,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              for (var j = 0;
+                                  j < (eventosArquivo.length > 6
+                                      ? 6
+                                      : eventosArquivo.length);
+                                  j++) ...[
                               if (j > 0) const SizedBox(height: 18),
-                              feedTile(eventos[j]),
+                                feedTile(eventosArquivo[j]),
+                              ],
+                              if (eventosArquivo.length > 6) ...[
+                                const SizedBox(height: 10),
+                                FilledButton.tonalIcon(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => _PublicEventsGalleryPage(
+                                          docs: eventosArquivo,
+                                          accent: widget.accent,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.open_in_new_rounded),
+                                  label: Text(
+                                      'Ver galeria completa (${eventosArquivo.length})'),
+                                ),
+                              ],
                             ],
                           ],
                         ),
@@ -556,6 +615,343 @@ class _ChurchPublicEmptySubsection extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PublicEventsGalleryPage extends StatefulWidget {
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+  final Color accent;
+
+  const _PublicEventsGalleryPage({
+    required this.docs,
+    required this.accent,
+  });
+
+  @override
+  State<_PublicEventsGalleryPage> createState() => _PublicEventsGalleryPageState();
+}
+
+class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _order = 'recent_first';
+  String _mediaType = 'all';
+  String _monthYear = 'all';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  DateTime? _eventDate(Map<String, dynamic> p) {
+    final d = eventArchiveBaseDate(p);
+    if (d != null) return d;
+    final c = p['createdAt'];
+    if (c is Timestamp) return c.toDate();
+    return null;
+  }
+
+  String _formatDate(DateTime? d) {
+    if (d == null) return 'Sem data';
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+  }
+
+  String _monthYearKey(DateTime? d) {
+    if (d == null) return '';
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}';
+  }
+
+  String _monthYearLabel(DateTime? d) {
+    if (d == null) return 'Sem data';
+    const months = <String>[
+      'Janeiro',
+      'Fevereiro',
+      'Março',
+      'Abril',
+      'Maio',
+      'Junho',
+      'Julho',
+      'Agosto',
+      'Setembro',
+      'Outubro',
+      'Novembro',
+      'Dezembro',
+    ];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var docs = widget.docs.toList();
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      docs = docs.where((d) {
+        final p = d.data();
+        final t = (p['title'] ?? '').toString().toLowerCase();
+        final body = (p['text'] ?? '').toString().toLowerCase();
+        return t.contains(q) || body.contains(q);
+      }).toList();
+    }
+    if (_mediaType != 'all') {
+      docs = docs.where((d) {
+        final p = d.data();
+        final hasPhoto = eventNoticiaPhotoUrls(p).isNotEmpty;
+        final hasVideo = eventNoticiaVideosFromDoc(p).isNotEmpty;
+        if (_mediaType == 'photos') return hasPhoto;
+        if (_mediaType == 'videos') return hasVideo;
+        return true;
+      }).toList();
+    }
+    final monthOptions = <MapEntry<String, String>>[];
+    final monthSeen = <String>{};
+    for (final d in docs) {
+      final key = _monthYearKey(_eventDate(d.data()));
+      if (key.isEmpty || monthSeen.contains(key)) continue;
+      monthSeen.add(key);
+      monthOptions.add(MapEntry(key, _monthYearLabel(_eventDate(d.data()))));
+    }
+    monthOptions.sort((a, b) => b.key.compareTo(a.key));
+    if (_monthYear != 'all') {
+      docs = docs
+          .where((d) => _monthYearKey(_eventDate(d.data())) == _monthYear)
+          .toList();
+    }
+    docs.sort((a, b) {
+      final da = _eventDate(a.data()) ?? DateTime(1900);
+      final db = _eventDate(b.data()) ?? DateTime(1900);
+      final cmp = db.compareTo(da);
+      return _order == 'recent_first' ? cmp : -cmp;
+    });
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Galeria de Eventos'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: 'Voltar',
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(14),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    hintText: 'Pesquisar evento',
+                    prefixIcon: Icon(Icons.search_rounded),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _order,
+                        decoration: const InputDecoration(
+                          labelText: 'Ordem',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'recent_first',
+                              child: Text('Último -> antigo')),
+                          DropdownMenuItem(
+                              value: 'old_first',
+                              child: Text('Antigo -> último')),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _order = v ?? 'recent_first'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _mediaType,
+                        decoration: const InputDecoration(
+                          labelText: 'Mídia',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('Todas')),
+                          DropdownMenuItem(value: 'photos', child: Text('Fotos')),
+                          DropdownMenuItem(value: 'videos', child: Text('Vídeos')),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _mediaType = v ?? 'all'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _monthYear,
+                  decoration: const InputDecoration(
+                    labelText: 'Ano/Mês específico',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: 'all',
+                      child: Text('Todos os meses'),
+                    ),
+                    ...monthOptions.map(
+                      (m) => DropdownMenuItem(
+                        value: m.key,
+                        child: Text(m.value),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _monthYear = v ?? 'all'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (docs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 24),
+              child: Center(child: Text('Nenhum evento encontrado.')),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 300,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 0.84,
+              ),
+              itemCount: docs.length,
+              itemBuilder: (context, i) {
+                final p = docs[i].data();
+                final photos = eventNoticiaPhotoUrls(p);
+                final videos = eventNoticiaVideosFromDoc(p);
+                final cover = photos.isNotEmpty
+                    ? sanitizeImageUrl(photos.first)
+                    : sanitizeImageUrl(
+                        eventNoticiaDisplayVideoThumbnailUrl(p) ?? '');
+                return Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      final title = (p['title'] ?? 'Evento').toString();
+                      final text = (p['text'] ?? '').toString();
+                      showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => ChurchPublicEventDetailSheet(
+                          title: title,
+                          subtitle: _formatDate(_eventDate(p)),
+                          body: text,
+                          imageUrl: cover,
+                          videoUrl:
+                              eventNoticiaHostedVideoPlayUrl(p) ??
+                                  eventNoticiaExternalVideoUrl(p) ??
+                                  '',
+                          accentColor: widget.accent,
+                        ),
+                      );
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(14),
+                            ),
+                            child: isValidImageUrl(cover)
+                                ? SafeNetworkImage(
+                                    imageUrl: cover,
+                                    fit: BoxFit.cover,
+                                    errorWidget: Container(
+                                      color: const Color(0xFFF1F5F9),
+                                    ),
+                                  )
+                                : Container(color: const Color(0xFFF1F5F9)),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (p['title'] ?? 'Evento').toString(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 14),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                _formatDate(_eventDate(p)),
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 7),
+                              Wrap(
+                                spacing: 6,
+                                children: [
+                                  _galleryMiniChip(
+                                      Icons.photo_library_rounded,
+                                      '${photos.length} fotos'),
+                                  _galleryMiniChip(
+                                      Icons.videocam_rounded,
+                                      '${videos.length} vídeos'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _galleryMiniChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: widget.accent),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -2489,11 +2885,14 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
               ...fixos.map((m) {
                 final title = (m['title'] ?? '').toString();
                 final loc = (m['location'] ?? '').toString().trim();
+                final locFallback = widget.churchVenueAddress.trim();
+                final locFinal = loc.isNotEmpty ? loc : locFallback;
                 final body = (m['text'] ?? '').toString().trim();
                 final imageUrl = (m['imageUrl'] ?? '').toString().trim();
                 final videoUrl = (m['videoUrl'] ?? '').toString().trim();
                 final photoPath =
                     (m['photoStoragePath'] ?? '').toString().trim();
+                final itemId = (m['id'] ?? '').toString().trim();
                 DateTime? dt = m['startAt'] is Timestamp
                     ? (m['startAt'] as Timestamp).toDate()
                     : null;
@@ -2513,7 +2912,7 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                     weekdayLongLabel: dayNameLong,
                     dateShort: dateStr,
                     timeLabel: time,
-                    location: loc,
+                    location: locFinal,
                     churchDefaultAddress: widget.churchVenueAddress,
                     imageUrl: imageUrl,
                     accent: accentEvento,
@@ -2533,13 +2932,38 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                               dayNameLong.isEmpty ? null : dayNameLong,
                           dateLabel: dateStr.isEmpty ? null : dateStr,
                           timeLabel: time.isEmpty ? null : time,
-                          locationLine: loc.isEmpty ? null : loc,
+                          locationLine: locFinal.isEmpty ? null : locFinal,
                           body: body,
                           imageUrl: imageUrl,
                           videoUrl: videoUrl,
                           photoStoragePath:
                               photoPath.isNotEmpty ? photoPath : null,
                           accentColor: accentEvento,
+                          mapsUrl: locFinal.isEmpty
+                              ? null
+                              : 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(locFinal)}',
+                          shareText: (() {
+                            final when =
+                                dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
+                            final base = StringBuffer()
+                              ..write(title.trim().isEmpty
+                                  ? 'Programação da igreja'
+                                  : title.trim());
+                            if (when.isNotEmpty) base.write('\nData: $when');
+                            if (time.isNotEmpty) base.write('\nHora: $time');
+                            if (locFinal.isNotEmpty) base.write('\nLocal: $locFinal');
+                            final isRealPost =
+                                itemId.isNotEmpty && !itemId.startsWith('virt_');
+                            if (isRealPost && widget.churchSlug.trim().isNotEmpty) {
+                              final link = AppConstants.shareNoticiaSocialPreviewUrl(
+                                widget.churchSlug.trim(),
+                                itemId,
+                                widget.igrejaId,
+                              );
+                              base.write('\n\nMais detalhes: $link');
+                            }
+                            return base.toString();
+                          })(),
                         ),
                       );
                     },

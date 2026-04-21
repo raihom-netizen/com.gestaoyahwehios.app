@@ -277,6 +277,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   late final TextEditingController _memberSearchController;
   Timer? _memberSearchDebounce;
   String? _memberListPreloadFingerprint;
+  String _signatureEnhanceMode = kSignatureEnhanceModeUltra;
 
   /// Seleção na lista de membros (emissão / assinatura em bloco).
   final Set<String> _carteiraListaSelecionados = {};
@@ -2850,6 +2851,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg, igrejaDocId);
     cardCfg = _mergeChurchLogoIntoCardConfig(cardCfg, tenant);
+    _signatureEnhanceMode = normalizeSignatureEnhanceMode(
+      (cardCfg['signatureEnhanceMode'] ?? '').toString(),
+    );
     return (tenant: tenant, cardCfg: cardCfg, igrejaDocId: igrejaDocId);
   }
 
@@ -3136,11 +3140,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (raw != null && raw.length > 32) {
       Uint8List out = raw;
       try {
+        final mode = normalizeSignatureEnhanceMode(_signatureEnhanceMode);
         if (kIsWeb) {
-          out = carteirinhaPdfSignaturePipelineSync(raw) ?? raw;
+          out = carteirinhaPdfSignaturePipelineSync(raw, mode: mode) ?? raw;
         } else {
           out = await compute(
-            carteirinhaPdfSignaturePipelineForCompute,
+            mode == kSignatureEnhanceModeNormal
+                ? carteirinhaPdfSignaturePipelineNormalForCompute
+                : carteirinhaPdfSignaturePipelineForCompute,
             raw,
           );
         }
@@ -7639,6 +7646,7 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
 
   /// Pré-seleção ao gerar PDF (Firestore: `defaultSignatoryMemberId`).
   String? _defaultSignatoryMemberId;
+  String _signatureEnhanceMode = kSignatureEnhanceModeUltra;
 
   /// URL da logo do cadastro (quando não usa galeria). Logo da galeria fica em base64.
   String? _customLogoUrl;
@@ -7782,6 +7790,9 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     _accentColor = ac.length == 6 ? ac : 'E8C478';
     final savedDef = (cfg['defaultSignatoryMemberId'] ?? '').toString().trim();
     _defaultSignatoryMemberId = savedDef.isEmpty ? null : savedDef;
+    _signatureEnhanceMode = normalizeSignatureEnhanceMode(
+      (cfg['signatureEnhanceMode'] ?? '').toString(),
+    );
 
     _signatoryChoices = [];
     try {
@@ -7895,6 +7906,7 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
       } else {
         payload['defaultSignatoryMemberId'] = FieldValue.delete();
       }
+      payload['signatureEnhanceMode'] = _signatureEnhanceMode;
       await ref.set(payload, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -8166,6 +8178,35 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
                               fontSize: 12, color: Colors.orange.shade800),
                         ),
                       ),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      value: _signatureEnhanceMode,
+                      decoration: _inputDecoration(
+                          hint: 'Intensidade da assinatura (PDF)'),
+                      items: const [
+                        DropdownMenuItem<String>(
+                          value: kSignatureEnhanceModeNormal,
+                          child: Text('Normal (equilibrado)'),
+                        ),
+                        DropdownMenuItem<String>(
+                          value: kSignatureEnhanceModeUltra,
+                          child: Text('Ultra legível (traço reforçado)'),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() {
+                        _signatureEnhanceMode =
+                            normalizeSignatureEnhanceMode(v ?? '');
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Normal mantém o traço mais natural. Ultra reforça assinaturas claras para impressão.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
                   ],
                 ),
               ),

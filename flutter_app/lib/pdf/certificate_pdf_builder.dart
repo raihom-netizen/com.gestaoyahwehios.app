@@ -442,17 +442,19 @@ pw.Widget _pwCertPdfDigitalSignatureStamp({
 }) {
   final nome = signatory.nome.trim();
   final cpfDigits = _certPdfCpfDigitsOnly(signatory.cpfDigits);
-  final leftCore =
-      cpfDigits.isNotEmpty ? '${nome.toUpperCase()}:$cpfDigits' : nome.toUpperCase();
+  final leftNameLines = _certPdfWrapLineByWords(
+    nome.toUpperCase(),
+    galaFooterCompact ? 16 : 20,
+  );
   final rightLines = _certPdfDigitalStampRightColumnLines(nome, cpfDigits);
   final dados = input.digitalSignatureDadosLine.trim().isNotEmpty
       ? input.digitalSignatureDadosLine.trim()
       : 'Dados: —';
 
-  final leftSize = galaFooterCompact ? 9.4 : 11.0;
+  final leftSize = galaFooterCompact ? 8.4 : 9.8;
   final rightSize = galaFooterCompact ? 6.9 : 7.7;
   final dadosSize = galaFooterCompact ? 6.6 : 7.3;
-  final leftW = galaFooterCompact ? 118.0 : 132.0;
+  final leftW = galaFooterCompact ? 110.0 : 124.0;
   final introExtraLines =
       rightLines.length > 2 ? rightLines.length - 2 : 0;
   final stackH = (galaFooterCompact ? 68.0 : 80.0) + introExtraLines * 9.4;
@@ -479,17 +481,37 @@ pw.Widget _pwCertPdfDigitalSignatureStamp({
           children: [
             pw.SizedBox(
               width: leftW,
-              child: pw.Text(
-                leftCore,
-                style: pw.TextStyle(
-                  fontSize: leftSize,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
-                  lineSpacing: 1.05,
-                  font: pw.Font.helvetica(),
-                ),
-                maxLines: 5,
-                overflow: pw.TextOverflow.clip,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                mainAxisSize: pw.MainAxisSize.min,
+                children: [
+                  for (final ln in leftNameLines)
+                    pw.Text(
+                      ln,
+                      style: pw.TextStyle(
+                        fontSize: leftSize,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.black,
+                        lineSpacing: 1.03,
+                        font: pw.Font.helvetica(),
+                      ),
+                      maxLines: 1,
+                      overflow: pw.TextOverflow.clip,
+                    ),
+                  if (cpfDigits.isNotEmpty)
+                    pw.Text(
+                      'CPF: $cpfDigits',
+                      style: pw.TextStyle(
+                        fontSize: leftSize - 0.1,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.black,
+                        lineSpacing: 1.03,
+                        font: pw.Font.helvetica(),
+                      ),
+                      maxLines: 1,
+                      overflow: pw.TextOverflow.clip,
+                    ),
+                ],
               ),
             ),
             pw.SizedBox(width: galaFooterCompact ? 8 : 12),
@@ -841,16 +863,19 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           : null,
   ];
 
-  const signatoryBlockWidth = 140.0;
-
-  pw.Widget buildSignatoryBlock(int i, PdfColor accent, PdfColor accentClaro) {
+  pw.Widget buildSignatoryBlock(
+    int i,
+    PdfColor accent,
+    PdfColor accentClaro, {
+    required double blockWidth,
+  }) {
     if (i >= input.signatories.length) return pw.SizedBox();
     final s = input.signatories[i];
     final img = i < signatoryImageProviders.length
         ? signatoryImageProviders[i]
         : null;
     return pw.Container(
-      width: signatoryBlockWidth,
+      width: blockWidth,
       padding: const pw.EdgeInsets.fromLTRB(6, 8, 6, 10),
       decoration: pw.BoxDecoration(
         color: PdfColors.white,
@@ -878,19 +903,19 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           pw.Text(
             s.nome,
             style: pw.TextStyle(
-              fontSize: 12.8,
+              fontSize: 11.4,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
             textAlign: pw.TextAlign.center,
-            maxLines: 2,
+            maxLines: 3,
             overflow: pw.TextOverflow.clip,
           ),
           pw.SizedBox(height: 3),
           pw.Text(
             s.cargo,
             style: pw.TextStyle(
-              fontSize: 10.2,
+              fontSize: 9.4,
               fontWeight: pw.FontWeight.bold,
               color: accent,
             ),
@@ -923,18 +948,29 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
     }
     if (input.signatories.isNotEmpty) {
       final count = input.signatories.length;
+      final blockWidth = count >= 3 ? 132.0 : 152.0;
       final blocks = List<pw.Widget>.generate(
-          count, (i) => buildSignatoryBlock(i, accent, accentClaro));
+        count,
+        (i) => buildSignatoryBlock(
+          i,
+          accent,
+          accentClaro,
+          blockWidth: blockWidth,
+        ),
+      );
       if (count == 1) {
         return pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.center,
           children: [blocks[0]],
         );
       }
-      return pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: blocks,
+      return pw.Center(
+        child: pw.Wrap(
+          alignment: pw.WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 10,
+          children: blocks,
+        ),
       );
     }
     return pw.Column(

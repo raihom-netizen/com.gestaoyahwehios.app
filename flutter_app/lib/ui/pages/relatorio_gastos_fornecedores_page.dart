@@ -10,9 +10,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 
 /// Período do relatório fornecedores/prestadores.
 enum _PeriodoFornecedor { mes, ano, personalizado }
@@ -176,9 +179,183 @@ class _RelatorioGastosFornecedoresPageState
     }
   }
 
+  Future<({
+    String leftName,
+    String rightName,
+    Uint8List? leftSig,
+    Uint8List? rightSig,
+    bool showDigital
+  })?> _pickPdfSigners() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(widget.tenantId)
+        .collection('membros')
+        .get();
+    final opts = snap.docs
+        .map((d) {
+          final m = d.data();
+          return (
+            id: d.id,
+            nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+                .toString()
+                .trim(),
+            cargo: (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
+                .toString()
+                .trim(),
+            assinatura:
+                (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+    if (!mounted) return null;
+    String? leftId;
+    String? rightId;
+    var showDigital = false;
+    return showDialog<
+        ({
+          String leftName,
+          String rightName,
+          Uint8List? leftSig,
+          Uint8List? rightSig,
+          bool showDigital
+        })>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Assinaturas do PDF'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: leftId,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Assinante esquerdo',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('— Não definido —'),
+                    ),
+                    ...opts.map((e) => DropdownMenuItem<String>(
+                          value: e.id,
+                          child: Text(
+                            e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                  ],
+                  onChanged: (v) => setDlg(() => leftId = v),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: rightId,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Assinante direito',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('— Não definido —'),
+                    ),
+                    ...opts.map((e) => DropdownMenuItem<String>(
+                          value: e.id,
+                          child: Text(
+                            e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )),
+                  ],
+                  onChanged: (v) => setDlg(() => rightId = v),
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile.adaptive(
+                  value: showDigital,
+                  onChanged: (v) => setDlg(() => showDigital = v),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Carregar assinatura digital'),
+                  subtitle:
+                      const Text('Desative para assinatura manual no impresso.'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                ({String id, String nome, String cargo, String assinatura})?
+                    pick(String? id) {
+                  if (id == null || id.isEmpty) return null;
+                  for (final e in opts) {
+                    if (e.id == id) return e;
+                  }
+                  return null;
+                }
+
+                final left = pick(leftId);
+                final right = pick(rightId);
+                Uint8List? leftSig;
+                Uint8List? rightSig;
+                if (showDigital) {
+                  if (left != null && left.assinatura.isNotEmpty) {
+                    leftSig = await ImageHelper.getBytesFromUrlOrNull(
+                      sanitizeImageUrl(left.assinatura),
+                      timeout: const Duration(seconds: 14),
+                    );
+                  }
+                  if (right != null && right.assinatura.isNotEmpty) {
+                    rightSig = await ImageHelper.getBytesFromUrlOrNull(
+                      sanitizeImageUrl(right.assinatura),
+                      timeout: const Duration(seconds: 14),
+                    );
+                  }
+                }
+                if (!ctx.mounted) return;
+                Navigator.pop(
+                  ctx,
+                  (
+                    leftName: left?.nome ?? 'Responsável financeiro',
+                    rightName: right?.nome ?? 'Responsável pastoral',
+                    leftSig: leftSig,
+                    rightSig: rightSig,
+                    showDigital: showDigital,
+                  ),
+                );
+              },
+              child: const Text('Aplicar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _exportPdf() async {
     final ctx = context;
     try {
+      final signerCfg = await _pickPdfSigners();
+      if (signerCfg == null) return;
       final branding = await loadReportPdfBranding(widget.tenantId);
       if (!ctx.mounted) return;
       final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
@@ -256,6 +433,17 @@ class _RelatorioGastosFornecedoresPageState
               cellAlignmentsExtra: const {
                 1: pw.Alignment.centerRight,
               },
+            ),
+            pw.SizedBox(height: 20),
+            PdfSuperPremiumTheme.reportDualSignatureAttestation(
+              accent: branding.accent,
+              leftTitle: 'Conferência financeira',
+              rightTitle: 'Conferência pastoral',
+              leftSignerName: signerCfg.leftName,
+              rightSignerName: signerCfg.rightName,
+              leftSignatureImageBytes: signerCfg.leftSig,
+              rightSignatureImageBytes: signerCfg.rightSig,
+              showDigitalSignatures: signerCfg.showDigital,
             ),
           ],
         ),

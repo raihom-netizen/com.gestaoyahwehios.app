@@ -4,6 +4,16 @@ import 'package:image/image.dart' as img;
 
 int _clamp255(num v) => v.round().clamp(0, 255);
 
+const String kSignatureEnhanceModeUltra = 'ultra';
+const String kSignatureEnhanceModeNormal = 'normal';
+
+String normalizeSignatureEnhanceMode(String raw) {
+  final v = raw.trim().toLowerCase();
+  return v == kSignatureEnhanceModeNormal
+      ? kSignatureEnhanceModeNormal
+      : kSignatureEnhanceModeUltra;
+}
+
 /// Realça traços da assinatura para o PDF. Só trata como “papel branco” pixéis quase
 /// perfeitos (≥253), para não apagar traços a lápis/canetas claras (antes: >246 apagava cinzas).
 /// Papel/branco do scan vira transparente para a assinatura «flutuar» no cartão/PDF.
@@ -26,10 +36,16 @@ img.Image _knockoutPaperToTransparent(img.Image work) {
 }
 
 img.Image _enhanceSignatureRgba(img.Image work) {
-  const mult = 1.92;
-  const bias = -74.0;
+  return _enhanceSignatureRgbaWithMode(work, kSignatureEnhanceModeUltra);
+}
+
+img.Image _enhanceSignatureRgbaWithMode(img.Image work, String modeRaw) {
+  final mode = normalizeSignatureEnhanceMode(modeRaw);
+  final ultra = mode == kSignatureEnhanceModeUltra;
+  final mult = ultra ? 2.08 : 1.90;
+  final bias = ultra ? -86.0 : -70.0;
   /// Só papel “puro”; traços claros (lum 220–252) passam a ser escurecidos.
-  const paperLumMin = 253.0;
+  final paperLumMin = ultra ? 252.0 : 253.0;
   for (var y = 0; y < work.height; y++) {
     for (var x = 0; x < work.width; x++) {
       final p = work.getPixel(x, y);
@@ -44,8 +60,8 @@ img.Image _enhanceSignatureRgba(img.Image work) {
         continue;
       }
       // Traços muito claros: curva um pouco mais forte
-      final m = lum < 230 ? mult : (mult * 1.08);
-      final bAdj = lum < 230 ? bias : (bias - 8.0);
+      final m = lum < (ultra ? 224 : 230) ? mult : (mult * (ultra ? 1.12 : 1.06));
+      final bAdj = lum < (ultra ? 224 : 230) ? bias : (bias - (ultra ? 12.0 : 6.0));
       p.set(
         img.ColorUint8.rgba(
           _clamp255(r * m + bAdj),
@@ -54,6 +70,11 @@ img.Image _enhanceSignatureRgba(img.Image work) {
           a,
         ),
       );
+      // Para tintas muito claras, aumenta um pouco a opacidade do traço.
+      if (ultra && lum > 214 && a < 230) {
+        final na = _clamp255(a + 16);
+        p.set(img.ColorUint8.rgba(p.r.toInt(), p.g.toInt(), p.b.toInt(), na));
+      }
     }
   }
   return work;
@@ -61,7 +82,10 @@ img.Image _enhanceSignatureRgba(img.Image work) {
 
 /// Pipeline completo para assinatura no PDF: **bytes originais** (PNG/JPEG) — sem JPEG
 /// intermédio a 68% que desfaz traços finos; redimensiona, realça, saída **PNG** (alpha).
-Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
+Uint8List? carteirinhaPdfSignaturePipelineSync(
+  Uint8List raw, {
+  String mode = kSignatureEnhanceModeUltra,
+}) {
   if (raw.length < 33) return null;
   try {
     final decoded = img.decodeImage(raw);
@@ -82,7 +106,7 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
         interpolation: img.Interpolation.cubic,
       );
     }
-    var enhanced = _enhanceSignatureRgba(work);
+    var enhanced = _enhanceSignatureRgbaWithMode(work, mode);
     enhanced = _knockoutPaperToTransparent(enhanced);
     return Uint8List.fromList(img.encodePng(enhanced, level: 6));
   } catch (_) {
@@ -93,6 +117,15 @@ Uint8List? carteirinhaPdfSignaturePipelineSync(Uint8List raw) {
 /// Entrada/saída não-nula para [compute] (o pacote exige tipo concreto).
 Uint8List carteirinhaPdfSignaturePipelineForCompute(Uint8List raw) {
   return carteirinhaPdfSignaturePipelineSync(raw) ?? raw;
+}
+
+/// Variante "normal" (mais suave), para escolher via painel sem editar código.
+Uint8List carteirinhaPdfSignaturePipelineNormalForCompute(Uint8List raw) {
+  return carteirinhaPdfSignaturePipelineSync(
+        raw,
+        mode: kSignatureEnhanceModeNormal,
+      ) ??
+      raw;
 }
 
 /// Escurece traços claros da assinatura (equivalente ao contraste da app).

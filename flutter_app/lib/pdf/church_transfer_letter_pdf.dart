@@ -27,6 +27,8 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   required String documentTitle,
   required String bodyAfterReplacements,
   required Map<String, dynamic> churchData,
+  Uint8List? signatureImageBytes,
+  bool reserveManualSignatureSpace = false,
 }) async {
   await PdfSuperPremiumTheme.loadRobotoPdfTheme();
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
@@ -56,6 +58,8 @@ Future<Uint8List> buildChurchTransferLetterPdf({
     bodyAfterReplacements,
     bodyStyle: bodyStyle,
     signatureFrameColor: branding.accent,
+    signatureImageBytes: signatureImageBytes,
+    reserveManualSignatureSpace: reserveManualSignatureSpace,
   );
 
   doc.addPage(
@@ -248,6 +252,8 @@ pw.Widget _normaCultaSignatureBlock(
   String sigPart, {
   required pw.TextStyle bodyStyle,
   PdfColor? signatureFrameColor,
+  Uint8List? signatureImageBytes,
+  bool reserveManualSignatureSpace = false,
 }) {
   final t = sigPart.trim();
   if (t.isEmpty) return pw.SizedBox();
@@ -283,15 +289,17 @@ pw.Widget _normaCultaSignatureBlock(
 
   final fs = bodyStyle.fontSize ?? 11;
   final lh = bodyStyle.lineSpacing ?? 1.45;
-  final gap4 = fs * lh * 2.1;
+  final gap4 = fs * lh * 1.2;
   final frame = signatureFrameColor ?? PdfColor.fromInt(0xFF64748B);
+  final sigBytesOk = signatureImageBytes != null && signatureImageBytes.length > 24;
+  final sigImage = sigBytesOk ? pw.MemoryImage(signatureImageBytes) : null;
   final nameStyle = bodyStyle.copyWith(
-    fontSize: (bodyStyle.fontSize ?? 10.5) + 1.0,
+    fontSize: (bodyStyle.fontSize ?? 10.5) - 0.2,
     fontWeight: pw.FontWeight.bold,
   );
 
   return pw.Padding(
-    padding: const pw.EdgeInsets.only(top: 4, bottom: 10),
+    padding: const pw.EdgeInsets.only(top: 2, bottom: 8),
     child: pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
@@ -302,7 +310,7 @@ pw.Widget _normaCultaSignatureBlock(
         ),
         pw.SizedBox(height: gap4),
         pw.Container(
-          padding: const pw.EdgeInsets.fromLTRB(16, 14, 16, 14),
+          padding: const pw.EdgeInsets.fromLTRB(12, 8, 12, 8),
           decoration: pw.BoxDecoration(
             color: PdfColor.fromInt(0xFFF8FAFC),
             borderRadius: pw.BorderRadius.circular(7),
@@ -314,17 +322,43 @@ pw.Widget _normaCultaSignatureBlock(
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
+              if (sigImage != null) ...[
+                pw.Center(
+                  child: pw.SizedBox(
+                    width: 118,
+                    height: 24,
+                    child: pw.Image(sigImage, fit: pw.BoxFit.contain),
+                  ),
+                ),
+                pw.SizedBox(height: 4),
+              ] else if (reserveManualSignatureSpace) ...[
+                pw.Center(
+                  child: pw.Container(
+                    width: 150,
+                    height: 20,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(
+                        bottom: pw.BorderSide(
+                          color: PdfColor.fromInt(0xFF94A3B8),
+                          width: 0.9,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                pw.SizedBox(height: 4),
+              ],
               pw.Container(
-                height: 3,
+                height: 2,
                 decoration: pw.BoxDecoration(
                   color: frame,
                   borderRadius: pw.BorderRadius.circular(2),
                 ),
               ),
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 8),
               ...rest.map(
                 (line) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 4),
+                  padding: const pw.EdgeInsets.only(bottom: 2),
                   child: pw.Text(
                     pdfSafeText(line),
                     style: nameStyle,
@@ -344,6 +378,8 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
   String bodyAfterReplacements, {
   required pw.TextStyle bodyStyle,
   PdfColor? signatureFrameColor,
+  Uint8List? signatureImageBytes,
+  bool reserveManualSignatureSpace = false,
 }) {
   final raw = bodyAfterReplacements.replaceAll('\r\n', '\n').trim();
   if (raw.isEmpty) return [];
@@ -373,6 +409,8 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
       sigPart,
       bodyStyle: bodyStyle,
       signatureFrameColor: signatureFrameColor,
+      signatureImageBytes: signatureImageBytes,
+      reserveManualSignatureSpace: reserveManualSignatureSpace,
     ));
   }
   return out;

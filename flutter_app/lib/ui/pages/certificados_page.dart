@@ -323,6 +323,7 @@ class CertificadosPage extends StatefulWidget {
 class _CertificadosPageState extends State<CertificadosPage> {
   String _searchQuery = '';
   bool _batchMode = false;
+  String _signatureMode = 'digital';
   /// Preferência ao gerar lote local: um PDF vs ZIP (lembrada entre sessões no mesmo ecrã).
   bool _batchPreferSinglePdf = true;
   final Set<String> _batchMemberIds = {};
@@ -381,7 +382,16 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Future<void> _loadCertConfig() async {
     try {
       final snap = await _certConfigDoc.get();
-      if (mounted) setState(() => _certConfig = snap.data());
+      if (mounted) {
+        final cfg = snap.data();
+        setState(() {
+          _certConfig = cfg;
+          _signatureMode =
+              ((cfg?['defaultSignatureMode'] ?? '').toString().trim() == 'manual')
+                  ? 'manual'
+                  : 'digital';
+        });
+      }
     } catch (_) {}
   }
 
@@ -1856,6 +1866,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     required int distinctTemplateCount,
   }) {
     var singlePdf = _batchPreferSinglePdf;
+    var signatureModeBatch = _signatureMode;
     return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -2011,9 +2022,40 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       },
                     ),
                     const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: signatureModeBatch,
+                      decoration: InputDecoration(
+                        labelText: 'Assinatura no PDF em lote',
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem<String>(
+                          value: 'digital',
+                          child: Text('Com assinatura digital'),
+                        ),
+                        DropdownMenuItem<String>(
+                          value: 'manual',
+                          child: Text('Sem assinatura digital (manual no impresso)'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setModal(() => signatureModeBatch = v);
+                        setState(() => _signatureMode = v);
+                      },
+                    ),
+                    const SizedBox(height: 8),
                     FilledButton.icon(
-                      onPressed: () =>
-                          Navigator.of(modalRouteContext).pop(singlePdf),
+                      onPressed: () {
+                        setState(() => _signatureMode = signatureModeBatch);
+                        Navigator.of(modalRouteContext).pop(singlePdf);
+                      },
                       icon: const Icon(Icons.picture_as_pdf_rounded),
                       label: const Text('Gerar agora'),
                       style: FilledButton.styleFrom(

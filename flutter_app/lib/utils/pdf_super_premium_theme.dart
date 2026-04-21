@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -377,9 +379,17 @@ class PdfSuperPremiumTheme {
     String rightTitle = 'Pastor Presidente',
     String subtitle = 'Assinatura e carimbo',
     double signatureSpacePt = 40,
+    String leftSignerName = '',
+    String rightSignerName = '',
+    Uint8List? leftSignatureImageBytes,
+    Uint8List? rightSignatureImageBytes,
+    bool showDigitalSignatures = false,
   }) {
     final stroke = _accentStrokeSoft(accent);
-    pw.Widget slot(String title) {
+    pw.Widget slot(String title, String signerName, Uint8List? signatureBytes) {
+      final canShowSignature = showDigitalSignatures &&
+          signatureBytes != null &&
+          signatureBytes.length > 24;
       return pw.Expanded(
         child: pw.Container(
           margin: const pw.EdgeInsets.symmetric(horizontal: 5),
@@ -416,6 +426,19 @@ class PdfSuperPremiumTheme {
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(fontSize: 7.6, color: _muted),
               ),
+              if (canShowSignature) ...[
+                pw.SizedBox(height: 6),
+                pw.Center(
+                  child: pw.SizedBox(
+                    width: 106,
+                    height: 24,
+                    child: pw.Image(
+                      pw.MemoryImage(signatureBytes),
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ],
               pw.SizedBox(height: signatureSpacePt),
               pw.Container(
                 height: 2,
@@ -426,7 +449,9 @@ class PdfSuperPremiumTheme {
               ),
               pw.SizedBox(height: 6),
               pw.Text(
-                'Nome legível',
+                signerName.trim().isEmpty
+                    ? 'Nome legível'
+                    : pdfSafeText(signerName.trim()),
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(fontSize: 7.4, color: _muted),
               ),
@@ -439,8 +464,8 @@ class PdfSuperPremiumTheme {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        slot(leftTitle),
-        slot(rightTitle),
+        slot(leftTitle, leftSignerName, leftSignatureImageBytes),
+        slot(rightTitle, rightSignerName, rightSignatureImageBytes),
       ],
     );
   }
@@ -453,8 +478,14 @@ class PdfSuperPremiumTheme {
     String hintLeft = 'Nome legível e carimbo (opcional)',
     String hintRight = 'Data: _______________',
     double lineSpaceBeforeBarPt = 22,
+    String signerName = '',
+    Uint8List? signatureImageBytes,
+    bool showDigitalSignature = false,
   }) {
     final stroke = _accentStrokeSoft(accent);
+    final canShowSignature = showDigitalSignature &&
+        signatureImageBytes != null &&
+        signatureImageBytes.length > 24;
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
@@ -494,7 +525,20 @@ class PdfSuperPremiumTheme {
                   color: _ink,
                 ),
               ),
-              pw.SizedBox(height: lineSpaceBeforeBarPt),
+              if (canShowSignature) ...[
+                pw.SizedBox(height: 8),
+                pw.Center(
+                  child: pw.SizedBox(
+                    width: 140,
+                    height: 30,
+                    child: pw.Image(
+                      pw.MemoryImage(signatureImageBytes),
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ],
+              pw.SizedBox(height: canShowSignature ? 8 : lineSpaceBeforeBarPt),
               pw.Container(
                 width: double.infinity,
                 height: 2,
@@ -509,7 +553,11 @@ class PdfSuperPremiumTheme {
                 children: [
                   pw.Expanded(
                     child: pw.Text(
-                      pdfSafeText(hintLeft),
+                      pdfSafeText(
+                        signerName.trim().isNotEmpty
+                            ? signerName.trim()
+                            : hintLeft,
+                      ),
                       style: pw.TextStyle(fontSize: 8, color: _muted),
                     ),
                   ),

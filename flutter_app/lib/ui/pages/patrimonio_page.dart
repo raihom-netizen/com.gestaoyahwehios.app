@@ -283,6 +283,133 @@ DateTime? _dataAquisicaoFromPatrimonioMap(Map<String, dynamic> m) {
   return null;
 }
 
+Future<({
+  String signerName,
+  Uint8List? signerSignatureBytes,
+  bool showDigitalSignature
+})?> _pickPatrimonioPdfSigner(
+  BuildContext context, {
+  required String tenantId,
+}) async {
+  final snap = await FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tenantId)
+      .collection('membros')
+      .get();
+  final options = snap.docs
+      .map((d) {
+        final m = d.data();
+        return (
+          id: d.id,
+          nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+              .toString()
+              .trim(),
+          assinatura:
+              (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+        );
+      })
+      .where((e) => e.nome.isNotEmpty)
+      .toList()
+    ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+
+  if (!context.mounted) return null;
+  String? signerId;
+  var useDigital = false;
+  return showDialog<
+      ({
+        String signerName,
+        Uint8List? signerSignatureBytes,
+        bool showDigitalSignature
+      })>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDlg) => AlertDialog(
+        title: const Text('Assinatura do relatório de patrimônio'),
+        content: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                value: signerId,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Assinante principal',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('— Não definido —'),
+                  ),
+                  ...options.map((e) => DropdownMenuItem<String>(
+                        value: e.id,
+                        child: Text(e.nome, overflow: TextOverflow.ellipsis),
+                      )),
+                ],
+                onChanged: (v) => setDlg(() => signerId = v),
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile.adaptive(
+                value: useDigital,
+                onChanged: (v) => setDlg(() => useDigital = v),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Carregar assinatura digital'),
+                subtitle: const Text(
+                  'Desative para assinatura manual no impresso.',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              ({String id, String nome, String assinatura})? selected;
+              for (final e in options) {
+                if (e.id == signerId) {
+                  selected = e;
+                  break;
+                }
+              }
+              Uint8List? sigBytes;
+              if (useDigital && selected != null && selected.assinatura.isNotEmpty) {
+                final url = sanitizeImageUrl(selected.assinatura);
+                if (url.isNotEmpty) {
+                  sigBytes = await ImageHelper.getBytesFromUrlOrNull(
+                    url,
+                    timeout: const Duration(seconds: 14),
+                  );
+                }
+              }
+              if (!ctx.mounted) return;
+              Navigator.pop(
+                ctx,
+                (
+                  signerName: selected?.nome ?? '',
+                  signerSignatureBytes: sigBytes,
+                  showDigitalSignature: useDigital,
+                ),
+              );
+            },
+            child: const Text('Aplicar'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// PDF Super Premium — patrimônio (tabela completa + linhas opcionais de filtros).
 Future<void> _exportPatrimonioRelatorioPdf({
   required BuildContext context,
@@ -293,6 +420,8 @@ Future<void> _exportPatrimonioRelatorioPdf({
   List<String> filterSummaryLines = const [],
   String filename = 'patrimonio_relatorio.pdf',
 }) async {
+  final signerCfg = await _pickPatrimonioPdfSigner(context, tenantId: tenantId);
+  if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   double valorTotal = 0;
@@ -358,6 +487,9 @@ Future<void> _exportPatrimonioRelatorioPdf({
           accent: branding.accent,
           sectionTitle: 'Conferência e validação',
           label: 'Assinatura do responsável pelo patrimônio ou pastor',
+          signerName: signerCfg.signerName,
+          signatureImageBytes: signerCfg.signerSignatureBytes,
+          showDigitalSignature: signerCfg.showDigitalSignature,
         ),
       ],
     ),
@@ -375,6 +507,8 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
   required Map<String, dynamic> data,
   required String Function(String?) statusLabel,
 }) async {
+  final signerCfg = await _pickPatrimonioPdfSigner(context, tenantId: tenantId);
+  if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   final titulo = (data['titulo'] ?? 'Inventário').toString();
@@ -459,6 +593,9 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
         pw.SizedBox(height: 20),
         PdfSuperPremiumTheme.reportPastoralSignatureBox(
           accent: branding.accent,
+          signerName: signerCfg.signerName,
+          signatureImageBytes: signerCfg.signerSignatureBytes,
+          showDigitalSignature: signerCfg.showDigitalSignature,
         ),
       ],
     ),

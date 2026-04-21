@@ -53,6 +53,11 @@ class GestorOAuthOnboardingService {
     if (kIsWeb) {
       throw StateError('Use signInWithPopup na web.');
     }
+    // Sempre abrir seletor de conta (inclui "usar outra conta"),
+    // evitando login silencioso com a última conta usada no aparelho.
+    try {
+      await appGoogleSignIn().disconnect();
+    } catch (_) {}
     try {
       await appGoogleSignIn().signOut();
     } catch (_) {}

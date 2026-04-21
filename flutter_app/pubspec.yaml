@@ -3,7 +3,7 @@ description: GestÃ£o YAHWEH â€” Onboarding + Trial 30 dias + Planos (star
 publish_to: "none"
 # Alinhado com lib/app_version.dart — script scripts/bump_version.ps1 atualiza os dois.
 # App Store: cada IPA precisa de build (+N) único; se der 409 Redundant Binary, incrementar só o +N.
-version: 11.2.293+1442
+version: 11.2.293+1443
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -83,6 +83,7 @@ flutter:
   assets:
     - assets/icon/app_icon.png
     - assets/LOGO_GESTAO_YAHWEH.png
+    - assets/images/banks/
     - assets/fonts/Roboto-Regular.ttf
     - assets/fonts/Roboto-Bold.ttf
     - assets/fonts/Roboto-Italic.ttf

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -21,6 +22,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart';
@@ -1837,9 +1839,184 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     });
   }
 
+  Future<Uint8List?> _loadSignerSignatureBytes(String rawUrl) async {
+    final url = sanitizeImageUrl(rawUrl.trim());
+    if (url.isEmpty) return null;
+    final b = await ImageHelper.getBytesFromUrlOrNull(
+      url,
+      timeout: const Duration(seconds: 14),
+    );
+    if (b == null || b.length < 24) return null;
+    return b;
+  }
+
+  Future<({
+    String leftName,
+    String rightName,
+    Uint8List? leftSig,
+    Uint8List? rightSig,
+    bool showDigital
+  })?> _pickFinanceReportSigners() async {
+    final snap = await _tenantRef.collection('membros').get();
+    final members = snap.docs
+        .map((d) {
+          final m = d.data();
+          final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+              .toString()
+              .trim();
+          final cargo = (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
+              .toString()
+              .trim();
+          final assinatura =
+              (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim();
+          return (
+            id: d.id,
+            nome: nome,
+            cargo: cargo,
+            assinatura: assinatura,
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+
+    if (!mounted) return null;
+    String? leftId;
+    String? rightId;
+    var showDigital = true;
+
+    return showDialog<
+        ({
+          String leftName,
+          String rightName,
+          Uint8List? leftSig,
+          Uint8List? rightSig,
+          bool showDigital
+        })>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          DropdownButtonFormField<String> signerField({
+            required String label,
+            required String? value,
+            required ValueChanged<String?> onChanged,
+          }) {
+            return DropdownButtonFormField<String>(
+              value: value,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: label,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('— Não definido —'),
+                ),
+                ...members.map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.id,
+                    child: Text(
+                      e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: onChanged,
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Assinaturas do relatório'),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  signerField(
+                    label: 'Nome da caixa esquerda',
+                    value: leftId,
+                    onChanged: (v) => setDlg(() => leftId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  signerField(
+                    label: 'Nome da caixa direita',
+                    value: rightId,
+                    onChanged: (v) => setDlg(() => rightId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    value: showDigital,
+                    onChanged: (v) => setDlg(() => showDigital = v),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Carregar assinatura digital'),
+                    subtitle: const Text(
+                        'Desative para gerar apenas linhas para assinatura manual.'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  ({String id, String nome, String cargo, String assinatura})? byId(
+                      String? id) {
+                    if (id == null || id.isEmpty) return null;
+                    for (final e in members) {
+                      if (e.id == id) return e;
+                    }
+                    return null;
+                  }
+
+                  final left = byId(leftId);
+                  final right = byId(rightId);
+                  Uint8List? leftSig;
+                  Uint8List? rightSig;
+                  if (showDigital) {
+                    if (left != null && left.assinatura.isNotEmpty) {
+                      leftSig = await _loadSignerSignatureBytes(left.assinatura);
+                    }
+                    if (right != null && right.assinatura.isNotEmpty) {
+                      rightSig = await _loadSignerSignatureBytes(right.assinatura);
+                    }
+                  }
+                  if (!ctx.mounted) return;
+                  Navigator.pop(
+                    ctx,
+                    (
+                      leftName: left?.nome ?? 'Tesoureiro(a)',
+                      rightName: right?.nome ?? 'Pastor Presidente',
+                      leftSig: leftSig,
+                      rightSig: rightSig,
+                      showDigital: showDigital,
+                    ),
+                  );
+                },
+                child: const Text('Aplicar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _exportPdf({bool fechamentoOficial = false}) async {
     setState(() => _loading = true);
     try {
+      final signerSel = await _pickFinanceReportSigners();
+      if (signerSel == null) return;
       final tenantSnap = await _tenantRef.get();
       final tenant = tenantSnap.data() ?? <String, dynamic>{};
       final branding = await loadReportPdfBranding(widget.tenantId);
@@ -2050,8 +2227,13 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
               ),
             PdfSuperPremiumTheme.reportDualSignatureAttestation(
               accent: branding.accent,
-              leftTitle: 'Tesoureiro(a)',
-              rightTitle: 'Pastor Presidente',
+              leftTitle: 'Responsável financeiro',
+              rightTitle: 'Responsável pastoral',
+              leftSignerName: signerSel.leftName,
+              rightSignerName: signerSel.rightName,
+              leftSignatureImageBytes: signerSel.leftSig,
+              rightSignatureImageBytes: signerSel.rightSig,
+              showDigitalSignatures: signerSel.showDigital,
             ),
           ],
         ),

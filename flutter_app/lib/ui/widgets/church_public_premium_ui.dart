@@ -394,7 +394,7 @@ class ChurchPublicPremiumScheduleTile extends StatelessWidget {
   }
 }
 
-/// Programação pública: capa com altura limitada, título em destaque, data/hora numa linha e local só se diferente da sede.
+/// Programação pública: layout compacto com thumb lateral.
 class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   final String title;
   /// Ex.: "Dom" — atalho quando não há [weekdayLongLabel].
@@ -424,9 +424,6 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
     required this.accent,
     this.onTap,
   });
-
-  /// Altura máxima da faixa de imagem — proporção editorial (~16:10), com teto para mobile.
-  static const double _maxImageHeight = 232;
 
   bool get _hasPhoto =>
       imageUrl.trim().isNotEmpty && isValidImageUrl(imageUrl.trim());
@@ -480,112 +477,44 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: borderRadius,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_hasPhoto)
-                  LayoutBuilder(
-                    builder: (context, c) {
-                      final w = c.maxWidth;
-                      final naturalH = w * 10 / 16;
-                      final h = math.min(naturalH, _maxImageHeight).clamp(156.0, _maxImageHeight);
-                      final dpr =
-                          MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-                      final mw = (w * dpr).round().clamp(360, 1800);
-                      final mh = (h * dpr).round().clamp(220, 900);
-                      return SizedBox(
-                        height: h,
-                        width: double.infinity,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            FreshFirebaseStorageImage(
-                              imageUrl: imageUrl.trim(),
-                              fit: BoxFit.cover,
-                              memCacheWidth: mw,
-                              memCacheHeight: mh,
-                              placeholder: YahwehPremiumFeedShimmer.mediaCover(),
-                              errorWidget: _SchedulePhotoFallback(accent: accent),
+                SizedBox(
+                  width: 74,
+                  height: 74,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: _hasPhoto
+                        ? FreshFirebaseStorageImage(
+                            imageUrl: imageUrl.trim(),
+                            fit: BoxFit.cover,
+                            memCacheWidth: 360,
+                            memCacheHeight: 360,
+                            placeholder: YahwehPremiumFeedShimmer.mediaCover(),
+                            errorWidget: _SchedulePhotoFallback(
+                              accent: accent,
+                              compact: true,
                             ),
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: h * 0.42,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withValues(alpha: 0.18),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              left: 12,
-                              top: 12,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.92),
-                                  borderRadius: BorderRadius.circular(10),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.08),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.auto_awesome_rounded,
-                                        size: 14,
-                                        color: accent,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Agenda',
-                                        style: TextStyle(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w900,
-                                          letterSpacing: 0.4,
-                                          color: deep,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  )
-                else
-                  _SchedulePhotoFallback(accent: accent, compact: false),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                          )
+                        : _SchedulePhotoFallback(accent: accent, compact: true),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 19,
+                          fontSize: 17,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: -0.5,
+                          letterSpacing: -0.4,
                           height: 1.2,
                           color: deep,
                         ),
@@ -593,53 +522,48 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                       if (dateShort.isNotEmpty ||
                           weekdayLine.isNotEmpty ||
                           timeLabel.isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         _ScheduleWhenChips(
                           accent: accent,
                           dateShort: dateShort,
                           weekdayLine: weekdayLine,
                           timeLabel: timeLabel,
+                          compact: true,
                         ),
                       ],
                       if (_showVenueLine) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFFE8EEF4),
+                        const SizedBox(height: 8),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.place_rounded,
+                              size: 16,
+                              color: accent.withValues(alpha: 0.85),
                             ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.place_rounded,
-                                size: 18,
-                                color: accent.withValues(alpha: 0.85),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  location.trim(),
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    height: 1.45,
-                                    color: Colors.grey.shade800,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                location.trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.8,
+                                  height: 1.35,
+                                  color: Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ],
                     ],
                   ),
                 ),
+                const SizedBox(width: 6),
+                Icon(Icons.chevron_right_rounded,
+                    size: 22, color: Colors.grey.shade400),
               ],
             ),
           ),
@@ -655,12 +579,14 @@ class _ScheduleWhenChips extends StatelessWidget {
   final String dateShort;
   final String weekdayLine;
   final String timeLabel;
+  final bool compact;
 
   const _ScheduleWhenChips({
     required this.accent,
     required this.dateShort,
     required this.weekdayLine,
     required this.timeLabel,
+    this.compact = false,
   });
 
   @override
@@ -670,7 +596,10 @@ class _ScheduleWhenChips extends StatelessWidget {
     Widget? chip(IconData icon, String text, {required bool filled}) {
       if (text.isEmpty) return null;
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 9 : 12,
+          vertical: compact ? 5 : 8,
+        ),
         decoration: BoxDecoration(
           gradient: filled
               ? LinearGradient(
@@ -703,14 +632,14 @@ class _ScheduleWhenChips extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: 16,
+              size: compact ? 13 : 16,
               color: filled ? Colors.white : accent,
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: compact ? 4 : 6),
             Text(
               text,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: compact ? 11.5 : 13,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.2,
                 color: filled ? Colors.white : deep,
@@ -739,7 +668,7 @@ class _ScheduleWhenChips extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, c) {
-        if (c.maxWidth < 340) {
+        if (c.maxWidth < (compact ? 280 : 340)) {
           return Wrap(
             spacing: 8,
             runSpacing: 8,

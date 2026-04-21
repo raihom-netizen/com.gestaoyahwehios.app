@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -13,6 +15,8 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 import 'package:intl/intl.dart';
 
 enum _CartaKind {
@@ -20,6 +24,8 @@ enum _CartaKind {
   transferencia,
   agradecimento,
 }
+
+enum _LetterSignatureMode { digital, manual }
 
 extension _CartaKindFirestore on _CartaKind {
   String get firestoreKind => switch (this) {
@@ -75,6 +81,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   bool _loading = true;
   bool _savingTpl = false;
   bool _pdfBusy = false;
+  _LetterSignatureMode _signatureMode = _LetterSignatureMode.digital;
   String _memberFilter = '';
   final Set<String> _selectedIds = {};
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
@@ -332,6 +339,15 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     return null;
   }
 
+  String _signatureUrlFromMember(Map<String, dynamic> m) {
+    return (m['assinaturaUrl'] ??
+            m['assinatura_url'] ??
+            m['signatureUrl'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
   String _contactoPdf(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) {
@@ -492,6 +508,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       'memberDocIds': memberDocIds,
       'signerMemberIds': signers,
       'templateText': templateText,
+      'signatureMode':
+          _signatureMode == _LetterSignatureMode.digital ? 'digital' : 'manual',
       'updatedAt': FieldValue.serverTimestamp(),
       'emitidoPorUid': uid,
     };
@@ -613,6 +631,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         return;
       }
 
+      Uint8List? signatureImageBytes;
+      if (_signatureMode == _LetterSignatureMode.digital) {
+        final rawUrl = _signatureUrlFromMember(m1);
+        final url = sanitizeImageUrl(rawUrl);
+        if (url.isNotEmpty) {
+          signatureImageBytes = await ImageHelper.getBytesFromUrlOrNull(
+            url,
+            timeout: const Duration(seconds: 14),
+          );
+        }
+      }
+
       final tpl = switch (kind) {
         _CartaKind.apresentacao => _tplApresentacaoCtrl.text,
         _CartaKind.transferencia => _tplTransferCtrl.text,
@@ -652,6 +682,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         documentTitle: title,
         bodyAfterReplacements: filled,
         churchData: _tenant ?? {},
+        signatureImageBytes: signatureImageBytes,
+        reserveManualSignatureSpace: _signatureMode == _LetterSignatureMode.manual,
       );
 
       if (saveHistorico) {
@@ -700,6 +732,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _signer1MemberId = sigs.isNotEmpty ? sigs[0] : null;
     _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
     final ttext = (d['templateText'] ?? '').toString();
+    final mode = (d['signatureMode'] ?? 'digital').toString().trim().toLowerCase();
+    _signatureMode = mode == 'manual'
+        ? _LetterSignatureMode.manual
+        : _LetterSignatureMode.digital;
     switch (kind) {
       case _CartaKind.transferencia:
         _tplTransferCtrl.text = ttext;
@@ -729,6 +765,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _signer1MemberId = sigs.isNotEmpty ? sigs[0] : null;
     _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
     final ttext = (d['templateText'] ?? '').toString();
+    final mode = (d['signatureMode'] ?? 'digital').toString().trim().toLowerCase();
+    _signatureMode = mode == 'manual'
+        ? _LetterSignatureMode.manual
+        : _LetterSignatureMode.digital;
     switch (kind) {
       case _CartaKind.transferencia:
         _tplTransferCtrl.text = ttext;
@@ -1109,6 +1149,37 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                             ),
                                           ),
                                         ),
+                                      const SizedBox(height: 12),
+                                      SegmentedButton<_LetterSignatureMode>(
+                                        segments: const [
+                                          ButtonSegment<_LetterSignatureMode>(
+                                            value: _LetterSignatureMode.digital,
+                                            icon: Icon(Icons.draw_rounded),
+                                            label: Text('Assinatura digital'),
+                                          ),
+                                          ButtonSegment<_LetterSignatureMode>(
+                                            value: _LetterSignatureMode.manual,
+                                            icon: Icon(Icons.edit_note_rounded),
+                                            label: Text('Assinar manualmente'),
+                                          ),
+                                        ],
+                                        selected: {_signatureMode},
+                                        onSelectionChanged: (v) {
+                                          if (v.isEmpty) return;
+                                          setState(() => _signatureMode = v.first);
+                                        },
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _signatureMode == _LetterSignatureMode.digital
+                                            ? 'Digital: usa a imagem de assinatura do 1.º assinante (cadastro Membros).'
+                                            : 'Manual: gera espaço proporcional para assinatura à caneta no documento impresso.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                                     ],
                                   );
                                 },

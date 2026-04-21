@@ -487,10 +487,14 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onGoogleChurchLogin() async {
     if (!_showChurchGoogleButton || _loading) return;
+    final nativeOAuth = !kIsWeb;
     setState(() {
       _errorMessage = null;
-      _loading = true;
       _oauthGoogleInFlight = true;
+      // No fluxo nativo, manter a tela clara até o seletor do Google aparecer.
+      if (!nativeOAuth) {
+        _loading = true;
+      }
     });
     try {
       UserCredential cred;
@@ -516,6 +520,14 @@ class _LoginPageState extends State<LoginPage> {
         WidgetsBinding.instance.scheduleFrame();
         await Future<void>.delayed(const Duration(milliseconds: 48));
         if (!mounted) return;
+        // Força o seletor de conta (inclui "Usar outra conta"), evitando login
+        // silencioso na conta anterior.
+        try {
+          await appGoogleSignIn().disconnect();
+        } catch (_) {}
+        try {
+          await appGoogleSignIn().signOut();
+        } catch (_) {}
         final googleUser = await appGoogleSignIn().signIn();
         if (googleUser == null) {
           return;
@@ -598,7 +610,9 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       if (mounted) {
         setState(() {
-          _loading = false;
+          if (!nativeOAuth) {
+            _loading = false;
+          }
           _oauthGoogleInFlight = false;
         });
       }

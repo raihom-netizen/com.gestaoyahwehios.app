@@ -177,6 +177,7 @@ final Map<String, Uint8List?> _institutionalPastorSigRawCache =
     <String, Uint8List?>{};
 final Map<String, Uint8List?> _institutionalPastorSigOptCache =
     <String, Uint8List?>{};
+final Map<String, String> _signatureEnhanceModeByTenantCache = <String, String>{};
 Uint8List? _fontMontserratCache;
 Uint8List? _fontGreatVibesCache;
 Uint8List? _fontUnifrakturCache;
@@ -623,11 +624,18 @@ Future<Uint8List?> _signatureBytesFloatingPipeline(
   String signCacheKey,
   int sigMaxW,
   int sigMaxH,
+  String signatureEnhanceMode,
 ) async {
   try {
+    final mode = normalizeSignatureEnhanceMode(signatureEnhanceMode);
     final piped = kIsWeb
-        ? carteirinhaPdfSignaturePipelineSync(b)
-        : await compute(carteirinhaPdfSignaturePipelineForCompute, b);
+        ? carteirinhaPdfSignaturePipelineSync(b, mode: mode)
+        : await compute(
+            mode == kSignatureEnhanceModeNormal
+                ? carteirinhaPdfSignaturePipelineNormalForCompute
+                : carteirinhaPdfSignaturePipelineForCompute,
+            b,
+          );
     if (piped != null && piped.length > 32) {
       _signatureOptimizedBytesCache[signCacheKey] = piped;
       return piped;
@@ -636,6 +644,30 @@ Future<Uint8List?> _signatureBytesFloatingPipeline(
   final fallback = await _optimizeImageForPdf(b, sigMaxW, sigMaxH);
   _signatureOptimizedBytesCache[signCacheKey] = fallback;
   return fallback;
+}
+
+Future<String> _resolveTenantSignatureEnhanceMode(String tenantId) async {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return kSignatureEnhanceModeUltra;
+  if (_signatureEnhanceModeByTenantCache.containsKey(tid)) {
+    return _signatureEnhanceModeByTenantCache[tid]!;
+  }
+  try {
+    final snap = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('config')
+        .doc('carteira')
+        .get();
+    final mode = normalizeSignatureEnhanceMode(
+      (snap.data()?['signatureEnhanceMode'] ?? '').toString(),
+    );
+    _signatureEnhanceModeByTenantCache[tid] = mode;
+    return mode;
+  } catch (_) {
+    _signatureEnhanceModeByTenantCache[tid] = kSignatureEnhanceModeUltra;
+    return kSignatureEnhanceModeUltra;
+  }
 }
 
 Future<Uint8List?> _optimizeImageForPdf(
@@ -829,6 +861,8 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     });
   }();
   final sigOptFutures = <Future<Uint8List?>>[];
+  final signatureEnhanceMode =
+      await _resolveTenantSignatureEnhanceMode(p.tenantId);
   for (var i = 0; i < sigRaw.length; i++) {
     final b = sigRaw[i];
     if (b == null) {
@@ -845,7 +879,14 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
       continue;
     }
     sigOptFutures.add(
-        _signatureBytesFloatingPipeline(b, signCacheKey, sigMaxW, sigMaxH));
+      _signatureBytesFloatingPipeline(
+        b,
+        signCacheKey,
+        sigMaxW,
+        sigMaxH,
+        signatureEnhanceMode,
+      ),
+    );
   }
 
   final bgOptFuture = () async {
@@ -872,10 +913,13 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     }
     Uint8List? instSigOpt;
     try {
+      final mode = normalizeSignatureEnhanceMode(signatureEnhanceMode);
       final piped = kIsWeb
-          ? carteirinhaPdfSignaturePipelineSync(instSigRaw)
+          ? carteirinhaPdfSignaturePipelineSync(instSigRaw, mode: mode)
           : await compute(
-              carteirinhaPdfSignaturePipelineForCompute,
+              mode == kSignatureEnhanceModeNormal
+                  ? carteirinhaPdfSignaturePipelineNormalForCompute
+                  : carteirinhaPdfSignaturePipelineForCompute,
               instSigRaw,
             );
       if (piped != null && piped.length > 32) {

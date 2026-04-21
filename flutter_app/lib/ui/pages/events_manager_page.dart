@@ -69,6 +69,7 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart'
         BrDateDdMmYyyyInputFormatter,
         formatBrDateDdMmYyyy,
         parseBrDateDdMmYyyy;
+import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -80,6 +81,8 @@ class EventsManagerPage extends StatefulWidget {
 
   /// Pré-preenche a busca do feed (ex.: busca global).
   final String? initialFeedSearchQuery;
+  /// Aba inicial (0=Feed, 1=Galeria Arquivo, demais conforme permissões).
+  final int initialTabIndex;
 
   const EventsManagerPage({
     super.key,
@@ -88,6 +91,7 @@ class EventsManagerPage extends StatefulWidget {
     this.permissions,
     this.embeddedInShell = false,
     this.initialFeedSearchQuery,
+    this.initialTabIndex = 0,
   });
 
   @override
@@ -142,7 +146,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: _canWrite ? 3 : 1, vsync: this);
+    _tab = TabController(length: _canWrite ? 4 : 2, vsync: this);
+    final startIndex =
+        widget.initialTabIndex.clamp(0, (_tab.length - 1).clamp(0, 99)) as int;
+    _tab.index = startIndex;
     _tab.addListener(_onMainTabChanged);
     _loadTenant();
   }
@@ -950,11 +957,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           tabs: _canWrite
               ? const [
                   Tab(text: 'Feed'),
+                  Tab(text: 'Galeria'),
                   Tab(text: 'Eventos Fixos'),
                   Tab(text: 'Dashboard'),
                 ]
               : const [
                   Tab(text: 'Feed'),
+                  Tab(text: 'Galeria'),
                 ],
         );
     TabBar tabBarLight() => TabBar(
@@ -972,11 +981,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           tabs: _canWrite
               ? const [
                   Tab(text: 'Feed'),
+                  Tab(text: 'Galeria'),
                   Tab(text: 'Eventos Fixos'),
                   Tab(text: 'Dashboard'),
                 ]
               : const [
                   Tab(text: 'Feed'),
+                  Tab(text: 'Galeria'),
                 ],
         );
     return Scaffold(
@@ -1036,6 +1047,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               onEditEvento: (doc) => _novoEvento(doc: doc),
               onDeleteEvento: _excluirEvento,
               initialFeedSearchQuery: widget.initialFeedSearchQuery),
+          _GalleryArchiveTab(
+            tenantId: widget.tenantId,
+            noticias: _noticias,
+          ),
           if (_canWrite)
             _FixosTab(
                 key: _fixosTabKey,
@@ -1103,6 +1118,637 @@ class _EventCategoriesManagerSheet extends StatefulWidget {
   @override
   State<_EventCategoriesManagerSheet> createState() =>
       _EventCategoriesManagerSheetState();
+}
+
+class _GalleryArchiveTab extends StatefulWidget {
+  final String tenantId;
+  final CollectionReference<Map<String, dynamic>> noticias;
+
+  const _GalleryArchiveTab({
+    required this.tenantId,
+    required this.noticias,
+  });
+
+  @override
+  State<_GalleryArchiveTab> createState() => _GalleryArchiveTabState();
+}
+
+class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
+  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _order = 'recent_first';
+  String _period = 'all';
+  String _mediaType = 'all';
+  String _category = 'all';
+  String _monthYear = 'all';
+  DateTime? _customFrom;
+  DateTime? _customTo;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _load() {
+    return widget.noticias.orderBy('startAt', descending: true).limit(250).get();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _future = _load());
+  }
+
+  DateTime? _eventDate(Map<String, dynamic> data) {
+    final base = eventArchiveBaseDate(data);
+    if (base != null) return base;
+    final c = data['createdAt'];
+    if (c is Timestamp) return c.toDate();
+    return null;
+  }
+
+  String _formatDatePt(DateTime? d) {
+    if (d == null) return 'Sem data';
+    final mm = d.month.toString().padLeft(2, '0');
+    final dd = d.day.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year}';
+  }
+
+  String _monthYearLabel(DateTime? d) {
+    if (d == null) return 'Sem data';
+    const months = <String>[
+      'Janeiro',
+      'Fevereiro',
+      'Março',
+      'Abril',
+      'Maio',
+      'Junho',
+      'Julho',
+      'Agosto',
+      'Setembro',
+      'Outubro',
+      'Novembro',
+      'Dezembro',
+    ];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
+  String _monthYearKey(DateTime? d) {
+    if (d == null) return '';
+    final mm = d.month.toString().padLeft(2, '0');
+    return '${d.year}-$mm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return ChurchPanelErrorBody(
+            title: 'Não foi possível carregar a galeria',
+            error: snap.error,
+            onRetry: _refresh,
+          );
+        }
+        if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+          return const _FeedSkeleton();
+        }
+        final now = DateTime.now();
+        var docs = snap.data!.docs
+            .where((d) => eventShouldMoveToGalleryArchive(d.data(), now))
+            .toList();
+        if (_period != 'all') {
+          final cutoff = switch (_period) {
+            '30d' => now.subtract(const Duration(days: 30)),
+            '90d' => now.subtract(const Duration(days: 90)),
+            '1y' => now.subtract(const Duration(days: 365)),
+            _ => DateTime(1900),
+          };
+          docs = docs.where((d) {
+            final dt = _eventDate(d.data());
+            if (dt == null) return false;
+            return !dt.isBefore(cutoff);
+          }).toList();
+        }
+        if (_customFrom != null || _customTo != null) {
+          docs = docs.where((d) {
+            final dt = _eventDate(d.data());
+            if (dt == null) return false;
+            if (_customFrom != null && dt.isBefore(_customFrom!)) return false;
+            if (_customTo != null &&
+                dt.isAfter(_customTo!.add(const Duration(days: 1)))) {
+              return false;
+            }
+            return true;
+          }).toList();
+        }
+        final q = _searchCtrl.text.trim().toLowerCase();
+        if (q.isNotEmpty) {
+          docs = docs.where((d) {
+            final p = d.data();
+            final t = (p['title'] ?? '').toString().toLowerCase();
+            final body = (p['text'] ?? '').toString().toLowerCase();
+            final loc = (p['location'] ?? '').toString().toLowerCase();
+            return t.contains(q) || body.contains(q) || loc.contains(q);
+          }).toList();
+        }
+        if (_mediaType != 'all') {
+          docs = docs.where((d) {
+            final p = d.data();
+            final hasPhoto = eventNoticiaPhotoUrls(p).isNotEmpty;
+            final hasVideo = eventNoticiaVideosFromDoc(p).isNotEmpty;
+            if (_mediaType == 'photos') return hasPhoto;
+            if (_mediaType == 'videos') return hasVideo;
+            return true;
+          }).toList();
+        }
+        if (_category != 'all') {
+          docs = docs.where((d) {
+            final p = d.data();
+            return (p['eventCategoryId'] ?? '').toString() == _category;
+          }).toList();
+        }
+        final monthOptions = <MapEntry<String, String>>[];
+        final seenMonth = <String>{};
+        for (final d in docs) {
+          final dt = _eventDate(d.data());
+          final key = _monthYearKey(dt);
+          if (key.isEmpty || seenMonth.contains(key)) continue;
+          seenMonth.add(key);
+          monthOptions.add(MapEntry(key, _monthYearLabel(dt)));
+        }
+        monthOptions.sort((a, b) => b.key.compareTo(a.key));
+        if (_monthYear != 'all') {
+          docs = docs.where((d) {
+            final key = _monthYearKey(_eventDate(d.data()));
+            return key == _monthYear;
+          }).toList();
+        }
+        docs.sort((a, b) {
+          final da = _eventDate(a.data()) ?? DateTime(1900);
+          final db = _eventDate(b.data()) ?? DateTime(1900);
+          final cmp = db.compareTo(da);
+          return _order == 'recent_first' ? cmp : -cmp;
+        });
+        final categories = <String>{
+          for (final d in snap.data!.docs)
+            (d.data()['eventCategoryId'] ?? '').toString().trim()
+        }.where((c) => c.isNotEmpty).toList()
+          ..sort();
+        final sections = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+        for (final d in docs) {
+          final key = _monthYearLabel(_eventDate(d.data()));
+          sections.putIfAbsent(key, () => <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+          sections[key]!.add(d);
+        }
+        if (docs.isEmpty) {
+          return ThemeCleanPremium.premiumEmptyState(
+            icon: Icons.photo_library_outlined,
+            title: 'Galeria de eventos vazia',
+            subtitle:
+                'Quando um evento marcado como permanente terminar, ele ficará no Feed por 1 dia e depois virá para esta galeria de arquivo.',
+          );
+        }
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              ThemeCleanPremium.spaceMd,
+              ThemeCleanPremium.spaceSm,
+              ThemeCleanPremium.spaceMd,
+              24,
+            ),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                ),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        hintText: 'Pesquisar evento por título ou descrição',
+                        prefixIcon: Icon(Icons.search_rounded),
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _order,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Ordenação',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'recent_first',
+                                  child: Text('Último evento -> mais antigo')),
+                              DropdownMenuItem(
+                                  value: 'old_first',
+                                  child: Text('Mais antigo -> mais recente')),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _order = v ?? 'recent_first'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _period,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Período',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'all', child: Text('Todos')),
+                              DropdownMenuItem(value: '30d', child: Text('Últimos 30 dias')),
+                              DropdownMenuItem(value: '90d', child: Text('Últimos 90 dias')),
+                              DropdownMenuItem(value: '1y', child: Text('Último ano')),
+                            ],
+                            onChanged: (v) => setState(() => _period = v ?? 'all'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _mediaType,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Mídia',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'all', child: Text('Todas')),
+                              DropdownMenuItem(value: 'photos', child: Text('Só fotos')),
+                              DropdownMenuItem(value: 'videos', child: Text('Só vídeos')),
+                            ],
+                            onChanged: (v) => setState(() => _mediaType = v ?? 'all'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _category,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Categoria',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                  value: 'all', child: Text('Todas')),
+                              ...categories.map(
+                                (c) =>
+                                    DropdownMenuItem(value: c, child: Text(c)),
+                              ),
+                            ],
+                            onChanged: (v) => setState(() => _category = v ?? 'all'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: _monthYear,
+                      isDense: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Ano/Mês específico',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'all',
+                          child: Text('Todos os meses'),
+                        ),
+                        ...monthOptions.map(
+                          (m) => DropdownMenuItem(
+                            value: m.key,
+                            child: Text(m.value),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() => _monthYear = v ?? 'all'),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                firstDate: DateTime(2019),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                initialDate: _customFrom ?? DateTime.now(),
+                                locale: const Locale('pt', 'BR'),
+                              );
+                              if (d != null) setState(() => _customFrom = d);
+                            },
+                            icon: const Icon(Icons.event_rounded, size: 18),
+                            label: Text(_customFrom == null
+                                ? 'Data inicial'
+                                : _formatDatePt(_customFrom)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                firstDate: DateTime(2019),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                initialDate: _customTo ?? DateTime.now(),
+                                locale: const Locale('pt', 'BR'),
+                              );
+                              if (d != null) setState(() => _customTo = d);
+                            },
+                            icon: const Icon(Icons.event_available_rounded, size: 18),
+                            label: Text(_customTo == null
+                                ? 'Data final'
+                                : _formatDatePt(_customTo)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_customFrom != null || _customTo != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () =>
+                              setState(() {
+                                _customFrom = null;
+                                _customTo = null;
+                              }),
+                          icon: const Icon(Icons.clear_rounded, size: 18),
+                          label: const Text('Limpar período'),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Arquivo por data (${docs.length} evento(s))',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              ),
+              const SizedBox(height: 10),
+              for (final entry in sections.entries) ...[
+                Container(
+                  margin: const EdgeInsets.only(top: 6, bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    entry.key,
+                    style: TextStyle(
+                      color: ThemeCleanPremium.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 320,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 0.84,
+                  ),
+                  itemCount: entry.value.length,
+                  itemBuilder: (context, i) {
+                    final d = entry.value[i];
+                    final p = d.data();
+                    final photos = eventNoticiaPhotoUrls(p);
+                    final videos = eventNoticiaVideosFromDoc(p);
+                    final cover = photos.isNotEmpty
+                        ? sanitizeImageUrl(photos.first)
+                        : sanitizeImageUrl(
+                            eventNoticiaDisplayVideoThumbnailUrl(p) ?? '');
+                    final dt = _eventDate(p);
+                    return Material(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      child: InkWell(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _EventGalleryDetailPage(data: p),
+                            ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(ThemeCleanPremium.radiusLg),
+                                ),
+                                child: isValidImageUrl(cover)
+                                    ? SafeNetworkImage(
+                                        imageUrl: cover,
+                                        fit: BoxFit.cover,
+                                        errorWidget: Container(
+                                          color: const Color(0xFFF1F5F9),
+                                          alignment: Alignment.center,
+                                          child: const Icon(
+                                              Icons.photo_library_outlined),
+                                        ),
+                                      )
+                                    : Container(
+                                        color: const Color(0xFFF1F5F9),
+                                        alignment: Alignment.center,
+                                        child:
+                                            const Icon(Icons.photo_library_outlined),
+                                      ),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    (p['title'] ?? 'Evento').toString(),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _formatDatePt(dt),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      _miniChip(Icons.photo_library_rounded,
+                                          '${photos.length} foto(s)'),
+                                      _miniChip(Icons.videocam_rounded,
+                                          '${videos.length} vídeo(s)'),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _miniChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: ThemeCleanPremium.primary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventGalleryDetailPage extends StatelessWidget {
+  final Map<String, dynamic> data;
+
+  const _EventGalleryDetailPage({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final photos = eventNoticiaPhotoUrls(data);
+    final videos = eventNoticiaVideosFromDoc(data);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text((data['title'] ?? 'Detalhes do evento').toString()),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if ((data['text'] ?? '').toString().trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Text(
+                (data['text'] ?? '').toString(),
+                style: TextStyle(color: Colors.grey.shade800, height: 1.35),
+              ),
+            ),
+          if (photos.isNotEmpty) ...[
+            const Text(
+              'Fotos',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: photos.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1,
+              ),
+              itemBuilder: (_, i) => ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SafeNetworkImage(
+                  imageUrl: photos[i],
+                  fit: BoxFit.cover,
+                  errorWidget: Container(
+                    color: const Color(0xFFF1F5F9),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.broken_image_outlined),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
+          if (videos.isNotEmpty) ...[
+            const Text(
+              'Vídeos',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            ...videos.map((v) {
+              final raw = (v['videoUrl'] ?? '').toString().trim();
+              if (raw.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final uri = Uri.tryParse(raw);
+                    if (uri != null) {
+                      launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  icon: const Icon(Icons.play_circle_fill_rounded),
+                  label: const Text('Abrir vídeo'),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerSheet> {
@@ -1483,6 +2129,7 @@ class _FeedTabState extends State<_FeedTab> {
   ) {
     // Feed = só eventos especiais (não rotina semanal nem cópias geradas).
     var out = docs.where(noticiaDocEhEventoSpecialFeed).where((d) {
+      if (eventShouldMoveToGalleryArchive(d.data(), now)) return false;
       final v = d.data()['validUntil'];
       if (v == null) return true;
       if (v is Timestamp) return v.toDate().isAfter(now);
@@ -4056,6 +4703,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   DateTime _date = DateTime.now().add(const Duration(days: 1));
   DateTime? _validUntil;
   bool _publicSite = true;
+  bool _galleryPermanent = false;
   /// Espelha data/hora no calendário interno (`agenda` com [noticiaId]).
   bool _syncAgenda = false;
   bool _allDay = false;
@@ -4367,6 +5015,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (v is Timestamp) _validUntil = v.toDate();
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
+    _galleryPermanent = data['galleryPermanent'] == true;
     unawaited(_loadCategories());
     if (widget.doc != null) {
       unawaited(_refreshAgendaLinkFromFirestore());
@@ -5052,6 +5701,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         'updatedAt': FieldValue.serverTimestamp(),
         'generated': false,
         'publicSite': _publicSite,
+        'galleryPermanent': _galleryPermanent,
         ..._schedulingAndCategoryFields(merge: widget.doc != null),
         ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
         if (arFromNew != null)
@@ -5167,6 +5817,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'createdByUid': FirebaseAuth.instance.currentUser?.uid ?? '',
               'generated': false,
               'publicSite': _publicSite,
+              'galleryPermanent': _galleryPermanent,
               'likes': <String>[],
               'rsvp': <String>[],
               'likesCount': 0,
@@ -5245,6 +5896,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'updatedAt': FieldValue.serverTimestamp(),
               'generated': false,
               'publicSite': _publicSite,
+              'galleryPermanent': _galleryPermanent,
               'imageVariants': FieldValue.delete(),
               ..._schedulingAndCategoryFields(merge: true),
               ..._locationFieldsForSave(allowDeleteSentinels: true),
@@ -6269,6 +6921,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               ),
               secondary:
                   Icon(Icons.public_rounded, color: ThemeCleanPremium.primary),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _galleryPermanent,
+              onChanged: (v) => setState(() => _galleryPermanent = v),
+              title: const Text('Salvar no arquivo da Galeria de Eventos'),
+              subtitle: Text(
+                _galleryPermanent
+                    ? 'Após o horário final, permanece no Feed por 1 dia e depois vai automaticamente para a aba Galeria.'
+                    : 'Após o período normal, não entra no arquivo da galeria.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              secondary: Icon(Icons.photo_library_rounded,
+                  color: ThemeCleanPremium.primary),
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,

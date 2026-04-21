@@ -479,6 +479,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                       child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        _LinksPublicosStrip(
+                          tenantId: _effectiveTenantId,
+                          role: widget.role,
+                        ),
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _AniversariantesCard(
                           snap: mergedSnap,
                           tenantId: _effectiveTenantId,
@@ -583,8 +588,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         ],
                         _DashboardInstitutionalVideoStrip(tenantId: _effectiveTenantId),
                         const SizedBox(height: ThemeCleanPremium.spaceSm),
-                        _LinksPublicosStrip(tenantId: _effectiveTenantId, role: widget.role),
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _ProgramacaoDiasCard(tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _StatsCards(snap: mergedSnap, tenantId: _effectiveTenantId, role: widget.role),
@@ -2136,9 +2139,76 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                ThemeCleanPremium.primary.withValues(alpha: 0.95),
+                const Color(0xFF4F46E5),
+                const Color(0xFF7C3AED),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+                ),
+                child: const Icon(
+                  Icons.rocket_launch_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Links públicos da igreja',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        letterSpacing: -0.25,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Abra, copie e compartilhe em um toque',
+                      style: TextStyle(
+                        color: Color(0xFFE0E7FF),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
         _LinkPublicoTile(
           icon: Icons.public_rounded,
           label: 'Site público da igreja',
+          badge: 'Site',
           url: siteUrl,
           onOpen: () => _openUrl(siteUrl),
           onShare: () => _shareUrl(siteUrl, 'Site da igreja'),
@@ -2148,6 +2218,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         _LinkPublicoTile(
           icon: Icons.person_add_rounded,
           label: 'Cadastro de usuários (público)',
+          badge: 'Cadastro',
           url: cadastroUrl,
           onOpen: () => _openUrl(cadastroUrl),
           onShare: () => _shareUrl(cadastroUrl, 'Cadastro de membro'),
@@ -2161,6 +2232,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
 class _LinkPublicoTile extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String badge;
   final String url;
   final VoidCallback onOpen;
   final VoidCallback onShare;
@@ -2169,6 +2241,7 @@ class _LinkPublicoTile extends StatelessWidget {
   const _LinkPublicoTile({
     required this.icon,
     required this.label,
+    required this.badge,
     required this.url,
     required this.onOpen,
     required this.onShare,
@@ -2204,6 +2277,21 @@ class _LinkPublicoTile extends StatelessWidget {
                 child: Text(
                   label,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    color: ThemeCleanPremium.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11.5,
+                  ),
                 ),
               ),
             ],
@@ -4912,12 +5000,13 @@ class _DestaqueEventos extends StatelessWidget {
 
 enum _DestaqueTipo { aviso, evento }
 
-/// Altura da mídia no painel — faixa baixa (banner “wide”); toque na foto abre tela cheia.
-/// Web: em ecrã largo use também [_kPainelDestaqueWebSplitMinWidth] + linha lado a lado.
-const double _kPainelDestaqueThumbSide = 140;
+/// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
+/// Valor maior para evitar miniatura "achatada" no web.
+const double _kPainelDestaqueThumbSide = 220;
 
 /// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
-const double _kPainelDestaqueWebSplitMinWidth = 720;
+/// Reduzido para ativar mais cedo no dashboard com sidebar.
+const double _kPainelDestaqueWebSplitMinWidth = 620;
 
 /// Mesmo critério do site público / mural: [churchMuralCarouselClipHeight] +
 /// [postFeedCarouselAspectRatioForIndex] (incl. [media_info.aspect_ratio]).
@@ -6911,14 +7000,14 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: _kPainelDestaqueThumbSide.toDouble(),
+                      width: (kIsWeb ? _kPainelDestaqueThumbSide : 180).toDouble(),
                       height: _painelDestaqueMediaClipHeight(
                         context,
-                        _kPainelDestaqueThumbSide.toDouble(),
+                        (kIsWeb ? _kPainelDestaqueThumbSide : 180).toDouble(),
                         data,
                         nPhotosForAr: denomPhotos,
                         carouselIndex: showCarousel ? _carouselPage : 0,
-                      ).clamp(140.0, 260.0),
+                      ).clamp(170.0, 320.0),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: carouselOrImage,

@@ -172,7 +172,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                       (signatoryCargo).trim().isNotEmpty) ...[
                     pw.Container(
                       width: double.infinity,
-                      constraints: const pw.BoxConstraints(maxHeight: 52),
+                      constraints: const pw.BoxConstraints(maxHeight: 46),
                       decoration: pw.BoxDecoration(
                         borderRadius: pw.BorderRadius.circular(9),
                         border: pw.Border.all(
@@ -201,7 +201,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                             pw.Expanded(
                               child: pw.Padding(
                                 padding: const pw.EdgeInsets.fromLTRB(
-                                    6.5, 5, 6.5, 5),
+                                    6, 4, 6, 4),
                                 child: pw.Row(
                                   crossAxisAlignment:
                                       pw.CrossAxisAlignment.center,
@@ -215,8 +215,8 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                           pw.Container(
                                             padding:
                                                 const pw.EdgeInsets.symmetric(
-                                              horizontal: 5.5,
-                                              vertical: 2,
+                                              horizontal: 5,
+                                              vertical: 1.7,
                                             ),
                                             decoration: pw.BoxDecoration(
                                               color: PdfColor(
@@ -232,7 +232,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                               'ASSINATURA INSTITUCIONAL',
                                               style: pw.TextStyle(
                                                 color: gradientStart,
-                                                fontSize: 4.9,
+                                                fontSize: 4.6,
                                                 fontWeight:
                                                     pw.FontWeight.bold,
                                                 letterSpacing: 0.35,
@@ -242,14 +242,14 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                           if (signatoryNome
                                               .trim()
                                               .isNotEmpty) ...[
-                                            pw.SizedBox(height: 3.5),
+                                            pw.SizedBox(height: 2.3),
                                             pw.Text(
                                               signatoryNome.trim(),
-                                              maxLines: 2,
+                                              maxLines: 1,
                                               overflow: pw.TextOverflow.clip,
                                               style: pw.TextStyle(
                                                 color: fg,
-                                                fontSize: 6.1,
+                                                fontSize: 5.7,
                                                 fontWeight:
                                                     pw.FontWeight.bold,
                                               ),
@@ -270,7 +270,7 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                                   fg.blue,
                                                   ink ? 0.78 : 0.82,
                                                 ),
-                                                fontSize: 5.2,
+                                                fontSize: 4.8,
                                                 fontWeight:
                                                     pw.FontWeight.bold,
                                               ),
@@ -280,10 +280,10 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                       ),
                                     ),
                                     if (assinaturaImage != null) ...[
-                                      pw.SizedBox(width: 5),
+                                      pw.SizedBox(width: 4),
                                       pw.SizedBox(
-                                        width: 58,
-                                        height: 28,
+                                        width: 72,
+                                        height: 30,
                                         child: pw.Image(
                                           assinaturaImage!,
                                           fit: pw.BoxFit.contain,

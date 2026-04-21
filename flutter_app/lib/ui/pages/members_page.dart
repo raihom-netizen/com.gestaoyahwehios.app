@@ -8862,6 +8862,54 @@ class _MemberAvatar extends StatelessWidget {
     return (radius * 2 * dpr).round().clamp(96, maxPx);
   }
 
+  bool _canPreview(String urlKey, String tid, String mid) {
+    if (urlKey.isNotEmpty) return true;
+    return tid.isNotEmpty && mid.isNotEmpty;
+  }
+
+  void _openPreview(
+    BuildContext context, {
+    required String tid,
+    required String mid,
+    required String? cpf,
+    required String? au,
+    required String url,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Foto do perfil'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.of(context).maybePop(),
+              tooltip: 'Retornar',
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 1,
+              maxScale: 5,
+              child: FotoMembroWidget(
+                imageUrl: url,
+                size: 360,
+                tenantId: tid.isNotEmpty ? tid : null,
+                memberId: mid.isNotEmpty ? mid : null,
+                cpfDigits: cpf,
+                authUid: au,
+                memberData: memberData,
+                backgroundColor: backgroundColor,
+                memCacheWidth: 1400,
+                memCacheHeight: 1400,
+                fallbackChild: _letterAvatar(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tid = tenantId?.trim() ?? '';
@@ -8880,7 +8928,7 @@ class _MemberAvatar extends StatelessWidget {
     );
     final rev = md != null ? (memberPhotoDisplayCacheRevision(md) ?? 0) : 0;
 
-    return FotoMembroWidget(
+    final memberWidget = FotoMembroWidget(
       key: ValueKey<String>(
           'mav_${tid}_${mid}_${urlKey}_${rev}_${memoryPreviewBytes?.length ?? 0}'),
       imageUrl: photoUrl,
@@ -8895,6 +8943,19 @@ class _MemberAvatar extends StatelessWidget {
       memCacheWidth: mc,
       memCacheHeight: mc,
       fallbackChild: letter,
+    );
+    if (!_canPreview(urlKey, tid, mid)) return memberWidget;
+    return InkWell(
+      customBorder: const CircleBorder(),
+      onTap: () => _openPreview(
+        context,
+        tid: tid,
+        mid: mid,
+        cpf: (cpf != null && cpf.length == 11) ? cpf : null,
+        au: au.isNotEmpty ? au : null,
+        url: photoUrl ?? '',
+      ),
+      child: memberWidget,
     );
   }
 }
