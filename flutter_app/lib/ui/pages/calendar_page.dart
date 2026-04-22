@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
@@ -4806,6 +4807,23 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
+  /// Uma ocorrência em [day] (só o dia civil) com os mesmos horários; término antes
+  /// do início no relógio ⇒ cruza a meia-noite (igual a um dia único).
+  (DateTime, DateTime) _agendaTimeWindowForOneDay(
+    DateTime day,
+    int sh,
+    int sm,
+    int eh,
+    int em,
+  ) {
+    var st = DateTime(day.year, day.month, day.day, sh, sm);
+    var en = DateTime(day.year, day.month, day.day, eh, em);
+    if (!en.isAfter(st)) {
+      en = en.add(const Duration(days: 1));
+    }
+    return (st, en);
+  }
+
   /// [sheetContext] — se não for `null`, fecha o resumo do dia (bottom sheet/diálogo) após remover.
   Future<void> _confirmDeleteSingleAgendaEvent(
     _CalendarEvent ev, {
@@ -5775,11 +5793,16 @@ class _CalendarPageState extends State<CalendarPage>
     final endTimeNotifier = ValueNotifier<String>(fmtTime(endDt));
     final categoryNotifier = ValueNotifier<String>(catKey);
     final agendaColorNotifier = ValueNotifier<Color>(initialAgendaColor());
-    final dateNotifier = ValueNotifier<DateTime>(
-      DateTime(startDt.year, startDt.month, startDt.day),
-    );
+    final sDay = DateTime(startDt.year, startDt.month, startDt.day);
+    var eDay = DateTime(endDt.year, endDt.month, endDt.day);
+    if (eDay.isBefore(sDay)) eDay = sDay;
     var recStr = (doc?['recurrence'] ?? 'none').toString().trim();
     if (recStr.isEmpty) recStr = 'none';
+    if (!isSameDay(sDay, eDay) && recStr != 'none') {
+      recStr = 'none';
+    }
+    final dateStartNotifier = ValueNotifier<DateTime>(sDay);
+    final dateEndNotifier = ValueNotifier<DateTime>(eDay);
     final recurrenceNotifier = ValueNotifier<String>(recStr);
     final publishMuralNotifier = ValueNotifier<bool>(false);
     final publishSiteNotifier = ValueNotifier<bool>(true);
@@ -6174,25 +6197,38 @@ class _CalendarPageState extends State<CalendarPage>
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               ValueListenableBuilder<DateTime>(
-                valueListenable: dateNotifier,
-                builder: (_, date, __) => InkWell(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: ctx,
-                      initialDate: date,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2035),
-                    );
-                    if (picked != null) dateNotifier.value = picked;
-                  },
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Data',
-                      prefixIcon: Icon(Icons.calendar_today_rounded),
+                valueListenable: dateStartNotifier,
+                builder: (_, d0, __) => ValueListenableBuilder<DateTime>(
+                  valueListenable: dateEndNotifier,
+                  builder: (_, d1, ___) => InkWell(
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    onTap: () async {
+                      final picked = await showAgendaDateRangePicker(
+                        ctx,
+                        initialStart: d0,
+                        initialEnd: d1,
+                      );
+                      if (picked == null) return;
+                      dateStartNotifier.value = picked.start;
+                      dateEndNotifier.value = picked.end;
+                      if (!isSameDay(picked.start, picked.end) &&
+                          recurrenceNotifier.value != 'none') {
+                        recurrenceNotifier.value = 'none';
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Período (data inicial e data final)',
+                        prefixIcon: Icon(Icons.date_range_rounded),
+                      ),
+                      child: Text(
+                        isSameDay(d0, d1)
+                            ? DateFormat('dd/MM/yyyy').format(d0)
+                            : '${DateFormat('dd/MM/yyyy').format(d0)}  —  ${DateFormat('dd/MM/yyyy').format(d1)}',
+                        style: GoogleFonts.poppins(fontSize: 15),
+                      ),
                     ),
-                    child: Text(DateFormat('dd/MM/yyyy').format(date)),
                   ),
                 ),
               ),
@@ -6281,8 +6317,8 @@ class _CalendarPageState extends State<CalendarPage>
               Padding(
                 padding: const EdgeInsets.only(top: 6, bottom: 4),
                 child: Text(
-                  'Dica: término antes do início no mesmo dia vira dia seguinte (ex.: 19h–08h).',
-                  style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600),
+                  'Dica: em um único dia, término antes do início vira o dia seguinte (ex.: 19h–08h). Vários dias: o evento (mesmos horários) gera uma entrada no calendário em cada um dos dias selecionados. Recorrência (semanal etc.) vale só se início e fim forem o mesmo dia.',
+                  style: GoogleFonts.poppins(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -6625,26 +6661,39 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
-              ValueListenableBuilder<String>(
-                valueListenable: recurrenceNotifier,
-                builder: (_, rec, __) => DropdownButtonFormField<String>(
-                  value: rec,
-                  decoration: const InputDecoration(
-                    labelText: 'Recorrência',
-                    prefixIcon: Icon(Icons.repeat_rounded),
+              ValueListenableBuilder<DateTime>(
+                valueListenable: dateStartNotifier,
+                builder: (_, ds, __) => ValueListenableBuilder<DateTime>(
+                  valueListenable: dateEndNotifier,
+                  builder: (_, de, ___) => ValueListenableBuilder<String>(
+                    valueListenable: recurrenceNotifier,
+                    builder: (_, rec, __) {
+                      final canRec = isSameDay(ds, de);
+                      final v = canRec ? rec : 'none';
+                      return DropdownButtonFormField<String>(
+                        value: v,
+                        decoration: const InputDecoration(
+                          labelText: 'Recorrência',
+                          prefixIcon: Icon(Icons.repeat_rounded),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'none', child: Text('Não repetir')),
+                          DropdownMenuItem(
+                              value: 'weekly', child: Text('Semanal')),
+                          DropdownMenuItem(
+                              value: 'biweekly', child: Text('Quinzenal')),
+                          DropdownMenuItem(
+                              value: 'monthly', child: Text('Mensal')),
+                        ],
+                        onChanged: canRec
+                            ? (x) {
+                                if (x != null) recurrenceNotifier.value = x;
+                              }
+                            : null,
+                      );
+                    },
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 'none', child: Text('Não repetir')),
-                    DropdownMenuItem(
-                        value: 'weekly', child: Text('Semanal')),
-                    DropdownMenuItem(
-                        value: 'biweekly', child: Text('Quinzenal')),
-                    DropdownMenuItem(
-                        value: 'monthly', child: Text('Mensal')),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) recurrenceNotifier.value = v;
-                  },
                 ),
               ),
               if (existing == null) ...[
@@ -6709,7 +6758,21 @@ class _CalendarPageState extends State<CalendarPage>
                           try {
                             await FirebaseAuth.instance.currentUser
                                 ?.getIdToken(true);
-                            final date = dateNotifier.value;
+                            var dayStart = DateTime(
+                              dateStartNotifier.value.year,
+                              dateStartNotifier.value.month,
+                              dateStartNotifier.value.day,
+                            );
+                            var dayEnd = DateTime(
+                              dateEndNotifier.value.year,
+                              dateEndNotifier.value.month,
+                              dateEndNotifier.value.day,
+                            );
+                            if (dayEnd.isBefore(dayStart)) {
+                              final t = dayStart;
+                              dayStart = dayEnd;
+                              dayEnd = t;
+                            }
                             final sp = startTimeNotifier.value.split(':');
                             final ep = endTimeNotifier.value.split(':');
                             final sh =
@@ -6722,13 +6785,15 @@ class _CalendarPageState extends State<CalendarPage>
                                     21;
                             final em =
                                 int.tryParse(ep.elementAtOrNull(1) ?? '') ?? 0;
-                            final startBase = DateTime(
-                                date.year, date.month, date.day, sh, sm);
+                            var startBase = DateTime(
+                              dayStart.year, dayStart.month, dayStart.day, sh, sm);
                             var endBase = DateTime(
-                                date.year, date.month, date.day, eh, em);
-                            if (!endBase.isAfter(startBase)) {
-                              endBase =
-                                  endBase.add(const Duration(days: 1));
+                              dayEnd.year, dayEnd.month, dayEnd.day, eh, em);
+                            if (isSameDay(dayStart, dayEnd)) {
+                              if (!endBase.isAfter(startBase)) {
+                                endBase =
+                                    endBase.add(const Duration(days: 1));
+                              }
                             }
                             if (!endBase.isAfter(startBase)) {
                               saving.value = false;
@@ -6736,7 +6801,7 @@ class _CalendarPageState extends State<CalendarPage>
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                        'Revise os horários de início e fim.'),
+                                        'Revise as datas e horários de início e fim.'),
                                   ),
                                 );
                               }
@@ -6746,7 +6811,10 @@ class _CalendarPageState extends State<CalendarPage>
                             final cat = categoryNotifier.value;
                             final colorHex =
                                 _colorToHex(agendaColorNotifier.value);
-                            final rec = recurrenceNotifier.value;
+                            var rec = recurrenceNotifier.value;
+                            if (!isSameDay(dayStart, dayEnd)) {
+                              rec = 'none';
+                            }
 
                             if (existing != null) {
                               final nid =
@@ -6794,7 +6862,7 @@ class _CalendarPageState extends State<CalendarPage>
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(
                                         'Evento atualizado.'));
-                                final d = dateNotifier.value;
+                                final d = dateStartNotifier.value;
                                 Navigator.pop(
                                   ctx,
                                   DateTime(d.year, d.month, d.day),
@@ -6827,60 +6895,128 @@ class _CalendarPageState extends State<CalendarPage>
                                 });
                                 muralNoticiaId = notRef.id;
                               }
-                              final starts =
-                                  _expandAgendaRecurrence(startBase, rec);
-                              final batch = FirebaseFirestore.instance.batch();
-                              final seriesId = _agenda.doc().id;
-                              for (final st in starts) {
-                                final en = st.add(dur);
-                                final ref = _agenda.doc();
-                                final row = <String, dynamic>{
-                                  'title': titleCtrl.text.trim(),
-                                  'description': descCtrl.text.trim(),
-                                  'startTime': Timestamp.fromDate(st),
-                                  'endTime': Timestamp.fromDate(en),
-                                  'color': colorHex,
-                                  'category': cat,
-                                  'location': locCtrl.text.trim(),
-                                  'responsible': respCtrl.text.trim(),
-                                  'whatsapp': whatsappCtrl.text
-                                      .replaceAll(RegExp(r'\D'), ''),
-                                  'needSound': false,
-                                  'needDataShow': false,
-                                  'needCantina': false,
-                                  'recurrence': rec,
-                                  'seriesId': seriesId,
-                                  'createdAt': FieldValue.serverTimestamp(),
-                                  'createdByUid':
-                                      FirebaseAuth.instance.currentUser?.uid ??
-                                          '',
-                                  if (muralNoticiaId != null)
-                                    'noticiaId': muralNoticiaId,
-                                };
-                                if (_isCustomCategoryKey(cat)) {
-                                  final cid = cat
-                                      .substring(_customCategoryPrefix.length);
-                                  row['eventCategoryId'] = cid;
-                                  for (final c in _eventCategoryDocs) {
-                                    if (c.id == cid) {
-                                      row['eventCategoryName'] =
-                                          (c.data()['nome'] ?? '').toString();
-                                      final cor = c.data()['cor'];
-                                      if (cor is int) {
-                                        row['eventCategoryColor'] = cor;
+                              if (isSameDay(dayStart, dayEnd)) {
+                                final starts =
+                                    _expandAgendaRecurrence(startBase, rec);
+                                final batch = FirebaseFirestore.instance.batch();
+                                final seriesId = _agenda.doc().id;
+                                for (final st in starts) {
+                                  final en = st.add(dur);
+                                  final ref = _agenda.doc();
+                                  final row = <String, dynamic>{
+                                    'title': titleCtrl.text.trim(),
+                                    'description': descCtrl.text.trim(),
+                                    'startTime': Timestamp.fromDate(st),
+                                    'endTime': Timestamp.fromDate(en),
+                                    'color': colorHex,
+                                    'category': cat,
+                                    'location': locCtrl.text.trim(),
+                                    'responsible': respCtrl.text.trim(),
+                                    'whatsapp': whatsappCtrl.text
+                                        .replaceAll(RegExp(r'\D'), ''),
+                                    'needSound': false,
+                                    'needDataShow': false,
+                                    'needCantina': false,
+                                    'recurrence': rec,
+                                    'seriesId': seriesId,
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'createdByUid':
+                                        FirebaseAuth.instance.currentUser
+                                                ?.uid ??
+                                            '',
+                                    if (muralNoticiaId != null)
+                                      'noticiaId': muralNoticiaId,
+                                  };
+                                  if (_isCustomCategoryKey(cat)) {
+                                    final cid = cat
+                                        .substring(_customCategoryPrefix.length);
+                                    row['eventCategoryId'] = cid;
+                                    for (final c in _eventCategoryDocs) {
+                                      if (c.id == cid) {
+                                        row['eventCategoryName'] =
+                                            (c.data()['nome'] ?? '').toString();
+                                        final cor = c.data()['cor'];
+                                        if (cor is int) {
+                                          row['eventCategoryColor'] = cor;
+                                        }
+                                        break;
                                       }
-                                      break;
                                     }
                                   }
+                                  batch.set(ref, row);
                                 }
-                                batch.set(ref, row);
+                                await batch.commit();
+                              } else {
+                                // Vários dias: um documento na agenda por dia, mesmos horários em cada dia.
+                                final batch = FirebaseFirestore.instance.batch();
+                                final seriesId = _agenda.doc().id;
+                                final daysCount =
+                                    dayEnd.difference(dayStart).inDays + 1;
+                                for (var t = 0; t < daysCount; t++) {
+                                  final d = dayStart.add(Duration(days: t));
+                                  final (st, en) = _agendaTimeWindowForOneDay(
+                                    d, sh, sm, eh, em);
+                                  final ref = _agenda.doc();
+                                  final row = <String, dynamic>{
+                                    'title': titleCtrl.text.trim(),
+                                    'description': descCtrl.text.trim(),
+                                    'startTime': Timestamp.fromDate(st),
+                                    'endTime': Timestamp.fromDate(en),
+                                    'color': colorHex,
+                                    'category': cat,
+                                    'location': locCtrl.text.trim(),
+                                    'responsible': respCtrl.text.trim(),
+                                    'whatsapp': whatsappCtrl.text
+                                        .replaceAll(RegExp(r'\D'), ''),
+                                    'needSound': false,
+                                    'needDataShow': false,
+                                    'needCantina': false,
+                                    'recurrence': rec,
+                                    'seriesId': seriesId,
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'createdByUid':
+                                        FirebaseAuth.instance.currentUser
+                                                ?.uid ??
+                                            '',
+                                    if (muralNoticiaId != null)
+                                      'noticiaId': muralNoticiaId,
+                                  };
+                                  if (_isCustomCategoryKey(cat)) {
+                                    final cid = cat
+                                        .substring(_customCategoryPrefix.length);
+                                    row['eventCategoryId'] = cid;
+                                    for (final c in _eventCategoryDocs) {
+                                      if (c.id == cid) {
+                                        row['eventCategoryName'] =
+                                            (c.data()['nome'] ?? '').toString();
+                                        final cor = c.data()['cor'];
+                                        if (cor is int) {
+                                          row['eventCategoryColor'] = cor;
+                                        }
+                                        break;
+                                      }
+                                    }
+                                  }
+                                  batch.set(ref, row);
+                                }
+                                await batch.commit();
                               }
-                              await batch.commit();
                               if (ctx.mounted) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                if (!isSameDay(dayStart, dayEnd)) {
+                                  final n =
+                                      dayEnd.difference(dayStart).inDays + 1;
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(
-                                        'Evento salvo na agenda.'));
-                                final d = dateNotifier.value;
+                                      'Evento replicado em $n dia(s) na agenda.',
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    ThemeCleanPremium.successSnackBar(
+                                        'Evento salvo na agenda.'),
+                                  );
+                                }
+                                final d = dateStartNotifier.value;
                                 Navigator.pop(
                                   ctx,
                                   DateTime(d.year, d.month, d.day),

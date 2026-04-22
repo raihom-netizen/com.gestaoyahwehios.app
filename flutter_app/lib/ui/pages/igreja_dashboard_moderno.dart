@@ -84,7 +84,7 @@ import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_instituti
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
     show kChurchShellIndexMySchedules;
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
-    show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
+    show noticiaEventoEhRotinaOuGeradoAutomatico;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 
@@ -131,7 +131,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Stream<QuerySnapshot<Map<String, dynamic>>>? _membersStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _financeStream;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _avisosStream;
   /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
   String _effectiveTenantId = '';
@@ -290,11 +289,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       _membersStream = _createMembersSnapshotStream(allIds);
       _deptStream = _createDepartmentsSnapshotStream(allIds);
       _rebindFinanceStream();
-      _noticiasStream = tenantRef
-          .collection(ChurchTenantPostsCollections.noticias)
-          .orderBy('createdAt', descending: true)
-          .limit(10)
-          .snapshots();
       _avisosStream = tenantRef
           .collection(ChurchTenantPostsCollections.avisos)
           .orderBy('createdAt', descending: true)
@@ -437,7 +431,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Widget build(BuildContext context) {
     if (_membersStream == null ||
         _deptStream == null ||
-        _noticiasStream == null ||
         _avisosStream == null) {
       return SafeArea(
         child: Container(
@@ -512,23 +505,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                           onRetry: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _DestaqueEventos(
+                        _DestaqueAvisos(
                           tenantId: _effectiveTenantId,
                           role: widget.role,
                           churchSlug: _churchSlug,
                           nomeIgreja: _churchNome,
                           stream: _avisosStream!,
-                          typeFilter: _DestaqueTipo.aviso,
-                          onRetryStream: _loadStreams,
-                        ),
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _DestaqueEventos(
-                          tenantId: _effectiveTenantId,
-                          role: widget.role,
-                          churchSlug: _churchSlug,
-                          nomeIgreja: _churchNome,
-                          stream: _noticiasStream!,
-                          typeFilter: _DestaqueTipo.evento,
                           onRetryStream: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
@@ -4906,41 +4888,35 @@ class _PainelDestaqueExpandableTextState
   }
 }
 
-/// Destaques — avisos e eventos em feed vertical (mídia em cima, texto abaixo).
-class _DestaqueEventos extends StatelessWidget {
+/// Destaques de avisos (feed vertical). Eventos com mídia / galeria ficam no módulo Eventos e no site.
+class _DestaqueAvisos extends StatelessWidget {
   final String tenantId;
   final String role;
   final String churchSlug;
   final String nomeIgreja;
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
-  final _DestaqueTipo typeFilter;
   final VoidCallback? onRetryStream;
-  const _DestaqueEventos({
+  const _DestaqueAvisos({
     required this.tenantId,
     required this.role,
     required this.churchSlug,
     required this.nomeIgreja,
     required this.stream,
-    required this.typeFilter,
     this.onRetryStream,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isEvento = typeFilter == _DestaqueTipo.evento;
     return _CleanCard(
-      title: isEvento ? 'Eventos' : 'Avisos',
-      icon: isEvento ? Icons.event_rounded : Icons.campaign_rounded,
-      // Avisos e Eventos: mesmo padding do card que os demais módulos.
+      title: 'Avisos',
+      icon: Icons.campaign_rounded,
       compact: false,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: stream,
         builder: (context, snap) {
           if (snap.hasError) {
             return ChurchPanelErrorBody(
-              title: isEvento
-                  ? 'Não foi possível carregar os eventos'
-                  : 'Não foi possível carregar os avisos',
+              title: 'Não foi possível carregar os avisos',
               error: snap.error,
               onRetry: onRetryStream,
             );
@@ -4957,10 +4933,7 @@ class _DestaqueEventos extends StatelessWidget {
           final now = DateTime.now();
           final docs = (snap.data?.docs ?? []).where((d) {
             final type = (d.data()['type'] ?? '').toString().toLowerCase();
-            if (isEvento && type != 'evento') return false;
-            // Painel: carrossel "Eventos" = só o que entra no Feed (especiais), não rotina/gerados.
-            if (isEvento && !noticiaDocEhEventoSpecialFeed(d)) return false;
-            if (!isEvento && type == 'evento') return false;
+            if (type == 'evento') return false;
             final v = d.data()['validUntil'];
             if (v == null) return true;
             if (v is Timestamp) return v.toDate().isAfter(now);
@@ -4973,7 +4946,7 @@ class _DestaqueEventos extends StatelessWidget {
                 Icon(Icons.campaign_outlined, size: 48, color: Colors.grey.shade300),
                 const SizedBox(height: 8),
                 Text(
-                  isEvento ? 'Nenhum evento recente.' : 'Nenhum aviso recente.',
+                  'Nenhum aviso recente.',
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
                 ),
               ]),
@@ -4997,8 +4970,6 @@ class _DestaqueEventos extends StatelessWidget {
     );
   }
 }
-
-enum _DestaqueTipo { aviso, evento }
 
 /// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
 /// Valor maior para evitar miniatura "achatada" no web.

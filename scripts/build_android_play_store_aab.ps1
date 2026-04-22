@@ -76,6 +76,14 @@ Write-Host ""
 Write-Host "Concluido (assinatura release + obfuscate):" -ForegroundColor Green
 Write-Host "  $OutAab"
 
+if ($ver -match '\+(\d+)\s*$') {
+    $vc = $Matches[1]
+    Write-Host ""
+    Write-Host "Google Play (evitar erros ao guardar/lancar):" -ForegroundColor Yellow
+    Write-Host "  Este AAB tem versionCode=$vc - tem de ser MAIOR que o maior ja usado (Producao / testes)." -ForegroundColor Gray
+    Write-Host "  Carregue ESTE .aab em Artefactos antes de gravar (evita: nao adiciona nem remove pacotes)." -ForegroundColor Gray
+}
+
 if ($CopyTo -and $CopyTo.Trim().Length -gt 0) {
     $destDir = $CopyTo.Trim()
     if (-not (Test-Path $destDir)) {
@@ -85,3 +93,5 @@ if ($CopyTo -and $CopyTo.Trim().Length -gt 0) {
     Copy-Item -Path $OutAab -Destination $destFile -Force
     Write-Host "Copiado: $destFile" -ForegroundColor Green
 }
+
+Set-Location $RepoRoot
