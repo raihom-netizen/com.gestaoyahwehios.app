@@ -65,7 +65,10 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
-import 'package:gestao_yahweh/core/event_gallery_archive.dart';
+import 'package:gestao_yahweh/core/event_gallery_archive.dart'
+    show eventArchiveBaseDate, eventShouldMoveToGalleryArchive;
+import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
+    show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_social_portal.dart';
 import 'package:gestao_yahweh/ui/pages/legal_pages.dart'
     show
@@ -80,6 +83,38 @@ import 'package:intl/intl.dart';
 /// Capa para site público — mesma lógica centralizada em [eventNoticiaFeedCoverHintUrl].
 String _churchPublicNoticiaCoverUrl(Map<String, dynamic> p) =>
     eventNoticiaFeedCoverHintUrl(p);
+
+DateTime? _churchPublicEventoGaleriaSortDate(Map<String, dynamic> m) {
+  final b = eventArchiveBaseDate(m);
+  if (b != null) return b;
+  final s = m['startAt'];
+  if (s is Timestamp) return s.toDate();
+  final c = m['createdAt'];
+  if (c is Timestamp) return c.toDate();
+  return null;
+}
+
+int _compareEventosGaleriaRecentFirst(
+  QueryDocumentSnapshot<Map<String, dynamic>> a,
+  QueryDocumentSnapshot<Map<String, dynamic>> b,
+) {
+  final da = _churchPublicEventoGaleriaSortDate(a.data());
+  final db = _churchPublicEventoGaleriaSortDate(b.data());
+  if (da == null && db == null) return 0;
+  if (da == null) return 1;
+  if (db == null) return -1;
+  return db.compareTo(da);
+}
+
+bool _churchPublicPostHasVisibleVideoForThumb(Map<String, dynamic> p) {
+  if (eventNoticiaVideosFromDoc(p).isNotEmpty) return true;
+  final h = (eventNoticiaHostedVideoPlayUrl(p) ?? '').toString().trim();
+  if (h.isNotEmpty) return true;
+  final e = eventNoticiaExternalVideoUrl(p);
+  if (e != null && e.isNotEmpty) return true;
+  if ((p['videoUrl'] ?? '').toString().trim().isNotEmpty) return true;
+  return false;
+}
 
 bool _churchPublicDocIsAviso(
   QueryDocumentSnapshot<Map<String, dynamic>> d,
@@ -407,10 +442,12 @@ class _ChurchPublicMuralStreamSliverState
     final eventos = items.where(_churchPublicDocIsNoticiaEvento).toList();
     final now = DateTime.now();
     final eventosArquivo = eventos
-        .where((e) => eventShouldMoveToGalleryArchive(e.data(), now))
-        .toList();
+        .where((e) => noticiaEventoEspecialCaiuDoFeedParaGaleria(e.data(), now))
+        .toList()
+      ..sort(_compareEventosGaleriaRecentFirst);
     final eventosAtivos = eventos
-        .where((e) => !eventShouldMoveToGalleryArchive(e.data(), now))
+        .where(
+            (e) => !noticiaEventoEspecialCaiuDoFeedParaGaleria(e.data(), now))
         .toList();
     const avisosAccent = Color(0xFF7C3AED);
 
@@ -498,59 +535,18 @@ class _ChurchPublicMuralStreamSliverState
                               ],
                             ],
                             if (eventosArquivo.isNotEmpty) ...[
-                              const SizedBox(height: 18),
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                                ),
-                                child: Text(
-                                  'Arquivo da Galeria de Eventos',
-                                  style: TextStyle(
-                                    color: widget.accent,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
+                              if (eventosAtivos.isNotEmpty)
+                                const SizedBox(height: 18),
+                              _ChurchPublicGaleriaArquivoStrip(
+                                allArchiveDocs: eventosArquivo,
+                                accent: widget.accent,
+                                igrejaId: widget.igrejaId,
+                                churchSlug: widget.slugClean,
+                                memCacheW: memW,
+                                memCacheH: memH,
+                                onOpenHostedVideoFromMap:
+                                    widget.onOpenHostedVideoFromMap,
                               ),
-                              const SizedBox(height: 12),
-                              for (var j = 0;
-                                  j < (eventosArquivo.length > 6
-                                      ? 6
-                                      : eventosArquivo.length);
-                                  j++) ...[
-                              if (j > 0) const SizedBox(height: 18),
-                                feedTile(
-                                  eventosArquivo[j],
-                                  galleryArchivePremium: true,
-                                ),
-                              ],
-                              if (eventosArquivo.length > 6) ...[
-                                const SizedBox(height: 10),
-                                FilledButton.tonalIcon(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => _PublicEventsGalleryPage(
-                                          docs: eventosArquivo,
-                                          accent: widget.accent,
-                                          igrejaId: widget.igrejaId,
-                                          churchSlug: widget.slugClean,
-                                          memCacheW: memW,
-                                          memCacheH: memH,
-                                          onOpenHostedVideoFromMap:
-                                              widget.onOpenHostedVideoFromMap,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.open_in_new_rounded),
-                                  label: Text(
-                                      'Ver galeria completa (${eventosArquivo.length})'),
-                                ),
-                              ],
                             ],
                           ],
                         ),
@@ -587,6 +583,353 @@ class _ChurchPublicMuralStreamSliverState
           );
         },
         childCount: 3,
+      ),
+    );
+  }
+}
+
+/// Arquivo: até 3 miniaturas (mais recentes) + ações discretas «Veja mais» e «Pesquisar».
+class _ChurchPublicGaleriaArquivoStrip extends StatelessWidget {
+  static const int _kMaxThumbs = 3;
+
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> allArchiveDocs;
+  final Color accent;
+  final String igrejaId;
+  final String churchSlug;
+  final int memCacheW;
+  final int memCacheH;
+  final Future<void> Function(BuildContext context, Map<String, dynamic> p)
+      onOpenHostedVideoFromMap;
+
+  const _ChurchPublicGaleriaArquivoStrip({
+    required this.allArchiveDocs,
+    required this.accent,
+    required this.igrejaId,
+    required this.churchSlug,
+    required this.memCacheW,
+    required this.memCacheH,
+    required this.onOpenHostedVideoFromMap,
+  });
+
+  void _goGallery(
+    BuildContext context, {
+    bool openSearchOnLaunch = false,
+  }) {
+    if (allArchiveDocs.isEmpty) return;
+    unawaited(Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _PublicEventsGalleryPage(
+          docs: allArchiveDocs,
+          accent: accent,
+          igrejaId: igrejaId,
+          churchSlug: churchSlug,
+          memCacheW: memCacheW,
+          memCacheH: memCacheH,
+          onOpenHostedVideoFromMap: onOpenHostedVideoFromMap,
+          openSearchOnLaunch: openSearchOnLaunch,
+        ),
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (allArchiveDocs.isEmpty) return const SizedBox.shrink();
+    final top = allArchiveDocs.take(_kMaxThumbs).toList();
+    final p = ThemeCleanPremium.primary;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            accent.withValues(alpha: 0.06),
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.18), width: 1),
+        boxShadow: [
+          ...ThemeCleanPremium.softUiCardShadow,
+          BoxShadow(
+            color: p.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.photo_album_outlined,
+                  size: 18,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Galeria de eventos',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14.5,
+                        color: const Color(0xFF0F172A),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    Text(
+                      'Até 3 entradas mais recentes. Abra a galeria para buscar o restante.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.2,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, c) {
+              const gap = 6.0;
+              final raw = (c.maxWidth - (top.length - 1) * gap) /
+                  top.length.clamp(1, 3);
+              final dim = raw.isFinite
+                  ? raw.clamp(72.0, 120.0)
+                  : 96.0;
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  for (var k = 0; k < top.length; k++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        right: k < top.length - 1 ? gap : 0,
+                      ),
+                      child: _ChurchPublicGaleriaArquivoThumb(
+                        doc: top[k],
+                        igrejaId: igrejaId,
+                        churchSlug: churchSlug,
+                        memCacheW: memCacheW,
+                        memCacheH: memCacheH,
+                        size: dim,
+                        accent: accent,
+                        onOpenHostedVideo: (ctx, p, postId) async {
+                          await onOpenHostedVideoFromMap(ctx, p);
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: () => _goGallery(context, openSearchOnLaunch: false),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent.withValues(alpha: 0.14),
+                    foregroundColor: accent,
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                    textStyle: const TextStyle(
+                        fontWeight: FontWeight.w800, fontSize: 13.5),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.grid_view_rounded, size: 18),
+                        const SizedBox(width: 6),
+                        Text('Veja mais${allArchiveDocs.length > 3 ? ' (${allArchiveDocs.length})' : ''}'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _goGallery(context, openSearchOnLaunch: true),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    side: BorderSide(
+                      color: accent.withValues(alpha: 0.45),
+                      width: 1.5,
+                    ),
+                    foregroundColor: const Color(0xFF0F172A),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.search_rounded, size: 18, color: accent),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Pesquisar',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChurchPublicGaleriaArquivoThumb extends StatelessWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final String igrejaId;
+  final String churchSlug;
+  final int memCacheW;
+  final int memCacheH;
+  final double size;
+  final Color accent;
+  final Future<void> Function(
+    BuildContext context,
+    Map<String, dynamic> p,
+    String postId,
+  ) onOpenHostedVideo;
+
+  const _ChurchPublicGaleriaArquivoThumb({
+    required this.doc,
+    required this.igrejaId,
+    required this.churchSlug,
+    required this.memCacheW,
+    required this.memCacheH,
+    required this.size,
+    required this.accent,
+    required this.onOpenHostedVideo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = doc.data();
+    final v = _churchPublicPostHasVisibleVideoForThumb(p);
+    var url = (churchPublicPostThumbUrl(p) ?? '').toString();
+    if (url.isEmpty) {
+      url = _churchPublicNoticiaCoverUrl(p);
+    }
+    url = sanitizeImageUrl(url);
+    final hasImg = isValidImageUrl(url) && url.isNotEmpty;
+    final path = eventNoticiaPhotoStoragePathAt(p, 0) ??
+        eventNoticiaImageStoragePath(p);
+    final px = (size * 2.5).round().clamp(120, 360);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => unawaited(ChurchPublicPostLightbox.show(
+          context,
+          doc: doc,
+          igrejaId: igrejaId,
+          churchSlug: churchSlug,
+          accent: accent,
+          memCacheW: memCacheW,
+          memCacheH: memCacheH,
+          onOpenHostedVideo: onOpenHostedVideo,
+          mediaFocus: ChurchPublicPostLightboxMediaFocus.start,
+        )),
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (path != null && path.isNotEmpty)
+                  StableStorageImage(
+                    storagePath: path,
+                    imageUrl: hasImg ? url : null,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    memCacheWidth: px,
+                    memCacheHeight: px,
+                  )
+                else if (hasImg)
+                  SafeNetworkImage(
+                    imageUrl: url,
+                    memCacheWidth: px,
+                    memCacheHeight: px,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                  )
+                else
+                  ColoredBox(
+                    color: accent.withValues(alpha: 0.1),
+                    child: Icon(Icons.event, color: accent, size: 28),
+                  ),
+                if (v)
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Color(0x88000000),
+                          Color(0x00000000),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (v)
+                  const Center(
+                    child: Icon(
+                      Icons.play_circle_fill_rounded,
+                      size: 32,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          color: Color(0xFF000000),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -643,6 +986,7 @@ class _PublicEventsGalleryPage extends StatefulWidget {
   final int memCacheH;
   final Future<void> Function(BuildContext context, Map<String, dynamic> p)
       onOpenHostedVideoFromMap;
+  final bool openSearchOnLaunch;
 
   const _PublicEventsGalleryPage({
     required this.docs,
@@ -652,6 +996,7 @@ class _PublicEventsGalleryPage extends StatefulWidget {
     required this.memCacheW,
     required this.memCacheH,
     required this.onOpenHostedVideoFromMap,
+    this.openSearchOnLaunch = false,
   });
 
   @override
@@ -660,13 +1005,25 @@ class _PublicEventsGalleryPage extends StatefulWidget {
 
 class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   String _order = 'recent_first';
   String _mediaType = 'all';
   String _monthYear = 'all';
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.openSearchOnLaunch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocus.requestFocus();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -745,54 +1102,132 @@ class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
       return _order == 'recent_first' ? cmp : -cmp;
     });
     return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
-        title: const Text('Galeria de Eventos'),
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: const Border(
+          bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: widget.accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.photo_filter_rounded,
+                color: widget.accent,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Galeria de eventos',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${docs.length}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ),
+          ],
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
           onPressed: () => Navigator.of(context).maybePop(),
           tooltip: 'Voltar',
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+              border: Border.all(color: widget.accent.withValues(alpha: 0.15)),
+              boxShadow: [
+                ...ThemeCleanPremium.softUiCardShadow,
+                BoxShadow(
+                  color: widget.accent.withValues(alpha: 0.04),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
             child: Column(
               children: [
                 TextField(
+                  focusNode: _searchFocus,
                   controller: _searchCtrl,
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    hintText: 'Pesquisar evento',
-                    prefixIcon: Icon(Icons.search_rounded),
-                    border: OutlineInputBorder(),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    hintText: 'Pesquisar título ou descrição',
+                    prefixIcon: Icon(Icons.search_rounded, color: widget.accent),
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderSide: BorderSide(color: widget.accent, width: 2),
+                    ),
                     isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 4),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _order,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Ordem',
-                          border: OutlineInputBorder(),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           isDense: true,
                         ),
                         items: const [
                           DropdownMenuItem(
                               value: 'recent_first',
-                              child: Text('Último -> antigo')),
+                              child: Text('Mais recente')),
                           DropdownMenuItem(
                               value: 'old_first',
-                              child: Text('Antigo -> último')),
+                              child: Text('Mais antigo')),
                         ],
                         onChanged: (v) =>
                             setState(() => _order = v ?? 'recent_first'),
@@ -802,15 +1237,18 @@ class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _mediaType,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Mídia',
-                          border: OutlineInputBorder(),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           isDense: true,
                         ),
                         items: const [
                           DropdownMenuItem(value: 'all', child: Text('Todas')),
                           DropdownMenuItem(value: 'photos', child: Text('Fotos')),
-                          DropdownMenuItem(value: 'videos', child: Text('Vídeos')),
+                          DropdownMenuItem(
+                              value: 'videos', child: Text('Vídeos')),
                         ],
                         onChanged: (v) =>
                             setState(() => _mediaType = v ?? 'all'),
@@ -821,9 +1259,12 @@ class _PublicEventsGalleryPageState extends State<_PublicEventsGalleryPage> {
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: _monthYear,
-                  decoration: const InputDecoration(
-                    labelText: 'Ano/Mês específico',
-                    border: OutlineInputBorder(),
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Mês/ano',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     isDense: true,
                   ),
                   items: [

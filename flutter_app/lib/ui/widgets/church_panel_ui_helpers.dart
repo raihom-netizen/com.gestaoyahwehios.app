@@ -240,6 +240,14 @@ class PremiumPdfOrientationBar extends StatelessWidget {
   }
 }
 
+/// Onde a faixa de abas “pill” se assenta: azul (AppBar) vs branco (corpo / shell).
+enum ChurchPanelPillTabBarStyle {
+  /// Trilho semitransparente em faixa **primária** — rótulos brancos, selecionado = branco + texto primário.
+  onPrimary,
+  /// Trilho cinza-claro em **fundo claro** (Mural, etc.) — rótulos slate, selecionado = branco + sombra.
+  onLight,
+}
+
 /// Abas de módulo no painel da igreja — mesmo visual “pill” do Patrimônio (fundo primário + indicador branco).
 ///
 /// Usar em mobile dentro do [IgrejaCleanShell] com [embeddedInShell] para alinhar ao cabeçalho do shell sem
@@ -249,12 +257,14 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
   final List<Widget> tabs;
   /// Altura total menor (faixa azul mais baixa), mantendo o visual “pill” do Patrimônio.
   final bool dense;
+  final ChurchPanelPillTabBarStyle style;
 
   const ChurchPanelPillTabBar({
     super.key,
     required this.controller,
     required this.tabs,
     this.dense = false,
+    this.style = ChurchPanelPillTabBarStyle.onPrimary,
   });
 
   @override
@@ -262,33 +272,53 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
 
   @override
   Widget build(BuildContext context) {
+    final onLight = style == ChurchPanelPillTabBarStyle.onLight;
+    final p = ThemeCleanPremium.primary;
     final outer = dense
-        ? const EdgeInsets.fromLTRB(10, 2, 10, 6)
-        : const EdgeInsets.fromLTRB(12, 0, 12, 10);
+        ? EdgeInsets.fromLTRB(10, onLight ? 6 : 2, 10, onLight ? 8 : 6)
+        : EdgeInsets.fromLTRB(12, onLight ? 4 : 0, 12, onLight ? 12 : 10);
     final innerPad = dense ? 3.0 : 4.0;
     final fs = dense ? 12.0 : 13.0;
     final hPadTab = dense ? 10.0 : 12.0;
     final indR = dense ? 9.0 : 10.0;
+    final trackColor = onLight
+        ? const Color(0xFFE8EDF4)
+        : Colors.white.withValues(alpha: 0.14);
+    final trackBorder = onLight
+        ? const Color(0xFFCAD3E0)
+        : Colors.white.withValues(alpha: 0.24);
     return Padding(
       padding: outer,
       child: Container(
         padding: EdgeInsets.all(innerPad),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
+          color: trackColor,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          border: Border.all(color: trackBorder),
+          boxShadow: onLight
+              ? [
+                  BoxShadow(
+                    color: p.withValues(alpha: 0.07),
+                    blurRadius: 16,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
         ),
         child: Theme(
           data: Theme.of(context).copyWith(
-            splashColor: Colors.white.withValues(alpha: 0.12),
-            highlightColor: Colors.white.withValues(alpha: 0.08),
+            splashColor: onLight
+                ? p.withValues(alpha: 0.10)
+                : Colors.white.withValues(alpha: 0.12),
+            highlightColor: onLight
+                ? p.withValues(alpha: 0.06)
+                : Colors.white.withValues(alpha: 0.08),
           ),
           child: TabBar(
             controller: controller,
@@ -302,14 +332,15 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
               borderRadius: BorderRadius.circular(indR),
               boxShadow: [
                 BoxShadow(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
+                  color: p.withValues(alpha: onLight ? 0.20 : 0.28),
+                  blurRadius: onLight ? 12 : 10,
+                  offset: Offset(0, onLight ? 2 : 3),
                 ),
               ],
             ),
-            labelColor: ThemeCleanPremium.primary,
-            unselectedLabelColor: Colors.white,
+            labelColor: p,
+            unselectedLabelColor:
+                onLight ? const Color(0xFF64748B) : Colors.white,
             labelStyle: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: fs,

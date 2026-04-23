@@ -84,7 +84,11 @@ import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_instituti
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
     show kChurchShellIndexMySchedules;
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
-    show noticiaEventoEhRotinaOuGeradoAutomatico;
+    show
+        noticiaEventoEhRotinaOuGeradoAutomatico,
+        noticiaDocEhEventoSpecialFeed;
+import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
+    show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 
@@ -132,6 +136,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _financeStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _avisosStream;
+  /// Eventos especiais (`noticias`) com data futura / ainda no Feed — nunca o que já caiu para a Galeria.
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasPainelStream;
   /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
   String _effectiveTenantId = '';
   String _churchSlug = '';
@@ -294,6 +300,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           .orderBy('createdAt', descending: true)
           .limit(10)
           .snapshots();
+      _noticiasPainelStream = tenantRef
+          .collection(ChurchTenantPostsCollections.noticias)
+          .orderBy('startAt', descending: true)
+          .limit(32)
+          .snapshots();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -431,7 +442,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Widget build(BuildContext context) {
     if (_membersStream == null ||
         _deptStream == null ||
-        _avisosStream == null) {
+        _avisosStream == null ||
+        _noticiasPainelStream == null) {
       return SafeArea(
         child: Container(
           color: ThemeCleanPremium.surfaceVariant,
@@ -503,6 +515,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                           deptStream: _deptStream!,
                           tenantId: _effectiveTenantId,
                           onRetry: _loadStreams,
+                        ),
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        _DestaqueEventosEspeciaisPainel(
+                          tenantId: _effectiveTenantId,
+                          role: widget.role,
+                          churchSlug: _churchSlug,
+                          nomeIgreja: _churchNome,
+                          stream: _noticiasPainelStream!,
+                          onRetryStream: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         _DestaqueAvisos(
@@ -4967,6 +4988,78 @@ class _DestaqueAvisos extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+/// Eventos especiais da coleção [noticias] — **só** os que ainda estão no Feed (data não passou;
+/// os demais ficam na Galeria de Eventos no módulo Mural).
+class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
+  final String tenantId;
+  final String role;
+  final String churchSlug;
+  final String nomeIgreja;
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final VoidCallback? onRetryStream;
+
+  const _DestaqueEventosEspeciaisPainel({
+    required this.tenantId,
+    required this.role,
+    required this.churchSlug,
+    required this.nomeIgreja,
+    required this.stream,
+    this.onRetryStream,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return ChurchPanelErrorBody(
+            title: 'Não foi possível carregar os eventos em destaque',
+            error: snap.error,
+            onRetry: onRetryStream,
+          );
+        }
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const SizedBox.shrink();
+        }
+        final now = DateTime.now();
+        final docs = (snap.data?.docs ?? [])
+            .where(
+              (d) =>
+                  noticiaDocEhEventoSpecialFeed(d) &&
+                  !noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now),
+            )
+            .where((d) {
+              final v = d.data()['validUntil'];
+              if (v == null) return true;
+              if (v is Timestamp) return v.toDate().isAfter(now);
+              return true;
+            })
+            .toList();
+        if (docs.isEmpty) return const SizedBox.shrink();
+        return _CleanCard(
+          title: 'Eventos em destaque',
+          icon: Icons.event_rounded,
+          compact: false,
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, i) => _DestaqueCard(
+              doc: docs[i],
+              tenantId: tenantId,
+              role: role,
+              churchSlug: churchSlug,
+              nomeIgreja: nomeIgreja,
+            ),
+          ),
+        );
+      },
     );
   }
 }

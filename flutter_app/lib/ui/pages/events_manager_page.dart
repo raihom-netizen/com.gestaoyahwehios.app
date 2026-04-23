@@ -56,7 +56,11 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         normalizeFirebaseStorageObjectPath,
         preloadNetworkImages,
         sanitizeImageUrl;
-import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
+    show
+        showChurchHostedVideoTheater,
+        showChurchHostedVideoDialog,
+        openChurchHostedVideoImmersive;
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
@@ -70,6 +74,8 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart'
         formatBrDateDdMmYyyy,
         parseBrDateDdMmYyyy;
 import 'package:gestao_yahweh/core/event_gallery_archive.dart';
+import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
+    show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -944,52 +950,17 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final isMobile = ThemeCleanPremium.isMobile(context);
     final showAppBar = !widget.embeddedInShell &&
         (!isMobile || Navigator.canPop(context));
-    TabBar tabBarPrimary() => TabBar(
-          controller: _tab,
-          labelStyle: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.1),
-          unselectedLabelStyle: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70),
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: ThemeCleanPremium.navSidebarAccent,
-          indicatorWeight: 2.5,
-          tabs: _canWrite
-              ? const [
-                  Tab(text: 'Feed'),
-                  Tab(text: 'Galeria'),
-                  Tab(text: 'Eventos Fixos'),
-                  Tab(text: 'Dashboard'),
-                ]
-              : const [
-                  Tab(text: 'Feed'),
-                  Tab(text: 'Galeria'),
-                ],
-        );
-    TabBar tabBarLight() => TabBar(
-          controller: _tab,
-          labelStyle: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.1),
-          unselectedLabelStyle: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600),
-          labelColor: ThemeCleanPremium.primary,
-          unselectedLabelColor: Colors.grey.shade600,
-          indicatorColor: ThemeCleanPremium.primary,
-          indicatorWeight: 2.5,
-          tabs: _canWrite
-              ? const [
-                  Tab(text: 'Feed'),
-                  Tab(text: 'Galeria'),
-                  Tab(text: 'Eventos Fixos'),
-                  Tab(text: 'Dashboard'),
-                ]
-              : const [
-                  Tab(text: 'Feed'),
-                  Tab(text: 'Galeria'),
-                ],
-        );
+    final muralTabs = _canWrite
+        ? const <Widget>[
+            Tab(text: 'Feed'),
+            Tab(text: 'Galeria'),
+            Tab(text: 'Eventos Fixos'),
+            Tab(text: 'Dashboard'),
+          ]
+        : const <Widget>[
+            Tab(text: 'Feed'),
+            Tab(text: 'Galeria'),
+          ];
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: !showAppBar
@@ -1009,9 +980,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                     fontWeight: FontWeight.w700),
               ),
               bottom: _tab.length > 1
-                  ? PreferredSize(
-                      preferredSize: const Size.fromHeight(40),
-                      child: SizedBox(height: 40, child: tabBarPrimary()),
+                  ? ChurchPanelPillTabBar(
+                      controller: _tab,
+                      dense: isMobile,
+                      style: ChurchPanelPillTabBarStyle.onPrimary,
+                      tabs: muralTabs,
                     )
                   : null,
             ),
@@ -1026,9 +999,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             shape: Border(
               bottom: BorderSide(color: Colors.grey.shade200, width: 1),
             ),
-            child: SizedBox(
-              height: 44,
-              child: tabBarLight(),
+            child: ChurchPanelPillTabBar(
+              controller: _tab,
+              dense: true,
+              style: ChurchPanelPillTabBarStyle.onLight,
+              tabs: muralTabs,
             ),
           ),
         Expanded(
@@ -1221,7 +1196,9 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         }
         final now = DateTime.now();
         var docs = snap.data!.docs
-            .where((d) => eventShouldMoveToGalleryArchive(d.data(), now))
+            .where((d) =>
+                noticiaDocEhEventoSpecialFeed(d) &&
+                noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now))
             .toList();
         if (_period != 'all') {
           final cutoff = switch (_period) {
@@ -1666,6 +1643,35 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   }
 }
 
+Map<String, dynamic> _noticiaDataForSingleVideoRow(
+  Map<String, dynamic> base,
+  Map<String, String> row,
+) {
+  final o = Map<String, dynamic>.from(base);
+  o['videos'] = <Map<String, String>>[
+    <String, String>{
+      'videoUrl': row['videoUrl'] ?? '',
+      'thumbUrl': row['thumbUrl'] ?? '',
+    }
+  ];
+  return o;
+}
+
+DateTime? _galleryDetailEventDate(Map<String, dynamic> data) {
+  final base = eventArchiveBaseDate(data);
+  if (base != null) return base;
+  final c = data['createdAt'];
+  if (c is Timestamp) return c.toDate();
+  return null;
+}
+
+String _galleryFormatDatePt(DateTime? d) {
+  if (d == null) return 'Sem data';
+  final mm = d.month.toString().padLeft(2, '0');
+  final dd = d.day.toString().padLeft(2, '0');
+  return '$dd/$mm/${d.year}';
+}
+
 class _EventGalleryDetailPage extends StatelessWidget {
   final Map<String, dynamic> data;
 
@@ -1675,6 +1681,8 @@ class _EventGalleryDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final photos = eventNoticiaPhotoUrls(data);
     final videos = eventNoticiaVideosFromDoc(data);
+    final titleStr = (data['title'] ?? 'Evento').toString();
+    final dateStr = _galleryFormatDatePt(_galleryDetailEventDate(data));
     return Scaffold(
       appBar: AppBar(
         title: Text((data['title'] ?? 'Detalhes do evento').toString()),
@@ -1730,17 +1738,22 @@ class _EventGalleryDetailPage extends StatelessWidget {
             ...videos.map((v) {
               final raw = (v['videoUrl'] ?? '').toString().trim();
               if (raw.isEmpty) return const SizedBox.shrink();
+              final one = _noticiaDataForSingleVideoRow(data, v);
+              final hosted = eventNoticiaHostedVideoPlayUrl(one) ?? '';
+              var external = '';
+              if (hosted.isEmpty) {
+                external =
+                    eventNoticiaExternalVideoUrl(one)?.trim() ?? raw;
+              }
               return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: FilledButton.icon(
-                  onPressed: () {
-                    final uri = Uri.tryParse(raw);
-                    if (uri != null) {
-                      launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                  icon: const Icon(Icons.play_circle_fill_rounded),
-                  label: const Text('Abrir vídeo'),
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _EventVideoBlock(
+                  title: titleStr,
+                  dateStr: dateStr,
+                  hostedVideoUrl: hosted,
+                  externalLaunchUrl: external,
+                  thumbUrl: (v['thumbUrl'] ?? '').toString(),
+                  openExternalInTheater: true,
                 ),
               );
             }),
@@ -2127,9 +2140,11 @@ class _FeedTabState extends State<_FeedTab> {
     int weekday,
     String searchQuery,
   ) {
-    // Feed = só eventos especiais (não rotina semanal nem cópias geradas).
+    // Feed = só eventos especiais; data passada → Galeria, não o Feed.
     var out = docs.where(noticiaDocEhEventoSpecialFeed).where((d) {
-      if (eventShouldMoveToGalleryArchive(d.data(), now)) return false;
+      if (noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now)) {
+        return false;
+      }
       final v = d.data()['validUntil'];
       if (v == null) return true;
       if (v is Timestamp) return v.toDate().isAfter(now);
@@ -2337,74 +2352,12 @@ class _FeedTabState extends State<_FeedTab> {
                           ],
                         ),
                         const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _toggleSelectMode,
-                              icon: Icon(
-                                  _selectMode
-                                      ? Icons.close_rounded
-                                      : Icons.check_box_outline_blank_rounded,
-                                  size: 20),
-                              label: Text(_selectMode
-                                  ? 'Cancelar seleção'
-                                  : 'Selecionar'),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(
-                                    0, ThemeCleanPremium.minTouchTarget),
-                                side: const BorderSide(
-                                  color: ThemeCleanPremium.primary,
-                                  width: 1.75,
-                                ),
-                                backgroundColor: Colors.white,
-                                foregroundColor: ThemeCleanPremium.primary,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
-                                textStyle: const TextStyle(
-                                    fontWeight: FontWeight.w700),
-                              ),
-                            ),
-                            if (_selectMode)
-                              FilledButton.icon(
-                                onPressed: _selectedEventIds.isEmpty
-                                    ? null
-                                    : _deleteSelectedFeed,
-                                icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 20),
-                                label: Text(
-                                    'Excluir (${_selectedEventIds.length})'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: ThemeCleanPremium.error,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(
-                                      0, ThemeCleanPremium.minTouchTarget),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 12),
-                                  elevation: 1,
-                                  textStyle: const TextStyle(
-                                      fontWeight: FontWeight.w700),
-                                ),
-                              )
-                            else
-                              FilledButton.icon(
-                                onPressed: _deleteByCurrentPeriod,
-                                icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 20),
-                                label: const Text('Excluir por período'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: ThemeCleanPremium.error,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(
-                                      0, ThemeCleanPremium.minTouchTarget),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 12),
-                                  elevation: 1,
-                                  textStyle: const TextStyle(
-                                      fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                          ],
+                        _MuralFeedSelectionRow(
+                          selectMode: _selectMode,
+                          selectedCount: _selectedEventIds.length,
+                          onToggleSelect: _toggleSelectMode,
+                          onExcluirPorPeriodo: _deleteByCurrentPeriod,
+                          onExcluirSelecionados: _deleteSelectedFeed,
                         ),
                       ],
                     ),
@@ -2464,6 +2417,189 @@ class _FeedTabState extends State<_FeedTab> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Ações de seleção / exclusão do feed do Mural — botões com gradiente e sombra soft.
+class _MuralFeedSelectionRow extends StatelessWidget {
+  final bool selectMode;
+  final int selectedCount;
+  final VoidCallback onToggleSelect;
+  final VoidCallback onExcluirPorPeriodo;
+  final VoidCallback onExcluirSelecionados;
+
+  const _MuralFeedSelectionRow({
+    required this.selectMode,
+    required this.selectedCount,
+    required this.onToggleSelect,
+    required this.onExcluirPorPeriodo,
+    required this.onExcluirSelecionados,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = ThemeCleanPremium.primary;
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _SoftOutlinePillButton(
+          onPressed: onToggleSelect,
+          icon: selectMode
+              ? Icons.close_rounded
+              : Icons.check_box_outlined,
+          label: selectMode ? 'Cancelar seleção' : 'Selecionar',
+          borderColor: selectMode
+              ? const Color(0xFF94A3B8)
+              : p.withValues(alpha: 0.5),
+          foreground: selectMode ? const Color(0xFF475569) : p,
+        ),
+        if (selectMode)
+          _CoralActionPillButton(
+            onPressed: selectedCount == 0 ? null : onExcluirSelecionados,
+            icon: Icons.delete_sweep_rounded,
+            label: 'Excluir ($selectedCount)',
+          )
+        else
+          _CoralActionPillButton(
+            onPressed: onExcluirPorPeriodo,
+            icon: Icons.event_busy_rounded,
+            label: 'Excluir por período',
+          ),
+      ],
+    );
+  }
+}
+
+class _SoftOutlinePillButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  final IconData icon;
+  final String label;
+  final Color borderColor;
+  final Color foreground;
+
+  const _SoftOutlinePillButton({
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+    required this.borderColor,
+    required this.foreground,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor, width: 1.6),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                ThemeCleanPremium.primary.withValues(alpha: 0.05),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.07),
+                blurRadius: 14,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: foreground),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: 0.15,
+                    color: foreground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoralActionPillButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final String label;
+
+  const _CoralActionPillButton({
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final e = ThemeCleanPremium.error;
+    final disabled = onPressed == null;
+    return Opacity(
+      opacity: disabled ? 0.48 : 1,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [e, Color.lerp(e, const Color(0xFFB91C1C), 0.2)!],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: e.withValues(alpha: 0.38),
+                  blurRadius: 16,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 20, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      letterSpacing: 0.15,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -4057,13 +4193,15 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Bloco de vídeo do evento — Storage: player inline; YouTube/link: abre rápido
+// Bloco de vídeo do evento — Storage: player inline; link: feed → browser; galeria → teatro in-app
 // ═══════════════════════════════════════════════════════════════════════════════
 class _EventVideoBlock extends StatelessWidget {
   final String title, dateStr;
   final String hostedVideoUrl;
   final String externalLaunchUrl;
   final String thumbUrl;
+  /// YouTube / link: no galeria abre teatro in-app; no feed mantém abrir no browser.
+  final bool openExternalInTheater;
 
   const _EventVideoBlock({
     required this.title,
@@ -4071,6 +4209,7 @@ class _EventVideoBlock extends StatelessWidget {
     this.hostedVideoUrl = '',
     this.externalLaunchUrl = '',
     this.thumbUrl = '',
+    this.openExternalInTheater = false,
   });
 
   @override
@@ -4095,6 +4234,34 @@ class _EventVideoBlock extends StatelessWidget {
     final safeThumb = sanitizeImageUrl(thumbUrl);
     final useThumb = isValidImageUrl(safeThumb);
 
+    Future<void> openInBrowser() async {
+      if (uri != null && await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    }
+
+    void openTheater() {
+      unawaited(
+        showChurchHostedVideoTheater(
+          context,
+          videoUrl: launch,
+          thumbnailUrl: useThumb ? safeThumb : null,
+          title: title,
+        ),
+      );
+    }
+
+    void openImmersive() {
+      unawaited(
+        openChurchHostedVideoImmersive(
+          context,
+          videoUrl: launch,
+          thumbnailUrl: useThumb ? safeThumb : null,
+          title: title,
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -4107,11 +4274,7 @@ class _EventVideoBlock extends StatelessWidget {
                 borderRadius:
                     BorderRadius.circular(ThemeCleanPremium.radiusLg)),
             child: InkWell(
-              onTap: () async {
-                if (uri != null && await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                }
-              },
+              onTap: openExternalInTheater ? openTheater : openInBrowser,
               child: useThumb
                   ? Stack(
                       fit: StackFit.expand,
@@ -4166,15 +4329,19 @@ class _EventVideoBlock extends StatelessWidget {
                             color: Colors.black54,
                             shape: const CircleBorder(),
                             child: IconButton(
-                              tooltip: 'Abrir link',
-                              icon: const Icon(Icons.open_in_new_rounded,
-                                  color: Colors.white, size: 20),
-                              onPressed: () async {
-                                if (uri != null && await canLaunchUrl(uri)) {
-                                  await launchUrl(uri,
-                                      mode: LaunchMode.externalApplication);
-                                }
-                              },
+                              tooltip: openExternalInTheater
+                                  ? 'Tela cheia no app'
+                                  : 'Abrir no navegador',
+                              icon: Icon(
+                                openExternalInTheater
+                                    ? Icons.fullscreen_rounded
+                                    : Icons.open_in_new_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              onPressed: openExternalInTheater
+                                  ? openImmersive
+                                  : openInBrowser,
                               visualDensity: VisualDensity.compact,
                               constraints: const BoxConstraints(
                                   minWidth: 44, minHeight: 44),
@@ -4190,7 +4357,9 @@ class _EventVideoBlock extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
-            'Toque para abrir no navegador (YouTube / Vimeo)',
+            openExternalInTheater
+                ? 'Toque no vídeo para pré-visualização; ícone no canto para tela cheia (sem abrir o navegador).'
+                : 'Toque para abrir no navegador (YouTube / Vimeo)',
             style: TextStyle(
                 fontSize: 10,
                 color: Colors.grey.shade600,
