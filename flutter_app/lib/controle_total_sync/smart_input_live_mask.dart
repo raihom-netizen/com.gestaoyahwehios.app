@@ -1,4 +1,4 @@
-import '../constants/currency_formats.dart';
+import 'currency_formats.dart';
 
 /// Máscara em tempo real para o campo «Lançamento expresso»: completa datas `d/m` ou `dd/mm` com o ano
 /// corrente (saída sempre `dd/mm/aaaa`) e formata valores em centavos (3+ dígitos) no fim **ou** no
@@ -321,11 +321,29 @@ class SmartInputLiveMask {
     return '$brl $rest';
   }
 
-  static String apply(String text, int year) {
+  /// Aplica [expandShortDates] e máscara monetária a um bloco (uma linha ou parágrafo);
+  /// não divide por `|` (use [apply]).
+  static String applyToFragment(String text, int year) {
     if (text.isEmpty) return text;
     var t = expandShortDates(text, year);
     final lines = t.split('\n');
-    final merged = lines.map(applyMoneyMaskToLine).join('\n');
-    return merged;
+    return lines.map(applyMoneyMaskToLine).join('\n');
+  }
+
+  /// Máscara de data (dd/mm/aaaa) + valores R$; vários lançamentos no mesmo campo: separador `|`.
+  static String apply(String text, int year) {
+    if (text.isEmpty) return text;
+    if (!text.contains('|')) {
+      return applyToFragment(text, year);
+    }
+    final parts = text.split('|');
+    final out = <String>[];
+    for (final p in parts) {
+      final seg = p.trim();
+      if (seg.isEmpty) continue;
+      out.add(applyToFragment(seg, year));
+    }
+    if (out.isEmpty) return text;
+    return out.join(' | ');
   }
 }

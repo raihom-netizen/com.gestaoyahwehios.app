@@ -590,6 +590,22 @@ abstract final class BankNotificationParser {
     if (RegExp(r'\bcada\s+parcela\b|\bpor\s+parcela\b|\bvalor\s+de\s+cada\b', caseSensitive: false).hasMatch(lower)) {
       return null;
     }
+    // 10 parcelas de 250,00
+    final mParcelasDe = RegExp(r'^(\d{1,2})\s+parcelas?\s+de\s+', caseSensitive: false).firstMatch(lower);
+    if (mParcelasDe != null) {
+      final n = int.tryParse(mParcelasDe.group(1)!);
+      if (n != null && n >= 2 && n <= 36) return n;
+    }
+    final mXde = RegExp(r'(?:^|\s)(\d{1,2})\s*x\s*de\s+', caseSensitive: false).firstMatch(lower);
+    if (mXde != null) {
+      final n = int.tryParse(mXde.group(1)!);
+      if (n != null && n >= 2 && n <= 36) return n;
+    }
+    final mEmX = RegExp(r'\bem\s+(\d{1,2})\s*x\b', caseSensitive: false).firstMatch(lower);
+    if (mEmX != null) {
+      final n = int.tryParse(mEmX.group(1)!);
+      if (n != null && n >= 2 && n <= 36) return n;
+    }
     final mEm = RegExp(r'\bem\s+(\d{1,2})\s+parcelas\b', caseSensitive: false).firstMatch(lower);
     if (mEm != null) {
       final n = int.tryParse(mEm.group(1)!);
@@ -649,6 +665,15 @@ abstract final class BankNotificationParser {
 
   static String _stripParcelaBoilerplatePt(String desc) {
     var s = desc.trim();
+    s = s.replaceAll(
+      RegExp(r'^\d{1,2}\s*x\s*de\s+(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}\s*', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(
+      RegExp(r'^\d{1,2}\s+parcelas?\s+de\s+(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}\s*', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(RegExp(r'^\s*em\s+\d{1,2}\s*x\s*', caseSensitive: false), '');
     s = s.replaceAll(
       RegExp(r'\s*em\s+(?:\d{1,2}|duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas.*$', caseSensitive: false),
       '',
@@ -1093,10 +1118,114 @@ abstract final class BankNotificationParser {
     return out;
   }
 
+  static const String _kDescParceladoDefault = 'Lançamento parcelado';
+
+  /// Parcelas em linguagem natural: `10x de 250,00`, `6 parcelas de 500,00`, `1.500,00 em 6x`, `3000 em 4x cama`.
+  static BankNotificationParseResult? _tryFreeformInstallmentNaturalPt(String t0) {
+    final t = t0.trim();
+    if (t.length < 4) return null;
+
+    var m = RegExp(
+      r'^(\d{1,2})\s*x\s*de\s+(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})(?:\s+(.+))?$',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final n0 = int.tryParse(m.group(1)!);
+      if (n0 == null || n0 < 2 || n0 > 36) return null;
+      final each = _parseBrDecimal(m.group(2)!);
+      if (each == null || each <= 0) return null;
+      final rest = (m.group(3) ?? '').trim();
+      final desc = rest.isNotEmpty ? rest : _kDescParceladoDefault;
+      final total = each * n0;
+      if (desc.isEmpty) return null;
+      return BankNotificationParseResult(
+        valor: total,
+        data: DateTime.now(),
+        descricao: desc,
+        type: _inferType('$desc $t0'),
+        suggestedPresetId: _suggestBankPreset(t0),
+        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+      );
+    }
+
+    m = RegExp(
+      r'^(\d{1,2})\s+parcelas?\s+de\s+(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})(?:\s+(.+))?$',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final n0 = int.tryParse(m.group(1)!);
+      if (n0 == null || n0 < 2 || n0 > 36) return null;
+      final each = _parseBrDecimal(m.group(2)!);
+      if (each == null || each <= 0) return null;
+      final rest = (m.group(3) ?? '').trim();
+      final desc = rest.isNotEmpty ? rest : _kDescParceladoDefault;
+      final total = each * n0;
+      return BankNotificationParseResult(
+        valor: total,
+        data: DateTime.now(),
+        descricao: desc,
+        type: _inferType('$desc $t0'),
+        suggestedPresetId: _suggestBankPreset(t0),
+        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+      );
+    }
+
+    m = RegExp(
+      r'^(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})\s+em\s+(\d{1,2})\s*x(?:(?:\b|\s+)(.+?))?\s*$',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final n0 = int.tryParse(m.group(2)!);
+      if (n0 == null || n0 < 2 || n0 > 36) return null;
+      final total0 = _parseBrDecimal(m.group(1)!);
+      if (total0 == null || total0 <= 0) return null;
+      var rest = (m.group(3) ?? '').trim();
+      if (rest.isEmpty) rest = _kDescParceladoDefault;
+      return BankNotificationParseResult(
+        valor: total0,
+        data: DateTime.now(),
+        descricao: rest,
+        type: _inferType('$rest $t0'),
+        suggestedPresetId: _suggestBankPreset(t0),
+        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+      );
+    }
+
+    m = RegExp(
+      r'^(\d{1,4})\s+em\s+(\d{1,2})\s*x(?:(?:\b|\s+)(.+?))?\s*$',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final a0 = int.tryParse(m.group(1)!);
+      final n0 = int.tryParse(m.group(2)!);
+      if (a0 == null || n0 == null) return null;
+      if (n0 < 2 || n0 > 36) return null;
+      if (a0 >= 2000 && a0 <= 2035) return null;
+      final total0 = a0.toDouble();
+      if (total0 <= 0) return null;
+      var rest = (m.group(3) ?? '').trim();
+      if (rest.isEmpty) rest = _kDescParceladoDefault;
+      return BankNotificationParseResult(
+        valor: total0,
+        data: DateTime.now(),
+        descricao: rest,
+        type: _inferType('$rest $t0'),
+        suggestedPresetId: _suggestBankPreset(t0),
+        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+      );
+    }
+
+    return null;
+  }
+
   /// Um único lançamento livre (valor antes ou depois da descrição, com ou sem data).
   static BankNotificationParseResult? _tryFreeformSegment(String t0) {
     final t = t0.trim();
     if (t.isEmpty) return null;
+    final parcelNat = _tryFreeformInstallmentNaturalPt(t);
+    if (parcelNat != null) {
+      return parcelNat;
+    }
 
     var m = RegExp(
       r'^(\d{2}/\d{2}/\d{4})\s+(.+?)\s+((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})\s*(?:reais?|R\$\s*)?\s*$',

@@ -51,5 +51,14 @@ void main() {
       expect(s, contains('250,00'));
       expect(s, contains('1,00'));
     });
+
+    test('múltiplos lançamentos com |: máscara em cada segmento', () {
+      final s = SmartInputLiveMask.apply(
+        '5/4 posto 5000 | 10/3 pad 8000',
+        2026,
+      );
+      expect(s, contains(' | '));
+      expect(s, contains('R\$'));
+    });
   });
 }

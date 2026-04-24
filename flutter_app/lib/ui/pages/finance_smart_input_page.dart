@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
+import 'package:gestao_yahweh/controle_total_sync/smart_input_live_mask.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
@@ -37,6 +38,8 @@ class FinanceSmartInputPage extends StatefulWidget {
 
 class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
   final _text = TextEditingController();
+  final _textFocus = FocusNode();
+  bool _applyingMask = false;
   bool _importing = false;
   bool _saving = false;
   String? _contaId;
@@ -47,10 +50,86 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
 
   @override
   void dispose() {
+    _textFocus.dispose();
     _text.dispose();
     _categoriaSaida.dispose();
     _categoriaEntrada.dispose();
     super.dispose();
+  }
+
+  /// Máscara: datas dd/mm, valores em R$, vários itens com `|`.
+  void _applyLiveMask() {
+    if (_applyingMask) return;
+    if (_text.text.isEmpty) {
+      _reparse();
+      return;
+    }
+    if (_text.text.length > BankNotificationParser.kMaxParseInputChars) {
+      return;
+    }
+    final y = DateTime.now().year;
+    final next = SmartInputLiveMask.apply(_text.text, y);
+    if (next != _text.text) {
+      _applyingMask = true;
+      _text.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: next.length),
+      );
+      _applyingMask = false;
+    }
+    _reparse();
+  }
+
+  void _selecionarTudoTexto() {
+    if (_text.text.isEmpty) return;
+    _textFocus.requestFocus();
+    _text.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _text.text.length,
+    );
+  }
+
+  void _inserirExemploParcela(String trecho) {
+    _textFocus.requestFocus();
+    if (_text.text.isEmpty) {
+      _text.text = trecho;
+    } else {
+      _text.text = '${_text.text.trim()}\n$trecho';
+    }
+    _applyLiveMask();
+  }
+
+  Widget _parcelaExemploChip({required String label, required String inserir}) {
+    return ActionChip(
+      label: Text(label,
+          style: const TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w600, height: 1.2)),
+      onPressed: _saving
+          ? null
+          : () {
+              ThemeCleanPremium.hapticAction();
+              _inserirExemploParcela(inserir);
+            },
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      side: BorderSide(
+        color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+      ),
+      backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+    );
+  }
+
+  void _marcarTodosLancamentos(bool marcar) {
+    if (_rows.isEmpty) return;
+    setState(() {
+      if (marcar) {
+        _selected
+          ..clear()
+          ..addAll(List<int>.generate(_rows.length, (i) => i));
+      } else {
+        _selected.clear();
+      }
+    });
   }
 
   void _reparse() {
@@ -106,7 +185,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
         _text.text = '${_text.text.trim()}\n\n$t';
       }
     });
-    _reparse();
+    _applyLiveMask();
   }
 
   Future<void> _pickCsv() async {
@@ -157,7 +236,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
         setState(() {
           _text.text = text;
         });
-        _reparse();
+        _applyLiveMask();
         showFinanceSaveSnackBar(
           context,
           message:
@@ -291,6 +370,12 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
             style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           TextButton(
+            onPressed: _saving || _text.text.isEmpty
+                ? null
+                : _selecionarTudoTexto,
+            child: const Text('Selecionar tudo', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
             onPressed: _saving
                 ? null
                 : () {
@@ -312,21 +397,92 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
               children: [
                 TextField(
                   controller: _text,
+                  focusNode: _textFocus,
                   onChanged: (_) {
+                    if (_applyingMask) return;
                     if (_text.text.length <=
                         BankNotificationParser.kMaxParseInputChars) {
+                      _applyLiveMask();
+                    } else {
                       _reparse();
                     }
                   },
                   maxLines: 7,
                   decoration: InputDecoration(
                     hintText:
-                        'Cole extrato, SMS, ou múltiplas linhas (separado por |). Ficheiro: CSV de fatura/banco.',
+                        'Diga em frases: 1.500,00 em 6x compra, 10x de 250,00, vários itens com | , CSV, datas 12/04…',
                     border: OutlineInputBorder(
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                     filled: true,
                     fillColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  elevation: 0,
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    side: BorderSide(color: ThemeCleanPremium.primary.withValues(alpha: 0.2)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.auto_awesome,
+                              size: 18,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sugestões (parcelas)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.grey.shade800,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Toque para inserir; o analisador divide o total e marca (1/n). Categorias ao gravar, por palavras-chave.',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 11.5,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _parcelaExemploChip(
+                              label: '1.500,00 em 6×',
+                              inserir: '1.500,00 em 6x compra geladeira',
+                            ),
+                            _parcelaExemploChip(
+                              label: '10× 250,00 + item',
+                              inserir: '10x de 250,00 móveis | 40,00 frete',
+                            ),
+                            _parcelaExemploChip(
+                              label: '6 parcelas de 200,00',
+                              inserir: '6 parcelas de 200,00 material creche',
+                            ),
+                            _parcelaExemploChip(
+                              label: '3.000,00 em 4× (sem centavos)',
+                              inserir: '3000 em 4x cama e colchão',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -348,13 +504,27 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       onPressed: _saving ? null : _reparse,
                       child: const Text('Analisar'),
                     ),
+                    if (_rows.isNotEmpty) ...[
+                      TextButton(
+                        onPressed: _saving
+                            ? null
+                            : () => _marcarTodosLancamentos(true),
+                        child: const Text('Marcar todos'),
+                      ),
+                      TextButton(
+                        onPressed: _saving
+                            ? null
+                            : () => _marcarTodosLancamentos(false),
+                        child: const Text('Desmarcar'),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _text.text.isEmpty
                       ? ''
-                      : 'Detetado(s) ${_rows.length} lançamento(s) (marque o que deseja importar).',
+                      : 'Detetado(s) ${_rows.length} lançamento(s). «Selecionar tudo» + apagar limpa o campo; marque os itens a importar.',
                   style: TextStyle(
                       color: Colors.grey.shade800,
                       fontWeight: FontWeight.w600),

@@ -31,57 +31,12 @@ void _appendGalaLuxoCertificatePage(
     final img = i < signatoryImageProviders.length
         ? signatoryImageProviders[i]
         : null;
-    return pw.Container(
-      width: signatoryBlockWidth,
-      padding: const pw.EdgeInsets.fromLTRB(6, 8, 6, 10),
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: pw.BorderRadius.circular(8),
-        border: pw.Border.all(
-          color: PdfColor(accent.red, accent.green, accent.blue, 0.42),
-          width: 1.2,
-        ),
-      ),
-      alignment: pw.Alignment.center,
-      child: pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        children: [
-          if (img != null)
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 6),
-              child: pw.SizedBox(
-                width: 122,
-                height: 50,
-                child: pw.Image(img, fit: pw.BoxFit.contain),
-              ),
-            ),
-          pw.Container(width: 124, height: 2.2, color: accent),
-          pw.SizedBox(height: 9),
-          pw.Text(
-            s.nome,
-            style: pw.TextStyle(
-              fontSize: 12.8,
-              fontWeight: pw.FontWeight.bold,
-              color: accent,
-            ),
-            textAlign: pw.TextAlign.center,
-            maxLines: 2,
-            overflow: pw.TextOverflow.clip,
-          ),
-          pw.SizedBox(height: 3),
-          pw.Text(
-            s.cargo,
-            style: pw.TextStyle(
-              fontSize: 10.2,
-              fontWeight: pw.FontWeight.bold,
-              color: accent,
-            ),
-            textAlign: pw.TextAlign.center,
-            maxLines: 2,
-            overflow: pw.TextOverflow.clip,
-          ),
-        ],
-      ),
+    return _certPdfAssinaturaColumnaLimpa(
+      s: s,
+      signatureImage: img,
+      accent: accent,
+      maxWidth: signatoryBlockWidth,
+      compact: true,
     );
   }
 
@@ -96,7 +51,6 @@ void _appendGalaLuxoCertificatePage(
             _pwCertPdfDigitalSignatureStamp(
               input: input,
               signatory: input.signatories[i],
-              watermark: logoImage,
               galaFooterCompact: true,
             ),
           ],

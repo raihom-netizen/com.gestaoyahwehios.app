@@ -434,7 +434,7 @@ List<String> _certPdfDigitalStampRightColumnLines(
   ];
 }
 
-const String _kAssinaturaDigitalRótulo = 'Assinatura digital';
+const String _kAssinaturaDigitalRotulo = 'Assinatura digital';
 
 /// Assinaturas (imagem + identificação): rótulo em texto, linha fina, nome e cargo — **sem** moldura.
 pw.Widget _certPdfAssinaturaColumnaLimpa({
@@ -451,7 +451,7 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
       crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
         pw.Text(
-          _kAssinaturaDigitalRótulo,
+          _kAssinaturaDigitalRotulo,
           textAlign: pw.TextAlign.center,
           style: pw.TextStyle(
             fontSize: compact ? 5.4 : 5.9,
@@ -527,7 +527,7 @@ pw.Widget _pwCertPdfDigitalSignatureStamp({
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
           pw.Text(
-            _kAssinaturaDigitalRótulo,
+            _kAssinaturaDigitalRotulo,
             textAlign: pw.TextAlign.center,
             style: pw.TextStyle(
               fontSize: galaFooterCompact ? 5.0 : 5.5,
