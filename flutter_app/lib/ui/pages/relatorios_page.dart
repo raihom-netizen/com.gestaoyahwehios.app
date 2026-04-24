@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -1388,6 +1389,7 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
   /// Visão do mês completo (ignora filtros da tabela) — gráficos de BI.
   double dizimosMes = 0;
   double ofertasMes = 0;
+  final gMesMerger = FinanceCategoryMerger();
   final gastosPorCategoriaMes = <String, double>{};
   for (final raw in rowsRaw) {
     final mx = Map<String, dynamic>.from(raw.cast<String, dynamic>());
@@ -1403,14 +1405,15 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
         ofertasMes += valor0;
       }
     } else if (tipo0.contains('saida') || tipo0.contains('despesa')) {
-      final cat = categoria0.isEmpty ? 'Sem categoria' : categoria0;
-      gastosPorCategoriaMes[cat] = (gastosPorCategoriaMes[cat] ?? 0) + valor0;
+      gMesMerger.addAmount(gastosPorCategoriaMes, categoria0, valor0,
+          emptyLabel: 'Sem categoria');
     }
   }
   final gastosMesOrdenados = gastosPorCategoriaMes.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
 
   final outRows = <Map<String, dynamic>>[];
+  final saidaMerger = FinanceCategoryMerger();
   final saidasPorCategoria = <String, double>{};
   double entradas = 0;
   double saidas = 0;
@@ -1432,7 +1435,11 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
       if (filtroTipo == 'despesas' && !(tipo.contains('saida') || tipo.contains('despesa'))) continue;
       if (filtroTipo == 'transferencias' && tipo != 'transferencia') continue;
     }
-    if (filtroCategoria != 'todas' && categoria != filtroCategoria) continue;
+    if (filtroCategoria != 'todas' &&
+        !FinanceCategoryMerger.sameCategoryGroup(
+            categoria, filtroCategoria, emptyLabel: 'Sem categoria')) {
+      continue;
+    }
     if (filtroConta != 'todas' && contaOrigemId != filtroConta && contaDestinoId != filtroConta) continue;
     if (filtroStatusDespesa != 'todas' && (tipo.contains('saida') || tipo.contains('despesa'))) {
       final isPago = pago || statusPagamento.contains('pago') || statusPagamento == 'paga';
@@ -1466,8 +1473,9 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
       }
     } else {
       saidas += valor;
-      final cat = categoria.isEmpty ? 'Sem categoria' : categoria;
-      saidasPorCategoria[cat] = (saidasPorCategoria[cat] ?? 0) + valor;
+      saidaMerger.addAmount(
+          saidasPorCategoria, categoria, valor,
+          emptyLabel: 'Sem categoria');
       final cid = contaOrigemId;
       if (cid.isNotEmpty) {
         porConta.putIfAbsent(cid, () => {'entradas': 0.0, 'saidas': 0.0});

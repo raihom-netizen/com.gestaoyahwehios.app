@@ -434,144 +434,137 @@ List<String> _certPdfDigitalStampRightColumnLines(
   ];
 }
 
+const String _kAssinaturaDigitalRótulo = 'Assinatura digital';
+
+/// Assinaturas (imagem + identificação): rótulo em texto, linha fina, nome e cargo — **sem** moldura.
+pw.Widget _certPdfAssinaturaColumnaLimpa({
+  required CertSignatoryPdfData s,
+  required pw.ImageProvider? signatureImage,
+  required PdfColor accent,
+  required double maxWidth,
+  bool compact = false,
+}) {
+  return pw.SizedBox(
+    width: maxWidth,
+    child: pw.Column(
+      mainAxisSize: pw.MainAxisSize.min,
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Text(
+          _kAssinaturaDigitalRótulo,
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: compact ? 5.4 : 5.9,
+            color: PdfColors.grey700,
+            fontStyle: pw.FontStyle.italic,
+            font: pw.Font.helvetica(),
+          ),
+        ),
+        pw.SizedBox(height: compact ? 2.5 : 3.5),
+        if (signatureImage != null) ...[
+          pw.SizedBox(
+            width: compact ? 96.0 : 115.0,
+            height: compact ? 40.0 : 48.0,
+            child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
+          ),
+          pw.SizedBox(height: compact ? 2.5 : 3.0),
+        ],
+        pw.Container(
+          width: maxWidth * 0.88,
+          height: 0.45,
+          color: PdfColor(accent.red, accent.green, accent.blue, 0.55),
+        ),
+        pw.SizedBox(height: compact ? 3.5 : 4.0),
+        pw.Text(
+          s.nome,
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: compact ? 9.0 : 10.3,
+            fontWeight: pw.FontWeight.bold,
+            color: accent,
+            font: pw.Font.helvetica(),
+          ),
+          maxLines: 2,
+        ),
+        if (s.cargo.trim().isNotEmpty) ...[
+          pw.SizedBox(height: 1.2),
+          pw.Text(
+            s.cargo,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(
+              fontSize: compact ? 7.0 : 7.8,
+              fontWeight: pw.FontWeight.bold,
+              color: accent,
+              font: pw.Font.helvetica(),
+            ),
+            maxLines: 2,
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// Selo «assinatura digital» só em texto, centrado, sem retângulo.
 pw.Widget _pwCertPdfDigitalSignatureStamp({
   required CertificatePdfInput input,
   required CertSignatoryPdfData signatory,
-  required pw.ImageProvider? watermark,
   required bool galaFooterCompact,
 }) {
   final nome = signatory.nome.trim();
   final cpfDigits = _certPdfCpfDigitsOnly(signatory.cpfDigits);
-  final leftNameLines = _certPdfWrapLineByWords(
-    nome.toUpperCase(),
-    galaFooterCompact ? 16 : 20,
-  );
   final rightLines = _certPdfDigitalStampRightColumnLines(nome, cpfDigits);
   final dados = input.digitalSignatureDadosLine.trim().isNotEmpty
       ? input.digitalSignatureDadosLine.trim()
       : 'Dados: —';
-
-  final leftSize = galaFooterCompact ? 8.4 : 9.8;
-  final rightSize = galaFooterCompact ? 6.9 : 7.7;
-  final dadosSize = galaFooterCompact ? 6.6 : 7.3;
-  final leftW = galaFooterCompact ? 110.0 : 124.0;
-  final introExtraLines =
-      rightLines.length > 2 ? rightLines.length - 2 : 0;
-  final stackH = (galaFooterCompact ? 68.0 : 80.0) + introExtraLines * 9.4;
-
-  final inner = pw.Container(
-    constraints: pw.BoxConstraints(minHeight: stackH),
-    child: pw.Stack(
-      alignment: pw.Alignment.centerLeft,
-      children: [
-        if (watermark != null)
-          pw.Positioned(
-            left: galaFooterCompact ? 40 : 48,
-            child: pw.Opacity(
-              opacity: 0.15,
-              child: pw.SizedBox(
-                width: galaFooterCompact ? 52 : 64,
-                height: galaFooterCompact ? 52 : 64,
-                child: pw.Image(watermark, fit: pw.BoxFit.contain),
-              ),
+  final rightSize = galaFooterCompact ? 6.2 : 6.8;
+  final dadosSize = galaFooterCompact ? 5.9 : 6.4;
+  return pw.Center(
+    child: pw.SizedBox(
+      width: galaFooterCompact ? 200 : 230,
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            _kAssinaturaDigitalRótulo,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(
+              fontSize: galaFooterCompact ? 5.0 : 5.5,
+              color: PdfColors.grey700,
+              fontStyle: pw.FontStyle.italic,
+              font: pw.Font.helvetica(),
             ),
           ),
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.SizedBox(
-              width: leftW,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                mainAxisSize: pw.MainAxisSize.min,
-                children: [
-                  for (final ln in leftNameLines)
-                    pw.Text(
-                      ln,
-                      style: pw.TextStyle(
-                        fontSize: leftSize,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.black,
-                        lineSpacing: 1.03,
-                        font: pw.Font.helvetica(),
-                      ),
-                      maxLines: 1,
-                      overflow: pw.TextOverflow.clip,
-                    ),
-                  if (cpfDigits.isNotEmpty)
-                    pw.Text(
-                      'CPF: $cpfDigits',
-                      style: pw.TextStyle(
-                        fontSize: leftSize - 0.1,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.black,
-                        lineSpacing: 1.03,
-                        font: pw.Font.helvetica(),
-                      ),
-                      maxLines: 1,
-                      overflow: pw.TextOverflow.clip,
-                    ),
-                ],
+          pw.SizedBox(height: galaFooterCompact ? 2 : 3),
+          for (final line in rightLines) ...[
+            pw.Text(
+              line,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: rightSize,
+                color: PdfColors.black,
+                lineSpacing: 1.1,
+                font: pw.Font.helvetica(),
               ),
+              maxLines: 3,
             ),
-            pw.SizedBox(width: galaFooterCompact ? 8 : 12),
-            pw.Expanded(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                mainAxisSize: pw.MainAxisSize.min,
-                children: [
-                  for (final line in rightLines)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(bottom: 2),
-                      child: pw.Text(
-                        line,
-                        style: pw.TextStyle(
-                          fontSize: rightSize,
-                          fontWeight: pw.FontWeight.normal,
-                          color: PdfColors.black,
-                          lineSpacing: 1.08,
-                          font: pw.Font.helvetica(),
-                        ),
-                        maxLines: 1,
-                        overflow: pw.TextOverflow.clip,
-                      ),
-                    ),
-                  pw.SizedBox(height: 3),
-                  pw.Text(
-                    dados,
-                    style: pw.TextStyle(
-                      fontSize: dadosSize,
-                      fontWeight: pw.FontWeight.normal,
-                      color: PdfColors.grey800,
-                      font: pw.Font.helvetica(),
-                    ),
-                    maxLines: 2,
-                  ),
-                ],
-              ),
-            ),
+            pw.SizedBox(height: 0.5),
           ],
-        ),
-      ],
+          pw.SizedBox(height: 1),
+          pw.Text(
+            dados,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(
+              fontSize: dadosSize,
+              color: PdfColors.grey800,
+              font: pw.Font.helvetica(),
+            ),
+            maxLines: 2,
+          ),
+        ],
+      ),
     ),
-  );
-
-  return pw.Container(
-    decoration: pw.BoxDecoration(
-      color: PdfColors.white,
-      borderRadius: pw.BorderRadius.circular(7),
-      border: pw.Border.all(color: PdfColor.fromInt(0xFF94A3B8), width: 1.25),
-      boxShadow: const [
-        pw.BoxShadow(
-          color: PdfColors.grey300,
-          spreadRadius: 0,
-          blurRadius: 2,
-          offset: PdfPoint(0, 1),
-        ),
-      ],
-    ),
-    padding: const pw.EdgeInsets.fromLTRB(10, 9, 10, 9),
-    child: inner,
   );
 }
 
@@ -596,10 +589,10 @@ double _certPdfFooterHeight(CertificatePdfInput input) {
   var wrapExtra = 0.0;
   for (final s in input.signatories) {
     final n = _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
-    if (n > 2) wrapExtra += (n - 2) * 9.2;
+    if (n > 2) wrapExtra += (n - 2) * 5.5;
   }
-  return (52.0 + input.signatories.length * 86.0 + wrapExtra)
-      .clamp(128.0, 300.0);
+  return (32.0 + input.signatories.length * 40.0 + wrapExtra)
+      .clamp(96.0, 220.0);
 }
 
 /// Espaço inferior da coluna Gala: menos «reserva» quando o nome é longo (sobe o conteúdo).
@@ -874,57 +867,11 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
     final img = i < signatoryImageProviders.length
         ? signatoryImageProviders[i]
         : null;
-    return pw.Container(
-      width: blockWidth,
-      padding: const pw.EdgeInsets.fromLTRB(6, 8, 6, 10),
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: pw.BorderRadius.circular(8),
-        border: pw.Border.all(
-          color: PdfColor(accent.red, accent.green, accent.blue, 0.42),
-          width: 1.2,
-        ),
-      ),
-      alignment: pw.Alignment.center,
-      child: pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        children: [
-          if (img != null)
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 6),
-              child: pw.SizedBox(
-                width: 120,
-                height: 48,
-                child: pw.Image(img, fit: pw.BoxFit.contain),
-              ),
-            ),
-          pw.Container(width: 124, height: 2.2, color: accent),
-          pw.SizedBox(height: 9),
-          pw.Text(
-            s.nome,
-            style: pw.TextStyle(
-              fontSize: 11.4,
-              fontWeight: pw.FontWeight.bold,
-              color: accent,
-            ),
-            textAlign: pw.TextAlign.center,
-            maxLines: 3,
-            overflow: pw.TextOverflow.clip,
-          ),
-          pw.SizedBox(height: 3),
-          pw.Text(
-            s.cargo,
-            style: pw.TextStyle(
-              fontSize: 9.4,
-              fontWeight: pw.FontWeight.bold,
-              color: accent,
-            ),
-            textAlign: pw.TextAlign.center,
-            maxLines: 2,
-            overflow: pw.TextOverflow.clip,
-          ),
-        ],
-      ),
+    return _certPdfAssinaturaColumnaLimpa(
+      s: s,
+      signatureImage: img,
+      accent: accent,
+      maxWidth: blockWidth,
     );
   }
 
@@ -939,7 +886,6 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
             _pwCertPdfDigitalSignatureStamp(
               input: input,
               signatory: input.signatories[i],
-              watermark: logoImage,
               galaFooterCompact: false,
             ),
           ],

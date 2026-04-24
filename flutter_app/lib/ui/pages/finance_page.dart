@@ -26,8 +26,13 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/pages/finance_receitas_recorrentes_tabs.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
+import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
+import 'package:gestao_yahweh/ui/pages/finance_bulk_assign_page.dart';
+import 'package:gestao_yahweh/ui/pages/finance_smart_input_page.dart';
 import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
     show RelatorioFinanceiroPage;
+import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
+import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -41,26 +46,6 @@ const _categoriasReceitaPadrao = [
   'Ofertas Voluntárias',
   'Vendas de Produtos',
   'Campanhas',
-  'Outros',
-];
-
-const _categoriasDespesaPadrao = [
-  'Água',
-  'Ajuda Social',
-  'Energia Elétrica',
-  'Eventos',
-  'Impostos',
-  'Internet',
-  'Investimentos em Mídia',
-  'Manutenção',
-  'Material de Limpeza',
-  'Oferta Missionária',
-  'Pagamento de Obreiros',
-  'Prebenda',
-  'Salários',
-  'Material de Escritório',
-  'Transporte',
-  'Alimentação',
   'Outros',
 ];
 
@@ -209,27 +194,6 @@ Widget _financeBankMiniLogo({
       errorBuilder: (_, __, ___) => fallback,
     ),
   );
-}
-
-/// Retorna categorias de despesa do tenant (com seed se vazio). Usado por Despesas Fixas. Sem repetição por nome.
-Future<List<String>> _getCategoriasDespesaForTenant(String tenantId) async {
-  final col = FirebaseFirestore.instance
-      .collection('igrejas')
-      .doc(tenantId)
-      .collection('categorias_despesas');
-  var snap = await col.orderBy('nome').get();
-  if (snap.docs.isEmpty) {
-    for (final nome in _categoriasDespesaPadrao) {
-      await col
-          .add({'nome': nome, 'ordem': _categoriasDespesaPadrao.indexOf(nome)});
-    }
-    snap = await col.orderBy('nome').get();
-  }
-  final nomes = snap.docs
-      .map((d) => (d.data()['nome'] ?? '').toString())
-      .where((s) => s.isNotEmpty);
-  final seen = <String>{};
-  return nomes.where((n) => seen.add(n)).toList();
 }
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
@@ -766,7 +730,7 @@ class _FinanceMetasEditorSheetState extends State<_FinanceMetasEditorSheet> {
 
   Future<void> _loadCats() async {
     try {
-      final list = await _getCategoriasDespesaForTenant(widget.tenantId);
+      final list = await getCategoriasDespesaForTenant(widget.tenantId);
       if (!mounted) return;
       setState(() {
         _catsDespesa = list;
@@ -2426,6 +2390,8 @@ class _ResumoTabState extends State<_ResumoTab> {
         final saidasMes = <int, double>{};
         final now = DateTime.now();
 
+        final receitasMerger = FinanceCategoryMerger();
+        final despesasMerger = FinanceCategoryMerger();
         final receitasPorCat = <String, double>{};
         final despesasPorCat = <String, double>{};
         for (final d in docs) {
@@ -2436,16 +2402,17 @@ class _ResumoTabState extends State<_ResumoTab> {
           final valor = _parseValor(data['amount'] ?? data['valor']);
           final dt = _parseDate(data['createdAt'] ?? data['date']);
           final cat = (data['categoria'] ?? 'Outros').toString().trim();
-          final catKey = cat.isEmpty ? 'Outros' : cat;
           final isEntrada =
               tipo.contains('entrada') || tipo.contains('receita');
 
           if (isEntrada) {
             totalReceitas += valor;
-            receitasPorCat[catKey] = (receitasPorCat[catKey] ?? 0) + valor;
+            receitasMerger.addAmount(receitasPorCat, cat, valor,
+                emptyLabel: 'Outros');
           } else {
             totalDespesas += valor;
-            despesasPorCat[catKey] = (despesasPorCat[catKey] ?? 0) + valor;
+            despesasMerger.addAmount(despesasPorCat, cat, valor,
+                emptyLabel: 'Outros');
           }
 
           if (dt.year == now.year) {
@@ -2516,7 +2483,16 @@ class _ResumoTabState extends State<_ResumoTab> {
         final orcamentoAlerts = <({String cat, double gasto, double teto, double pct})>[];
         for (final e in settings.orcamentosDespesa.entries) {
           if (e.value <= 0) continue;
-          final gasto = despesasPorCat[e.key] ?? 0;
+          var gasto = 0.0;
+          for (final de in despesasPorCat.entries) {
+            if (FinanceCategoryMerger.sameCategoryGroup(
+              de.key,
+              e.key,
+              emptyLabel: 'Outros',
+            )) {
+              gasto += de.value;
+            }
+          }
           final pct = e.value > 0 ? gasto / e.value : 0.0;
           orcamentoAlerts
               .add((cat: e.key, gasto: gasto, teto: e.value, pct: pct));
@@ -3289,10 +3265,23 @@ class _MovimentacoesContaPage extends StatefulWidget {
 
 class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  /// Mês do extrato (sempre mês calendário).
+  late DateTime _mesRefM;
+  /// todos | entrada | saida | transferencia
+  String _filtroMovimento = 'todos';
+  /// Só com extrato geral (`contaId` null); null = todas as contas.
+  String? _filtroContaExtratoGeral;
 
   @override
   void initState() {
     super.initState();
+    final em = widget.extratoMes;
+    if (em != null) {
+      _mesRefM = DateTime(em.year, em.month, 1);
+    } else {
+      final n = DateTime.now();
+      _mesRefM = DateTime(n.year, n.month, 1);
+    }
     _future = widget.financeCol.orderBy('createdAt', descending: true).get();
   }
 
@@ -3333,59 +3322,246 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
           if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
             return const ChurchPanelLoadingBody();
           }
+          final inicio = DateTime(_mesRefM.year, _mesRefM.month, 1);
+          final fim = DateTime(_mesRefM.year, _mesRefM.month + 1, 0, 23, 59, 59);
           var docs = snap.data?.docs ?? [];
           docs = docs.where((d) {
             final data = d.data();
-            if (widget.extratoMes != null) {
-              final t = _financeLancamentoInstant(data);
-              if (t.year != widget.extratoMes!.year ||
-                  t.month != widget.extratoMes!.month) {
+            final t = _financeLancamentoInstant(data);
+            if (t.isBefore(inicio) || t.isAfter(fim)) {
+              return false;
+            }
+            final fix = widget.contaId;
+            if (fix != null && fix.isNotEmpty) {
+              if (!_financeLancamentoEnvolveConta(data, fix)) {
+                return false;
+              }
+            } else {
+              final fc = _filtroContaExtratoGeral;
+              if (fc != null &&
+                  fc.isNotEmpty &&
+                  !_financeLancamentoEnvolveConta(data, fc)) {
                 return false;
               }
             }
-            final cid = widget.contaId;
-            if (cid != null && cid.isNotEmpty) {
-              return _financeLancamentoEnvolveConta(data, cid);
+            if (_filtroMovimento != 'todos') {
+              final typ = (data['type'] ?? '').toString().toLowerCase();
+              if (_filtroMovimento == 'transferencia' && typ != 'transferencia') {
+                return false;
+              }
+              if (_filtroMovimento == 'entrada' &&
+                  !typ.contains('entrada') &&
+                  !typ.contains('receita')) {
+                return false;
+              }
+              if (_filtroMovimento == 'saida' &&
+                  !typ.contains('saida') &&
+                  !typ.contains('despesa') &&
+                  !typ.contains('saída')) {
+                return false;
+              }
             }
             return true;
           }).toList();
 
-          if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.receipt_long_rounded,
-                      size: 64, color: Colors.grey.shade400),
-                  const SizedBox(height: ThemeCleanPremium.spaceMd),
-                  Text('Nenhum lançamento nesta conta.',
-                      style:
-                          TextStyle(fontSize: 16, color: Colors.grey.shade600)),
-                  const SizedBox(height: ThemeCleanPremium.spaceSm),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Text(
-                      'Receitas, despesas e transferências vinculadas a esta conta aparecem aqui. Toque em um lançamento para ver detalhes; use editar, excluir ou o ícone de comprovante para trocar o arquivo.',
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                    ),
-                  ),
-                ],
-              ),
-            );
+          final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+          final mesStr =
+              DateFormat("MMMM 'de' y", 'pt_BR').format(_mesRefM);
+          final allMaps =
+              (snap.data?.docs ?? []).map((e) => e.data()).toList();
+          String? ctaId = widget.contaId;
+          double? saldoIni, recMes, desMes, saldoFim;
+          if (ctaId != null && ctaId.isNotEmpty) {
+            final fimAnt =
+                DateTime(_mesRefM.year, _mesRefM.month, 0, 23, 59, 59);
+            saldoIni = financeSaldoPorContaAteInclusive(
+              contaIdsAtivas: {ctaId},
+              lancamentos: allMaps,
+              ateInclusive: fimAnt,
+            )[ctaId] ??
+                0.0;
+            final totM = _totaisReceitaDespesaPorContaNoMes(
+                snap.data?.docs ?? [], _mesRefM);
+            final rM = totM[ctaId]?.receitas ?? 0.0;
+            final dM = totM[ctaId]?.despesas ?? 0.0;
+            recMes = rM;
+            desMes = dM;
+            final s0 = saldoIni ?? 0.0;
+            saldoFim = s0 + rM - dM;
           }
 
           return Column(
             children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
-                    ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 4),
-                child: Text('${docs.length} movimentação(ões)',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade700)),
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _mesRefM = DateTime(
+                                    _mesRefM.year, _mesRefM.month - 1, 1);
+                              });
+                            },
+                            icon: const Icon(Icons.chevron_left_rounded)),
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              mesStr[0].toUpperCase() + mesStr.substring(1),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _mesRefM = DateTime(
+                                    _mesRefM.year, _mesRefM.month + 1, 1);
+                              });
+                            },
+                            icon: const Icon(Icons.chevron_right_rounded)),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Todas'),
+                          selected: _filtroMovimento == 'todos',
+                          onSelected: (_) =>
+                              setState(() => _filtroMovimento = 'todos'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Receitas'),
+                          selected: _filtroMovimento == 'entrada',
+                          onSelected: (_) =>
+                              setState(() => _filtroMovimento = 'entrada'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Despesas'),
+                          selected: _filtroMovimento == 'saida',
+                          onSelected: (_) =>
+                              setState(() => _filtroMovimento = 'saida'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Transfer.'),
+                          selected: _filtroMovimento == 'transferencia',
+                          onSelected: (_) => setState(
+                              () => _filtroMovimento = 'transferencia'),
+                        ),
+                      ],
+                    ),
+                    if (widget.contaId == null || widget.contaId!.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          future: FirebaseFirestore.instance
+                              .collection('igrejas')
+                              .doc(widget.tenantId)
+                              .collection('contas')
+                              .orderBy('nome')
+                              .get(),
+                          builder: (ctx, cs) {
+                            if (!cs.hasData) {
+                              return const SizedBox(height: 2);
+                            }
+                            final cdocs = cs.data!.docs
+                                .where((c) => c.data()['ativo'] != false)
+                                .toList();
+                            return DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              value: cdocs.any((c) => c.id == _filtroContaExtratoGeral)
+                                  ? _filtroContaExtratoGeral
+                                  : null,
+                              hint: const Text('Todas as contas (extrato geral)'),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text('Todas as contas',
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                                ...cdocs.map(
+                                  (c) => DropdownMenuItem(
+                                    value: c.id,
+                                    child: Text(
+                                        _financeContaDisplayName(c.data()),
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _filtroContaExtratoGeral = v),
+                            );
+                          },
+                        ),
+                      ),
+                    if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
+                      const SizedBox(height: 6),
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('igrejas')
+                            .doc(widget.tenantId)
+                            .collection('contas')
+                            .doc(ctaId)
+                            .get(),
+                        builder: (c, s) {
+                          final accent = s.hasData
+                              ? _financeContaBancoColor(s.data!.data() ?? const {})
+                              : ThemeCleanPremium.primary;
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 12, horizontal: 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [accent, Color.lerp(accent, const Color(0xFF0F172A), 0.4)!],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text('Resumo do mês',
+                                    style: TextStyle(
+                                        color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 6),
+                                _linhaResumoExtrato(
+                                    'Saldo no início do mês', saldoIni!, nf),
+                                _linhaResumoExtrato(
+                                    'Receitas (mês)', recMes ?? 0, nf),
+                                _linhaResumoExtrato('Despesas (mês)', desMes ?? 0, nf,
+                                    neg: true),
+                                const Divider(color: Colors.white30, height: 14),
+                                _linhaResumoExtrato('Saldo ao fim (estimado)',
+                                    saldoFim ?? 0, nf,
+                                    strong: true),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                          '${docs.length} movimentação(ões) no mês e filtros',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          )),
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: RefreshIndicator(
@@ -3393,7 +3569,29 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                     _refresh();
                     await _future;
                   },
-                  child: ListView.builder(
+                  child: docs.isEmpty
+                      ? ListView(
+                          padding: const EdgeInsets.fromLTRB(32, 48, 32, 80),
+                          children: [
+                            Icon(Icons.receipt_long_rounded,
+                                size: 64, color: Colors.grey.shade400),
+                            const SizedBox(height: 16),
+                            Text(
+                                'Nenhum lançamento com estes filtros e mês selecionado.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 16, color: Colors.grey.shade600)),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Ajuste o mês, o tipo (receita/despesa) ou a conta. '
+                              'Receitas, despesas e transferências vinculadas aparecem aqui.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 13, color: Colors.grey.shade500),
+                            ),
+                          ],
+                        )
+                      : ListView.builder(
                     padding: EdgeInsets.fromLTRB(
                         ThemeCleanPremium.spaceLg,
                         ThemeCleanPremium.spaceSm,
@@ -4233,6 +4431,55 @@ class _LancamentosTabState extends State<_LancamentosTab> {
               ),
               SliverToBoxAdapter(
                 child: Padding(
+                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
+                      ThemeCleanPremium.spaceLg, 8),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final ok = await Navigator.push<bool>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FinanceSmartInputPage(
+                                tenantId: widget.tenantId,
+                                panelRole: widget.role,
+                              ),
+                            ),
+                          );
+                          if (ok == true) {
+                            _refresh();
+                            widget.onFinanceChanged?.call();
+                          }
+                        },
+                        icon: const Icon(Icons.content_paste_go_rounded,
+                            size: 18),
+                        label: const Text('Importar / colar extrato'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => FinanceBulkAssignPage(
+                                tenantId: widget.tenantId,
+                                role: widget.role,
+                              ),
+                            ),
+                          );
+                          _refresh();
+                          widget.onFinanceChanged?.call();
+                        },
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: const Text('Vincular em massa'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
               padding:
                   EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg),
               child: Row(
@@ -5053,7 +5300,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
     );
 
     final categoriasList =
-        await _getCategoriasDespesaForTenant(widget.tenantId);
+        await getCategoriasDespesaForTenant(widget.tenantId);
     if (categoria.isNotEmpty && !categoriasList.contains(categoria))
       categoria = '';
 
@@ -5638,7 +5885,7 @@ class _FinanceCategoriasTab extends StatelessWidget {
             color: const Color(0xFFDC2626),
             collection: colDespesas,
             tenantId: tenantId,
-            padrao: _categoriasDespesaPadrao,
+            padrao: kCategoriasDespesaPadrao,
           ),
           const SizedBox(height: 24),
           _CategoriasSection(
@@ -6095,16 +6342,42 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                         leading: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: ThemeCleanPremium.primary.withOpacity(0.1),
+                            color: _financeContaBancoColor(data)
+                                .withValues(alpha: 0.14),
                             borderRadius: BorderRadius.circular(
                                 ThemeCleanPremium.radiusSm),
                           ),
                           child: Icon(Icons.account_balance_rounded,
-                              color: ThemeCleanPremium.primary, size: 22),
+                              color: _financeContaBancoColor(data), size: 22),
                         ),
-                        title: Text(nome,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w700)),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(nome,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                            if (data['contaPrincipal'] == true)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Chip(
+                                  visualDensity: VisualDensity.compact,
+                                  label: const Text('Principal',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  backgroundColor: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.12),
+                                  side: BorderSide(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.35)),
+                                ),
+                              ),
+                          ],
+                        ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -6226,6 +6499,8 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
     if (!['corrente', 'poupanca', 'caixa'].contains(tipoConta)) {
       tipoConta = 'corrente';
     }
+
+    var contaPrincipal = d?['contaPrincipal'] == true;
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
@@ -6378,6 +6653,17 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                         prefixIcon: Icon(Icons.notes_rounded),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Conta principal'),
+                      subtitle: Text(
+                        'Uma conta principal por igreja. Use para padrão em atalhos e novos lançamentos.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                      value: contaPrincipal,
+                      onChanged: (v) => setDlg(() => contaPrincipal = v),
+                    ),
                     const SizedBox(height: 20),
                     FilledButton.icon(
                       onPressed: () {
@@ -6423,25 +6709,36 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
       'tipoConta': tipoConta,
       'observacao': obsCtrl.text.trim(),
       'ativo': d?['ativo'] ?? true,
+      'contaPrincipal': contaPrincipal,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
+    late final DocumentReference<Map<String, dynamic>> savedRef;
     if (existing == null) {
       payload['createdAt'] = FieldValue.serverTimestamp();
-      await col.add(payload);
+      savedRef = await col.add(payload);
     } else {
-      await existing.reference.set(payload, SetOptions(merge: true));
+      savedRef = existing.reference;
+      await savedRef.set(payload, SetOptions(merge: true));
     }
 
-    if (context.mounted) {
-      onSaved?.call();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            existing == null ? 'Conta cadastrada.' : 'Conta atualizada.',
-            style: const TextStyle(color: Colors.white),
-          ),
-          backgroundColor: Colors.green));
+    if (contaPrincipal) {
+      final snap = await col.get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snap.docs) {
+        batch.update(doc.reference, {'contaPrincipal': doc.id == savedRef.id});
+      }
+      await batch.commit();
     }
+
+    if (!context.mounted) return;
+    onSaved?.call();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          existing == null ? 'Conta cadastrada.' : 'Conta atualizada.',
+          style: const TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.green));
   }
 
   Future<void> _confirmarExcluirConta(
@@ -6905,7 +7202,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   }
 
   final catsReceita = await _financeCategoriasReceitaTenant(tenantId);
-  final catsDespesa = await _getCategoriasDespesaForTenant(tenantId);
+  final catsDespesa = await getCategoriasDespesaForTenant(tenantId);
   final contas = await _financeContasAtivasTenant(tenantId);
   final fornecedoresOpts = await _fornecedoresParaFinanceDropdown(tenantId);
   final membrosOpts = await _membrosParaFinanceDropdown(tenantId);
@@ -7913,10 +8210,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       }
       await existingDoc.reference.update(patch);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Lançamento atualizado!',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
+        showFinanceSaveSnackBar(context, message: 'Lançamento atualizado!');
       }
     } else {
       final docRef = await financeCol.add(result);
@@ -7940,10 +8234,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         await docRef.update({'comprovanteUrl': urlNew});
       }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Lançamento salvo!',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
+        showFinanceSaveSnackBar(context, message: 'Lançamento salvo!');
       }
     }
     return true;
@@ -8259,6 +8550,38 @@ void showFinanceLancamentoDetailsBottomSheet(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+Widget _linhaResumoExtrato(
+  String label,
+  double v,
+  NumberFormat nf, {
+  bool neg = false,
+  bool strong = false,
+}) {
+  final c = (neg && v > 0) ? const Color(0xFFFECACA) : Colors.white;
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 1.5),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+              color: c,
+              fontSize: strong ? 14 : 12.5,
+              fontWeight: strong ? FontWeight.w900 : FontWeight.w600,
+            )),
+        Text(
+          nf.format(v),
+          style: TextStyle(
+            color: c,
+            fontSize: strong ? 16 : 13.5,
+            fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 double _parseValor(dynamic raw) {
   if (raw == null) return 0;
   if (raw is num) return raw.toDouble();
