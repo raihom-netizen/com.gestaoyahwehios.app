@@ -766,7 +766,12 @@ abstract final class BankNotificationParser {
         }
         return;
       }
-      final lines = trimmed.split(RegExp(r'[\r\n]+')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      var lines = trimmed
+          .split(RegExp(r'[\r\n]+'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      lines = _mergeWrappedFaturaLines(lines);
       if (lines.length > 1) {
         final bankish = lines.where(_looksLikeStandaloneBankLine).length;
         if (bankish >= 2) {
@@ -941,6 +946,8 @@ abstract final class BankNotificationParser {
     if (t.endsWith('-')) {
       t = t.substring(0, t.length - 1).trimRight();
     }
+    // Alguns extratos trazem sinal colado no fim do valor (ex.: 9,17-).
+    t = t.replaceAll(RegExp(r'(?<=\d,\d{2})\s*-$'), '');
 
     var toks = t.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
     while (toks.isNotEmpty && toks.last == '-') {
@@ -948,7 +955,10 @@ abstract final class BankNotificationParser {
     }
     if (toks.length < 3) return null;
 
-    String? lastBrl;
+    String? lastAmountTok;
+    var lastIsInteger = false;
+    String? intFallbackTok;
+    var intFallbackCut = toks.length;
     var cut = toks.length;
     for (var i = toks.length - 1; i >= 0; i--) {
       var tok = toks[i].trim();
@@ -956,14 +966,28 @@ abstract final class BankNotificationParser {
         tok = tok.substring(0, tok.length - 1).trim();
       }
       if (RegExp(r'^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2})$').hasMatch(tok)) {
-        lastBrl = tok;
+        lastAmountTok = tok;
+        lastIsInteger = false;
         cut = i;
         break;
       }
+      if (intFallbackTok == null &&
+          RegExp(r'^(?:\d{1,3}(?:\.\d{3})+|\d{1,6})$').hasMatch(tok) &&
+          _isPlausibleFaturaIntegerToken(tok)) {
+        intFallbackTok = tok;
+        intFallbackCut = i;
+      }
     }
-    if (lastBrl == null) return null;
+    if (lastAmountTok == null && intFallbackTok != null) {
+      lastAmountTok = intFallbackTok;
+      lastIsInteger = true;
+      cut = intFallbackCut;
+    }
+    if (lastAmountTok == null) return null;
 
-    final val = _parseBrDecimal(lastBrl);
+    final val = lastIsInteger
+        ? _parseBrIntegerMoney(lastAmountTok)
+        : _parseBrDecimal(lastAmountTok);
     if (val == null || val <= 0) return null;
 
     final headToks = toks.sublist(0, cut);
@@ -993,6 +1017,74 @@ abstract final class BankNotificationParser {
       suggestedPresetId: _suggestBankPreset(t),
       rawSnippet: line.length > 400 ? line.substring(0, 400) : line,
     );
+  }
+
+  static bool _lineStartsWithFaturaDate(String line) {
+    final s = line.trim();
+    return RegExp(r'^\d{2}/\d{2}(?:/\d{4})?\b').hasMatch(s);
+  }
+
+  static bool _lineContainsFinalBrlAmount(String line) {
+    final s = line.trim();
+    return RegExp(
+      r'(?:^|\s)(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d{1,3}(?:\.\d{3})+|\d{1,6})(?:\s*-\s*)?$',
+    ).hasMatch(s);
+  }
+
+  static bool _isPlausibleFaturaIntegerToken(String tok) {
+    final clean = tok.replaceAll('.', '').trim();
+    final n = int.tryParse(clean);
+    if (n == null || n <= 0) return false;
+    // Evita capturar ano no fim da descrição (ex.: 2026).
+    if (n >= 1900 && n <= 2099) return false;
+    return true;
+  }
+
+  /// Junta quebras comuns de fatura/PDF:
+  /// - data + descrição numa linha e valor na seguinte
+  /// - linha intermédia curta (ex.: "D") antes do valor
+  static List<String> _mergeWrappedFaturaLines(List<String> lines) {
+    final out = <String>[];
+    String? pending;
+
+    void flushPending() {
+      if (pending != null && pending!.trim().isNotEmpty) {
+        out.add(pending!.trim());
+      }
+      pending = null;
+    }
+
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+
+      if (pending == null) {
+        if (_lineStartsWithFaturaDate(line) && !_lineContainsFinalBrlAmount(line)) {
+          pending = line;
+        } else {
+          out.add(line);
+        }
+        continue;
+      }
+
+      if (_lineStartsWithFaturaDate(line)) {
+        flushPending();
+        if (_lineContainsFinalBrlAmount(line)) {
+          out.add(line);
+        } else {
+          pending = line;
+        }
+        continue;
+      }
+
+      pending = '${pending!} $line'.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (_lineContainsFinalBrlAmount(pending!)) {
+        flushPending();
+      }
+    }
+
+    flushPending();
+    return out;
   }
 
   /// Texto extraído de fatura PDF: limita à zona **Lançamentos** e devolve linhas como [BankNotificationParseResult].
@@ -1448,6 +1540,13 @@ abstract final class BankNotificationParser {
   static double? _parseBrDecimal(String s) {
     final normalized = s.replaceAll('.', '').replaceAll(',', '.');
     return double.tryParse(normalized);
+  }
+
+  static double? _parseBrIntegerMoney(String s) {
+    final normalized = s.replaceAll('.', '').trim();
+    final n = int.tryParse(normalized);
+    if (n == null || n <= 0) return null;
+    return n.toDouble();
   }
 
   static double? _parseDecimalFlexible(String s0) {

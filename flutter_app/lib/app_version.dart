@@ -1,11 +1,11 @@
-ï»¿/// Ãšnica fonte da versÃ£o do app. Usado em: app, web, painel ADM, igrejas, rodapÃ©.
+/// Única fonte da versão do app. Usado em: app, web, painel ADM, igrejas, rodapé.
 /// [appVersion] + [appBuildNumber] devem coincidir com `version:` em pubspec.yaml (X.Y.Z+N).
-/// 11.0 = VersÃ£o 11 completa â€” Web autorizada, PIX/CartÃ£o 10x, carÃªncia 3 dias, Mercado Pago.
+/// 11.0 = Versão 11 completa — Web autorizada, PIX/Cartão 10x, carência 3 dias, Mercado Pago.
 const String appVersion = '11.2.293';
-const String appBuildNumber = '1459';
+const String appBuildNumber = '1466';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';
 
-/// RodapÃ©s e textos â€œversÃ£o instaladaâ€ (ex.: v11.2.293+1447).
+/// Rodapés e textos “versão instalada” (ex.: v11.2.293+1447).
 const String appVersionLabel = 'v$appVersion+$appBuildNumber';

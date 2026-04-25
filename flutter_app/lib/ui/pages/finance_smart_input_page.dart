@@ -7,16 +7,62 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
-import 'package:gestao_yahweh/controle_total_sync/smart_input_live_mask.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/services/finance_smart_batch_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
+const _categoriasReceitaPadrao = <String>[
+  'Dízimos',
+  'Ofertas',
+  'Doações',
+  'Campanhas',
+  'Eventos',
+  'Outros'
+];
+
 String _contaNome(Map<String, dynamic> d) {
   final n = (d['nome'] ?? '').toString().trim();
   if (n.isNotEmpty) return n;
   return 'Conta';
+}
+
+String _foldCat(String s) {
+  final m = <String, String>{
+    'á': 'a',
+    'à': 'a',
+    'ã': 'a',
+    'â': 'a',
+    'ä': 'a',
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'í': 'i',
+    'ì': 'i',
+    'î': 'i',
+    'ï': 'i',
+    'ó': 'o',
+    'ò': 'o',
+    'õ': 'o',
+    'ô': 'o',
+    'ö': 'o',
+    'ú': 'u',
+    'ù': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ç': 'c',
+  };
+  final low = s.toLowerCase();
+  final sb = StringBuffer();
+  for (final ch in low.split('')) {
+    sb.write(m[ch] ?? ch);
+  }
+  return sb
+      .toString()
+      .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
 /// Lançamento em lote: texto, colar, ou ficheiro CSV (exportado do banco / cartão).
@@ -37,7 +83,6 @@ class FinanceSmartInputPage extends StatefulWidget {
 class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
   final _text = TextEditingController();
   final _textFocus = FocusNode();
-  bool _applyingMask = false;
   bool _importing = false;
   bool _saving = false;
   String? _contaId;
@@ -45,6 +90,16 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
   final _categoriaEntrada = TextEditingController(text: 'Outros');
   final Set<int> _selected = {};
   List<BankNotificationParseResult> _rows = const [];
+  final Map<int, String> _categoriaPorLinha = {};
+  List<String> _categoriasDespesa = const [];
+  List<String> _categoriasReceita = const [];
+  bool _somenteSemCategoria = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarCategorias();
+  }
 
   @override
   void dispose() {
@@ -55,42 +110,131 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     super.dispose();
   }
 
-  /// Formatação (dd/mm, R$) — só ao gerar pré-visualização.
-  void _applyLiveMask() {
-    if (_applyingMask) return;
-    if (_text.text.isEmpty) return;
-    if (_text.text.length > BankNotificationParser.kMaxParseInputChars) {
-      return;
+  Future<void> _carregarCategorias() async {
+    try {
+      final despSnap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('categorias_despesas')
+          .orderBy('ordem')
+          .get();
+      final desp = despSnap.docs
+          .map((d) => (d.data()['nome'] ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      final recSnap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('categorias_receitas')
+          .orderBy('ordem')
+          .get();
+      final rec = recSnap.docs
+          .map((d) => (d.data()['nome'] ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _categoriasDespesa = desp;
+        _categoriasReceita =
+            rec.isEmpty ? List<String>.from(_categoriasReceitaPadrao) : rec;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _categoriasReceita = List<String>.from(_categoriasReceitaPadrao);
+      });
     }
-    final y = DateTime.now().year;
-    final next = SmartInputLiveMask.apply(_text.text, y);
-    if (next != _text.text) {
-      _applyingMask = true;
-      _text.value = TextEditingValue(
-        text: next,
-        selection: TextSelection.collapsed(offset: next.length),
-      );
-      _applyingMask = false;
+  }
+
+  String _categoriaSugerida(BankNotificationParseResult r) {
+    if (r.type == 'income') {
+      final fallback = _categoriaEntrada.text.trim();
+      return fallback.isEmpty ? 'Outros' : fallback;
+    }
+    final desc = _foldCat((r.descricao ?? '').trim());
+    if (desc.isNotEmpty) {
+      for (final c in _categoriasDespesa) {
+        final k = _foldCat(c);
+        if (k.length >= 4 && desc.contains(k)) return c;
+      }
+    }
+    return '';
+  }
+
+  String _rowKey(BankNotificationParseResult r) {
+    final d = r.data;
+    final ds = d == null ? 'sem_data' : '${d.year}-${d.month}-${d.day}';
+    final v = (r.valor ?? 0).toStringAsFixed(2);
+    final desc = (r.descricao ?? '').trim().toLowerCase();
+    return '$ds|$v|$desc|${r.type}';
+  }
+
+  Future<void> _criarCategoriaNaLinha({
+    required bool isIncome,
+    required int idx,
+  }) async {
+    final ctrl = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text(isIncome
+                  ? 'Nova categoria de receita'
+                  : 'Nova categoria de despesa'),
+              content: TextField(
+                controller: ctrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nome da categoria',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Criar'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      final nome = ctrl.text.trim();
+      if (!ok || nome.isEmpty) return;
+      final col = FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection(isIncome ? 'categorias_receitas' : 'categorias_despesas');
+      await col.add({'nome': nome, 'ordem': DateTime.now().millisecondsSinceEpoch});
+      await _carregarCategorias();
+      if (!mounted) return;
+      setState(() => _categoriaPorLinha[idx] = nome);
+      showFinanceSaveSnackBar(context, message: 'Categoria "$nome" criada.');
+    } finally {
+      ctrl.dispose();
     }
   }
 
   /// Texto livre: não analisa automaticamente (evita categorias/linhas inesperadas).
   void _onMainTextChanged() {
-    if (_applyingMask) return;
     if (_rows.isEmpty && _selected.isEmpty) return;
     setState(() {
       _rows = const [];
       _selected.clear();
+      _categoriaPorLinha.clear();
     });
   }
 
   /// Aplica máscara opcional e monta a pré-visualização (único ponto de análise).
   void _gerarLancamentos() {
-    if (_applyingMask) return;
     if (_text.text.isEmpty) {
       setState(() {
         _rows = const [];
         _selected.clear();
+        _categoriaPorLinha.clear();
       });
       return;
     }
@@ -98,6 +242,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       setState(() {
         _rows = const [];
         _selected.clear();
+        _categoriaPorLinha.clear();
       });
       if (mounted) {
         showFinanceSaveSnackBar(
@@ -108,15 +253,29 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       }
       return;
     }
-    _applyLiveMask();
     final t = _text.text;
     final fromCsv = BankNotificationParser.parseFromCsvText(t);
     if (fromCsv.isNotEmpty) {
+      final sorted = [...fromCsv]
+        ..sort((a, b) {
+          final ad = a.data ?? DateTime(2100);
+          final bd = b.data ?? DateTime(2100);
+          final c1 = ad.compareTo(bd);
+          if (c1 != 0) return c1;
+          return (a.descricao ?? '').compareTo(b.descricao ?? '');
+        });
+      final catMap = <int, String>{};
+      for (var i = 0; i < sorted.length; i++) {
+        catMap[i] = _categoriaSugerida(sorted[i]);
+      }
       setState(() {
-        _rows = fromCsv;
+        _rows = sorted;
+        _categoriaPorLinha
+          ..clear()
+          ..addAll(catMap);
         _selected
           ..clear()
-          ..addAll(List<int>.generate(fromCsv.length, (i) => i));
+          ..addAll(List<int>.generate(sorted.length, (i) => i));
       });
       if (mounted) {
         showFinanceSaveSnackBar(
@@ -128,17 +287,35 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     }
     final list = BankNotificationParser.parseManyForBatch(t);
     if (list.isNotEmpty) {
+      final sorted = [...list]
+        ..sort((a, b) {
+          final ad = a.data ?? DateTime(2100);
+          final bd = b.data ?? DateTime(2100);
+          final c1 = ad.compareTo(bd);
+          if (c1 != 0) return c1;
+          return (a.descricao ?? '').compareTo(b.descricao ?? '');
+        });
+      final catMap = <int, String>{};
+      for (var i = 0; i < sorted.length; i++) {
+        catMap[i] = _categoriaSugerida(sorted[i]);
+      }
       setState(() {
-        _rows = list;
+        _rows = sorted;
+        _categoriaPorLinha
+          ..clear()
+          ..addAll(catMap);
         _selected
           ..clear()
-          ..addAll(List<int>.generate(list.length, (i) => i));
+          ..addAll(List<int>.generate(sorted.length, (i) => i));
       });
       return;
     }
     final one = BankNotificationParser.parse(t);
     setState(() {
       _rows = [one];
+      _categoriaPorLinha
+        ..clear()
+        ..addAll({0: _categoriaSugerida(one)});
       _selected
         ..clear()
         ..add(0);
@@ -164,6 +341,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     setState(() {
       _rows = const [];
       _selected.clear();
+      _categoriaPorLinha.clear();
     });
   }
 
@@ -200,6 +378,18 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     });
   }
 
+  void _marcarSomenteSemCategoria() {
+    if (_rows.isEmpty) return;
+    final idx = List<int>.generate(_rows.length, (i) => i)
+        .where((i) => (_categoriaPorLinha[i] ?? '').trim().isEmpty)
+        .toList();
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(idx);
+    });
+  }
+
   Future<void> _colar() async {
     final d = await Clipboard.getData(Clipboard.kTextPlain);
     final t = d?.text;
@@ -219,6 +409,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       }
       _rows = const [];
       _selected.clear();
+      _categoriaPorLinha.clear();
     });
     if (mounted) {
       showFinanceSaveSnackBar(
@@ -259,6 +450,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           _text.text = text;
           _rows = const [];
           _selected.clear();
+          _categoriaPorLinha.clear();
         });
         showFinanceSaveSnackBar(
           context,
@@ -278,12 +470,29 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
 
   Future<void> _gravar() async {
     final chosen = <BankNotificationParseResult>[];
+    final catByKey = <String, String>{};
+    final semCategoria = <int>[];
     for (final i in _selected) {
       if (i >= 0 && i < _rows.length) {
         if (_rows[i].hasMinimumForConfirmation) {
+          final cat = (_categoriaPorLinha[i] ?? '').trim();
+          if (cat.isEmpty) {
+            semCategoria.add(i);
+            continue;
+          }
           chosen.add(_rows[i]);
+          catByKey[_rowKey(_rows[i])] = cat;
         }
       }
+    }
+    if (semCategoria.isNotEmpty) {
+      showFinanceSaveSnackBar(
+        context,
+        message:
+            'Existem ${semCategoria.length} lançamento(s) sem categoria. Defina antes de gravar.',
+        isError: true,
+      );
+      return;
     }
     if (chosen.isEmpty) {
       showFinanceSaveSnackBar(
@@ -336,6 +545,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           categoria: _categoriaEntrada.text.trim().isEmpty
               ? 'Outros'
               : _categoriaEntrada.text,
+          categoriaForRow: (r) => catByKey[_rowKey(r)],
           smartPasteBatchId: batchId,
           source: 'smart_paste',
           panelRole: widget.panelRole,
@@ -354,6 +564,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           categoria: _categoriaSaida.text.trim().isEmpty
               ? 'Outros'
               : _categoriaSaida.text,
+          categoriaForRow: (r) => catByKey[_rowKey(r)],
           smartPasteBatchId: batchId,
           source: 'smart_paste',
           panelRole: widget.panelRole,
@@ -372,6 +583,38 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  List<String> _categoriasParaLinha(BankNotificationParseResult r) {
+    return r.type == 'income' ? _categoriasReceita : _categoriasDespesa;
+  }
+
+  String _fmtData(DateTime? d) {
+    if (d == null) return '—';
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final yy = d.year.toString();
+    return '$dd/$mm/$yy';
+  }
+
+  List<int> _previewOrder() {
+    final idx = List<int>.generate(_rows.length, (i) => i);
+    idx.sort((a, b) {
+      final ca = (_categoriaPorLinha[a] ?? '').trim();
+      final cb = (_categoriaPorLinha[b] ?? '').trim();
+      final aSem = ca.isEmpty;
+      final bSem = cb.isEmpty;
+      if (aSem != bSem) return aSem ? -1 : 1;
+      final da = _rows[a].data ?? DateTime(2100);
+      final db = _rows[b].data ?? DateTime(2100);
+      final cd = da.compareTo(db);
+      if (cd != 0) return cd;
+      final cc = ca.toLowerCase().compareTo(cb.toLowerCase());
+      if (cc != 0) return cc;
+      return (_rows[a].descricao ?? '').compareTo(_rows[b].descricao ?? '');
+    });
+    if (!_somenteSemCategoria) return idx;
+    return idx.where((i) => (_categoriaPorLinha[i] ?? '').trim().isEmpty).toList();
   }
 
   @override
@@ -399,6 +642,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         _text.clear();
                         _rows = const [];
                         _selected.clear();
+                        _categoriaPorLinha.clear();
                       });
                     }
                   },
@@ -423,7 +667,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                   maxLines: 14,
                   decoration: InputDecoration(
                     hintText:
-                        'Digite tudo à mão (ex.: 100,00 ou 85.50; parcelas: «6 parcelas de 250» ou «1000,00 em 4x material»). Depois toque em «Gerar lançamentos».',
+                        'Cole/digite livremente (ex.: 100,00, 85.50, 6 parcelas de 250, 1000,00 em 4x). Sem máscara automática.',
                     border: OutlineInputBorder(
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -464,7 +708,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Toque para inserir texto de exemplo; depois use «Gerar lançamentos». Categoria: só as caixas «Cat. padrão» abaixo (sem sugestão automática por linha).',
+                          'Toque para inserir texto de exemplo e depois «Gerar lançamentos». Após gerar, revise categoria em cada linha antes de gravar.',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 11.5,
@@ -519,11 +763,26 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       label: const Text('Gerar lançamentos'),
                     ),
                     if (_rows.isNotEmpty) ...[
+                      FilterChip(
+                        selected: _somenteSemCategoria,
+                        onSelected: _saving
+                            ? null
+                            : (v) => setState(() => _somenteSemCategoria = v),
+                        label: const Text('Somente sem categoria'),
+                        avatar: const Icon(Icons.filter_alt_outlined, size: 18),
+                        selectedColor:
+                            ThemeCleanPremium.primary.withValues(alpha: 0.16),
+                      ),
                       TextButton(
                         onPressed: _saving
                             ? null
                             : () => _marcarTodosLancamentos(true),
                         child: const Text('Marcar todos'),
+                      ),
+                      TextButton(
+                        onPressed:
+                            _saving ? null : _marcarSomenteSemCategoria,
+                        child: const Text('Marcar sem categoria'),
                       ),
                       TextButton(
                         onPressed: _saving
@@ -540,7 +799,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       ? ''
                       : (_rows.isEmpty
                           ? 'Texto pronto — toque em «Gerar lançamentos» para pré-visualizar.'
-                          : 'Pré-visualização: ${_rows.length} lançamento(s).'),
+                          : 'Pré-visualização: ${_rows.length} lançamento(s).${_somenteSemCategoria ? ' Filtro: somente sem categoria.' : ''}'),
                   style: TextStyle(
                       color: Colors.grey.shade800,
                       fontWeight: FontWeight.w600,
@@ -597,7 +856,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                     }
                     final valueConta = _contaId ?? docs.first.id;
                     return DropdownButtonFormField<String>(
-                      value: valueConta,
+                      initialValue: valueConta,
                       isExpanded: true,
                       items: docs
                           .map((d) => DropdownMenuItem(
@@ -650,34 +909,149 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey.shade600),
                   ))
-                : ListView.builder(
+                : Builder(
+                    builder: (ctx) {
+                      final ordered = _previewOrder();
+                      if (ordered.isEmpty) {
+                        return Center(
+                          child: Text(
+                            _somenteSemCategoria
+                                ? 'Nenhum lançamento sem categoria no filtro atual.'
+                                : 'Nenhum lançamento disponível.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        );
+                      }
+                      return ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: _rows.length,
-                    itemBuilder: (c, i) {
+                    itemCount: ordered.length,
+                    itemBuilder: (c, orderIdx) {
+                      final i = ordered[orderIdx];
                       final r = _rows[i];
-                      return CheckboxListTile(
-                        value: _selected.contains(i),
-                        onChanged: (b) {
-                          setState(() {
-                            if (b == true) {
-                              _selected.add(i);
-                            } else {
-                              _selected.remove(i);
-                            }
-                          });
-                        },
-                        title: Text(
-                          (r.descricao ?? '-').toString(),
-                          maxLines: 2,
-                        ),
-                        subtitle: Text(
-                          '${r.type == "income" ? "Receita" : "Despesa"} · R\$ ${(r.valor ?? 0).toStringAsFixed(2).replaceAll(".", ",")} · ${(r.data != null) ? r.data.toString() : "—"}',
-                        ),
-                        secondary: r.hasMinimumForConfirmation
-                            ? const Icon(Icons.check_circle,
-                                color: Color(0xFF16A34A))
-                            : const Icon(Icons.warning, color: Color(0xFFF59E0B)),
+                      final categoriaAtual = (_categoriaPorLinha[i] ?? '').trim();
+                      final categoriaCabecalho =
+                          categoriaAtual.isEmpty ? 'Sem categoria' : categoriaAtual;
+                      final groupKey = '${_fmtData(r.data)} • $categoriaCabecalho';
+                      String? prevGroupKey;
+                      if (orderIdx > 0) {
+                        final pi = ordered[orderIdx - 1];
+                        final pr = _rows[pi];
+                        final prevCat = (_categoriaPorLinha[pi] ?? '').trim();
+                        final prevCatHead =
+                            prevCat.isEmpty ? 'Sem categoria' : prevCat;
+                        prevGroupKey = '${_fmtData(pr.data)} • $prevCatHead';
+                      }
+                      final showHeader = orderIdx == 0 || groupKey != prevGroupKey;
+                      final categorias = _categoriasParaLinha(r);
+                      final semCategoria = categoriaAtual.isEmpty;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (showHeader)
+                            Container(
+                              margin: const EdgeInsets.fromLTRB(8, 10, 8, 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.20),
+                                ),
+                              ),
+                              child: Text(
+                                groupKey,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12.5,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                            ),
+                          CheckboxListTile(
+                            value: _selected.contains(i),
+                            onChanged: (b) {
+                              setState(() {
+                                if (b == true) {
+                                  _selected.add(i);
+                                } else {
+                                  _selected.remove(i);
+                                }
+                              });
+                            },
+                            title: Text(
+                              (r.descricao ?? '-').toString(),
+                              maxLines: 2,
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${r.type == "income" ? "Receita" : "Despesa"} · R\$ ${(r.valor ?? 0).toStringAsFixed(2).replaceAll(".", ",")} · ${_fmtData(r.data)}',
+                                ),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  isExpanded: true,
+                                  initialValue:
+                                      categoriaAtual.isEmpty ? null : categoriaAtual,
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    labelText: semCategoria
+                                        ? 'Sem categoria (defina antes de gravar)'
+                                        : 'Categoria',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<String>(
+                                      value: '',
+                                      child: Text('Sem categoria'),
+                                    ),
+                                    ...categorias.map((cat) =>
+                                        DropdownMenuItem<String>(
+                                          value: cat,
+                                          child: Text(cat,
+                                              overflow: TextOverflow.ellipsis),
+                                        )),
+                                  ],
+                                  onChanged: (v) {
+                                    setState(() {
+                                      _categoriaPorLinha[i] = (v ?? '').trim();
+                                    });
+                                  },
+                                ),
+                                if (semCategoria)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: _saving
+                                          ? null
+                                          : () => _criarCategoriaNaLinha(
+                                                isIncome: r.type == 'income',
+                                                idx: i,
+                                              ),
+                                      icon: const Icon(Icons.add_circle_outline,
+                                          size: 18),
+                                      label: const Text('Criar categoria'),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            secondary: r.hasMinimumForConfirmation
+                                ? const Icon(Icons.check_circle,
+                                    color: Color(0xFF16A34A))
+                                : const Icon(Icons.warning,
+                                    color: Color(0xFFF59E0B)),
+                            isThreeLine: true,
+                          ),
+                        ],
                       );
+                    },
+                  );
                     },
                   ),
           ),
