@@ -297,6 +297,55 @@ pw.Widget _normaCultaSignatureBlock(
     fontSize: (bodyStyle.fontSize ?? 10.5) - 0.2,
     fontWeight: pw.FontWeight.bold,
   );
+  /// Largura máx. do bloco de assinatura (ofício): proporcional ao conteúdo, centrado na página.
+  const maxSigBlockPt = 248.0;
+  const lineWPt = 198.0;
+
+  final sigChildren = <pw.Widget>[
+    if (sigImage != null) ...[
+      pw.SizedBox(
+        width: 112,
+        height: 22,
+        child: pw.Image(sigImage, fit: pw.BoxFit.contain),
+      ),
+      pw.SizedBox(height: 5),
+    ] else if (reserveManualSignatureSpace) ...[
+      pw.Container(
+        width: 132,
+        height: 18,
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(
+            bottom: pw.BorderSide(
+              color: PdfColor.fromInt(0xFF94A3B8),
+              width: 0.85,
+            ),
+          ),
+        ),
+      ),
+      pw.SizedBox(height: 5),
+    ],
+    pw.SizedBox(
+      width: lineWPt,
+      child: pw.Container(
+        height: 1.1,
+        decoration: pw.BoxDecoration(
+          color: PdfColor(frame.red, frame.green, frame.blue, 0.72),
+          borderRadius: pw.BorderRadius.circular(1),
+        ),
+      ),
+    ),
+    pw.SizedBox(height: 7),
+    ...rest.map(
+      (line) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 1.5),
+        child: pw.Text(
+          pdfSafeText(line),
+          style: nameStyle,
+          textAlign: pw.TextAlign.center,
+        ),
+      ),
+    ),
+  ];
 
   return pw.Padding(
     padding: const pw.EdgeInsets.only(top: 2, bottom: 8),
@@ -309,64 +358,15 @@ pw.Widget _normaCultaSignatureBlock(
           textAlign: pw.TextAlign.left,
         ),
         pw.SizedBox(height: gap4),
-        pw.Container(
-          padding: const pw.EdgeInsets.fromLTRB(12, 8, 12, 8),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF8FAFC),
-            borderRadius: pw.BorderRadius.circular(7),
-            border: pw.Border.all(
-              color: PdfColor(frame.red, frame.green, frame.blue, 0.4),
-              width: 1.2,
+        pw.Align(
+          alignment: pw.Alignment.center,
+          child: pw.ConstrainedBox(
+            constraints: const pw.BoxConstraints(maxWidth: maxSigBlockPt),
+            child: pw.Column(
+              mainAxisSize: pw.MainAxisSize.min,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: sigChildren,
             ),
-          ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              if (sigImage != null) ...[
-                pw.Center(
-                  child: pw.SizedBox(
-                    width: 118,
-                    height: 24,
-                    child: pw.Image(sigImage, fit: pw.BoxFit.contain),
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-              ] else if (reserveManualSignatureSpace) ...[
-                pw.Center(
-                  child: pw.Container(
-                    width: 150,
-                    height: 20,
-                    decoration: const pw.BoxDecoration(
-                      border: pw.Border(
-                        bottom: pw.BorderSide(
-                          color: PdfColor.fromInt(0xFF94A3B8),
-                          width: 0.9,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-              ],
-              pw.Container(
-                height: 2,
-                decoration: pw.BoxDecoration(
-                  color: frame,
-                  borderRadius: pw.BorderRadius.circular(2),
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              ...rest.map(
-                (line) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 2),
-                  child: pw.Text(
-                    pdfSafeText(line),
-                    style: nameStyle,
-                    textAlign: pw.TextAlign.center,
-                  ),
-                ),
-              ),
-            ],
           ),
         ),
       ],

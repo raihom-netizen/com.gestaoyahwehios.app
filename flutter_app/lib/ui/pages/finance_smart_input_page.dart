@@ -1,5 +1,3 @@
-import 'dart:async' show Timer;
-
 import 'dart:convert' show utf8;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,11 +10,8 @@ import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart'
 import 'package:gestao_yahweh/controle_total_sync/smart_input_live_mask.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
-import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart'
-    show getCategoriasDespesaForTenant, kCategoriasDespesaPadrao;
 import 'package:gestao_yahweh/services/finance_smart_batch_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/utils/finance_smart_input_category_hints.dart';
 
 String _contaNome(Map<String, dynamic> d) {
   final n = (d['nome'] ?? '').toString().trim();
@@ -50,24 +45,9 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
   final _categoriaEntrada = TextEditingController(text: 'Outros');
   final Set<int> _selected = {};
   List<BankNotificationParseResult> _rows = const [];
-  /// Após parar de escrever (máscara a cada tecla; análise em lote atrasada).
-  Timer? _reparseDebounce;
-  static const _kReparseDebounce = Duration(milliseconds: 320);
-  List<String> _categoriasDespesa = kCategoriasDespesaPadrao;
-
-  @override
-  void initState() {
-    super.initState();
-    getCategoriasDespesaForTenant(widget.tenantId).then((c) {
-      if (c.isNotEmpty && mounted) {
-        setState(() => _categoriasDespesa = c);
-      }
-    });
-  }
 
   @override
   void dispose() {
-    _reparseDebounce?.cancel();
     _textFocus.dispose();
     _text.dispose();
     _categoriaSaida.dispose();
@@ -75,21 +55,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     super.dispose();
   }
 
-  void _cancelReparseDebounce() {
-    _reparseDebounce?.cancel();
-    _reparseDebounce = null;
-  }
-
-  void _scheduleReparse() {
-    _cancelReparseDebounce();
-    _reparseDebounce = Timer(_kReparseDebounce, () {
-      _reparseDebounce = null;
-      if (!mounted) return;
-      _reparse();
-    });
-  }
-
-  /// Só formatação (dd/mm, R$); **não** gera a lista (usa [_scheduleReparse]).
+  /// Formatação (dd/mm, R$) — só ao gerar pré-visualização.
   void _applyLiveMask() {
     if (_applyingMask) return;
     if (_text.text.isEmpty) return;
@@ -108,31 +74,24 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     }
   }
 
+  /// Texto livre: não analisa automaticamente (evita categorias/linhas inesperadas).
   void _onMainTextChanged() {
     if (_applyingMask) return;
-    if (_text.text.isEmpty) {
-      _cancelReparseDebounce();
-      _reparse();
-      return;
-    }
-    if (_text.text.length > BankNotificationParser.kMaxParseInputChars) {
-      _cancelReparseDebounce();
-      setState(() {
-        _rows = const [];
-        _selected.clear();
-      });
-      return;
-    }
-    _applyLiveMask();
-    _scheduleReparse();
+    if (_rows.isEmpty && _selected.isEmpty) return;
+    setState(() {
+      _rows = const [];
+      _selected.clear();
+    });
   }
 
-  /// Máscara + análise imediata (colar, exemplos, botão Analisar).
-  void _applyMaskAndReparseNow() {
+  /// Aplica máscara opcional e monta a pré-visualização (único ponto de análise).
+  void _gerarLancamentos() {
     if (_applyingMask) return;
     if (_text.text.isEmpty) {
-      _cancelReparseDebounce();
-      _reparse();
+      setState(() {
+        _rows = const [];
+        _selected.clear();
+      });
       return;
     }
     if (_text.text.length > BankNotificationParser.kMaxParseInputChars) {
@@ -140,19 +99,50 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
         _rows = const [];
         _selected.clear();
       });
+      if (mounted) {
+        showFinanceSaveSnackBar(
+          context,
+          message: 'Texto demasiado longo para analisar de uma vez.',
+          isError: true,
+        );
+      }
       return;
     }
     _applyLiveMask();
-    _cancelReparseDebounce();
-    _reparse();
-  }
-
-  String? _categoriaSugeridaDespesa(BankNotificationParseResult r) {
-    if (r.type == 'income' || (r.descricao ?? '').isEmpty) return null;
-    return FinanceSmartInputCategoryHints.suggestDespesaCategoria(
-      r.descricao!,
-      validCategorias: _categoriasDespesa,
-    );
+    final t = _text.text;
+    final fromCsv = BankNotificationParser.parseFromCsvText(t);
+    if (fromCsv.isNotEmpty) {
+      setState(() {
+        _rows = fromCsv;
+        _selected
+          ..clear()
+          ..addAll(List<int>.generate(fromCsv.length, (i) => i));
+      });
+      if (mounted) {
+        showFinanceSaveSnackBar(
+          context,
+          message: '${fromCsv.length} linha(s) de CSV na pré-visualização.',
+        );
+      }
+      return;
+    }
+    final list = BankNotificationParser.parseManyForBatch(t);
+    if (list.isNotEmpty) {
+      setState(() {
+        _rows = list;
+        _selected
+          ..clear()
+          ..addAll(List<int>.generate(list.length, (i) => i));
+      });
+      return;
+    }
+    final one = BankNotificationParser.parse(t);
+    setState(() {
+      _rows = [one];
+      _selected
+        ..clear()
+        ..add(0);
+    });
   }
 
   void _selecionarTudoTexto() {
@@ -171,7 +161,10 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     } else {
       _text.text = '${_text.text.trim()}\n$trecho';
     }
-    _applyMaskAndReparseNow();
+    setState(() {
+      _rows = const [];
+      _selected.clear();
+    });
   }
 
   Widget _parcelaExemploChip({required String label, required String inserir}) {
@@ -207,41 +200,6 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     });
   }
 
-  void _reparse() {
-    final t = _text.text;
-    if (t.isEmpty) {
-      setState(() {
-        _rows = const [];
-        _selected.clear();
-      });
-      return;
-    }
-    if (t.length > BankNotificationParser.kMaxParseInputChars) {
-      setState(() {
-        _rows = const [];
-        _selected.clear();
-      });
-      return;
-    }
-    final list = BankNotificationParser.parseManyForBatch(t);
-    if (list.isNotEmpty) {
-      setState(() {
-        _rows = list;
-        _selected
-          ..clear()
-          ..addAll(List<int>.generate(list.length, (i) => i));
-      });
-      return;
-    }
-    final one = BankNotificationParser.parse(t);
-    setState(() {
-      _rows = [one];
-      _selected
-        ..clear()
-        ..add(0);
-    });
-  }
-
   Future<void> _colar() async {
     final d = await Clipboard.getData(Clipboard.kTextPlain);
     final t = d?.text;
@@ -259,8 +217,15 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       } else {
         _text.text = '${_text.text.trim()}\n\n$t';
       }
+      _rows = const [];
+      _selected.clear();
     });
-    _applyMaskAndReparseNow();
+    if (mounted) {
+      showFinanceSaveSnackBar(
+        context,
+        message: 'Texto colado. Toque em «Gerar lançamentos» para pré-visualizar.',
+      );
+    }
   }
 
   Future<void> _pickCsv() async {
@@ -289,34 +254,16 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       if (text.length > BankNotificationParser.kMaxParseInputChars) {
         text = text.substring(0, BankNotificationParser.kMaxParseInputChars);
       }
-      final fromCsv = BankNotificationParser.parseFromCsvText(text);
-      if (fromCsv.isNotEmpty) {
-        if (mounted) {
-          _cancelReparseDebounce();
-          setState(() {
-            _text.text = text;
-            _rows = fromCsv;
-            _selected
-              ..clear()
-              ..addAll(List<int>.generate(fromCsv.length, (i) => i));
-          });
-        }
-        if (mounted) {
-          showFinanceSaveSnackBar(context,
-              message:
-                  '${fromCsv.length} linha(s) de CSV reconhecida(s). Ajuste se for preciso.');
-        }
-        return;
-      }
       if (mounted) {
         setState(() {
           _text.text = text;
+          _rows = const [];
+          _selected.clear();
         });
-        _applyMaskAndReparseNow();
         showFinanceSaveSnackBar(
           context,
           message:
-              'Cabeçalho não reconhecido como fatura/CSV. Analisámos como texto livre.',
+              'Ficheiro carregado no campo. Toque em «Gerar lançamentos» para pré-visualizar.',
         );
       }
     } catch (e) {
@@ -373,13 +320,6 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       final nome = _contaNome(cDoc.data());
       final settings = await FinanceTenantSettings.load(widget.tenantId);
       final batchId = 'sp_${DateTime.now().millisecondsSinceEpoch}';
-      final catsDespesa = await getCategoriasDespesaForTenant(widget.tenantId);
-      String? categoriaDespesaFor(BankNotificationParseResult r) {
-        return FinanceSmartInputCategoryHints.suggestDespesaCategoria(
-          r.descricao ?? '',
-          validCategorias: catsDespesa,
-        );
-      }
 
       int total = 0;
       final incomeRows = chosen.where((r) => r.type == 'income').toList();
@@ -414,7 +354,6 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           categoria: _categoriaSaida.text.trim().isEmpty
               ? 'Outros'
               : _categoriaSaida.text,
-          categoriaForRow: categoriaDespesaFor,
           smartPasteBatchId: batchId,
           source: 'smart_paste',
           panelRole: widget.panelRole,
@@ -456,9 +395,11 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                 ? null
                 : () {
                     if (_text.text.isNotEmpty) {
-                      _cancelReparseDebounce();
-                      _text.clear();
-                      _reparse();
+                      setState(() {
+                        _text.clear();
+                        _rows = const [];
+                        _selected.clear();
+                      });
                     }
                   },
             child: const Text('Limpar', style: TextStyle(color: Colors.white70)),
@@ -482,7 +423,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                   maxLines: 14,
                   decoration: InputDecoration(
                     hintText:
-                        'Enter = nova linha. Vários itens: 50 posto | 12/04 luz 80,00. Frases: 1.500,00 em 6x compra, 10x de 250,00. A lista monta após parar de digitar.',
+                        'Digite tudo à mão (ex.: 100,00 ou 85.50; parcelas: «6 parcelas de 250» ou «1000,00 em 4x material»). Depois toque em «Gerar lançamentos».',
                     border: OutlineInputBorder(
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -523,7 +464,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Toque para inserir; o analisador divide o total e marca (1/n). Categorias sugeridas na lista (igual ao gravar).',
+                          'Toque para inserir texto de exemplo; depois use «Gerar lançamentos». Categoria: só as caixas «Cat. padrão» abaixo (sem sugestão automática por linha).',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 11.5,
@@ -572,9 +513,10 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       label: Text(
                           _importing ? 'A abrir…' : 'Ficheiro CSV (extrato)'),
                     ),
-                    FilledButton(
-                      onPressed: _saving ? null : _applyMaskAndReparseNow,
-                      child: const Text('Analisar agora'),
+                    FilledButton.icon(
+                      onPressed: _saving ? null : _gerarLancamentos,
+                      icon: const Icon(Icons.playlist_add_check_rounded, size: 20),
+                      label: const Text('Gerar lançamentos'),
                     ),
                     if (_rows.isNotEmpty) ...[
                       TextButton(
@@ -596,7 +538,9 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                 Text(
                   _text.text.isEmpty
                       ? ''
-                      : 'Detetado(s) ${_rows.length} lançamento(s) (atualizam ~0,3s após parar de digitar ou «Analisar agora»).',
+                      : (_rows.isEmpty
+                          ? 'Texto pronto — toque em «Gerar lançamentos» para pré-visualizar.'
+                          : 'Pré-visualização: ${_rows.length} lançamento(s).'),
                   style: TextStyle(
                       color: Colors.grey.shade800,
                       fontWeight: FontWeight.w600,
@@ -702,7 +646,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
             child: _rows.isEmpty
                 ? Center(
                     child: Text(
-                    'Cole, escreva (Enter muda de linha; | separa itens) ou abra um CSV. A pré-visualização monta ao fim da digitação — ou toque em «Analisar agora».',
+                    'Cole, escreva (Enter = nova linha; | separa itens) ou abra um CSV. Toque em «Gerar lançamentos» para ver a lista antes de gravar.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey.shade600),
                   ))
@@ -711,7 +655,6 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                     itemCount: _rows.length,
                     itemBuilder: (c, i) {
                       final r = _rows[i];
-                      final cat = _categoriaSugeridaDespesa(r);
                       return CheckboxListTile(
                         value: _selected.contains(i),
                         onChanged: (b) {
@@ -727,27 +670,9 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                           (r.descricao ?? '-').toString(),
                           maxLines: 2,
                         ),
-                        subtitle: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${r.type == "income" ? "Receita" : "Despesa"} · R\$ ${(r.valor ?? 0).toStringAsFixed(2).replaceAll(".", ",")} · ${(r.data != null) ? r.data.toString() : "—"}',
-                            ),
-                            if (cat != null) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                'Categoria sugerida: $cat',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: ThemeCleanPremium.primary,
-                                ),
-                              ),
-                            ],
-                          ],
+                        subtitle: Text(
+                          '${r.type == "income" ? "Receita" : "Despesa"} · R\$ ${(r.valor ?? 0).toStringAsFixed(2).replaceAll(".", ",")} · ${(r.data != null) ? r.data.toString() : "—"}',
                         ),
-                        isThreeLine: cat != null,
                         secondary: r.hasMinimumForConfirmation
                             ? const Icon(Icons.check_circle,
                                 color: Color(0xFF16A34A))

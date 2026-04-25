@@ -60,5 +60,22 @@ void main() {
       expect(s, contains(' | '));
       expect(s, contains('R\$'));
     });
+
+    test('100 reais (com ou sem R\$ à frente) → 100,00 reais', () {
+      var s = SmartInputLiveMask.apply('100 reais luz', 2026);
+      expect(s, contains('100,00'));
+      s = SmartInputLiveMask.apply(r'R$ 100 reais luz', 2026);
+      expect(s, contains('100,00'));
+    });
+
+    test('teclado 8750 = 87,50 quando há descrição', () {
+      final s = SmartInputLiveMask.apply('luz 8750', 2026);
+      expect(s, contains('87,50'));
+    });
+
+    test('1, 000 com espaço vira 1.000,00 reais (mil)', () {
+      final s = SmartInputLiveMask.apply('ENERGIA 1, 000', 2026);
+      expect(s, contains('1.000,00'));
+    });
   });
 }

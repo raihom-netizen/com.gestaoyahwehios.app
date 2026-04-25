@@ -436,80 +436,11 @@ List<String> _certPdfDigitalStampRightColumnLines(
 
 const String _kAssinaturaDigitalRotulo = 'Assinatura digital';
 
-/// Assinaturas (imagem + identificação): rótulo em texto, linha fina, nome e cargo — **sem** moldura.
-pw.Widget _certPdfAssinaturaColumnaLimpa({
-  required CertSignatoryPdfData s,
-  required pw.ImageProvider? signatureImage,
-  required PdfColor accent,
-  required double maxWidth,
-  bool compact = false,
-}) {
-  return pw.SizedBox(
-    width: maxWidth,
-    child: pw.Column(
-      mainAxisSize: pw.MainAxisSize.min,
-      crossAxisAlignment: pw.CrossAxisAlignment.center,
-      children: [
-        pw.Text(
-          _kAssinaturaDigitalRotulo,
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(
-            fontSize: compact ? 5.4 : 5.9,
-            color: PdfColors.grey700,
-            fontStyle: pw.FontStyle.italic,
-            font: pw.Font.helvetica(),
-          ),
-        ),
-        pw.SizedBox(height: compact ? 2.5 : 3.5),
-        if (signatureImage != null) ...[
-          pw.SizedBox(
-            width: compact ? 96.0 : 115.0,
-            height: compact ? 40.0 : 48.0,
-            child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
-          ),
-          pw.SizedBox(height: compact ? 2.5 : 3.0),
-        ],
-        pw.Container(
-          width: maxWidth * 0.88,
-          height: 0.45,
-          color: PdfColor(accent.red, accent.green, accent.blue, 0.55),
-        ),
-        pw.SizedBox(height: compact ? 3.5 : 4.0),
-        pw.Text(
-          s.nome,
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(
-            fontSize: compact ? 9.0 : 10.3,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-            font: pw.Font.helvetica(),
-          ),
-          maxLines: 2,
-        ),
-        if (s.cargo.trim().isNotEmpty) ...[
-          pw.SizedBox(height: 1.2),
-          pw.Text(
-            s.cargo,
-            textAlign: pw.TextAlign.center,
-            style: pw.TextStyle(
-              fontSize: compact ? 7.0 : 7.8,
-              fontWeight: pw.FontWeight.bold,
-              color: accent,
-              font: pw.Font.helvetica(),
-            ),
-            maxLines: 2,
-          ),
-        ],
-      ],
-    ),
-  );
-}
-
-/// Selo «assinatura digital» só em texto, centrado, sem retângulo.
-pw.Widget _pwCertPdfDigitalSignatureStamp({
+/// Texto legal do selo digital (abaixo do nome/cargo), alinhado ao padrão ofício.
+List<pw.Widget> _certPdfLegalStampTailWidgets({
   required CertificatePdfInput input,
   required CertSignatoryPdfData signatory,
-  required bool galaFooterCompact,
+  required bool compact,
 }) {
   final nome = signatory.nome.trim();
   final cpfDigits = _certPdfCpfDigitsOnly(signatory.cpfDigits);
@@ -517,53 +448,136 @@ pw.Widget _pwCertPdfDigitalSignatureStamp({
   final dados = input.digitalSignatureDadosLine.trim().isNotEmpty
       ? input.digitalSignatureDadosLine.trim()
       : 'Dados: —';
-  final rightSize = galaFooterCompact ? 6.2 : 6.8;
-  final dadosSize = galaFooterCompact ? 5.9 : 6.4;
-  return pw.Center(
-    child: pw.SizedBox(
-      width: galaFooterCompact ? 200 : 230,
-      child: pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
-        children: [
-          pw.Text(
-            _kAssinaturaDigitalRotulo,
-            textAlign: pw.TextAlign.center,
-            style: pw.TextStyle(
-              fontSize: galaFooterCompact ? 5.0 : 5.5,
-              color: PdfColors.grey700,
-              fontStyle: pw.FontStyle.italic,
-              font: pw.Font.helvetica(),
-            ),
-          ),
-          pw.SizedBox(height: galaFooterCompact ? 2 : 3),
-          for (final line in rightLines) ...[
-            pw.Text(
-              line,
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                fontSize: rightSize,
-                color: PdfColors.black,
-                lineSpacing: 1.1,
-                font: pw.Font.helvetica(),
-              ),
-              maxLines: 3,
-            ),
-            pw.SizedBox(height: 0.5),
-          ],
-          pw.SizedBox(height: 1),
-          pw.Text(
-            dados,
-            textAlign: pw.TextAlign.center,
-            style: pw.TextStyle(
-              fontSize: dadosSize,
-              color: PdfColors.grey800,
-              font: pw.Font.helvetica(),
-            ),
-            maxLines: 2,
-          ),
-        ],
+  final rightSize = compact ? 5.4 : 6.2;
+  final dadosSize = compact ? 5.1 : 5.9;
+  final titleSize = compact ? 4.6 : 5.2;
+  return [
+    pw.SizedBox(height: compact ? 4 : 6),
+    pw.Text(
+      _kAssinaturaDigitalRotulo,
+      textAlign: pw.TextAlign.center,
+      style: pw.TextStyle(
+        fontSize: titleSize,
+        color: PdfColors.grey700,
+        fontStyle: pw.FontStyle.italic,
+        font: pw.Font.helvetica(),
       ),
+    ),
+    pw.SizedBox(height: compact ? 2 : 2.5),
+    for (final line in rightLines) ...[
+      pw.Text(
+        line,
+        textAlign: pw.TextAlign.center,
+        style: pw.TextStyle(
+          fontSize: rightSize,
+          color: PdfColors.black,
+          lineSpacing: 1.08,
+          font: pw.Font.helvetica(),
+        ),
+        maxLines: 4,
+      ),
+      pw.SizedBox(height: 0.5),
+    ],
+    pw.SizedBox(height: 1),
+    pw.Text(
+      dados,
+      textAlign: pw.TextAlign.center,
+      style: pw.TextStyle(
+        fontSize: dadosSize,
+        color: PdfColors.grey800,
+        font: pw.Font.helvetica(),
+      ),
+      maxLines: 2,
+    ),
+  ];
+}
+
+/// Padrão ofício: imagem da assinatura acima da linha, nome completo e cargo centrados;
+/// com [CertificatePdfInput.useDigitalSignatureStamp], selo legal compacto abaixo do cargo.
+pw.Widget _certPdfAssinaturaColumnaLimpa({
+  required CertificatePdfInput input,
+  required CertSignatoryPdfData s,
+  required pw.ImageProvider? signatureImage,
+  required PdfColor accent,
+  required double maxWidth,
+  bool compact = false,
+}) {
+  final lineW = math.min(198.0, maxWidth * 0.92);
+  final imgW = math.min(compact ? 96.0 : 112.0, maxWidth * 0.92);
+  final imgH = compact ? 20.0 : 22.0;
+  final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
+
+  final children = <pw.Widget>[
+    if (signatureImage != null) ...[
+      pw.SizedBox(
+        width: imgW,
+        height: imgH + (compact ? 4 : 6),
+        child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
+      ),
+      pw.SizedBox(height: compact ? 4.0 : 5.0),
+    ] else ...[
+      pw.SizedBox(height: compact ? 16 : 22),
+    ],
+    pw.SizedBox(
+      width: lineW,
+      child: pw.Container(
+        height: 1.05,
+        decoration: pw.BoxDecoration(
+          color: frame,
+          borderRadius: pw.BorderRadius.circular(1),
+        ),
+      ),
+    ),
+    pw.SizedBox(height: compact ? 5.0 : 7.0),
+    pw.Container(
+      width: maxWidth,
+      child: pw.Text(
+        s.nome.trim(),
+        textAlign: pw.TextAlign.center,
+        style: pw.TextStyle(
+          fontSize: compact ? 8.6 : 10.3,
+          fontWeight: pw.FontWeight.bold,
+          color: accent,
+          font: pw.Font.helvetica(),
+          lineSpacing: 1.12,
+        ),
+        maxLines: 3,
+      ),
+    ),
+    if (s.cargo.trim().isNotEmpty) ...[
+      pw.SizedBox(height: compact ? 2.0 : 3.0),
+      pw.Container(
+        width: maxWidth,
+        child: pw.Text(
+          s.cargo.trim(),
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: compact ? 6.8 : 7.8,
+            fontWeight: pw.FontWeight.bold,
+            color: accent,
+            font: pw.Font.helvetica(),
+            lineSpacing: 1.1,
+          ),
+          maxLines: 3,
+        ),
+      ),
+    ],
+  ];
+
+  if (input.useDigitalSignatureStamp) {
+    children.addAll(_certPdfLegalStampTailWidgets(
+      input: input,
+      signatory: s,
+      compact: compact,
+    ));
+  }
+
+  return pw.SizedBox(
+    width: maxWidth,
+    child: pw.Column(
+      mainAxisSize: pw.MainAxisSize.min,
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: children,
     ),
   );
 }
@@ -583,16 +597,20 @@ abstract final class _CertPdfLayoutHeights {
 }
 
 double _certPdfFooterHeight(CertificatePdfInput input) {
-  if (!input.useDigitalSignatureStamp || input.signatories.isEmpty) {
+  if (input.signatories.isEmpty) {
     return _CertPdfLayoutHeights.footerBlock;
   }
-  var wrapExtra = 0.0;
-  for (final s in input.signatories) {
-    final n = _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
-    if (n > 2) wrapExtra += (n - 2) * 5.5;
+  var stampExtra = 0.0;
+  if (input.useDigitalSignatureStamp) {
+    for (final s in input.signatories) {
+      final n =
+          _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
+      if (n > 2) stampExtra += (n - 2) * 5.5;
+    }
+    return (22.0 + input.signatories.length * 94.0 + stampExtra)
+        .clamp(96.0, 300.0);
   }
-  return (32.0 + input.signatories.length * 40.0 + wrapExtra)
-      .clamp(96.0, 220.0);
+  return (18.0 + input.signatories.length * 66.0).clamp(96.0, 230.0);
 }
 
 /// Espaço inferior da coluna Gala: menos «reserva» quando o nome é longo (sobe o conteúdo).
@@ -608,13 +626,14 @@ double _certPdfGalaSignaturesBottom(CertificatePdfInput input) {
   if (l > 48) b += 5;
   if (l > 72) b += 6;
   if (input.useDigitalSignatureStamp) {
+    b += 6;
     for (final s in input.signatories) {
       final n =
           _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
       if (n > 2) b += (n - 2) * 2.9;
     }
   }
-  return b.clamp(12.0, 36.0);
+  return b.clamp(12.0, 42.0);
 }
 
 double _certPdfGalaNomeSlotExtra(CertificatePdfInput input) =>
@@ -868,6 +887,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
         ? signatoryImageProviders[i]
         : null;
     return _certPdfAssinaturaColumnaLimpa(
+      input: input,
       s: s,
       signatureImage: img,
       accent: accent,
@@ -876,25 +896,9 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
   }
 
   pw.Widget buildFooterSignatures(PdfColor accent, PdfColor accentClaro) {
-    if (input.useDigitalSignatureStamp && input.signatories.isNotEmpty) {
-      return pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < input.signatories.length; i++) ...[
-            if (i > 0) pw.SizedBox(height: 6),
-            _pwCertPdfDigitalSignatureStamp(
-              input: input,
-              signatory: input.signatories[i],
-              galaFooterCompact: false,
-            ),
-          ],
-        ],
-      );
-    }
     if (input.signatories.isNotEmpty) {
       final count = input.signatories.length;
-      final blockWidth = count >= 3 ? 132.0 : 152.0;
+      final blockWidth = count >= 3 ? 140.0 : (count == 2 ? 168.0 : 200.0);
       final blocks = List<pw.Widget>.generate(
         count,
         (i) => buildSignatoryBlock(
@@ -904,43 +908,63 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
           blockWidth: blockWidth,
         ),
       );
-      if (count == 1) {
-        return pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.center,
-          children: [blocks[0]],
-        );
-      }
       return pw.Center(
         child: pw.Wrap(
           alignment: pw.WrapAlignment.center,
+          crossAxisAlignment: pw.WrapCrossAlignment.end,
           spacing: 16,
-          runSpacing: 10,
+          runSpacing: 12,
           children: blocks,
         ),
       );
     }
-    return pw.Column(
-      mainAxisSize: pw.MainAxisSize.min,
-      children: [
-        pw.Container(width: 140, height: 1, color: accent),
-        pw.SizedBox(height: 8),
-        pw.Text(
-          input.pastorManual,
-          style: pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-          ),
+    final lineW = 198.0;
+    final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
+    return pw.Center(
+      child: pw.ConstrainedBox(
+        constraints: const pw.BoxConstraints(maxWidth: 248),
+        child: pw.Column(
+          mainAxisSize: pw.MainAxisSize.min,
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.SizedBox(height: 18),
+            pw.SizedBox(
+              width: lineW,
+              child: pw.Container(
+                height: 1.05,
+                decoration: pw.BoxDecoration(
+                  color: frame,
+                  borderRadius: pw.BorderRadius.circular(1),
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              input.pastorManual,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 12,
+                fontWeight: pw.FontWeight.bold,
+                color: accent,
+                font: pw.Font.helvetica(),
+              ),
+              maxLines: 3,
+            ),
+            pw.SizedBox(height: 3),
+            pw.Text(
+              input.cargoManual,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: accent,
+                font: pw.Font.helvetica(),
+              ),
+              maxLines: 3,
+            ),
+          ],
         ),
-        pw.Text(
-          input.cargoManual,
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-          ),
-        ),
-      ],
+      ),
     );
   }
 

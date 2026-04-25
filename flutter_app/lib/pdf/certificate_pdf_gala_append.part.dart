@@ -32,6 +32,7 @@ void _appendGalaLuxoCertificatePage(
         ? signatoryImageProviders[i]
         : null;
     return _certPdfAssinaturaColumnaLimpa(
+      input: input,
       s: s,
       signatureImage: img,
       accent: accent,
@@ -41,61 +42,67 @@ void _appendGalaLuxoCertificatePage(
   }
 
   pw.Widget buildFooterSignatures(PdfColor accent, PdfColor accentClaro) {
-    if (input.useDigitalSignatureStamp && input.signatories.isNotEmpty) {
-      return pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < input.signatories.length; i++) ...[
-            if (i > 0) pw.SizedBox(height: 4),
-            _pwCertPdfDigitalSignatureStamp(
-              input: input,
-              signatory: input.signatories[i],
-              galaFooterCompact: true,
-            ),
-          ],
-        ],
-      );
-    }
     if (input.signatories.isNotEmpty) {
       final count = input.signatories.length;
       final blocks = List<pw.Widget>.generate(
-          count, (i) => buildSignatoryBlock(i, accent, accentClaro));
-      if (count == 1) {
-        return pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.center,
-          children: [blocks[0]],
-        );
-      }
-      // [Wrap] podia empilhar blocos fora da área visível em alguns motores; fileira explícita.
-      return pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: blocks,
+        count,
+        (i) => buildSignatoryBlock(i, accent, accentClaro),
+      );
+      return pw.Center(
+        child: pw.Wrap(
+          alignment: pw.WrapAlignment.center,
+          crossAxisAlignment: pw.WrapCrossAlignment.end,
+          spacing: 12,
+          runSpacing: 10,
+          children: blocks,
+        ),
       );
     }
-    return pw.Column(
-      mainAxisSize: pw.MainAxisSize.min,
-      children: [
-        pw.Container(width: 140, height: 1, color: accent),
-        pw.SizedBox(height: 8),
-        pw.Text(
-          input.pastorManual,
-          style: pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-          ),
+    final lineW = 198.0;
+    final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
+    return pw.Center(
+      child: pw.ConstrainedBox(
+        constraints: const pw.BoxConstraints(maxWidth: 248),
+        child: pw.Column(
+          mainAxisSize: pw.MainAxisSize.min,
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.SizedBox(height: 14),
+            pw.SizedBox(
+              width: lineW,
+              child: pw.Container(
+                height: 1.05,
+                decoration: pw.BoxDecoration(
+                  color: frame,
+                  borderRadius: pw.BorderRadius.circular(1),
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              input.pastorManual,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 12,
+                fontWeight: pw.FontWeight.bold,
+                color: accent,
+              ),
+              maxLines: 3,
+            ),
+            pw.SizedBox(height: 3),
+            pw.Text(
+              input.cargoManual,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: accent,
+              ),
+              maxLines: 3,
+            ),
+          ],
         ),
-        pw.Text(
-          input.cargoManual,
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-          ),
-        ),
-      ],
+      ),
     );
   }
 

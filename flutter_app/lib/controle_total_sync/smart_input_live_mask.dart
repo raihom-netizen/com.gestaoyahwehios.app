@@ -244,10 +244,12 @@ class SmartInputLiveMask {
     return '$prefix $brl';
   }
 
-  /// `100 reais` ou `100 reais mercado` no início → reais inteiros.
+  /// `100 reais` ou `R$ 100 reais` ou `100 reais mercado` no início → reais inteiros.
   static String _maskWholeReaisLeading(String s) {
     if (s.isEmpty) return s;
-    final m = RegExp(r'^(\d{1,})\s+reais?\b\s*(.*)$', caseSensitive: false, unicode: true).firstMatch(s.trim());
+    var head = s.trim();
+    head = head.replaceFirst(RegExp(r'^(R\$\s*)+', caseSensitive: false), '');
+    final m = RegExp(r'^(\d{1,})\s+reais?\b\s*(.*)$', caseSensitive: false, unicode: true).firstMatch(head);
     if (m == null) return s;
     final n = int.tryParse(m.group(1)!);
     if (n == null) return s;
@@ -257,12 +259,30 @@ class SmartInputLiveMask {
     return '$brl $tail';
   }
 
+  /// Junta `1, 000` / `1 ,000` em padrão de milhares; cola `12, 34` em `12,34` (vírgula decimal).
+  static String _normalizeLooseCommaAmounts(String line) {
+    if (line.isEmpty) return line;
+    var t = line;
+    t = t.replaceAllMapped(
+      RegExp(r'(\d{1,3}(?:\.\d{3})*),\s+(\d{3})(?![\d,])', unicode: true),
+      (m) => '${m[1]}.${m[2]}',
+    );
+    t = t.replaceAllMapped(
+      RegExp(r'(\d+),\s+(\d{2})(?![\d])', unicode: true),
+      (m) => '${m[1]},${m[2]}',
+    );
+    t = t.replaceAll(RegExp(r'R\$(?:\s*R\$)+', caseSensitive: false), r'R$');
+    t = t.replaceAll(RegExp(r'R\$\s+R\$', caseSensitive: false), r'R$ ');
+    return t;
+  }
+
   /// Formata, em cada fragmento separado por vírgula (respeitando valores `1.234,56`), valores em
   /// centavos (3+ dígitos): `… texto 25000` ou `25000 mercado` (com letras na outra parte).
   static String applyMoneyMaskToLine(String line) {
     if (line.isEmpty) return line;
+    final lineNorm = _normalizeLooseCommaAmounts(line);
     final amounts = <String>[];
-    var masked = line.replaceAllMapped(
+    var masked = lineNorm.replaceAllMapped(
       RegExp(r'\d{1,3}(?:\.\d{3})*,\d{2}\b'),
       (m) {
         amounts.add(m.group(0)!);
@@ -293,6 +313,19 @@ class SmartInputLiveMask {
 
   static String _maskTrailingDigitAmount(String s) {
     if (s.isEmpty) return s;
+    final mMil = RegExp(
+      r'^(.+?)\s+(\d{1,3}(?:\.\d{3})+)(?:,00)?\s*$',
+      unicode: true,
+    ).firstMatch(s);
+    if (mMil != null) {
+      final desc = mMil.group(1)!;
+      if (RegExp(r'\p{L}', unicode: true).hasMatch(desc)) {
+        final reais = int.tryParse(mMil.group(2)!.replaceAll('.', ''));
+        if (reais != null && reais > 0 && reais <= 999999999) {
+          return '$desc ${CurrencyFormats.formatBRL(reais.toDouble())}';
+        }
+      }
+    }
     final m = RegExp(r'^(.+)\s+(\d{3,})$', unicode: true).firstMatch(s);
     if (m == null) return s;
     final desc = m.group(1)!;
@@ -308,7 +341,9 @@ class SmartInputLiveMask {
 
   static String _maskLeadingDigitAmount(String s) {
     if (s.isEmpty) return s;
-    final m = RegExp(r'^(\d{3,})\s+(.+)$', unicode: true).firstMatch(s);
+    var head = s.trim();
+    head = head.replaceFirst(RegExp(r'^(R\$\s*)+', caseSensitive: false), '');
+    final m = RegExp(r'^(\d{3,})\s+(.+)$', unicode: true).firstMatch(head);
     if (m == null) return s;
     final digits = m.group(1)!;
     var rest = m.group(2)!;

@@ -455,9 +455,9 @@ class WalletSignatureStrip extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(maxHeight: 78),
+      constraints: const BoxConstraints(maxHeight: 56),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(9),
         border: Border.all(
           color: a.withValues(alpha: 0.42),
           width: 1,
@@ -465,19 +465,19 @@ class WalletSignatureStrip extends StatelessWidget {
         color: faixaBg,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 5,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
+        child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              width: 4,
+              width: 3,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -491,7 +491,7 @@ class WalletSignatureStrip extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+                padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -502,7 +502,7 @@ class WalletSignatureStrip extends StatelessWidget {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 2),
+                                horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
                               color: chipBg,
                               borderRadius: BorderRadius.circular(999),
@@ -513,24 +513,25 @@ class WalletSignatureStrip extends StatelessWidget {
                             child: Text(
                               'ASSINATURA INSTITUCIONAL',
                               style: GoogleFonts.poppins(
-                                fontSize: 6.0,
+                                fontSize: 5.4,
                                 fontWeight: FontWeight.w800,
                                 color: a.withValues(alpha: 0.95),
-                                letterSpacing: 0.35,
+                                letterSpacing: 0.3,
                               ),
                             ),
                           ),
                           if (signatoryName.trim().isNotEmpty) ...[
-                            const SizedBox(height: 3),
+                            const SizedBox(height: 2),
                             Text(
                               signatoryName.trim(),
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.poppins(
-                                fontSize: 8.7,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 10.8,
+                                fontWeight: FontWeight.w900,
                                 color: textColor,
-                                height: 1.12,
+                                height: 1.1,
+                                letterSpacing: -0.15,
                               ),
                             ),
                           ],
@@ -538,13 +539,13 @@ class WalletSignatureStrip extends StatelessWidget {
                             const SizedBox(height: 1),
                             Text(
                               signatoryCargo.trim(),
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.poppins(
-                                fontSize: 6.8,
-                                fontWeight: FontWeight.w600,
-                                color: textColor.withValues(alpha: 0.82),
-                                height: 1.1,
+                                fontSize: 8.6,
+                                fontWeight: FontWeight.w700,
+                                color: textColor.withValues(alpha: 0.94),
+                                height: 1.08,
                               ),
                             ),
                           ],
@@ -552,10 +553,10 @@ class WalletSignatureStrip extends StatelessWidget {
                       ),
                     ),
                     if (u.isNotEmpty) ...[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       SizedBox(
-                        width: 118,
-                        height: 42,
+                        width: 100,
+                        height: 34,
                         child: _WalletSigImage(url: u),
                       ),
                     ],
@@ -581,8 +582,8 @@ class _WalletSigImage extends StatefulWidget {
 }
 
 class _WalletSigImageState extends State<_WalletSigImage> {
-  static const double _sigW = 118;
-  static const double _sigH = 42;
+  static const double _sigW = 100;
+  static const double _sigH = 34;
 
   Uint8List? _pngBytes;
   bool _loading = true;

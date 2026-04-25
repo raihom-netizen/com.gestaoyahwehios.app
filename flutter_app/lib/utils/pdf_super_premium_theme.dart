@@ -448,12 +448,21 @@ class PdfSuperPremiumTheme {
                 ),
               ),
               pw.SizedBox(height: 6),
-              pw.Text(
-                signerName.trim().isEmpty
-                    ? 'Nome legível'
-                    : pdfSafeText(signerName.trim()),
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontSize: 7.4, color: _muted),
+              pw.Container(
+                width: double.infinity,
+                child: pw.Text(
+                  signerName.trim().isEmpty
+                      ? 'Nome legível'
+                      : pdfSafeText(signerName.trim()),
+                  textAlign: pw.TextAlign.center,
+                  maxLines: 5,
+                  overflow: pw.TextOverflow.clip,
+                  style: pw.TextStyle(
+                    fontSize: 7.4,
+                    color: _muted,
+                    lineSpacing: 1.12,
+                  ),
+                ),
               ),
             ],
           ),

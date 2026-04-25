@@ -94,63 +94,73 @@ Future<Uint8List> buildFornecedorReciboPdf({
             ),
           pw.Spacer(),
           pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             crossAxisAlignment: pw.CrossAxisAlignment.end,
             children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('Data: $dataStr', style: const pw.TextStyle(fontSize: 10)),
-                  pw.SizedBox(height: hasChurchSig ? 8 : 28),
-                  if (hasChurchSig)
-                    pw.SizedBox(
-                      width: 170,
-                      height: 30,
-                      child: pw.Image(
-                        pw.MemoryImage(churchSignatureImageBytes),
-                        fit: pw.BoxFit.contain,
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    pw.Text('Data: $dataStr', style: const pw.TextStyle(fontSize: 10)),
+                    pw.SizedBox(height: hasChurchSig ? 8 : 28),
+                    if (hasChurchSig)
+                      pw.Align(
+                        alignment: pw.Alignment.centerLeft,
+                        child: pw.SizedBox(
+                          width: 170,
+                          height: 30,
+                          child: pw.Image(
+                            pw.MemoryImage(churchSignatureImageBytes),
+                            fit: pw.BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    pw.Container(
+                      width: double.infinity,
+                      padding: const pw.EdgeInsets.only(top: 1),
+                      decoration: const pw.BoxDecoration(
+                        border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
                       ),
                     ),
-                  pw.Container(
-                    width: 220,
-                    decoration: const pw.BoxDecoration(
-                      border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      pdfSafeText(
+                        churchSignerName.trim().isEmpty
+                            ? 'Assinatura / carimbo - ${branding.churchName}'
+                            : churchSignerRole.trim().isEmpty
+                                ? churchSignerName.trim()
+                                : '${churchSignerName.trim()} — ${churchSignerRole.trim()}',
+                      ),
+                      style: const pw.TextStyle(fontSize: 9, lineSpacing: 1.15),
+                      textAlign: pw.TextAlign.left,
                     ),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    pdfSafeText(
-                      churchSignerName.trim().isEmpty
-                          ? 'Assinatura / carimbo - ${branding.churchName}'
-                          : churchSignerRole.trim().isEmpty
-                              ? churchSignerName.trim()
-                              : '${churchSignerName.trim()} — ${churchSignerRole.trim()}',
-                    ),
-                    style: const pw.TextStyle(fontSize: 9),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.SizedBox(height: hasChurchSig ? 38 : 66),
-                  pw.Container(
-                    width: 220,
-                    decoration: const pw.BoxDecoration(
-                      border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
+              pw.SizedBox(width: 14),
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    pw.SizedBox(height: hasChurchSig ? 38 : 66),
+                    pw.Container(
+                      width: double.infinity,
+                      padding: const pw.EdgeInsets.only(top: 1),
+                      decoration: const pw.BoxDecoration(
+                        border: pw.Border(bottom: pw.BorderSide(width: 0.8)),
+                      ),
                     ),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    pdfSafeText(
-                      fornecedorCpfCnpj != null && fornecedorCpfCnpj.trim().isNotEmpty
-                          ? 'Assinatura do fornecedor/prestador — $fornecedorNome (${fornecedorCpfCnpj.trim()})'
-                          : 'Assinatura do fornecedor/prestador — $fornecedorNome',
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      pdfSafeText(
+                        fornecedorCpfCnpj != null && fornecedorCpfCnpj.trim().isNotEmpty
+                            ? 'Assinatura do fornecedor/prestador — $fornecedorNome (${fornecedorCpfCnpj.trim()})'
+                            : 'Assinatura do fornecedor/prestador — $fornecedorNome',
+                      ),
+                      style: const pw.TextStyle(fontSize: 9, lineSpacing: 1.15),
+                      textAlign: pw.TextAlign.right,
                     ),
-                    style: const pw.TextStyle(fontSize: 9),
-                    textAlign: pw.TextAlign.right,
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
