@@ -3374,20 +3374,20 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
           if (ctaId != null && ctaId.isNotEmpty) {
             final fimAnt =
                 DateTime(_mesRefM.year, _mesRefM.month, 0, 23, 59, 59);
-            saldoIni = financeSaldoPorContaAteInclusive(
+            final sSaldoInicio = financeSaldoPorContaAteInclusive(
               contaIdsAtivas: {ctaId},
               lancamentos: allMaps,
               ateInclusive: fimAnt,
             )[ctaId] ??
                 0.0;
+            saldoIni = sSaldoInicio;
             final totM = _totaisReceitaDespesaPorContaNoMes(
                 snap.data?.docs ?? [], _mesRefM);
             final rM = totM[ctaId]?.receitas ?? 0.0;
             final dM = totM[ctaId]?.despesas ?? 0.0;
             recMes = rM;
             desMes = dM;
-            final s0 = saldoIni ?? 0.0;
-            saldoFim = s0 + rM - dM;
+            saldoFim = sSaldoInicio + rM - dM;
           }
 
           return Column(
