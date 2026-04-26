@@ -4458,7 +4458,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                         onPressed: () async {
                           final ok = await Navigator.push<bool>(
                             context,
-                            MaterialPageRoute(
+                            MaterialPageRoute<bool>(
+                              fullscreenDialog: true,
                               builder: (_) => FinanceSmartInputPage(
                                 tenantId: widget.tenantId,
                                 panelRole: widget.role,

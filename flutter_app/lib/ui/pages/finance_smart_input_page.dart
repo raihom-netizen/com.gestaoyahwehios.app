@@ -682,46 +682,128 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     return idx.where((i) => (_categoriaPorLinha[i] ?? '').trim().isEmpty).toList();
   }
 
+  void _fecharLancamentoInteligente() {
+    if (_saving) return;
+    Navigator.of(context).pop(false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        title: const Text('Importar / colar extrato',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        actions: [
-          TextButton(
-            onPressed: _saving || _text.text.isEmpty
-                ? null
-                : _selecionarTudoTexto,
-            child: const Text('Selecionar tudo', style: TextStyle(color: Colors.white70)),
+    final hasPreview = _rows.isNotEmpty;
+    final ordered = hasPreview ? _previewOrder() : <int>[];
+    return PopScope(
+      canPop: !_saving,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_saving) {
+          showFinanceSaveSnackBar(context,
+              message: 'A importar. Aguarde a concluir.',
+              isError: true);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          backgroundColor: ThemeCleanPremium.primary,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: 'Voltar',
+            onPressed: _saving ? null : _fecharLancamentoInteligente,
           ),
-          TextButton(
-            onPressed: _saving
-                ? null
-                : () {
-                    if (_text.text.isNotEmpty) {
-                      setState(() {
-                        _text.clear();
-                        _rows = const [];
-                        _selected.clear();
-                        _categoriaPorLinha.clear();
-                      });
-                    }
-                  },
-            child: const Text('Limpar', style: TextStyle(color: Colors.white70)),
+          title: const Text('Importar / colar extrato',
+              style: TextStyle(fontWeight: FontWeight.w800)),
+          centerTitle: false,
+          actions: [
+            TextButton(
+              onPressed: _saving ? null : _fecharLancamentoInteligente,
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: hasPreview
+            ? Material(
+                elevation: 10,
+                color: ThemeCleanPremium.surfaceVariant,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                    child: FilledButton.icon(
+                      onPressed: _saving || _importing || _rows.isEmpty
+                          ? null
+                          : _gravar,
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.check_rounded),
+                      label: Text(
+                        _saving
+                            ? 'A importar…'
+                            : 'Gravar selecionados no financeiro',
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
+        body: CustomScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    TextButton(
+                      onPressed: _saving || _text.text.isEmpty
+                          ? null
+                          : _selecionarTudoTexto,
+                      child: const Text('Selecionar tudo'),
+                    ),
+                    TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              if (_text.text.isNotEmpty) {
+                                setState(() {
+                                  _text.clear();
+                                  _rows = const [];
+                                  _selected.clear();
+                                  _categoriaPorLinha.clear();
+                                });
+                              }
+                            },
+                      child: const Text('Limpar campo'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
                 TextField(
                   controller: _text,
                   focusNode: _textFocus,
@@ -951,56 +1033,50 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                     );
                   },
                 ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _saving || _importing || _rows.isEmpty
-                      ? null
-                      : _gravar,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.check_rounded),
-                  label: Text(
-                      _saving
-                          ? 'A importar…'
-                          : 'Gravar selecionados no financeiro',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,),
-                ),
+                const SizedBox(height: 4),
               ],
             ),
-          ),
-          Expanded(
-            child: _rows.isEmpty
-                ? Center(
+            ),
+            ),
+            if (!hasPreview)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
                     child: Text(
-                    'Cole, escreva (Enter = nova linha; | separa itens) ou abra um CSV. Toque em «Gerar lançamentos» para ver a lista antes de gravar.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ))
-                : Builder(
-                    builder: (ctx) {
-                      final ordered = _previewOrder();
-                      if (ordered.isEmpty) {
-                        return Center(
-                          child: Text(
-                            _somenteSemCategoria
-                                ? 'Nenhum lançamento sem categoria no filtro atual.'
-                                : 'Nenhum lançamento disponível.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600),
-                          ),
-                        );
-                      }
-                      return ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: ordered.length,
-                    itemBuilder: (c, orderIdx) {
+                      'Cole, escreva (Enter = nova linha; | separa itens) ou abra um CSV. Toque em «Gerar lançamentos» para ver a lista antes de gravar.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else if (ordered.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      _somenteSemCategoria
+                          ? 'Nenhum lançamento sem categoria no filtro atual.'
+                          : 'Nenhum lançamento disponível.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (c, orderIdx) {
                       final i = ordered[orderIdx];
                       final r = _rows[i];
                       final categoriaAtual = (_categoriaPorLinha[i] ?? '').trim();
@@ -1125,11 +1201,17 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         ],
                       );
                     },
-                  );
-                    },
+                    childCount: ordered.length,
                   ),
-          ),
-        ],
+                ),
+              ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: hasPreview && ordered.isNotEmpty ? 8 : 24,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
