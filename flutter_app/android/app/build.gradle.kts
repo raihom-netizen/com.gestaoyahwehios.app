@@ -28,7 +28,10 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.gestaoyahweh.app"
     compileSdk = 36
-    ndkVersion = flutter.ndkVersion
+    // 16KB memory page size (Android 15+; Play exige a partir de Nov/2025): o NDK r28+ gera
+    // bibliotecas nativas com alinhamento ELF 16K. Não depender de flutter.ndkVersion, que
+    // em muitas instalações ainda é r26/r27. @see https://developer.android.com/guide/practices/page-sizes
+    ndkVersion = "28.0.13004108"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -77,6 +80,14 @@ android {
     // Evita :app:lintVitalAnalyzeRelease a bloquear ficheiros no Windows (antivírus/IDE).
     lint {
         checkReleaseBuilds = false
+    }
+
+    // Com AGP 8.5.1+ (settings.gradle.kts), empacotamento moderno: zip alignment 16K para .so
+    // não comprimidos — alinhado ao requisito Google Play 16K.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 

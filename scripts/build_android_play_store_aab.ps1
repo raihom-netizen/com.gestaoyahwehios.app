@@ -68,6 +68,10 @@ if (-not (Test-Path $OutAab)) {
     exit 1
 }
 
+# Google Play 16K page size: o projeto fixa NDK 28+ em android/app/build.gradle.kts. Se a Play
+# ainda rejeitar, abra o AAB/APK com APK Analyzer (Alignment) e actualize o plugin da .so indicada.
+Write-Host "Play 16K: NDK r28+ (android\app\build.gradle.kts). Resumo: https://developer.android.com/guide/practices/page-sizes" -ForegroundColor DarkGray
+
 $verLine = Select-String -Path (Join-Path $FlutterApp "pubspec.yaml") -Pattern "^version:\s*" | Select-Object -First 1
 $ver = if ($verLine) { ($verLine.Line -replace '^version:\s*', '').Trim() } else { "unknown" }
 $nameVer = "GestaoYahweh_$($ver -replace '\+', '_build')_play.aab"
