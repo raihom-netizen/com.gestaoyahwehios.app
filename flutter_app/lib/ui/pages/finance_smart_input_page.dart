@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
@@ -169,6 +170,53 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     return '$ds|$v|$desc|${r.type}';
   }
 
+  int _contarLinhasProvavelmenteDuplicadas(
+    List<BankNotificationParseResult> list,
+  ) {
+    final m = <String, int>{};
+    for (final r in list) {
+      if (!r.hasMinimumForConfirmation) continue;
+      final k = _rowKey(r);
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    var n = 0;
+    for (final c in m.values) {
+      if (c > 1) n += c - 1;
+    }
+    return n;
+  }
+
+  void _avisoAposPrevisualizar(
+    List<BankNotificationParseResult> sorted, {
+    required bool rowCapCsv,
+    required bool rowCapBatch,
+    required int unboundedBatch,
+  }) {
+    if (!mounted) return;
+    if (rowCapCsv) {
+      showFinanceSaveSnackBar(
+        context,
+        message:
+            'Limite de ${BankNotificationParser.kMaxBatchParseRows} linhas por lote. Divida o ficheiro ou importe o resto noutro lote.',
+      );
+    }
+    if (rowCapBatch) {
+      showFinanceSaveSnackBar(
+        context,
+        message:
+            'O texto gera $unboundedBatch lançamento(s); só as primeiras ${BankNotificationParser.kMaxBatchParseRows} entram na pré-visualização. Trate o resto noutro lote.',
+      );
+    }
+    final dup = _contarLinhasProvavelmenteDuplicadas(sorted);
+    if (dup > 0) {
+      showFinanceSaveSnackBar(
+        context,
+        message:
+            'Atenção: $dup linha(s) com o mesmo data+valor+descrição+tipo no lote. Revise antes de gravar.',
+      );
+    }
+  }
+
   Future<void> _criarCategoriaNaLinha({
     required bool isIncome,
     required int idx,
@@ -254,9 +302,9 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       return;
     }
     final t = _text.text;
-    final fromCsv = BankNotificationParser.parseFromCsvText(t);
-    if (fromCsv.isNotEmpty) {
-      final sorted = [...fromCsv]
+    final csvEx = BankNotificationParser.parseFromCsvTextEx(t);
+    if (csvEx.rows.isNotEmpty) {
+      final sorted = [...csvEx.rows]
         ..sort((a, b) {
           final ad = a.data ?? DateTime(2100);
           final bd = b.data ?? DateTime(2100);
@@ -280,12 +328,19 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       if (mounted) {
         showFinanceSaveSnackBar(
           context,
-          message: '${fromCsv.length} linha(s) de CSV na pré-visualização.',
+          message: '${csvEx.rows.length} linha(s) de CSV na pré-visualização.',
+        );
+        _avisoAposPrevisualizar(
+          sorted,
+          rowCapCsv: csvEx.rowCapApplied,
+          rowCapBatch: false,
+          unboundedBatch: 0,
         );
       }
       return;
     }
-    final list = BankNotificationParser.parseManyForBatch(t);
+    final batchEx = BankNotificationParser.parseManyForBatchEx(t);
+    final list = batchEx.rows;
     if (list.isNotEmpty) {
       final sorted = [...list]
         ..sort((a, b) {
@@ -308,6 +363,14 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           ..clear()
           ..addAll(List<int>.generate(sorted.length, (i) => i));
       });
+      if (mounted) {
+        _avisoAposPrevisualizar(
+          sorted,
+          rowCapCsv: false,
+          rowCapBatch: batchEx.rowCapApplied,
+          unboundedBatch: batchEx.unboundedLineCount,
+        );
+      }
       return;
     }
     final one = BankNotificationParser.parse(t);
@@ -442,6 +505,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       if (text.startsWith('\ufeff')) {
         text = text.substring(1);
       }
+      final truncated = text.length > BankNotificationParser.kMaxParseInputChars;
       if (text.length > BankNotificationParser.kMaxParseInputChars) {
         text = text.substring(0, BankNotificationParser.kMaxParseInputChars);
       }
@@ -454,8 +518,9 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
         });
         showFinanceSaveSnackBar(
           context,
-          message:
-              'Ficheiro carregado no campo. Toque em «Gerar lançamentos» para pré-visualizar.',
+          message: truncated
+              ? 'Ficheiro carregado (cortado a ${BankNotificationParser.kMaxParseInputChars} caracteres). Gere em partes se faltar o fim do extrato, depois «Gerar lançamentos».'
+              : 'Ficheiro carregado no campo. Toque em «Gerar lançamentos» para pré-visualizar.',
         );
       }
     } catch (e) {
@@ -737,6 +802,15 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                               inserir: '3000 em 4x cama e colchão',
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Parcelas automáticas: no máximo ${AppBusinessRules.maxInstallments} vezes por compra (limite de negócio).',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 11,
+                            height: 1.2,
+                          ),
                         ),
                       ],
                     ),

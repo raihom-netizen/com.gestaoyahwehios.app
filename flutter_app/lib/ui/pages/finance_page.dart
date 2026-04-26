@@ -3992,6 +3992,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
             ? snap.data![1] as QuerySnapshot<Map<String, dynamic>>
             : null;
         var docs = financeSnap?.docs ?? [];
+        final allLancsSnapshot = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
         final contasAtivasDocs = (contasSnap?.docs ?? [])
             .where((c) => c.data()['ativo'] != false)
             .toList();
@@ -4172,6 +4173,22 @@ class _LancamentosTabState extends State<_LancamentosTab> {
         }
 
         final rows = _buildLancamentosGroupedByDay(docs);
+        final filtroVazio = allLancsSnapshot.isNotEmpty && docs.isEmpty;
+        double aReceberAbertoFiltro = 0, aPagarAbertoFiltro = 0;
+        if (filtroVazio) {
+          for (final d in allLancsSnapshot) {
+            final data = d.data();
+            final tipo = (data['type'] ?? '').toString().toLowerCase();
+            if (tipo == 'transferencia') continue;
+            final valor = _parseValor(data['amount'] ?? data['valor']);
+            if (financeLancamentoPendenteRecebimento(data)) {
+              aReceberAbertoFiltro += valor;
+            }
+            if (financeLancamentoPendentePagamento(data)) {
+              aPagarAbertoFiltro += valor;
+            }
+          }
+        }
 
         return RefreshIndicator(
           onRefresh: () async {
@@ -4510,7 +4527,110 @@ class _LancamentosTabState extends State<_LancamentosTab> {
             ),
                 ),
               const SliverToBoxAdapter(child: SizedBox(height: 4)),
-              SliverPadding(
+              if (filtroVazio)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 8,
+                        ThemeCleanPremium.spaceLg, 100),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (aReceberAbertoFiltro > 0.009 || aPagarAbertoFiltro > 0.009) ...[
+                          Text(
+                            'Lançamentos em aberto (visão geral)',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Ajuste os filtros abaixo ou toque em «Limpar filtros» para ver a lista completa.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                          const SizedBox(height: 12),
+                          LayoutBuilder(
+                            builder: (context, c) {
+                              final wA = _TotalizadorCard(
+                                label: 'A receber',
+                                valor: aReceberAbertoFiltro,
+                                icon: Icons.schedule_send_rounded,
+                                color: const Color(0xFF0891B2),
+                                semanticsLabel:
+                                    'A receber em aberto, ${aReceberAbertoFiltro.toStringAsFixed(2)} reais',
+                              );
+                              final wP = _TotalizadorCard(
+                                label: 'A pagar',
+                                valor: aPagarAbertoFiltro,
+                                icon: Icons.pending_actions_rounded,
+                                color: const Color(0xFFEA580C),
+                                semanticsLabel:
+                                    'A pagar em aberto, ${aPagarAbertoFiltro.toStringAsFixed(2)} reais',
+                              );
+                              if (c.maxWidth < 520) {
+                                return Column(
+                                  children: [
+                                    wA,
+                                    const SizedBox(height: 10),
+                                    wP,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: wA),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: wP),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                        Icon(Icons.filter_alt_off_rounded, size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Nenhum lançamento com estes filtros.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Troque o extra (pendente, a pagar, conciliado, etc.), a conta ou a categoria, ou mostre tudo de novo.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.35),
+                        ),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _filtroTipo = 'todos';
+                                _filtroCategoria = 'todas';
+                                _filtroContaId = '__geral__';
+                                _filtroDoacaoKind = 'todos';
+                                _filtroExtra = 'todos';
+                              });
+                            },
+                            icon: const Icon(Icons.clear_all_rounded, size: 20),
+                            label: const Text('Limpar filtros'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: ThemeCleanPremium.primary,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
                 padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 4,
                     ThemeCleanPremium.spaceLg, 100),
                 sliver: SliverList(
@@ -6788,6 +6908,8 @@ class _TotalizadorCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback? onTap;
+  /// Acessibilidade: leitores de ecrã (e.g. VoiceOver) — resumo com valor.
+  final String? semanticsLabel;
 
   const _TotalizadorCard({
     required this.label,
@@ -6795,6 +6917,7 @@ class _TotalizadorCard extends StatelessWidget {
     required this.icon,
     required this.color,
     this.onTap,
+    this.semanticsLabel,
   });
 
   @override
@@ -6859,20 +6982,31 @@ class _TotalizadorCard extends StatelessWidget {
       ],
       border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
     );
-    if (onTap == null)
-      return Container(
+    Widget w;
+    if (onTap == null) {
+      w = Container(
           padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
           decoration: decoration,
           child: child);
-    return Material(
-        color: Colors.transparent,
-        child: InkWell(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-            onTap: onTap,
-            child: Container(
-                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                decoration: decoration,
-                child: child)));
+    } else {
+      w = Material(
+          color: Colors.transparent,
+          child: InkWell(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+              onTap: onTap,
+              child: Container(
+                  padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                  decoration: decoration,
+                  child: child)));
+    }
+    if (semanticsLabel == null || semanticsLabel!.trim().isEmpty) {
+      return w;
+    }
+    return Semantics(
+      label: semanticsLabel!.trim(),
+      container: true,
+      child: w,
+    );
   }
 }
 

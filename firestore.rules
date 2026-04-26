@@ -340,6 +340,8 @@ service cloud.firestore {
         allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
       }
+      // Lançamentos: sem lista fechada de chaves no cliente — importação inteligente pode gravar
+      // `smartPasteBatchId`, `source`, `parsedSnippet`, etc. (alinhado Controle Total; ver regras de merge no app).
       match /finance/{docId} {
         allow read: if isMaster()
           || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))

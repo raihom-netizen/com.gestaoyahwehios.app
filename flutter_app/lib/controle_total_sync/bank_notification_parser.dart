@@ -1,5 +1,7 @@
+import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/controle_total_sync/finance_bank_presets.dart';
 import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';
+import 'package:gestao_yahweh/utils/ocr_description_sanity.dart';
 
 /// Resultado do parse de SMS / push de banco (regex no cliente — custo zero).
 class BankNotificationParseResult {
@@ -46,6 +48,31 @@ class BankNotificationParseResult {
   }
 }
 
+/// Metadados do lote (limites) — [BankNotificationParser.parseManyForBatchEx].
+class BankNotificationParseManyOutcome {
+  final List<BankNotificationParseResult> rows;
+  /// Contagem de linhas de lançamento antes do teto [BankNotificationParser.kMaxBatchParseRows].
+  final int unboundedLineCount;
+  final bool rowCapApplied;
+
+  const BankNotificationParseManyOutcome({
+    required this.rows,
+    required this.unboundedLineCount,
+    required this.rowCapApplied,
+  });
+}
+
+/// Metadados do import CSV.
+class BankNotificationCsvParseOutcome {
+  final List<BankNotificationParseResult> rows;
+  final bool rowCapApplied;
+
+  const BankNotificationCsvParseOutcome({
+    required this.rows,
+    required this.rowCapApplied,
+  });
+}
+
 /// Extrai valor, data, estabelecimento e tipo (débito/crédito) de mensagens de banco.
 abstract final class BankNotificationParser {
   BankNotificationParser._();
@@ -59,41 +86,54 @@ abstract final class BankNotificationParser {
   /// Uma passagem de [parseManyForBatch]: primeiro lançamento para o cartão de confirmação + total para massa.
   /// Evita chamar [parse] no texto inteiro e depois [parseManyForBatch] de novo (dobro de trabalho).
   static (BankNotificationParseResult preview, int batchCount) parseForSmartInputField(String texto) {
-    final batch = parseManyForBatch(texto);
-    if (batch.isNotEmpty) {
-      return (batch.first, batch.length);
+    final o = parseManyForBatchEx(texto);
+    if (o.rows.isNotEmpty) {
+      return (o.rows.first, o.rows.length);
     }
     final p = parse(texto);
-    return (p, batch.length);
+    return (p, 0);
   }
 
   /// Parse de CSV de fatura/extrato exportado por **qualquer banco** (nomes de coluna variados).
   /// Deteta separador `,`, `;` ou TAB; mapeia data, descrição e valor (ou colunas débito/crédito);
   /// colunas extra (memo, merchant, category) são concatenadas à descrição quando existem.
   /// normaliza para [BankNotificationParseResult] (valor > 0, data, descrição, tipo receita/despesa).
-  static List<BankNotificationParseResult> parseFromCsvText(String csvText) {
+  static List<BankNotificationParseResult> parseFromCsvText(String csvText) =>
+      parseFromCsvTextEx(csvText).rows;
+
+  /// Igual a [parseFromCsvText] com indicação se a lista foi cortada em [kMaxBatchParseRows].
+  static BankNotificationCsvParseOutcome parseFromCsvTextEx(String csvText) {
     var text = csvText.replaceAll('\r', '\n').trim();
     if (text.startsWith('\ufeff')) {
       text = text.substring(1);
     }
-    if (text.isEmpty) return const [];
+    if (text.isEmpty) {
+      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+    }
 
     final lines = text
         .split('\n')
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
-    if (lines.length < 2) return const [];
+    if (lines.length < 2) {
+      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+    }
 
     final sep = _detectCsvSeparator(lines.first);
     final headerRaw = _splitCsvLine(lines.first, sep);
     final header = headerRaw.map(_normalizeCsvHeaderCell).toList();
-    if (header.length < 2) return const [];
+    if (header.length < 2) {
+      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+    }
 
     final idx = _resolveCsvColumnIndices(header, lines, sep);
-    if (idx == null) return const [];
+    if (idx == null) {
+      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+    }
 
     final out = <BankNotificationParseResult>[];
+    var cutOnRowLimit = false;
     for (final raw in lines.skip(1)) {
       final row = _splitCsvLine(raw, sep);
       if (row.isEmpty) continue;
@@ -108,7 +148,6 @@ abstract final class BankNotificationParser {
         final rawC = idx.creditIdx != null ? _csvAt(row, idx.creditIdx!).trim() : '';
         final d = rawD.isNotEmpty ? _parseDecimalFlexible(rawD) : null;
         final c = rawC.isNotEmpty ? _parseDecimalFlexible(rawC) : null;
-        // Débito → despesa (valor interno > 0); crédito → receita (valor interno < 0), alinhado à coluna única com sinal.
         if (d != null && d.abs() > 0) {
           signedAmt = d.abs();
         } else if (c != null && c.abs() > 0) {
@@ -139,9 +178,15 @@ abstract final class BankNotificationParser {
           rawSnippet: snippet,
         ),
       );
-      if (out.length >= kMaxBatchParseRows) break;
+      if (out.length >= kMaxBatchParseRows) {
+        cutOnRowLimit = true;
+        break;
+      }
     }
-    return out;
+    return BankNotificationCsvParseOutcome(
+      rows: out.map(_sanitizeDescInResult).toList(),
+      rowCapApplied: cutOnRowLimit,
+    );
   }
 
   static String _normalizeCsvHeaderCell(String cell) {
@@ -548,8 +593,9 @@ abstract final class BankNotificationParser {
     return '$day|$v|$d';
   }
 
+  /// Aceita `R$ 50`, `r$ 1.000,00`, `R$50,5` (centavos opcionais).
   static final RegExp _reValor = RegExp(
-    r'R\$\s*((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})',
+    r'R\$\s*([\d]{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,9})',
     caseSensitive: false,
   );
   static final RegExp _reData = RegExp(r'(\d{2}/\d{2}/\d{4})');
@@ -557,8 +603,19 @@ abstract final class BankNotificationParser {
   /// Palavras que indicam entrada de dinheiro.
   static final List<RegExp> _incomeHints = [
     RegExp(r'PIX\s+RECEBIDO', caseSensitive: false),
+    RegExp(r'PIX\s+RECEB', caseSensitive: false), // «pix recebido», bancos
     RegExp(r'PIX\s+.*CREDITAD', caseSensitive: false),
     RegExp(r'CREDITO\s+(?:DE\s+)?PIX', caseSensitive: false),
+    RegExp(r'\bRECEBI\b', caseSensitive: false), // digitação: «recebi pix 400» / «recebi salário»
+    RegExp(r'RECEBID[OA]\b', caseSensitive: false), // salário recebido, bônus recebido
+    RegExp(r'CR[ÉE]DITO\s+(?:EM|NA)\s+CONTA', caseSensitive: false),
+    RegExp(r'\bSAL[ÁA]RIO\s+RECEB', caseSensitive: false),
+    RegExp(r'RECEB[OA]\s+.*SAL[ÁA]RIO', caseSensitive: false),
+    RegExp(r'\bCOMISS[AÃ]O\s+RECEB', caseSensitive: false),
+    RegExp(r'RECEB[OA].*COMISS', caseSensitive: false),
+    RegExp(r'\bB[ÔO]NUS\s+RECEB', caseSensitive: false),
+    RegExp(r'\bGRATIF\w*', caseSensitive: false), // gratificação
+    RegExp(r'\bPR[ÓO]LAB\w*', caseSensitive: false), // pró-labore
     RegExp(r'TED\s+.*?(?:CREDIT|RECEB)', caseSensitive: false),
     RegExp(r'DEPOSITO\s+', caseSensitive: false),
     RegExp(r'TRANSFERENCIA\s+RECEB', caseSensitive: false),
@@ -567,6 +624,7 @@ abstract final class BankNotificationParser {
 
   /// Palavras que indicam saída.
   static final List<RegExp> _expenseHints = [
+    RegExp(r'\bPAGUEI\b', caseSensitive: false), // «paguei conta X» (não confundir com receita)
     RegExp(r'COMPRA\s+APROVAD', caseSensitive: false),
     RegExp(r'COMPRA\s+(?:NO\s+)?DEBITO', caseSensitive: false),
     RegExp(r'COMPRA\s+NO\s+CART', caseSensitive: false),
@@ -586,40 +644,45 @@ abstract final class BankNotificationParser {
     return DateTime(y, m, day, d.hour, d.minute, d.second);
   }
 
+  static int _maxParcelasSmart() => AppBusinessRules.maxInstallments;
+
   static int? _detectParcelaCountPt(String lower) {
     if (RegExp(r'\bcada\s+parcela\b|\bpor\s+parcela\b|\bvalor\s+de\s+cada\b', caseSensitive: false).hasMatch(lower)) {
       return null;
     }
-    // 10 parcelas de 250,00
-    final mParcelasDe = RegExp(r'^(\d{1,2})\s+parcelas?\s+de\s+', caseSensitive: false).firstMatch(lower);
-    if (mParcelasDe != null) {
-      final n = int.tryParse(mParcelasDe.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+    final maxN = _maxParcelasSmart();
+    final mNDe = RegExp(r'\b(\d{1,3})\s+parcelas?\s+de\b', caseSensitive: false).firstMatch(lower);
+    if (mNDe != null) {
+      final n = int.tryParse(mNDe.group(1)!);
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mXde = RegExp(r'(?:^|\s)(\d{1,2})\s*x\s*de\s+', caseSensitive: false).firstMatch(lower);
-    if (mXde != null) {
-      final n = int.tryParse(mXde.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+    final mXDe = RegExp(r'\b(\d{1,3})\s*x\s+de\s+(?:r\$\s*)?[\d.,]+', caseSensitive: false).firstMatch(lower);
+    if (mXDe != null) {
+      final n = int.tryParse(mXDe.group(1)!);
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mEmX = RegExp(r'\bem\s+(\d{1,2})\s*x\b', caseSensitive: false).firstMatch(lower);
-    if (mEmX != null) {
-      final n = int.tryParse(mEmX.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+    final mTotEm = RegExp(
+      r'(?:valor\s+total\s+parcelad[oa]?|total\s+parcelad[oa]?)\s+em\s+(\d{1,3})\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
+    if (mTotEm != null) {
+      final n = int.tryParse(mTotEm.group(1)!);
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mEm = RegExp(r'\bem\s+(\d{1,2})\s+parcelas\b', caseSensitive: false).firstMatch(lower);
+    final mEm = RegExp(r'\bem\s+(\d{1,3})\s+parcelas\b', caseSensitive: false).firstMatch(lower);
     if (mEm != null) {
       final n = int.tryParse(mEm.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mDiv = RegExp(r'\bdividido\s+em\s+(\d{1,2})\s*(?:parcelas|vezes)?\b', caseSensitive: false).firstMatch(lower);
+    final mDiv = RegExp(r'\bdividido\s+em\s+(\d{1,3})\s*(?:parcelas|vezes)?\b', caseSensitive: false).firstMatch(lower);
     if (mDiv != null) {
       final n = int.tryParse(mDiv.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mWx = RegExp(r'\b(\d{1,2})\s*x\s+sem\s+juros\b', caseSensitive: false).firstMatch(lower);
+    final mWx = RegExp(r'\b(\d{1,3})\s*x\s*sem\s+juros\b', caseSensitive: false).firstMatch(lower);
     if (mWx != null) {
       final n = int.tryParse(mWx.group(1)!);
-      if (n != null && n >= 2 && n <= 36) return n;
+      if (n != null && n >= 2 && n <= maxN) return n;
     }
     final mPal = RegExp(
       r'\bem\s+(duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas\b',
@@ -643,12 +706,85 @@ abstract final class BankNotificationParser {
         'doze': 12,
       };
       final key = mPal.group(1)!.toLowerCase();
-      return map[key];
+      final v0 = map[key];
+      if (v0 != null && v0 >= 2 && v0 <= maxN) return v0;
+    }
+    final mParcVez = RegExp(r'\bparcelad[oa]?\s+em\s+(\d{1,3})\s+vezes\b', caseSensitive: false).firstMatch(lower);
+    if (mParcVez != null) {
+      final n = int.tryParse(mParcVez.group(1)!);
+      if (n != null && n >= 2 && n <= maxN) return n;
+    }
+    final mEmVezes = RegExp(r'\bem\s+(\d{1,3})\s+vezes\b', caseSensitive: false).firstMatch(lower);
+    if (mEmVezes != null) {
+      final n = int.tryParse(mEmVezes.group(1)!);
+      if (n != null && n >= 2 && n <= maxN) return n;
+    }
+    return null;
+  }
+
+  /// Valor de **cada** parcela em expressões do tipo «10 parcelas de 250,00» (não confundir com total).
+  static double? _perParcelaReaisFromText(String lower, int n) {
+    if (n < 2) return null;
+    final m = RegExp(
+      r'^\D*?(\d{1,3})\s+parcelas?\s+de\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+,\d{1,2}|\d{1,7})\b',
+      caseSensitive: false,
+    ).firstMatch(lower.trim());
+    if (m != null) {
+      final n1 = int.tryParse(m.group(1)!);
+      if (n1 == n) {
+        final raw = m.group(2)!;
+        final v = _parseBrDecimal(raw) ?? _parseDecimalFlexible(raw);
+        if (v != null && v > 0) return v;
+      }
+    }
+    final m2 = RegExp(
+      r'^\D*?(\d{1,3})\s*x\s+de\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+,\d{1,2}|\d{1,7})',
+      caseSensitive: false,
+    ).firstMatch(lower.trim());
+    if (m2 != null) {
+      final n1 = int.tryParse(m2.group(1)!);
+      if (n1 == n) {
+        final raw = m2.group(2)!;
+        final v = _parseBrDecimal(raw) ?? _parseDecimalFlexible(raw);
+        if (v != null && v > 0) return v;
+      }
+    }
+    return null;
+  }
+
+  /// [baseValor] = valor principal inferido (ex. valor de cada parcela se o texto o diz explicitamente).
+  static double? _perParcelaReaisFromTextWithBase(String lower, int n, double? baseValor) {
+    final a = _perParcelaReaisFromText(lower, n);
+    if (a != null) return a;
+    if (baseValor == null || baseValor <= 0) return null;
+    if (RegExp(r'\bvalor\s+de\s+cada\s+parcela', caseSensitive: false).hasMatch(lower)) {
+      return baseValor;
+    }
+    final mm = RegExp(
+      r'\bcada\s+parcela\s+(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+,\d{1,2}|\d{1,7})',
+      caseSensitive: false,
+    ).firstMatch(lower);
+    if (mm != null) {
+      final v = _parseBrDecimal(mm.group(1)!) ?? _parseDecimalFlexible(mm.group(1)!);
+      if (v != null && v > 0) return v;
     }
     return null;
   }
 
   static DateTime? _parsePrimeiroVencimentoPt(String lower) {
+    final reComeca = RegExp(
+      r'(?:começando\s+em|comecando\s+em|inicio\s+em|início\s+em|venc(?:imento)?\s*(?:inicial)?)\s*[:\s]*(\d{2}/\d{2}(?:/\d{4})?)',
+      caseSensitive: false,
+    );
+    final mc = reComeca.firstMatch(lower);
+    if (mc != null) {
+      final cap = mc.group(1)!;
+      if (cap.length == 5) {
+        final y = DateTime.now().year;
+        return _parseDataBr('$cap/$y');
+      }
+      return _parseDataBr(cap);
+    }
     final re = RegExp(
       r'(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*(\d{2}/\d{2}(?:/\d{4})?)',
       caseSensitive: false,
@@ -666,20 +802,35 @@ abstract final class BankNotificationParser {
   static String _stripParcelaBoilerplatePt(String desc) {
     var s = desc.trim();
     s = s.replaceAll(
-      RegExp(r'^\d{1,2}\s*x\s*de\s+(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}\s*', caseSensitive: false),
+      RegExp(r'^\d{1,3}\s+parcelas?\s+de\s*(?:r\$\s*)?[\d.,]+\s*', caseSensitive: false),
       '',
     );
     s = s.replaceAll(
-      RegExp(r'^\d{1,2}\s+parcelas?\s+de\s+(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}\s*', caseSensitive: false),
+      RegExp(r'^\d{1,3}\s*x\s+de\s*(?:r\$\s*)?[\d.,]+\s*', caseSensitive: false),
       '',
     );
-    s = s.replaceAll(RegExp(r'^\s*em\s+\d{1,2}\s*x\s*', caseSensitive: false), '');
     s = s.replaceAll(
-      RegExp(r'\s*em\s+(?:\d{1,2}|duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas.*$', caseSensitive: false),
+      RegExp(r'\s*em\s+(?:\d{1,3}|duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas.*$', caseSensitive: false),
       '',
     );
+    s = s.replaceAll(
+      RegExp(r'\s*parcelad[oa]?\s+em\s+\d{1,2}\s+vezes.*$', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(
+      RegExp(r'\s*em\s+\d{1,2}\s+vezes.*$', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(RegExp(r'\s*valor\s+total\b.*$', caseSensitive: false), '');
     s = s.replaceAll(
       RegExp(r'\s*(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(
+      RegExp(
+        r'\s*(?:começando\s+em|comecando\s+em|inicio\s+em|início\s+em)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -696,9 +847,16 @@ abstract final class BankNotificationParser {
     final n = _detectParcelaCountPt(lower);
     if (n == null || n < 2) return [base];
 
-    final total = base.valor!;
-    final totalCents = (total * 100).round();
-    if (totalCents < n) return [base];
+    final perEach = _perParcelaReaisFromTextWithBase(lower, n, base.valor);
+    final int totalCents;
+    if (perEach != null) {
+      totalCents = (perEach * 100).round();
+      if (totalCents < 1) return [base];
+    } else {
+      final total = base.valor!;
+      totalCents = (total * 100).round();
+      if (totalCents < n) return [base];
+    }
 
     final firstDue = _parsePrimeiroVencimentoPt(lower) ?? base.data ?? DateTime.now();
     final baseDesc = (base.descricao ?? '').trim();
@@ -708,10 +866,15 @@ abstract final class BankNotificationParser {
     final baseSnippet = sourceText.length > 380 ? sourceText.substring(0, 380) : sourceText;
     final out = <BankNotificationParseResult>[];
     for (var i = 0; i < n; i++) {
-      final each = totalCents ~/ n;
-      final rem = totalCents % n;
-      final cents = each + (i < rem ? 1 : 0);
-      final v = cents / 100.0;
+      final double v;
+      if (perEach != null) {
+        v = perEach;
+      } else {
+        final each = totalCents ~/ n;
+        final rem = totalCents % n;
+        final cents = each + (i < rem ? 1 : 0);
+        v = cents / 100.0;
+      }
       final dt = _addCalendarMonths(firstDue, i);
       final label = '$labelBase (${i + 1}/$n)';
       final snip = '$baseSnippet · p${i + 1}/$n';
@@ -727,12 +890,21 @@ abstract final class BankNotificationParser {
     return out;
   }
 
+  static List<BankNotificationParseResult> parseManyForBatch(String texto) =>
+      parseManyForBatchEx(texto).rows;
+
   /// Vários SMS, blocos separados por linha em branco, ou mensagens coladas
   /// (ex.: vários «BRADESCO CARTOES:» seguidos), mais linhas em formato livre
   /// (`supermercado 100`, `13/04/2026 farmácia 20,00`).
-  static List<BankNotificationParseResult> parseManyForBatch(String texto) {
+  static BankNotificationParseManyOutcome parseManyForBatchEx(String texto) {
     var t = FinanceSmartInputText.sanitize(texto.trim());
-    if (t.isEmpty) return const [];
+    if (t.isEmpty) {
+      return const BankNotificationParseManyOutcome(
+        rows: [],
+        unboundedLineCount: 0,
+        rowCapApplied: false,
+      );
+    }
     if (t.length > kMaxParseInputChars) {
       t = t.substring(0, kMaxParseInputChars);
     }
@@ -766,12 +938,8 @@ abstract final class BankNotificationParser {
         }
         return;
       }
-      var lines = trimmed
-          .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      lines = _mergeWrappedFaturaLines(lines);
+      final linesRaw = trimmed.split(RegExp(r'[\r\n]+')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final lines = _mergeWrappedFaturaLines(linesRaw);
       if (lines.length > 1) {
         final bankish = lines.where(_looksLikeStandaloneBankLine).length;
         if (bankish >= 2) {
@@ -802,12 +970,30 @@ abstract final class BankNotificationParser {
           return;
         }
       }
-      final whole = parse(trimmed);
+      // Uma linha: vários itens com | ou vírgula («mercado 10,00 | farmácia 150,00» ou com vírgulas, sem partir 1.234,56)
+      // têm de ser resolvidos *antes* de [parse] no texto completo, senão ganha só o 1.º/último bloco.
+      var workForLine = trimmed;
+      if (lines.length == 1) {
+        workForLine = _normalizeListLikePastedLine(lines.first);
+        if (RegExp(r'[,;|]').hasMatch(workForLine)) {
+          final multiFirst = _tryFreeformCompositeLine(workForLine);
+          if (multiFirst != null && multiFirst.length >= 2) {
+            for (final c in multiFirst) {
+              if (c.hasMinimumForConfirmation) {
+                out.addAll(_expandInstallmentsFromText(c.rawSnippet, c));
+              }
+            }
+            return;
+          }
+        }
+      }
+      final whole = parse(workForLine);
       if (whole.hasMinimumForConfirmation) {
-        out.addAll(_expandInstallmentsFromText(trimmed, whole));
+        out.addAll(_expandInstallmentsFromText(workForLine, whole));
         return;
       }
-      for (final line in lines) {
+      final linesToParse = lines.length == 1 ? <String>[workForLine] : lines;
+      for (final line in linesToParse) {
         final L = line.trim();
         if (L.isEmpty) continue;
         var r = parse(L);
@@ -840,11 +1026,7 @@ abstract final class BankNotificationParser {
         addFromBlock(p);
       }
     } else {
-      final paragraphs = t
-          .split(RegExp(r'\n\s*\n'))
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
+      final paragraphs = t.split(RegExp(r'\n\s*\n')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       if (paragraphs.isEmpty) {
         addFromBlock(t);
       } else {
@@ -854,10 +1036,67 @@ abstract final class BankNotificationParser {
       }
     }
 
+    final unbounded = out.length;
+    List<BankNotificationParseResult> mapped = out;
     if (out.length > kMaxBatchParseRows) {
-      return out.sublist(0, kMaxBatchParseRows);
+      mapped = out.sublist(0, kMaxBatchParseRows);
+    }
+    return BankNotificationParseManyOutcome(
+      rows: mapped.map(_sanitizeDescInResult).toList(),
+      unboundedLineCount: unbounded,
+      rowCapApplied: unbounded > kMaxBatchParseRows,
+    );
+  }
+
+  static final RegExp _reFaturaDateStart = RegExp(r'^\d{2}/\d{2}(?:/\d{4})?\b');
+  static final RegExp _reMoneyTokenNearEnd = RegExp(
+    r'(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d{1,3}(?:\.\d{3})*|\d+)\s*-?\s*$',
+    caseSensitive: false,
+  );
+
+  /// Alguns PDFs quebram uma compra em 2-3 linhas:
+  /// `01/03 RESTAURANTE XYZ` + `CIDADE` + `3,50`.
+  /// Este merge recompõe uma linha única para o parser de fatura.
+  static List<String> _mergeWrappedFaturaLines(List<String> lines) {
+    if (lines.length < 2) return lines;
+    final out = <String>[];
+    var i = 0;
+    while (i < lines.length) {
+      final cur = lines[i].trim();
+      if (_reFaturaDateStart.hasMatch(cur) && !_reMoneyTokenNearEnd.hasMatch(cur)) {
+        var merged = cur;
+        var j = i + 1;
+        var hops = 0;
+        while (j < lines.length && hops < 2) {
+          final nxt = lines[j].trim();
+          if (nxt.isEmpty) {
+            j++;
+            continue;
+          }
+          if (_reFaturaDateStart.hasMatch(nxt) && _reMoneyTokenNearEnd.hasMatch(nxt)) {
+            break;
+          }
+          merged = '$merged $nxt';
+          hops++;
+          j++;
+          if (_reMoneyTokenNearEnd.hasMatch(merged)) break;
+        }
+        out.add(merged.trim());
+        i = j;
+        continue;
+      }
+      out.add(cur);
+      i++;
     }
     return out;
+  }
+
+  static BankNotificationParseResult _sanitizeDescInResult(BankNotificationParseResult r) {
+    final d = r.descricao;
+    if (d == null || d.trim().isEmpty) return r;
+    final s = OcrDescriptionSanity.sanitize(d);
+    if (s == d) return r;
+    return r.copyWith(descricao: s);
   }
 
   /// Recorta texto de fatura (PDF ou cópia) à zona **Lançamentos** / tabela de movimentos; ignora capa, limites e resumo.
@@ -946,8 +1185,6 @@ abstract final class BankNotificationParser {
     if (t.endsWith('-')) {
       t = t.substring(0, t.length - 1).trimRight();
     }
-    // Alguns extratos trazem sinal colado no fim do valor (ex.: 9,17-).
-    t = t.replaceAll(RegExp(r'(?<=\d,\d{2})\s*-$'), '');
 
     var toks = t.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
     while (toks.isNotEmpty && toks.last == '-') {
@@ -955,39 +1192,37 @@ abstract final class BankNotificationParser {
     }
     if (toks.length < 3) return null;
 
-    String? lastAmountTok;
-    var lastIsInteger = false;
-    String? intFallbackTok;
-    var intFallbackCut = toks.length;
+    String? lastBrl;
     var cut = toks.length;
     for (var i = toks.length - 1; i >= 0; i--) {
       var tok = toks[i].trim();
+      tok = tok.replaceFirst(RegExp(r'^(R\$)\s*', caseSensitive: false), '');
       if (tok.endsWith('-') && tok.length > 1) {
         tok = tok.substring(0, tok.length - 1).trim();
       }
-      if (RegExp(r'^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2})$').hasMatch(tok)) {
-        lastAmountTok = tok;
-        lastIsInteger = false;
+      if (RegExp(r'^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d+\.\d{2}|\d{1,3}(?:\.\d{3})*|\d+)$').hasMatch(tok)) {
+        if (tok.contains('.') && !tok.contains(',')) {
+          final onlyDotsAsThousands = RegExp(r'^\d{1,3}(?:\.\d{3})+$').hasMatch(tok);
+          if (onlyDotsAsThousands) {
+            tok = tok.replaceAll('.', '');
+          } else {
+            tok = tok.replaceAll('.', ',');
+          }
+        }
+        lastBrl = tok;
         cut = i;
         break;
       }
-      if (intFallbackTok == null &&
-          RegExp(r'^(?:\d{1,3}(?:\.\d{3})+|\d{1,6})$').hasMatch(tok) &&
-          _isPlausibleFaturaIntegerToken(tok)) {
-        intFallbackTok = tok;
-        intFallbackCut = i;
-      }
     }
-    if (lastAmountTok == null && intFallbackTok != null) {
-      lastAmountTok = intFallbackTok;
-      lastIsInteger = true;
-      cut = intFallbackCut;
-    }
-    if (lastAmountTok == null) return null;
+    if (lastBrl == null) return null;
 
-    final val = lastIsInteger
-        ? _parseBrIntegerMoney(lastAmountTok)
-        : _parseBrDecimal(lastAmountTok);
+    double? val;
+    final intLike = RegExp(r'^\d{1,3}(?:\.\d{3})*$|^\d+$').hasMatch(lastBrl);
+    if (intLike) {
+      val = double.tryParse(lastBrl.replaceAll('.', ''));
+    } else {
+      val = _parseBrDecimal(lastBrl);
+    }
     if (val == null || val <= 0) return null;
 
     final headToks = toks.sublist(0, cut);
@@ -1019,74 +1254,6 @@ abstract final class BankNotificationParser {
     );
   }
 
-  static bool _lineStartsWithFaturaDate(String line) {
-    final s = line.trim();
-    return RegExp(r'^\d{2}/\d{2}(?:/\d{4})?\b').hasMatch(s);
-  }
-
-  static bool _lineContainsFinalBrlAmount(String line) {
-    final s = line.trim();
-    return RegExp(
-      r'(?:^|\s)(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d{1,3}(?:\.\d{3})+|\d{1,6})(?:\s*-\s*)?$',
-    ).hasMatch(s);
-  }
-
-  static bool _isPlausibleFaturaIntegerToken(String tok) {
-    final clean = tok.replaceAll('.', '').trim();
-    final n = int.tryParse(clean);
-    if (n == null || n <= 0) return false;
-    // Evita capturar ano no fim da descrição (ex.: 2026).
-    if (n >= 1900 && n <= 2099) return false;
-    return true;
-  }
-
-  /// Junta quebras comuns de fatura/PDF:
-  /// - data + descrição numa linha e valor na seguinte
-  /// - linha intermédia curta (ex.: "D") antes do valor
-  static List<String> _mergeWrappedFaturaLines(List<String> lines) {
-    final out = <String>[];
-    String? pending;
-
-    void flushPending() {
-      if (pending != null && pending!.trim().isNotEmpty) {
-        out.add(pending!.trim());
-      }
-      pending = null;
-    }
-
-    for (final raw in lines) {
-      final line = raw.trim();
-      if (line.isEmpty) continue;
-
-      if (pending == null) {
-        if (_lineStartsWithFaturaDate(line) && !_lineContainsFinalBrlAmount(line)) {
-          pending = line;
-        } else {
-          out.add(line);
-        }
-        continue;
-      }
-
-      if (_lineStartsWithFaturaDate(line)) {
-        flushPending();
-        if (_lineContainsFinalBrlAmount(line)) {
-          out.add(line);
-        } else {
-          pending = line;
-        }
-        continue;
-      }
-
-      pending = '${pending!} $line'.replaceAll(RegExp(r'\s+'), ' ').trim();
-      if (_lineContainsFinalBrlAmount(pending!)) {
-        flushPending();
-      }
-    }
-
-    flushPending();
-    return out;
-  }
-
   /// Texto extraído de fatura PDF: limita à zona **Lançamentos** e devolve linhas como [BankNotificationParseResult].
   static List<BankNotificationParseResult> parseFromFaturaPdfPlainText(String fullText) {
     final slice = sliceToFaturaLancamentosSection(fullText);
@@ -1114,9 +1281,12 @@ abstract final class BankNotificationParser {
       if (r.hasMinimumForConfirmation) results.add(r);
     }
     if (results.length > kMaxBatchParseRows) {
-      return results.sublist(0, kMaxBatchParseRows);
+      return results
+          .sublist(0, kMaxBatchParseRows)
+          .map(_sanitizeDescInResult)
+          .toList();
     }
-    return results;
+    return results.map(_sanitizeDescInResult).toList();
   }
 
   static bool _looksLikeStandaloneBankLine(String line) {
@@ -1143,13 +1313,18 @@ abstract final class BankNotificationParser {
     return parts;
   }
 
-  /// Vários lançamentos livres na mesma linha, separados por vírgula ou `;`, sem partir valores `1.234,56`.
-  /// Ex.: `100 mercado, 157,80 farmacia, abastecimento gasolina 237,50`.
+  /// Corrige colagem «R$ R$»; não mexe em «8, 750» (código especial a jusante).
+  static String _normalizeListLikePastedLine(String t) {
+    return t.replaceAll(RegExp(r'R\$\s*R\$\s*', caseSensitive: false), r'R$ ').trim();
+  }
+
+  /// Vários lançamentos livres na mesma linha, separados por **|** (preferido), vírgula ou `;`, sem partir valores `1.234,56`.
+  /// Ex.: `100 mercado | 157,80 farmacia` ou `100 mercado, 157,80 farmacia`.
   static List<BankNotificationParseResult>? _tryFreeformCompositeLine(String line) {
     final t = line.trim();
     if (t.length < 5) return null;
     if (_tryFaturaCardStatementLine(t) != null) return null;
-    if (!RegExp(r'[,;]').hasMatch(t)) return null;
+    if (!RegExp(r'[,;|]').hasMatch(t)) return null;
 
     var parts = _splitFreeformCompositeParts(t);
     if (parts.length < 2) return null;
@@ -1167,9 +1342,26 @@ abstract final class BankNotificationParser {
   static const String _kBrAmountPh = '\uE000';
   static const String _kBrAmountPhEnd = '\uE001';
 
+  /// Campo Lançamento inteligente: converte **vírgulas** (ou `;`) **entre** itens em ` | `,
+  /// com a mesma proteção de `1.234,56` que o parse. Assim o utilizador **não precisa** de teclar o pipe.
+  static String? smartInputAutoPipesFromListCommas(String line) {
+    final t = line.trim();
+    if (t.isEmpty) return null;
+    if (t.contains('|')) return null;
+    if (!RegExp(r'[,;]').hasMatch(t)) return null;
+    final parts = _splitFreeformCompositeParts(t);
+    if (parts.length < 2) return null;
+    return parts.join(' | ');
+  }
+
   static List<String> _splitFreeformCompositeParts(String line) {
+    // Ex.: «feira 89, 55» (vírgula+espaço no teclado) → «89,55» antes de máscar, sem capturar «8, 750» (75+0).
+    var pre = line.replaceAllMapped(
+      RegExp(r'\b(\d{1,3}(?:\.\d{3})*),\s*(\d{2})(?![0-9])'),
+      (m) => '${m[1]},${m[2]}',
+    );
     final amounts = <String>[];
-    var masked = line.replaceAllMapped(
+    var masked = pre.replaceAllMapped(
       RegExp(r'\d{1,3}(?:\.\d{3})*,\d{2}\b'),
       (m) {
         amounts.add(m.group(0)!);
@@ -1177,7 +1369,7 @@ abstract final class BankNotificationParser {
       },
     );
     return masked
-        .split(RegExp(r'\s*[,;]\s*'))
+        .split(RegExp(r'\s*[,;|]\s*'))
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .map((e) {
@@ -1210,114 +1402,10 @@ abstract final class BankNotificationParser {
     return out;
   }
 
-  static const String _kDescParceladoDefault = 'Lançamento parcelado';
-
-  /// Parcelas em linguagem natural: `10x de 250,00`, `6 parcelas de 500,00`, `1.500,00 em 6x`, `3000 em 4x cama`.
-  static BankNotificationParseResult? _tryFreeformInstallmentNaturalPt(String t0) {
-    final t = t0.trim();
-    if (t.length < 4) return null;
-
-    var m = RegExp(
-      r'^(\d{1,2})\s*x\s*de\s+(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})(?:\s+(.+))?$',
-      caseSensitive: false,
-    ).firstMatch(t);
-    if (m != null) {
-      final n0 = int.tryParse(m.group(1)!);
-      if (n0 == null || n0 < 2 || n0 > 36) return null;
-      final each = _parseBrDecimal(m.group(2)!);
-      if (each == null || each <= 0) return null;
-      final rest = (m.group(3) ?? '').trim();
-      final desc = rest.isNotEmpty ? rest : _kDescParceladoDefault;
-      final total = each * n0;
-      if (desc.isEmpty) return null;
-      return BankNotificationParseResult(
-        valor: total,
-        data: DateTime.now(),
-        descricao: desc,
-        type: _inferType('$desc $t0'),
-        suggestedPresetId: _suggestBankPreset(t0),
-        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
-      );
-    }
-
-    m = RegExp(
-      r'^(\d{1,2})\s+parcelas?\s+de\s+(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})(?:\s+(.+))?$',
-      caseSensitive: false,
-    ).firstMatch(t);
-    if (m != null) {
-      final n0 = int.tryParse(m.group(1)!);
-      if (n0 == null || n0 < 2 || n0 > 36) return null;
-      final each = _parseBrDecimal(m.group(2)!);
-      if (each == null || each <= 0) return null;
-      final rest = (m.group(3) ?? '').trim();
-      final desc = rest.isNotEmpty ? rest : _kDescParceladoDefault;
-      final total = each * n0;
-      return BankNotificationParseResult(
-        valor: total,
-        data: DateTime.now(),
-        descricao: desc,
-        type: _inferType('$desc $t0'),
-        suggestedPresetId: _suggestBankPreset(t0),
-        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
-      );
-    }
-
-    m = RegExp(
-      r'^(?:R\$\s*)?((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})\s+em\s+(\d{1,2})\s*x(?:(?:\b|\s+)(.+?))?\s*$',
-      caseSensitive: false,
-    ).firstMatch(t);
-    if (m != null) {
-      final n0 = int.tryParse(m.group(2)!);
-      if (n0 == null || n0 < 2 || n0 > 36) return null;
-      final total0 = _parseBrDecimal(m.group(1)!);
-      if (total0 == null || total0 <= 0) return null;
-      var rest = (m.group(3) ?? '').trim();
-      if (rest.isEmpty) rest = _kDescParceladoDefault;
-      return BankNotificationParseResult(
-        valor: total0,
-        data: DateTime.now(),
-        descricao: rest,
-        type: _inferType('$rest $t0'),
-        suggestedPresetId: _suggestBankPreset(t0),
-        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
-      );
-    }
-
-    m = RegExp(
-      r'^(\d{1,4})\s+em\s+(\d{1,2})\s*x(?:(?:\b|\s+)(.+?))?\s*$',
-      caseSensitive: false,
-    ).firstMatch(t);
-    if (m != null) {
-      final a0 = int.tryParse(m.group(1)!);
-      final n0 = int.tryParse(m.group(2)!);
-      if (a0 == null || n0 == null) return null;
-      if (n0 < 2 || n0 > 36) return null;
-      if (a0 >= 2000 && a0 <= 2035) return null;
-      final total0 = a0.toDouble();
-      if (total0 <= 0) return null;
-      var rest = (m.group(3) ?? '').trim();
-      if (rest.isEmpty) rest = _kDescParceladoDefault;
-      return BankNotificationParseResult(
-        valor: total0,
-        data: DateTime.now(),
-        descricao: rest,
-        type: _inferType('$rest $t0'),
-        suggestedPresetId: _suggestBankPreset(t0),
-        rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
-      );
-    }
-
-    return null;
-  }
-
   /// Um único lançamento livre (valor antes ou depois da descrição, com ou sem data).
   static BankNotificationParseResult? _tryFreeformSegment(String t0) {
     final t = t0.trim();
     if (t.isEmpty) return null;
-    final parcelNat = _tryFreeformInstallmentNaturalPt(t);
-    if (parcelNat != null) {
-      return parcelNat;
-    }
 
     var m = RegExp(
       r'^(\d{2}/\d{2}/\d{4})\s+(.+?)\s+((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})\s*(?:reais?|R\$\s*)?\s*$',
@@ -1384,6 +1472,90 @@ abstract final class BankNotificationParser {
           suggestedPresetId: _suggestBankPreset(t),
           rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
         );
+      }
+    }
+
+    // Total com «de R$ N» (ou de N) + «parcelado em M vezes» (ex.: geladeira de 1200 parcelado em 6 vezes).
+    m = RegExp(
+      r'^(.+?)\s+de\s+(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+parcelad[oa]?\s+em\s+(\d{1,3})\s+vezes',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final desc0 = m.group(1)!.trim();
+      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      if (val != null && val > 0 && desc0.length >= 2) {
+        return BankNotificationParseResult(
+          valor: val,
+          data: DateTime.now(),
+          descricao: desc0,
+          type: _inferType('$desc0 $t'),
+          suggestedPresetId: _suggestBankPreset(t),
+          rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+        );
+      }
+    }
+
+    // Descrição + valor (sem «de») + «parcelado em M vezes» (ex.: geladeira 1200 parcelado em 6 vezes).
+    m = RegExp(
+      r'^(.+?)\s+(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+parcelad[oa]?\s+em\s+(\d{1,3})\s+vezes',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final desc0 = m.group(1)!.trim();
+      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      if (val != null && val > 0 && desc0.length >= 2) {
+        if (!RegExp(r'^(r\$|reais?)$', caseSensitive: false).hasMatch(desc0)) {
+          return BankNotificationParseResult(
+            valor: val,
+            data: DateTime.now(),
+            descricao: desc0,
+            type: _inferType('$desc0 $t'),
+            suggestedPresetId: _suggestBankPreset(t),
+            rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+          );
+        }
+      }
+    }
+
+    // Total com «de VALOR» + «em M parcelas» (ex.: geladeira de 1200 em 6 parcelas).
+    m = RegExp(
+      r'^(.+?)\s+de\s+(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+em\s+(\d{1,3})\s+parcelas?\b',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final desc0 = m.group(1)!.trim();
+      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      if (val != null && val > 0 && desc0.length >= 2) {
+        return BankNotificationParseResult(
+          valor: val,
+          data: DateTime.now(),
+          descricao: desc0,
+          type: _inferType('$desc0 $t'),
+          suggestedPresetId: _suggestBankPreset(t),
+          rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+        );
+      }
+    }
+
+    // Descrição + total + «em M parcelas» sem «de» (ex.: geladeira 1200 em 6 parcelas).
+    m = RegExp(
+      r'^(.+?)\s+(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+em\s+(\d{1,3})\s+parcelas?\b',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m != null) {
+      final desc0 = m.group(1)!.trim();
+      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      if (val != null && val > 0 && desc0.length >= 2) {
+        if (!RegExp(r'^(r\$|reais?)$', caseSensitive: false).hasMatch(desc0)) {
+          return BankNotificationParseResult(
+            valor: val,
+            data: DateTime.now(),
+            descricao: desc0,
+            type: _inferType('$desc0 $t'),
+            suggestedPresetId: _suggestBankPreset(t),
+            rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+          );
+        }
       }
     }
 
@@ -1474,11 +1646,57 @@ abstract final class BankNotificationParser {
       }
     }
 
-    // Descrição … valor inteiro no fim: `abastecimento 50`
+    // Descrição … milhar BR com pontos no fim, sem decimais: `recebi pix 1.200` → 1200,00 reais
+    m = RegExp(r'^(.+?)\s+(\d{1,3}(?:\.\d{3})+)$', caseSensitive: false).firstMatch(t);
+    if (m != null) {
+      final brThousands = m.group(2)!;
+      final val = _reaisFromBrThousandsDotsOnly(brThousands);
+      if (val != null && val > 0) {
+        var desc = m.group(1)!.trim();
+        if (desc.length >= 2) {
+          DateTime? dt;
+          final dm = _reData.firstMatch(desc);
+          if (dm != null) {
+            dt = _parseDataBr(dm.group(1)!);
+            desc = desc.replaceFirst(dm.group(0)!, '').trim();
+          }
+          dt ??= DateTime.now();
+          return BankNotificationParseResult(
+            valor: val,
+            data: dt,
+            descricao: desc,
+            type: _inferType('$desc $t'),
+            suggestedPresetId: _suggestBankPreset(t),
+            rawSnippet: t.length > 400 ? t.substring(0, 400) : t,
+          );
+        }
+      }
+    }
+
+    // Descrição … valor inteiro no fim: `abastecimento 50` / `recebi pix 1200` (só dígitos = reais inteiros)
     m = RegExp(r'^(.+?)\s+(\d{1,6})$').firstMatch(t);
     if (m != null) {
-      final n = int.tryParse(m.group(2)!);
+      final tailDigits = m.group(2)!;
+      var n = int.tryParse(tailDigits);
       var desc = m.group(1)!.trim();
+      var treatAsCentsFromMerge = false;
+      // Evita `farmácia … R$ 8,` + `750` → 750,00: recompõe dígitos quando a descrição termina em `R$ …,`.
+      if (n != null && tailDigits.length >= 3) {
+        final frac = RegExp(r'R\$\s*(\d+),\s*$', caseSensitive: false).firstMatch(desc);
+        if (frac != null) {
+          final tailY = int.tryParse(tailDigits);
+          final looksLikeYear =
+              tailDigits.length == 4 && tailY != null && tailY >= 1900 && tailY <= 2099;
+          if (!looksLikeYear) {
+            final merged = int.tryParse('${frac.group(1)!}$tailDigits');
+            if (merged != null && merged >= 1 && merged < 100000000) {
+              n = merged;
+              desc = desc.substring(0, frac.start).trim();
+              treatAsCentsFromMerge = true;
+            }
+          }
+        }
+      }
       if (n != null && n >= 1 && n < 10000000 && desc.length >= 2) {
         if (!(n >= 2000 && n <= 2035 && desc.length < 4)) {
           DateTime? dt;
@@ -1488,8 +1706,9 @@ abstract final class BankNotificationParser {
             desc = desc.replaceFirst(dm.group(0)!, '').trim();
           }
           dt ??= DateTime.now();
+          final valor = treatAsCentsFromMerge ? n / 100.0 : n.toDouble();
           return BankNotificationParseResult(
-            valor: n.toDouble(),
+            valor: valor,
             data: dt,
             descricao: desc,
             type: _inferType('$desc $t'),
@@ -1505,6 +1724,32 @@ abstract final class BankNotificationParser {
 
   static BankNotificationParseResult? _tryFreeformLine(String line) => _tryFreeformSegment(line);
 
+  /// Remove sufixos de valor (`r$ 50`) e frases de parcelas do texto livre para categoria / estabelecimento.
+  static String? polishSmartPasteDescription(String? desc) {
+    if (desc == null) return null;
+    var s = desc.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (s.isEmpty) return null;
+    s = s.replaceAll(RegExp(r'\s*r\$\s*[\d.,\s]+$', caseSensitive: false), '').trim();
+    s = _stripParcelaBoilerplatePt(s);
+    return s.isEmpty ? desc.trim() : s;
+  }
+
+  /// «R$ 8, 750» = 8 + 750 → 87,50 (8750 cênt.); alinha com a fusão em [_tryFreeformSegment] e
+  /// evita que [_reValor] apanhe só «8» antes de «, 750».
+  static int? _centsFromBrokenRReaisCentsMaisSufix(String t) {
+    final m = RegExp(
+      r'R\$\s*(\d+)\s*,\s+(\d{3,6})\b',
+      caseSensitive: false,
+    ).firstMatch(t);
+    if (m == null) return null;
+    final suf = m.group(2)!;
+    if (suf.length == 4) {
+      final y = int.tryParse(suf);
+      if (y != null && y >= 1900 && y <= 2099) return null;
+    }
+    return int.tryParse('${m.group(1)}$suf');
+  }
+
   static BankNotificationParseResult parse(String texto) {
     var t = texto.trim();
     if (t.length > kMaxParseInputChars) {
@@ -1513,9 +1758,16 @@ abstract final class BankNotificationParser {
     final snippet = t.length > 400 ? t.substring(0, 400) : t;
 
     double? valor;
-    final vm = _reValor.firstMatch(t);
-    if (vm != null && vm.groupCount >= 1) {
-      valor = _parseBrDecimal(vm.group(1)!);
+    final brokenC = _centsFromBrokenRReaisCentsMaisSufix(t);
+    if (brokenC != null) {
+      valor = brokenC / 100.0;
+    } else {
+      final vm = _reValor.firstMatch(t);
+      if (vm != null && vm.groupCount >= 1) {
+        final rawAmt = vm.group(1)!.trim();
+        valor = _parseDecimalFlexible(rawAmt)?.abs();
+        if (valor != null && valor <= 0) valor = null;
+      }
     }
 
     DateTime? data;
@@ -1525,7 +1777,11 @@ abstract final class BankNotificationParser {
     }
 
     String type = _inferType(t);
-    final desc = _extractDescricao(t, type) ?? _fallbackDescricao(t);
+    var desc = _extractDescricao(t, type) ?? _fallbackDescricao(t);
+    desc = polishSmartPasteDescription(desc);
+    if (desc != null && desc.trim().isNotEmpty) {
+      desc = OcrDescriptionSanity.sanitize(desc);
+    }
 
     return BankNotificationParseResult(
       valor: valor,
@@ -1542,10 +1798,12 @@ abstract final class BankNotificationParser {
     return double.tryParse(normalized);
   }
 
-  static double? _parseBrIntegerMoney(String s) {
-    final normalized = s.replaceAll('.', '').trim();
-    final n = int.tryParse(normalized);
-    if (n == null || n <= 0) return null;
+  /// `1.200` / `12.345.678` só com pontos de milhar (padrão BR), sem parte decimal.
+  static double? _reaisFromBrThousandsDotsOnly(String raw) {
+    final s = raw.trim();
+    if (!RegExp(r'^\d{1,3}(?:\.\d{3})+$').hasMatch(s)) return null;
+    final n = int.tryParse(s.replaceAll('.', ''));
+    if (n == null || n < 1) return null;
     return n.toDouble();
   }
 
