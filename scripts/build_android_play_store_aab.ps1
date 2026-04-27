@@ -23,6 +23,136 @@ $KeyProps = Join-Path $FlutterApp "android\key.properties"
 $DebugInfoDir = Join-Path $FlutterApp "debug-info"
 $OutAab = Join-Path $FlutterApp "build\app\outputs\bundle\release\app-release.aab"
 
+function Get-AndroidSdkPath {
+    param([string] $FlutterAppPath)
+
+    $localProps = Join-Path $FlutterAppPath "android\local.properties"
+    if (Test-Path $localProps) {
+        $sdkLine = Select-String -Path $localProps -Pattern "^sdk\.dir=" | Select-Object -First 1
+        if ($sdkLine) {
+            $value = ($sdkLine.Line -replace "^sdk\.dir=", "").Trim()
+            if ($value) {
+                return $value.Replace("\\:", ":").Replace("\\", "\")
+            }
+        }
+    }
+
+    if ($env:ANDROID_SDK_ROOT) { return $env:ANDROID_SDK_ROOT }
+    if ($env:ANDROID_HOME) { return $env:ANDROID_HOME }
+    return $null
+}
+
+function Get-LlvmReadelfPath {
+    param([string] $SdkPath)
+
+    if (-not $SdkPath -or -not (Test-Path $SdkPath)) {
+        throw "Android SDK nao encontrado. Configure sdk.dir em flutter_app\android\local.properties ou ANDROID_SDK_ROOT."
+    }
+
+    $ndkRoot = Join-Path $SdkPath "ndk"
+    if (-not (Test-Path $ndkRoot)) {
+        throw "Pasta NDK nao encontrada em '$ndkRoot'. Instale NDK 28+ no Android SDK Manager."
+    }
+
+    $ndkCandidates =
+        Get-ChildItem -Path $ndkRoot -Directory -ErrorAction Stop |
+        Sort-Object Name -Descending
+
+    foreach ($ndk in $ndkCandidates) {
+        $readelf = Join-Path $ndk.FullName "toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-readelf.exe"
+        if (Test-Path $readelf) {
+            return $readelf
+        }
+    }
+
+    throw "llvm-readelf.exe nao encontrado em nenhuma versao do NDK dentro de '$ndkRoot'."
+}
+
+function Test-SharedObject16k {
+    param(
+        [string] $ReadelfExe,
+        [string] $SoPath
+    )
+
+    $output = & $ReadelfExe -lW $SoPath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao inspecionar ELF: $SoPath`n$output"
+    }
+
+    $loadLines = @($output | Where-Object { $_ -match "^\s*LOAD\s+" })
+    if ($loadLines.Count -eq 0) {
+        throw "Nao foi possivel localizar segmentos LOAD em '$SoPath'."
+    }
+
+    foreach ($line in $loadLines) {
+        $tokens = @($line -split "\s+" | Where-Object { $_ -ne "" })
+        $alignToken = $tokens[-1]
+        if (-not ($alignToken -match "^0x[0-9A-Fa-f]+$")) {
+            throw "Nao foi possivel ler alinhamento do segmento LOAD em '$SoPath': $line"
+        }
+
+        $alignValue = [Convert]::ToInt64($alignToken, 16)
+        if ($alignValue -lt 16384) {
+            return [PSCustomObject]@{
+                IsCompatible = $false
+                AlignmentHex = $alignToken
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        IsCompatible = $true
+        AlignmentHex = "0x4000+"
+    }
+}
+
+function Assert-Aab16kCompatibility {
+    param([string] $AabPath, [string] $FlutterAppPath)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gy_16k_check_" + [System.Guid]::NewGuid().ToString("N"))
+    [System.IO.Directory]::CreateDirectory($tmpDir) | Out-Null
+
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($AabPath, $tmpDir)
+        $soFiles = @(Get-ChildItem -Path $tmpDir -Recurse -Filter "*.so" -File)
+        if ($soFiles.Count -eq 0) {
+            Write-Host "Aviso: nenhum .so encontrado no AAB para validar 16K." -ForegroundColor Yellow
+            return
+        }
+
+        $sdkPath = Get-AndroidSdkPath -FlutterAppPath $FlutterAppPath
+        $readelf = Get-LlvmReadelfPath -SdkPath $sdkPath
+        $incompatible = @()
+
+        foreach ($so in $soFiles) {
+            $check = Test-SharedObject16k -ReadelfExe $readelf -SoPath $so.FullName
+            if (-not $check.IsCompatible) {
+                $incompatible += [PSCustomObject]@{
+                    File = $so.FullName.Replace($tmpDir + "\", "")
+                    Alignment = $check.AlignmentHex
+                }
+            }
+        }
+
+        if ($incompatible.Count -gt 0) {
+            Write-Host ""
+            Write-Host "ERRO 16K PAGE SIZE: bibliotecas nativas incompatíveis encontradas no AAB:" -ForegroundColor Red
+            foreach ($item in $incompatible) {
+                Write-Host "  - $($item.File) (align=$($item.Alignment))" -ForegroundColor Red
+            }
+            throw "Build bloqueado para evitar rejeicao na Play Console (16KB memory page size)."
+        }
+
+        Write-Host "Validacao 16K concluida: $($soFiles.Count) bibliotecas .so compativeis." -ForegroundColor Green
+    }
+    finally {
+        if (Test-Path $tmpDir) {
+            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
     Write-Host "Erro: flutter_app nao encontrado." -ForegroundColor Red
     exit 1
@@ -68,9 +198,9 @@ if (-not (Test-Path $OutAab)) {
     exit 1
 }
 
-# Google Play 16K page size: o projeto fixa NDK 28+ em android/app/build.gradle.kts. Se a Play
-# ainda rejeitar, abra o AAB/APK com APK Analyzer (Alignment) e actualize o plugin da .so indicada.
-Write-Host "Play 16K: NDK r28+ (android\app\build.gradle.kts). Resumo: https://developer.android.com/guide/practices/page-sizes" -ForegroundColor DarkGray
+Write-Host "`n=== validacao 16K page size no AAB ===" -ForegroundColor Cyan
+Assert-Aab16kCompatibility -AabPath $OutAab -FlutterAppPath $FlutterApp
+Write-Host "Play 16K: NDK r28+ + validacao automatica de .so no AAB." -ForegroundColor DarkGray
 
 $verLine = Select-String -Path (Join-Path $FlutterApp "pubspec.yaml") -Pattern "^version:\s*" | Select-Object -First 1
 $ver = if ($verLine) { ($verLine.Line -replace '^version:\s*', '').Trim() } else { "unknown" }

@@ -1,9 +1,9 @@
 ﻿name: gestao_yahweh
 description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
-# Alinhado com lib/app_version.dart — script scripts/bump_version.ps1 atualiza os dois.
+# Alinhado com lib/app_version.dart ? script scripts/bump_version.ps1 atualiza os dois.
 # App Store: cada IPA precisa de build (+N) único; se der 409 Redundant Binary, incrementar só o +N.
-version: 11.2.296+1469
+version: 11.2.293+1470
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -77,9 +77,9 @@ dependencies:
   connectivity_plus: ^7.1.0
   flutter_linkify: ^6.0.0
   flutter_staggered_animations: ^1.1.1
-  # Sincronizado com Controle Total: colar print (imagem) na área de transferência em Android/iOS/desktop.
+  # Sincronizado com Controle Total: colar print (imagem) na ?rea de transfer?ncia em Android/iOS/desktop.
   super_clipboard: ^0.9.1
-  # Extrato / fatura PDF (texto embutido) — alinhado ao Controle Total
+  # Extrato / fatura PDF (texto embutido) ? alinhado ao Controle Total
   pdfrx: ^2.2.24
 flutter:
   uses-material-design: true
@@ -120,6 +120,8 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: assets/icon/app_icon.png
+
+
 
 
 
