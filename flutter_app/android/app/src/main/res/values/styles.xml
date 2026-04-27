@@ -15,11 +15,12 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
-    <!-- image_cropper (uCrop): status/nav alinhados ao pipeline — menos sobreposição com recorte/status bar -->
+    <!-- image_cropper (uCrop): barras transparentes (Android 15+ deprecou cores opacas via Window.*) -->
     <style name="Theme.Yahweh.UCrop" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:statusBarColor">#1E40AF</item>
-        <item name="android:navigationBarColor">#0F172A</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

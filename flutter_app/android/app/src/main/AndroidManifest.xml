@@ -57,10 +57,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- image_cropper (uCrop) -->
+        <!-- image_cropper (uCrop): sem orientação fixa — tablets/dobráveis/Android 16+ -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.Yahweh.UCrop" />
     </application>
     <!-- Required to query activities that can process text, see:

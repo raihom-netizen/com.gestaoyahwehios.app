@@ -103,4 +103,6 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Play / Android 15: enableEdgeToEdge() em MainActivity (activity-ktx 1.8+).
+    implementation("androidx.activity:activity-ktx:1.9.3")
 }
