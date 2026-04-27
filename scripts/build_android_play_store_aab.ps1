@@ -188,9 +188,9 @@ if (-not (Test-Path $DebugInfoDir)) {
     New-Item -ItemType Directory -Path $DebugInfoDir | Out-Null
 }
 
-Write-Host "`n=== flutter build appbundle --release --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
+Write-Host "`n=== flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
 Write-Host "Guarde a pasta flutter_app\debug-info\ para symbolizar stack traces (Crashlytics / flutter symbolize)." -ForegroundColor DarkGray
-flutter build appbundle --release --obfuscate --split-debug-info=./debug-info
+flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not (Test-Path $OutAab)) {

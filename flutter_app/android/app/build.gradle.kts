@@ -48,6 +48,11 @@ android {
         // Android 5.0+ (API 21); API 23+ para biometria (local_auth)
         minSdk = flutter.minSdkVersion
         targetSdk = 35
+        // Publicamos apenas arm64-v8a para eliminar binarios 32-bit legados (ex.: pdfium armeabi-v7a)
+        // que ainda podem vir com alinhamento 4KB e serem rejeitados pela Play no requisito 16KB.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
@@ -87,6 +92,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = false
+            excludes += setOf("**/armeabi-v7a/libpdfium.so")
         }
     }
 }
