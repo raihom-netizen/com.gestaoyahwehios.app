@@ -30,6 +30,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         churchTenantLogoUrl,
         sanitizeImageUrl,
         isValidImageUrl,
+        isFirebaseStorageHttpUrl,
+        firebaseStorageMediaUrlLooksLike,
         memCacheExtentForLogicalSize,
         preloadNetworkImages;
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
@@ -848,7 +850,11 @@ class _ChurchPublicGaleriaArquivoThumb extends StatelessWidget {
       url = _churchPublicNoticiaCoverUrl(p);
     }
     url = sanitizeImageUrl(url);
-    final hasImg = isValidImageUrl(url) && url.isNotEmpty;
+    final storageLikeRef = url.isNotEmpty &&
+        (isFirebaseStorageHttpUrl(url) ||
+            firebaseStorageMediaUrlLooksLike(url) ||
+            url.toLowerCase().startsWith('gs://'));
+    final hasImg = (isValidImageUrl(url) && url.isNotEmpty) || storageLikeRef;
     final path = eventNoticiaPhotoStoragePathAt(p, 0) ??
         eventNoticiaImageStoragePath(p);
     final px = (size * 2.5).round().clamp(120, 360);
@@ -879,11 +885,21 @@ class _ChurchPublicGaleriaArquivoThumb extends StatelessWidget {
                   StableStorageImage(
                     storagePath: path,
                     imageUrl: hasImg ? url : null,
+                    gsUrl: url.toLowerCase().startsWith('gs://') ? url : null,
                     width: size,
                     height: size,
                     fit: BoxFit.cover,
                     memCacheWidth: px,
                     memCacheHeight: px,
+                  )
+                else if (storageLikeRef)
+                  FreshFirebaseStorageImage(
+                    imageUrl: url,
+                    memCacheWidth: px,
+                    memCacheHeight: px,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
                   )
                 else if (hasImg)
                   SafeNetworkImage(

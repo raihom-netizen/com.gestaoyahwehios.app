@@ -33,7 +33,8 @@ if (Test-Path $rc) {
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 
 Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
-& (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1")
+# Mais tentativas que o padrao (10): API firebaserules.googleapis.com costuma devolver 503/409 transitórios.
+& (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") -MaxAttempts 20
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "`n=== [2/6] Cloud Functions (build + deploy todas) - projeto $Project ===" -ForegroundColor Cyan

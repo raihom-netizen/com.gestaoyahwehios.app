@@ -1,6 +1,6 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:pdf/pdf.dart';
@@ -76,12 +76,12 @@ Future<void> showPdfActions(
             Expanded(
               child: PdfPreview.builder(
                 build: (PdfPageFormat format) async => bytes,
-                allowPrinting: true,
-                allowSharing: true,
+                allowPrinting: false,
+                allowSharing: false,
                 canChangePageFormat: false,
                 canChangeOrientation: false,
                 pdfFileName: filename,
-                useActions: true,
+                useActions: false,
                 pagesBuilder: (context, pages) {
                   return LayoutBuilder(
                     builder: (context, constraints) {
@@ -124,6 +124,43 @@ Future<void> showPdfActions(
                     },
                   );
                 },
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await Printing.layoutPdf(
+                          onLayout: (_) async => bytes,
+                          name: filename,
+                        );
+                      },
+                      icon: const Icon(Icons.print_rounded),
+                      label: const Text('Imprimir'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Printing.sharePdf(
+                          bytes: bytes,
+                          filename: filename,
+                        );
+                      },
+                      icon: Icon(
+                        kIsWeb
+                            ? Icons.download_rounded
+                            : Icons.share_rounded,
+                      ),
+                      label: Text(kIsWeb ? 'Baixar PDF' : 'Partilhar'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

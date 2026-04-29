@@ -303,12 +303,13 @@ pw.Widget _normaCultaSignatureBlock(
 
   final sigChildren = <pw.Widget>[
     if (sigImage != null) ...[
+      // Modelo atual: assinatura destacada imediatamente acima da linha do nome.
       pw.SizedBox(
-        width: 112,
-        height: 22,
+        width: 148,
+        height: 30,
         child: pw.Image(sigImage, fit: pw.BoxFit.contain),
       ),
-      pw.SizedBox(height: 5),
+      pw.SizedBox(height: 3),
     ] else if (reserveManualSignatureSpace) ...[
       pw.Container(
         width: 132,
@@ -329,7 +330,7 @@ pw.Widget _normaCultaSignatureBlock(
       child: pw.Container(
         height: 1.1,
         decoration: pw.BoxDecoration(
-          color: PdfColor(frame.red, frame.green, frame.blue, 0.72),
+          color: PdfColor(frame.red, frame.green, frame.blue, 0.78),
           borderRadius: pw.BorderRadius.circular(1),
         ),
       ),

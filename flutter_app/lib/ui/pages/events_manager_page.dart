@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaPhotoUrls,
         eventNoticiaPhotoStoragePathAt,
+        eventNoticiaImageStoragePath,
         eventNoticiaVideosFromDoc,
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaExternalVideoUrl,
@@ -1179,6 +1180,85 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     return '${d.year}-$mm';
   }
 
+  Widget _archiveGalleryCardMedia({
+    required Map<String, dynamic> post,
+    required List<String> photos,
+    required List<Map<String, String>> videos,
+  }) {
+    final coverRef = photos.isNotEmpty
+        ? sanitizeImageUrl(photos.first)
+        : sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(post) ?? '');
+    final coverPath = eventNoticiaPhotoStoragePathAt(post, 0) ??
+        eventNoticiaImageStoragePath(post);
+    final storageLikeRef = coverRef.isNotEmpty &&
+        (isFirebaseStorageHttpUrl(coverRef) ||
+            firebaseStorageMediaUrlLooksLike(coverRef) ||
+            coverRef.toLowerCase().startsWith('gs://'));
+
+    final media = Stack(
+      fit: StackFit.expand,
+      children: [
+        if ((coverPath != null && coverPath.trim().isNotEmpty) || storageLikeRef)
+          StableStorageImage(
+            storagePath: (coverPath != null && coverPath.trim().isNotEmpty)
+                ? coverPath
+                : null,
+            gsUrl: coverRef.toLowerCase().startsWith('gs://') ? coverRef : null,
+            imageUrl: coverRef.isNotEmpty ? coverRef : null,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            memCacheWidth: 900,
+            memCacheHeight: 900,
+            placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
+            errorWidget: const ColoredBox(
+              color: Color(0xFFF1F5F9),
+              child: Center(child: Icon(Icons.photo_library_outlined)),
+            ),
+          )
+        else if (isValidImageUrl(coverRef))
+          SafeNetworkImage(
+            imageUrl: coverRef,
+            fit: BoxFit.cover,
+            memCacheWidth: 900,
+            memCacheHeight: 900,
+            errorWidget: const ColoredBox(
+              color: Color(0xFFF1F5F9),
+              child: Center(child: Icon(Icons.photo_library_outlined)),
+            ),
+          )
+        else
+          const ColoredBox(
+            color: Color(0xFFF1F5F9),
+            child: Center(child: Icon(Icons.photo_library_outlined)),
+          ),
+        if (videos.isNotEmpty)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x22000000), Color(0x88000000)],
+              ),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.play_circle_fill_rounded,
+              size: 46,
+              color: Colors.white,
+            ),
+          ),
+      ],
+    );
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(ThemeCleanPremium.radiusLg),
+      ),
+      child: media,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1523,15 +1603,13 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                     final p = d.data();
                     final photos = eventNoticiaPhotoUrls(p);
                     final videos = eventNoticiaVideosFromDoc(p);
-                    final cover = photos.isNotEmpty
-                        ? sanitizeImageUrl(photos.first)
-                        : sanitizeImageUrl(
-                            eventNoticiaDisplayVideoThumbnailUrl(p) ?? '');
                     final dt = _eventDate(p);
                     return Material(
                       color: Colors.white,
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      elevation: 0,
+                      shadowColor: Colors.black.withValues(alpha: 0.08),
                       child: InkWell(
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusLg),
@@ -1547,27 +1625,10 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Expanded(
-                              child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(ThemeCleanPremium.radiusLg),
-                                ),
-                                child: isValidImageUrl(cover)
-                                    ? SafeNetworkImage(
-                                        imageUrl: cover,
-                                        fit: BoxFit.cover,
-                                        errorWidget: Container(
-                                          color: const Color(0xFFF1F5F9),
-                                          alignment: Alignment.center,
-                                          child: const Icon(
-                                              Icons.photo_library_outlined),
-                                        ),
-                                      )
-                                    : Container(
-                                        color: const Color(0xFFF1F5F9),
-                                        alignment: Alignment.center,
-                                        child:
-                                            const Icon(Icons.photo_library_outlined),
-                                      ),
+                              child: _archiveGalleryCardMedia(
+                                post: p,
+                                photos: photos,
+                                videos: videos,
                               ),
                             ),
                             Padding(
@@ -1714,15 +1775,27 @@ class _EventGalleryDetailPage extends StatelessWidget {
                 crossAxisSpacing: 10,
                 childAspectRatio: 1,
               ),
-              itemBuilder: (_, i) => ClipRRect(
+              itemBuilder: (_, i) => InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          _FullScreenGallery(images: photos, initial: i),
+                    ),
+                  );
+                },
                 borderRadius: BorderRadius.circular(12),
-                child: SafeNetworkImage(
-                  imageUrl: photos[i],
-                  fit: BoxFit.cover,
-                  errorWidget: Container(
-                    color: const Color(0xFFF1F5F9),
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.broken_image_outlined),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SafeNetworkImage(
+                    imageUrl: photos[i],
+                    fit: BoxFit.cover,
+                    errorWidget: Container(
+                      color: const Color(0xFFF1F5F9),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.broken_image_outlined),
+                    ),
                   ),
                 ),
               ),

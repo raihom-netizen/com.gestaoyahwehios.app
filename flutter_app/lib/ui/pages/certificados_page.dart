@@ -1555,6 +1555,26 @@ class _CertificadosPageState extends State<CertificadosPage> {
     return fallback;
   }
 
+  List<_SignatoryOption> _normalizeUiSignatoriesForPdf(
+    List<_SignatoryOption> signatories, {
+    required bool useDigitalSignature,
+  }) {
+    if (signatories.isEmpty) return const <_SignatoryOption>[];
+    if (!useDigitalSignature) return signatories;
+    // Em modo digital, manter somente a assinatura mais recente selecionada.
+    return <_SignatoryOption>[signatories.last];
+  }
+
+  List<CertPdfPipelineSignatory> _normalizePipelineSignatoriesForPdf(
+    List<CertPdfPipelineSignatory> signatories, {
+    required bool useDigitalSignature,
+  }) {
+    if (signatories.isEmpty) return const <CertPdfPipelineSignatory>[];
+    if (!useDigitalSignature) return signatories;
+    // Em modo digital, manter somente a assinatura mais recente selecionada.
+    return <CertPdfPipelineSignatory>[signatories.last];
+  }
+
   Map<String, dynamic> _certificateProtocolSnapshot({
     required String memberId,
     required _CertTemplate template,
@@ -1689,6 +1709,11 @@ class _CertificadosPageState extends State<CertificadosPage> {
           );
         }
       }
+      final useDigitalSignature = d['useDigitalSignature'] == true;
+      final sigsForPdf = _normalizePipelineSignatoriesForPdf(
+        sigs,
+        useDigitalSignature: useDigitalSignature,
+      );
       final textoAd = (d['textoAdicional'] ?? '').toString();
       final textoBase = (d['textoCorpo'] ?? '').toString();
       final textoCorpo = textoAd.trim().isEmpty
@@ -1724,7 +1749,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           colorTextArgb: _intFromFirestore(d['colorTextArgb'], 0xFF1E1E1E),
           pastorManual: (d['pastorManual'] ?? '').toString(),
           cargoManual: (d['cargoManual'] ?? '').toString(),
-          useDigitalSignature: d['useDigitalSignature'] == true,
+          useDigitalSignature: useDigitalSignature,
           digitalSignatureDadosLine: () {
             final s = (d['digitalSignatureDadosLine'] ?? '').toString().trim();
             return s.isNotEmpty
@@ -1732,7 +1757,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                 : formatCertificadoDigitalDadosLinha(DateTime.now());
           }(),
           qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(cid),
-          signatoriesForPdf: sigs,
+          signatoriesForPdf: sigsForPdf,
         ),
         onProgress: (m, _) {
           phase.value = m;
@@ -2217,10 +2242,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
     if (!mounted) return;
     if (!context.mounted) return;
     final signatoryOptions = signatoryOptionsAll;
-    final effective = _effectiveSignatoriesForBatch(signatoryOptions);
     final useDigital =
         (_certConfig?['defaultSignatureMode'] ?? '').toString().trim() !=
             'manual';
+    final effective = _normalizeUiSignatoriesForPdf(
+      _effectiveSignatoriesForBatch(signatoryOptions),
+      useDigitalSignature: useDigital,
+    );
     final includeInstRaw =
         _certConfig?['includeInstitutionalPastorSignature'];
     final includeInstitutionalPastorSignature = includeInstRaw is bool
@@ -4432,6 +4460,16 @@ class _CasamentoMembroOpcao {
   const _CasamentoMembroOpcao({required this.memberId, required this.nome});
 }
 
+List<_SignatoryOption> _normalizeUiSignatoriesForPdfGlobal(
+  List<_SignatoryOption> signatories, {
+  required bool useDigitalSignature,
+}) {
+  if (signatories.isEmpty) return const <_SignatoryOption>[];
+  if (!useDigitalSignature) return signatories;
+  // Em modo digital, manter somente a assinatura mais recente selecionada.
+  return <_SignatoryOption>[signatories.last];
+}
+
 class _CertEditorPageState extends State<_CertEditorPage> {
   bool _generating = false;
   String? _ultimoProtocoloEmitido;
@@ -5767,7 +5805,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 
   /// Pré-visualização: todas as assinaturas selecionadas (alinhado ao PDF).
   Widget _buildGalaLuxoPreviewSignaturesStrip() {
-    final sigs = _effectiveSignatories;
+    final sigs = _normalizeUiSignatoriesForPdfGlobal(
+      _effectiveSignatories,
+      useDigitalSignature: _signatureMode == 'digital',
+    );
     final lineColor = const Color(0xFF5C3D1E);
     final nomeStyle = GoogleFonts.libreBaskerville(
       fontSize: 8.5,
@@ -5863,8 +5904,11 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     PdfPageFormat format, {
     void Function(String message, double progress01)? onProgress,
   }) async {
-    final selectedForPdf = _effectiveSignatories;
     final useDigitalSignature = _signatureMode == 'digital';
+    final selectedForPdf = _normalizeUiSignatoriesForPdfGlobal(
+      _effectiveSignatories,
+      useDigitalSignature: useDigitalSignature,
+    );
     final issuedDate = widget.dataCertCtrl.text.trim();
     final noivo = _pdfNoivoNome();
     var noiva = _pdfNoivaNome();

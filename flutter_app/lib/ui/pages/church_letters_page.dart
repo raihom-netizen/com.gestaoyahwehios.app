@@ -85,6 +85,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   String _memberFilter = '';
   final Set<String> _selectedIds = {};
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
+  Future<ReportPdfBranding>? _brandingFuture;
+  final Map<String, Uint8List?> _signatureBytesCache = <String, Uint8List?>{};
 
   /// Ao editar a partir do histórico, atualiza este doc em vez de criar outro.
   String? _historyEditDocId;
@@ -124,7 +126,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       final tid =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
       if (tid.isNotEmpty && mounted) {
-        setState(() => _effectiveTenantId = tid);
+        setState(() {
+          _effectiveTenantId = tid;
+          _brandingFuture = null;
+        });
         _refreshMembers();
       }
     } catch (_) {}
@@ -158,6 +163,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           g.isNotEmpty ? g : kDefaultChurchLetterAgradecimentoTemplate.trim();
 
       await _defaultSignerFromMembro();
+      unawaited(_getBrandingCached());
     } catch (_) {
       _tplApresentacaoCtrl.text = kDefaultChurchLetterApresentacaoTemplate.trim();
       _tplTransferCtrl.text = kDefaultChurchLetterTransferenciaTemplate.trim();
@@ -342,10 +348,31 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   String _signatureUrlFromMember(Map<String, dynamic> m) {
     return (m['assinaturaUrl'] ??
             m['assinatura_url'] ??
-            m['signatureUrl'] ??
             '')
         .toString()
         .trim();
+  }
+
+  Future<ReportPdfBranding> _getBrandingCached() {
+    _brandingFuture ??= loadReportPdfBranding(_effectiveTenantId);
+    return _brandingFuture!;
+  }
+
+  Future<Uint8List?> _getSignatureBytesCached(String rawUrl) async {
+    final url = sanitizeImageUrl(rawUrl);
+    if (url.isEmpty) return null;
+    if (_signatureBytesCache.containsKey(url)) return _signatureBytesCache[url];
+    try {
+      final bytes = await ImageHelper.getBytesFromUrlOrNull(
+        url,
+        timeout: const Duration(seconds: 6),
+      );
+      _signatureBytesCache[url] = bytes;
+      return bytes;
+    } catch (_) {
+      _signatureBytesCache[url] = null;
+      return null;
+    }
   }
 
   String _contactoPdf(
@@ -632,15 +659,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
 
       Uint8List? signatureImageBytes;
-      if (_signatureMode == _LetterSignatureMode.digital) {
+      Future<Uint8List?> signatureFuture() async {
+        if (_signatureMode != _LetterSignatureMode.digital) return null;
         final rawUrl = _signatureUrlFromMember(m1);
-        final url = sanitizeImageUrl(rawUrl);
-        if (url.isNotEmpty) {
-          signatureImageBytes = await ImageHelper.getBytesFromUrlOrNull(
-            url,
-            timeout: const Duration(seconds: 14),
-          );
-        }
+        return _getSignatureBytesCached(rawUrl);
       }
 
       final tpl = switch (kind) {
@@ -670,7 +692,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             : 'Fraternalmente em Cristo,',
       );
 
-      final branding = await loadReportPdfBranding(_effectiveTenantId);
+      final futures = await Future.wait<dynamic>([
+        _getBrandingCached(),
+        signatureFuture(),
+      ]);
+      final branding = futures[0] as ReportPdfBranding;
+      signatureImageBytes = futures[1] as Uint8List?;
       final title = switch (kind) {
         _CartaKind.apresentacao => 'Carta de apresentação ministerial',
         _CartaKind.transferencia => 'CARTA DE MUDANÇA',

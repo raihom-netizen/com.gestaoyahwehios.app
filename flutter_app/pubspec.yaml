@@ -3,7 +3,7 @@ description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart; scripts/bump_version.ps1 atualiza os dois.
 # App Store: cada IPA precisa de build (+N) unico; se der 409, incrementar +N.
-version: 11.2.293+1475
+version: 11.2.293+1480
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
