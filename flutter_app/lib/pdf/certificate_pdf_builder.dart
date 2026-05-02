@@ -436,11 +436,14 @@ List<String> _certPdfDigitalStampRightColumnLines(
 
 const String _kAssinaturaDigitalRotulo = 'Assinatura digital';
 
-/// Texto legal do selo digital (abaixo do nome/cargo), alinhado ao padrão ofício.
+/// Texto legal do selo digital, alinhado ao padrão ofício.
+/// Com [leadSpacing], insere o espaçamento superior (ex.: após o cargo); com `false`,
+/// o bloco encosta ao topo da coluna (uso acima da linha de assinatura).
 List<pw.Widget> _certPdfLegalStampTailWidgets({
   required CertificatePdfInput input,
   required CertSignatoryPdfData signatory,
   required bool compact,
+  bool leadSpacing = true,
 }) {
   final nome = signatory.nome.trim();
   final cpfDigits = _certPdfCpfDigitsOnly(signatory.cpfDigits);
@@ -452,7 +455,7 @@ List<pw.Widget> _certPdfLegalStampTailWidgets({
   final dadosSize = compact ? 5.1 : 5.9;
   final titleSize = compact ? 4.6 : 5.2;
   return [
-    pw.SizedBox(height: compact ? 4 : 6),
+    if (leadSpacing) pw.SizedBox(height: compact ? 4 : 6),
     pw.Text(
       _kAssinaturaDigitalRotulo,
       textAlign: pw.TextAlign.center,
@@ -493,7 +496,8 @@ List<pw.Widget> _certPdfLegalStampTailWidgets({
 }
 
 /// Padrão ofício: imagem da assinatura acima da linha, nome completo e cargo centrados;
-/// com [CertificatePdfInput.useDigitalSignatureStamp], selo legal compacto abaixo do cargo.
+/// com [CertificatePdfInput.useDigitalSignatureStamp], selo legal acima da linha (sem
+/// imagem raster duplicada) e nome/cargo logo abaixo da linha.
 pw.Widget _certPdfAssinaturaColumnaLimpa({
   required CertificatePdfInput input,
   required CertSignatoryPdfData s,
@@ -507,8 +511,19 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
   final imgH = compact ? 20.0 : 22.0;
   final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
 
+  final digital = input.useDigitalSignatureStamp;
+  final showRasterSig = !digital && signatureImage != null;
+
   final children = <pw.Widget>[
-    if (signatureImage != null) ...[
+    if (digital) ...[
+      ..._certPdfLegalStampTailWidgets(
+        input: input,
+        signatory: s,
+        compact: compact,
+        leadSpacing: false,
+      ),
+      pw.SizedBox(height: compact ? 5.0 : 7.0),
+    ] else if (showRasterSig) ...[
       pw.SizedBox(
         width: imgW,
         height: imgH + (compact ? 4 : 6),
@@ -563,14 +578,6 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
       ),
     ],
   ];
-
-  if (input.useDigitalSignatureStamp) {
-    children.addAll(_certPdfLegalStampTailWidgets(
-      input: input,
-      signatory: s,
-      compact: compact,
-    ));
-  }
 
   return pw.SizedBox(
     width: maxWidth,

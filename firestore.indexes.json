@@ -376,6 +376,38 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "patrimonio_inventario_historico",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "finalizadoEm", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "manutencoes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "data", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transferencias",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "data", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agenda",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "noticiaId", "order": "ASCENDING" },
+        { "fieldPath": "startTime", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -288,6 +288,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   String? _walletPdfExportSigUrl;
   String? _walletPdfExportSignatoryNome;
   String? _walletPdfExportSignatoryCargo;
+  String? _walletPdfExportSignatoryCpf;
+
+  /// `true` = PNG/PDF com imagem da assinatura digital; `false` = área para assinar à mão.
+  bool _walletIncluirAssinaturaDigital = true;
 
   /// Captura raster em lote (mesmo visual da carteira digital) — fora do ecrã.
   final ScreenshotController _rasterBatchScreenshotController =
@@ -296,6 +300,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
   String _rasterBatchSigUrl = '';
   String _rasterBatchSignatoryNome = '';
   String _rasterBatchSignatoryCargo = '';
+  String _rasterBatchSignatoryCpf = '';
+  bool _rasterBatchShowDigitalSig = true;
   /// `true` = captura em lote com [MemberDigitalWalletFront] e [MemberDigitalWalletBack] na mesma linha.
   bool _rasterBatchLadoALado = false;
 
@@ -1011,6 +1017,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         String memberId,
                                         String nome,
                                         String cargo,
+                                        String? cpf,
                                         String? assinaturaUrl
                                       })>(
                                     value: selectedSignatory,
@@ -1474,6 +1481,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   String memberId,
                                   String nome,
                                   String cargo,
+                                  String? cpf,
                                   String? assinaturaUrl,
                                 })? sigEmit = selectedSignatory;
                                 if (sigEmit != null) {
@@ -1508,9 +1516,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       list,
                                       signatoryNome: sigEmit?.nome,
                                       signatoryCargo: sigEmit?.cargo,
+                                      signatoryCpf: sigEmit?.cpf,
                                       signatoryAssinaturaUrl:
                                           sigEmit?.assinaturaUrl,
                                       pastorSigFallback: pastorSig,
+                                      includeDigitalSignature:
+                                          _walletIncluirAssinaturaDigital,
                                     );
                                   } catch (e, st) {
                                     debugPrint(
@@ -1520,8 +1531,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       lay.format,
                                       signatoryNome: sigEmit?.nome,
                                       signatoryCargo: sigEmit?.cargo,
+                                      signatoryCpf: sigEmit?.cpf,
                                       signatoryAssinaturaUrl:
                                           sigEmit?.assinaturaUrl,
+                                      includeDigitalSignature:
+                                          _walletIncluirAssinaturaDigital,
                                       gridCols: lay.cols,
                                       gridRows: lay.rows,
                                       pvcCropMarks: lay.pvcCrop,
@@ -1550,9 +1564,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       list,
                                       signatoryNome: sigEmit?.nome,
                                       signatoryCargo: sigEmit?.cargo,
+                                      signatoryCpf: sigEmit?.cpf,
                                       signatoryAssinaturaUrl:
                                           sigEmit?.assinaturaUrl,
                                       pastorSigFallback: pastorSig,
+                                      includeDigitalSignature:
+                                          _walletIncluirAssinaturaDigital,
                                     );
                                   } catch (e, st) {
                                     debugPrint(
@@ -1562,8 +1579,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       lay.format,
                                       signatoryNome: sigEmit?.nome,
                                       signatoryCargo: sigEmit?.cargo,
+                                      signatoryCpf: sigEmit?.cpf,
                                       signatoryAssinaturaUrl:
                                           sigEmit?.assinaturaUrl,
+                                      includeDigitalSignature:
+                                          _walletIncluirAssinaturaDigital,
                                       gridCols: lay.cols,
                                       gridRows: lay.rows,
                                       pvcCropMarks: lay.pvcCrop,
@@ -1580,7 +1600,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     lay.format,
                                     signatoryNome: sigEmit?.nome,
                                     signatoryCargo: sigEmit?.cargo,
+                                    signatoryCpf: sigEmit?.cpf,
                                     signatoryAssinaturaUrl: sigEmit?.assinaturaUrl,
+                                    includeDigitalSignature:
+                                        _walletIncluirAssinaturaDigital,
                                     gridCols: lay.cols,
                                     gridRows: lay.rows,
                                     pvcCropMarks: lay.pvcCrop,
@@ -1638,6 +1661,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       String memberId,
       String nome,
       String cargo,
+      String? cpf,
       String? assinaturaUrl
     }) signat,
   ) async {
@@ -1753,6 +1777,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           String memberId,
           String nome,
           String cargo,
+          String? cpf,
           String? assinaturaUrl
         }) signat) async {
       final r = await _firestoreAssinaturaLote(ids, signat);
@@ -1797,6 +1822,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         String memberId,
                         String nome,
                         String cargo,
+                        String? cpf,
                         String? assinaturaUrl
                       })>(
                     value: selected,
@@ -2036,6 +2062,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       String memberId,
       String nome,
       String cargo,
+      String? cpf,
       String? assinaturaUrl
     })? selected = modo == 'visual'
         ? _selectSignatory(options, defSig.isEmpty ? null : defSig)
@@ -2056,6 +2083,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     String memberId,
                     String nome,
                     String cargo,
+                    String? cpf,
                     String? assinaturaUrl
                   })>(
                 value: selected,
@@ -2229,8 +2257,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
             list,
             signatoryNome: signatFresh.nome,
             signatoryCargo: signatFresh.cargo,
+            signatoryCpf: signatFresh.cpf,
             signatoryAssinaturaUrl: signatFresh.assinaturaUrl,
             pastorSigFallback: pastorSig,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
           );
         } catch (e, st) {
           debugPrint(
@@ -2240,7 +2271,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
             layVisual.format,
             signatoryNome: signatFresh.nome,
             signatoryCargo: signatFresh.cargo,
+            signatoryCpf: signatFresh.cpf,
             signatoryAssinaturaUrl: signatFresh.assinaturaUrl,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
             gridCols: layVisual.cols,
             gridRows: layVisual.rows,
             pvcCropMarks: layVisual.pvcCrop,
@@ -2445,6 +2479,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       String memberId,
                       String nome,
                       String cargo,
+                      String? cpf,
                       String? assinaturaUrl
                     })>(
                   value: selected,
@@ -2559,6 +2594,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         String memberId,
         String nome,
         String cargo,
+        String? cpf,
         String? assinaturaUrl,
       })? signat = incluirAssinatura ? selected : null;
       if (signat != null) {
@@ -2638,8 +2674,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
             list,
             signatoryNome: signat?.nome,
             signatoryCargo: signat?.cargo,
+            signatoryCpf: signat?.cpf,
             signatoryAssinaturaUrl: signat?.assinaturaUrl,
             pastorSigFallback: pastorSig,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
           );
         } catch (e, st) {
           debugPrint(
@@ -2649,7 +2688,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
             lay.format,
             signatoryNome: signat?.nome,
             signatoryCargo: signat?.cargo,
+            signatoryCpf: signat?.cpf,
             signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
             gridCols: lay.cols,
             gridRows: lay.rows,
             inkEconomy: false,
@@ -2674,8 +2716,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
             list,
             signatoryNome: signat?.nome,
             signatoryCargo: signat?.cargo,
+            signatoryCpf: signat?.cpf,
             signatoryAssinaturaUrl: signat?.assinaturaUrl,
             pastorSigFallback: pastorSig,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
           );
         } catch (e, st) {
           debugPrint(
@@ -2685,7 +2730,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
             lay.format,
             signatoryNome: signat?.nome,
             signatoryCargo: signat?.cargo,
+            signatoryCpf: signat?.cpf,
             signatoryAssinaturaUrl: signat?.assinaturaUrl,
+            includeDigitalSignature:
+                _walletIncluirAssinaturaDigital,
             gridCols: lay.cols,
             gridRows: lay.rows,
             inkEconomy: false,
@@ -2699,7 +2747,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
           lay.format,
           signatoryNome: signat?.nome,
           signatoryCargo: signat?.cargo,
+          signatoryCpf: signat?.cpf,
           signatoryAssinaturaUrl: signat?.assinaturaUrl,
+          includeDigitalSignature:
+              _walletIncluirAssinaturaDigital,
           gridCols: lay.cols,
           gridRows: lay.rows,
           inkEconomy: false,
@@ -3195,12 +3246,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<void> _refreshSignatoryFromFirestore(
     BuildContext modalContext,
     void Function(void Function()) setModal,
-    ({String memberId, String nome, String cargo, String? assinaturaUrl})? v,
+    ({String memberId, String nome, String cargo, String? cpf, String? assinaturaUrl})? v,
     void Function(
             ({
               String memberId,
               String nome,
               String cargo,
+              String? cpf,
               String? assinaturaUrl
             })? value)
         setSelected,
@@ -3223,11 +3275,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final nome =
           (d['NOME_COMPLETO'] ?? d['nome'] ?? v.nome).toString().trim();
       final cargo = signatoryCargoDisplayLabel(d);
+      final cpfTxt = _formatCpfForCard(_memberCpfRaw(d)).trim();
+      final cpfFmt = cpfTxt.isEmpty ? null : cpfTxt;
       if (!modalContext.mounted) return;
       setModal(() => setSelected((
             memberId: v.memberId,
             nome: nome.isEmpty ? v.nome : nome,
             cargo: cargo.isEmpty ? v.cargo : cargo,
+            cpf: cpfFmt ?? v.cpf,
             assinaturaUrl: url.isEmpty ? null : url,
           )));
     } catch (_) {
@@ -3241,6 +3296,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             String memberId,
             String nome,
             String cargo,
+            String? cpf,
             String? assinaturaUrl
           })>> _loadSignatoryOptions() async {
     final db = FirebaseFirestore.instance;
@@ -3251,6 +3307,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       String memberId,
       String nome,
       String cargo,
+      String? cpf,
       String? assinaturaUrl
     })>[];
     for (final doc in snap.docs) {
@@ -3260,10 +3317,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (nome.isEmpty) continue;
       final url =
           (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
+      final cpfFmt = _formatCpfForCard(_memberCpfRaw(d)).trim();
       list.add((
         memberId: doc.id,
         nome: nome,
         cargo: signatoryCargoDisplayLabel(d),
+        cpf: cpfFmt.isEmpty ? null : cpfFmt,
         assinaturaUrl: url.isEmpty ? null : url
       ));
     }
@@ -3271,9 +3330,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   /// Usa [defaultSignatoryMemberId] da config da carteirinha quando existir na lista.
-  ({String memberId, String nome, String cargo, String? assinaturaUrl})?
+  ({String memberId, String nome, String cargo, String? cpf, String? assinaturaUrl})?
       _selectSignatory(
-    List<({String memberId, String nome, String cargo, String? assinaturaUrl})>
+    List<({String memberId, String nome, String cargo, String? cpf, String? assinaturaUrl})>
         options,
     String? preferredMemberId,
   ) {
@@ -3293,12 +3352,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
         String memberId,
         String nome,
         String cargo,
+        String? cpf,
         String? assinaturaUrl,
       })> _fetchSignatoryAssinaturaFresh(
     ({
       String memberId,
       String nome,
       String cargo,
+      String? cpf,
       String? assinaturaUrl,
     }) s,
   ) async {
@@ -3316,10 +3377,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final url = urlFresh.isNotEmpty ? urlFresh : urlFallback;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? s.nome).toString().trim();
       final cargo = signatoryCargoDisplayLabel(d);
+      final cpfFmt = _formatCpfForCard(_memberCpfRaw(d)).trim();
       return (
         memberId: s.memberId,
         nome: nome.isEmpty ? s.nome : nome,
         cargo: cargo.isEmpty ? s.cargo : cargo,
+        cpf: cpfFmt.isNotEmpty ? cpfFmt : s.cpf,
         assinaturaUrl: url.isEmpty ? null : url,
       );
     } catch (_) {
@@ -3327,31 +3390,34 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Nome/cargo do signatário para verso da carteirinha: override explícito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
-  Future<({String nome, String cargo})> _resolveSignatoryLabelsForWallet(
+  /// Nome/cargo/CPF do signatário para verso da carteirinha: override explícito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
+  Future<({String nome, String cargo, String cpf})> _resolveSignatoryLabelsForWallet(
     Map<String, dynamic> member,
     Map<String, dynamic> cardCfg,
     String igrejaDocId, {
     String? signatoryNomeOverride,
     String? signatoryCargoOverride,
+    String? signatoryCpfOverride,
   }) async {
     final oN = (signatoryNomeOverride ?? '').trim();
     final oC = (signatoryCargoOverride ?? '').trim();
-    if (oN.isNotEmpty) return (nome: oN, cargo: oC);
+    final oCpf = (signatoryCpfOverride ?? '').trim();
 
-    var nome =
-        (member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
-    var cargo =
-        (member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
-    if (nome.isNotEmpty) return (nome: nome, cargo: cargo);
+    var nome = oN.isNotEmpty
+        ? oN
+        : (member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    var cargo = oC.isNotEmpty
+        ? oC
+        : (member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
+    var cpf = oCpf;
 
     final db = FirebaseFirestore.instance;
     final tid = igrejaDocId.trim();
-    if (tid.isEmpty) return (nome: '', cargo: cargo);
+    if (tid.isEmpty) return (nome: nome, cargo: cargo, cpf: cpf);
 
     Future<void> tryLoad(String rawId) async {
       final id = rawId.trim();
-      if (id.isEmpty || nome.isNotEmpty) return;
+      if (id.isEmpty) return;
       try {
         final doc = await db
             .collection('igrejas')
@@ -3361,20 +3427,27 @@ class _MemberCardPageState extends State<MemberCardPage> {
             .get();
         if (!doc.exists) return;
         final d = doc.data() ?? {};
-        nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
-        cargo = signatoryCargoDisplayLabel(d);
+        if (nome.isEmpty) {
+          nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+        }
+        if (cargo.isEmpty) {
+          cargo = signatoryCargoDisplayLabel(d);
+        }
+        if (cpf.isEmpty) {
+          cpf = _formatCpfForCard(_memberCpfRaw(d)).trim();
+        }
       } catch (_) {}
     }
 
     await tryLoad((member['carteirinhaAssinadaPor'] ?? '').toString());
-    if (nome.isEmpty) {
+    if (nome.isEmpty || cargo.isEmpty || cpf.isEmpty) {
       await tryLoad((cardCfg['defaultSignatoryMemberId'] ?? '').toString());
     }
-    return (nome: nome, cargo: cargo);
+    return (nome: nome, cargo: cargo, cpf: cpf);
   }
 
-  /// URL da assinatura institucional + nome/cargo do pastor (config ou membro signatário).
-  Future<({String pastorUrl, String sigNome, String sigCargo})>
+  /// URL da assinatura institucional + nome/cargo/CPF do pastor (config ou membro signatário).
+  Future<({String pastorUrl, String sigNome, String sigCargo, String sigCpf})>
       _walletDisplayContext(_CardData data) async {
     final url = await FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
         data.igrejaDocId);
@@ -3384,11 +3457,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
       data.igrejaDocId,
       signatoryNomeOverride: _walletPdfExportSignatoryNome,
       signatoryCargoOverride: _walletPdfExportSignatoryCargo,
+      signatoryCpfOverride: _walletPdfExportSignatoryCpf,
     );
     return (
       pastorUrl: (url ?? '').trim(),
       sigNome: sig.nome,
-      sigCargo: sig.cargo
+      sigCargo: sig.cargo,
+      sigCpf: sig.cpf,
     );
   }
 
@@ -3763,6 +3838,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     pw.ImageProvider? signatoryImage,
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
+    bool includeDigitalSignature = true,
   }) {
     final igreja = cfg.title;
     final pal = _pdfCarteiraColors(cfg, pdfInkEconomy);
@@ -3801,9 +3878,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
       filiacaoPaiMaeDoc: filiacaoTxt,
       estadoCivilDoc: _estadoCivilFromMember(data.member),
       telefoneDoc: tel,
-      assinaturaImage: signatoryImage,
+      assinaturaImage:
+          includeDigitalSignature ? signatoryImage : null,
       signatoryNome: sn,
       signatoryCargo: sc,
+      signatoryCpfDoc: (signatoryCpf ?? '').trim(),
+      includeDigitalSignature: includeDigitalSignature,
       showRegrasUso: false,
     );
   }
@@ -3812,7 +3892,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
       {_CardConfig? configOverride,
       String? signatoryNome,
       String? signatoryCargo,
-      String? signatoryAssinaturaUrl}) async {
+      String? signatoryCpf,
+      String? signatoryAssinaturaUrl,
+      bool? includeDigitalSignature}) async {
     try {
       final doc = await _newCarteirinhaPdfDoc();
       final cfg = configOverride ?? _cardConfigForPdf(data);
@@ -3832,7 +3914,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
       await _addCardPageToDoc(doc, data, format, cfg,
           signatoryNome: signatoryNome,
           signatoryCargo: signatoryCargo,
-          signatoryImage: signatoryImage);
+          signatoryCpf: signatoryCpf,
+          signatoryImage: signatoryImage,
+          includeDigitalSignature: includeDigitalSignature);
       return doc.save();
     } finally {
       _clearPdfImageSessionCache();
@@ -3843,9 +3927,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       pw.Document doc, _CardData data, PdfPageFormat format, _CardConfig cfg,
       {String? signatoryNome,
       String? signatoryCargo,
+      String? signatoryCpf,
       pw.ImageProvider? signatoryImage,
       bool pvcCropMarks = false,
-      bool pdfInkEconomy = false}) async {
+      bool pdfInkEconomy = false,
+      bool? includeDigitalSignature}) async {
     final name = _memberNome(data.member);
     final cargo = _cargoDisplay(data.member, cfg);
     final cpf = _formatCpfForCard(_memberCpfRaw(data.member));
@@ -3866,23 +3952,28 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final s = _admissionBatismoLine(data.member).trim();
       return s.isEmpty ? 'Admissão: —' : s;
     }();
-    pw.ImageProvider? sigImgVerso = signatoryImage;
-    if (sigImgVerso == null) {
-      final su =
-          (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
-      if (su.isNotEmpty) {
-        sigImgVerso = await _pdfSignatureImageProviderFromUrlCached(su);
-      }
-    }
+    final incluirAssinaturaDig =
+        includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
     final sigResolved = await _resolveSignatoryLabelsForWallet(
       data.member,
       data.cardConfig,
       data.igrejaDocId,
       signatoryNomeOverride: signatoryNome,
       signatoryCargoOverride: signatoryCargo,
+      signatoryCpfOverride: signatoryCpf ?? _walletPdfExportSignatoryCpf,
     );
     final sigNomePdf = sigResolved.nome;
     final sigCargoPdf = sigResolved.cargo;
+    final sigCpfPdf = sigResolved.cpf;
+    pw.ImageProvider? sigImgVerso =
+        incluirAssinaturaDig ? signatoryImage : null;
+    if (incluirAssinaturaDig && sigImgVerso == null) {
+      final su =
+          (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+      if (su.isNotEmpty) {
+        sigImgVerso = await _pdfSignatureImageProviderFromUrlCached(su);
+      }
+    }
     final photoUrl = cfg.showPhoto
         ? await _resolvedMemberPhotoUrlForPdf(data.memberId, data.member,
             igrejaDocId: data.igrejaDocId)
@@ -3915,7 +4006,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       accentColor: accentColor,
       logo: logo,
       photo: photo,
-      signatoryImage: signatoryImage,
+      signatoryImage: incluirAssinaturaDig ? signatoryImage : null,
       signatoryNome: sigNomePdf,
       signatoryCargo: sigCargoPdf,
       outerSlotWidth: _pdfCardSlotW,
@@ -3931,6 +4022,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         signatoryImage: sigImgVerso,
         signatoryNome: sigNomePdf,
         signatoryCargo: sigCargoPdf,
+        signatoryCpf: sigCpfPdf,
+        includeDigitalSignature: incluirAssinaturaDig,
       ),
     );
     if (pvcCropMarks) {
@@ -4005,6 +4098,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required String sigUrl,
     required String signatoryNome,
     required String signatoryCargo,
+    required String signatoryCpf,
+    required bool showDigitalSignature,
     required bool ladoALado,
   }) {
     final name = _memberNome(data.member);
@@ -4067,7 +4162,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final signatoryCargoWallet = signatoryCargo.trim().isNotEmpty
         ? signatoryCargo.trim()
         : (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString();
-    final sigUrlUse = sigUrl.trim();
+    final sigUrlUse =
+        showDigitalSignature ? sigUrl.trim() : '';
 
     final hCard = DigitalWalletCardLayout.cardHeight(wCard);
     final front = MemberDigitalWalletFront(
@@ -4105,6 +4201,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
       signatoryName: signatoryNameWallet,
       signatoryCargo: signatoryCargoWallet,
+      signatoryCpf: signatoryCpf.trim(),
+      showDigitalSignature: showDigitalSignature,
       fraseRodape: cfg.fraseRodape,
     );
     if (!ladoALado) {
@@ -4156,8 +4254,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     List<_CardData> list, {
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
     String? signatoryAssinaturaUrl,
     String pastorSigFallback = '',
+    bool? includeDigitalSignature,
   }) async {
     if (list.isEmpty) {
       throw StateError('Lista vazia');
@@ -4168,6 +4268,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final batchSig = (signatoryAssinaturaUrl ?? '').trim();
     final batchNome = (signatoryNome ?? '').trim();
     final batchCargo = (signatoryCargo ?? '').trim();
+    final batchCpf = (signatoryCpf ?? '').trim();
+    final showDig = includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
 
     try {
       for (final data in list) {
@@ -4178,16 +4280,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
         final resolvedSig = batchSig.isNotEmpty
             ? batchSig
             : (fromMember.isNotEmpty ? fromMember : pastorSigFallback.trim());
-        final sn = batchNome.isNotEmpty
-            ? batchNome
-            : (data.member['carteirinhaAssinadaPorNome'] ?? '')
-                .toString()
-                .trim();
-        final sc = batchCargo.isNotEmpty
-            ? batchCargo
-            : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
-                .toString()
-                .trim();
+        final sigLabels = await _resolveSignatoryLabelsForWallet(
+          data.member,
+          data.cardConfig,
+          data.igrejaDocId,
+          signatoryNomeOverride: batchNome.isNotEmpty ? batchNome : null,
+          signatoryCargoOverride: batchCargo.isNotEmpty ? batchCargo : null,
+          signatoryCpfOverride: batchCpf.isNotEmpty ? batchCpf : null,
+        );
+        final sn = sigLabels.nome;
+        final sc = sigLabels.cargo;
+        final scpf = sigLabels.cpf;
 
         if (!mounted) throw StateError('contexto inválido');
         setState(() {
@@ -4196,12 +4299,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
           _rasterBatchSigUrl = resolvedSig;
           _rasterBatchSignatoryNome = sn;
           _rasterBatchSignatoryCargo = sc;
+          _rasterBatchSignatoryCpf = scpf;
+          _rasterBatchShowDigitalSig = showDig;
         });
         for (var j = 0; j < 6; j++) {
           await WidgetsBinding.instance.endOfFrame;
         }
         await Future<void>.delayed(const Duration(milliseconds: 140));
-        if (resolvedSig.isNotEmpty) {
+        if (showDig && resolvedSig.isNotEmpty) {
           await _precacheWalletSigForExport(context, resolvedSig);
           await Future<void>.delayed(const Duration(milliseconds: 220));
         }
@@ -4233,6 +4338,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
           _rasterBatchSigUrl = '';
           _rasterBatchSignatoryNome = '';
           _rasterBatchSignatoryCargo = '';
+          _rasterBatchSignatoryCpf = '';
+          _rasterBatchShowDigitalSig = true;
         });
       }
     }
@@ -4246,8 +4353,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     List<_CardData> list, {
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
     String? signatoryAssinaturaUrl,
     String pastorSigFallback = '',
+    bool? includeDigitalSignature,
   }) async {
     if (list.isEmpty) {
       throw StateError('Lista vazia');
@@ -4264,6 +4373,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final batchSig = (signatoryAssinaturaUrl ?? '').trim();
     final batchNome = (signatoryNome ?? '').trim();
     final batchCargo = (signatoryCargo ?? '').trim();
+    final batchCpf = (signatoryCpf ?? '').trim();
+    final showDig = includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
 
     try {
       for (var pageStart = 0;
@@ -4282,16 +4393,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final resolvedSig = batchSig.isNotEmpty
               ? batchSig
               : (fromMember.isNotEmpty ? fromMember : pastorSigFallback.trim());
-          final sn = batchNome.isNotEmpty
-              ? batchNome
-              : (data.member['carteirinhaAssinadaPorNome'] ?? '')
-                  .toString()
-                  .trim();
-          final sc = batchCargo.isNotEmpty
-              ? batchCargo
-              : (data.member['carteirinhaAssinadaPorCargo'] ?? '')
-                  .toString()
-                  .trim();
+          final sigLabels = await _resolveSignatoryLabelsForWallet(
+            data.member,
+            data.cardConfig,
+            data.igrejaDocId,
+            signatoryNomeOverride: batchNome.isNotEmpty ? batchNome : null,
+            signatoryCargoOverride: batchCargo.isNotEmpty ? batchCargo : null,
+            signatoryCpfOverride: batchCpf.isNotEmpty ? batchCpf : null,
+          );
+          final sn = sigLabels.nome;
+          final sc = sigLabels.cargo;
+          final scpf = sigLabels.cpf;
 
           if (!mounted) throw StateError('contexto inválido');
           setState(() {
@@ -4300,12 +4412,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
             _rasterBatchSigUrl = resolvedSig;
             _rasterBatchSignatoryNome = sn;
             _rasterBatchSignatoryCargo = sc;
+            _rasterBatchSignatoryCpf = scpf;
+            _rasterBatchShowDigitalSig = showDig;
           });
           for (var j = 0; j < 6; j++) {
             await WidgetsBinding.instance.endOfFrame;
           }
           await Future<void>.delayed(const Duration(milliseconds: 140));
-          if (resolvedSig.isNotEmpty) {
+          if (showDig && resolvedSig.isNotEmpty) {
             await _precacheWalletSigForExport(context, resolvedSig);
             await Future<void>.delayed(const Duration(milliseconds: 220));
           }
@@ -4372,6 +4486,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
           _rasterBatchSigUrl = '';
           _rasterBatchSignatoryNome = '';
           _rasterBatchSignatoryCargo = '';
+          _rasterBatchSignatoryCpf = '';
+          _rasterBatchShowDigitalSig = true;
         });
       }
     }
@@ -4431,19 +4547,24 @@ class _MemberCardPageState extends State<MemberCardPage> {
     _CardConfig cfg, {
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
     String? signatoryAssinaturaUrl,
   }) async {
     final urlO = (signatoryAssinaturaUrl ?? '').trim();
     final nomeO = (signatoryNome ?? '').trim();
     final cargoO = (signatoryCargo ?? '').trim();
-    final hasOverrides =
-        urlO.isNotEmpty || nomeO.isNotEmpty || cargoO.isNotEmpty;
+    final cpfO = (signatoryCpf ?? '').trim();
+    final hasOverrides = urlO.isNotEmpty ||
+        nomeO.isNotEmpty ||
+        cargoO.isNotEmpty ||
+        cpfO.isNotEmpty;
     if (hasOverrides && mounted) {
       await _precacheWalletSigForExport(context, signatoryAssinaturaUrl);
       setState(() {
         _walletPdfExportSigUrl = urlO.isNotEmpty ? urlO : null;
         _walletPdfExportSignatoryNome = nomeO.isNotEmpty ? nomeO : null;
         _walletPdfExportSignatoryCargo = cargoO.isNotEmpty ? cargoO : null;
+        _walletPdfExportSignatoryCpf = cpfO.isNotEmpty ? cpfO : null;
       });
       for (var i = 0; i < 8; i++) {
         await WidgetsBinding.instance.endOfFrame;
@@ -4463,6 +4584,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         configOverride: cfg,
         signatoryNome: signatoryNome,
         signatoryCargo: signatoryCargo,
+        signatoryCpf: signatoryCpf,
         signatoryAssinaturaUrl: signatoryAssinaturaUrl,
       );
     } finally {
@@ -4471,6 +4593,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           _walletPdfExportSigUrl = null;
           _walletPdfExportSignatoryNome = null;
           _walletPdfExportSignatoryCargo = null;
+          _walletPdfExportSignatoryCpf = null;
         });
       }
     }
@@ -4554,6 +4677,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           String memberId,
                           String nome,
                           String cargo,
+                          String? cpf,
                           String? assinaturaUrl
                         })>(
                       value: selected,
@@ -4606,6 +4730,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 cfg,
                                 signatoryNome: nome,
                                 signatoryCargo: cargo,
+                                signatoryCpf: selected?.cpf,
                                 signatoryAssinaturaUrl: url,
                               );
                               if (context.mounted)
@@ -4697,6 +4822,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     pw.ImageProvider? signatoryImage,
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
+    bool? includeDigitalSignature,
   }) async {
     final cfgRaw = _cardConfigForPdf(data);
     final cfg = cfgRaw;
@@ -4758,8 +4885,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
       outerSlotWidth: _pdfCardSlotW,
       outerSlotHeight: _pdfCardSlotH,
     );
-    pw.ImageProvider? sigIV = signatoryImage;
-    if (sigIV == null) {
+    final incluirDig =
+        includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
+    final sigLabels = await _resolveSignatoryLabelsForWallet(
+      data.member,
+      data.cardConfig,
+      data.igrejaDocId,
+      signatoryNomeOverride: signatoryNome,
+      signatoryCargoOverride: signatoryCargo,
+      signatoryCpfOverride: signatoryCpf,
+    );
+    pw.ImageProvider? sigIV = incluirDig ? signatoryImage : null;
+    if (incluirDig && sigIV == null) {
       final su =
           (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
       if (su.isNotEmpty) {
@@ -4774,8 +4911,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
         cfgRaw,
         pdfInkEconomy: inkEconomy,
         signatoryImage: sigIV,
-        signatoryNome: signatoryNome,
-        signatoryCargo: signatoryCargo,
+        signatoryNome: sigLabels.nome,
+        signatoryCargo: sigLabels.cargo,
+        signatoryCpf: sigLabels.cpf,
+        includeDigitalSignature: incluirDig,
       ),
     );
     return (face: face, verso: verso);
@@ -4786,7 +4925,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     PdfPageFormat format, {
     String? signatoryNome,
     String? signatoryCargo,
+    String? signatoryCpf,
     String? signatoryAssinaturaUrl,
+    bool? includeDigitalSignature,
     int gridCols = 1,
     int gridRows = 1,
     bool pvcCropMarks = false,
@@ -4807,7 +4948,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
       // Só usa assinatura gravada na ficha do **membro** quando o PDF não pediu
       // assinatura explícita do líder (evita misturar outro signatário).
-      if (signatoryImage == null &&
+      final incluirPdfSig =
+          includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
+      if (!incluirPdfSig) {
+        signatoryImage = null;
+      } else if (signatoryImage == null &&
           sigUrlParam.isEmpty &&
           list.isNotEmpty) {
         final su = (list.first.member['carteirinhaAssinaturaUrl'] ?? '')
@@ -4849,6 +4994,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 signatoryImage: signatoryImage,
                 signatoryNome: signatoryNome,
                 signatoryCargo: signatoryCargo,
+                signatoryCpf: signatoryCpf,
+                includeDigitalSignature: includeDigitalSignature,
               ),
           ]);
 
@@ -4946,9 +5093,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
           await _addCardPageToDoc(doc, data, format, cfg,
               signatoryNome: signatoryNome,
               signatoryCargo: signatoryCargo,
+              signatoryCpf: signatoryCpf,
               signatoryImage: signatoryImage,
               pvcCropMarks: pvcCropMarks,
-              pdfInkEconomy: inkEconomy);
+              pdfInkEconomy: inkEconomy,
+              includeDigitalSignature: includeDigitalSignature);
         }
         return doc.save();
       }
@@ -5093,8 +5242,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
           if (k >= chunk.length) return pw.SizedBox();
           final data = chunk[k];
           final cfgRaw = _cardConfigForPdf(data);
-          pw.ImageProvider? sigIV = signatoryImage;
-          if (sigIV == null) {
+          final sigLabels = await _resolveSignatoryLabelsForWallet(
+            data.member,
+            data.cardConfig,
+            data.igrejaDocId,
+            signatoryNomeOverride: signatoryNome,
+            signatoryCargoOverride: signatoryCargo,
+            signatoryCpfOverride: signatoryCpf,
+          );
+          pw.ImageProvider? sigIV = incluirPdfSig ? signatoryImage : null;
+          if (incluirPdfSig && sigIV == null) {
             final su = (data.member['carteirinhaAssinaturaUrl'] ?? '')
                 .toString()
                 .trim();
@@ -5114,8 +5271,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   cfgRaw,
                   pdfInkEconomy: inkEconomy,
                   signatoryImage: sigIV,
-                  signatoryNome: signatoryNome,
-                  signatoryCargo: signatoryCargo,
+                  signatoryNome: sigLabels.nome,
+                  signatoryCargo: sigLabels.cargo,
+                  signatoryCpf: sigLabels.cpf,
+                  includeDigitalSignature: incluirPdfSig,
                 ),
               ),
             ),
@@ -6768,12 +6927,31 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         color: Colors.grey.shade600,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: _walletIncluirAssinaturaDigital,
+                      onChanged: (v) =>
+                          setState(() => _walletIncluirAssinaturaDigital = v),
+                      title: const Text('Assinatura digital na impressão / PNG'),
+                      subtitle: Text(
+                        _walletIncluirAssinaturaDigital
+                            ? 'Inclui a imagem da assinatura cadastrada no líder (ideal para impressão direta).'
+                            : 'Oculta a imagem e reserva espaço para assinar à mão no papel.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.35,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     FutureBuilder<
                         ({
                           String pastorUrl,
                           String sigNome,
-                          String sigCargo
+                          String sigCargo,
+                          String sigCpf
                         })>(
                       key: ValueKey<String>(
                           'wallet_ctx_${data.igrejaDocId}_${data.memberId}'),
@@ -6786,9 +6964,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         final snapSig =
                             (snapPastor.data?.pastorUrl ?? '').trim();
                         final exportSig = (_walletPdfExportSigUrl ?? '').trim();
-                        final sigUrl = exportSig.isNotEmpty
+                        final sigUrlRaw = exportSig.isNotEmpty
                             ? exportSig
                             : (memberSig.isNotEmpty ? memberSig : snapSig);
+                        final sigUrl = _walletIncluirAssinaturaDigital
+                            ? sigUrlRaw
+                            : '';
                         final estadoTxt = _estadoCivilFromMember(data.member);
                         final wCard = min(
                           360.0,
@@ -6865,6 +7046,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     : (data.member['carteirinhaAssinadaPorCargo'] ??
                                             '')
                                         .toString());
+                        final signatoryCpfWallet =
+                            (_walletPdfExportSignatoryCpf ?? '').trim().isNotEmpty
+                                ? _walletPdfExportSignatoryCpf!.trim()
+                                : (snapPastor.hasData &&
+                                        (snapPastor.data!.sigCpf).trim().isNotEmpty
+                                    ? snapPastor.data!.sigCpf.trim()
+                                    : '');
                         return Column(
                           children: [
                             Screenshot(
@@ -6928,6 +7116,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             sigUrl.isEmpty ? null : sigUrl,
                                         signatoryName: signatoryNameWallet,
                                         signatoryCargo: signatoryCargoWallet,
+                                        signatoryCpf: signatoryCpfWallet,
+                                        showDigitalSignature:
+                                            _walletIncluirAssinaturaDigital,
                                         fraseRodape: cfg.fraseRodape,
                                       ),
                                     ],
@@ -6938,7 +7129,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
-                                'Verso — CPF, batismo, filiação, estado civil, telefone e assinatura (no PDF/PNG acima)',
+                                'Verso — dados do membro; bloco institucional com nome, CPF e cargo do responsável; assinatura digital ou área para assinar à mão (PDF/PNG acima)',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
@@ -7044,6 +7235,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   sigUrl: _rasterBatchSigUrl,
                   signatoryNome: _rasterBatchSignatoryNome,
                   signatoryCargo: _rasterBatchSignatoryCargo,
+                  signatoryCpf: _rasterBatchSignatoryCpf,
+                  showDigitalSignature: _rasterBatchShowDigitalSig,
                   ladoALado: _rasterBatchLadoALado,
                 ),
               ),

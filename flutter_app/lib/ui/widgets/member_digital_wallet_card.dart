@@ -429,24 +429,35 @@ class WalletSignatureStrip extends StatelessWidget {
   final String? imageUrl;
   final String signatoryName;
   final String signatoryCargo;
+  /// CPF do pastor/responsável que assina (formatado).
+  final String signatoryCpf;
   final Color textColor;
   /// Cor de destaque da credencial (faixa lateral + chip).
   final Color stripAccent;
+  /// `true` = imprimir PNG/PDF com imagem da assinatura digital (quando existir).
+  /// `false` = área tracejada para assinar à mão após impressão.
+  final bool showDigitalSignature;
 
   const WalletSignatureStrip({
     super.key,
     required this.imageUrl,
     required this.signatoryName,
     required this.signatoryCargo,
+    this.signatoryCpf = '',
     required this.textColor,
     required this.stripAccent,
+    this.showDigitalSignature = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final u = (imageUrl ?? '').trim();
-    final hasSig =
-        u.isNotEmpty || signatoryName.trim().isNotEmpty || signatoryCargo.trim().isNotEmpty;
+    final showImg = showDigitalSignature && u.isNotEmpty;
+    final hasSig = signatoryName.trim().isNotEmpty ||
+        signatoryCargo.trim().isNotEmpty ||
+        signatoryCpf.trim().isNotEmpty ||
+        showImg ||
+        !showDigitalSignature;
     if (!hasSig) return const SizedBox.shrink();
 
     final a = stripAccent;
@@ -455,7 +466,7 @@ class WalletSignatureStrip extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(maxHeight: 56),
+      constraints: const BoxConstraints(maxHeight: 112),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(9),
         border: Border.all(
@@ -549,14 +560,74 @@ class WalletSignatureStrip extends StatelessWidget {
                               ),
                             ),
                           ],
+                          if (signatoryCpf.trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'CPF: ${signatoryCpf.trim()}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                fontSize: 7.8,
+                                fontWeight: FontWeight.w600,
+                                color: textColor.withValues(alpha: 0.85),
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                          if (!showDigitalSignature) ...[
+                            const SizedBox(height: 5),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 10, horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(7),
+                                border: Border.all(
+                                  color: a.withValues(alpha: 0.4),
+                                  width: 1.1,
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    'Área para assinatura à mão',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 6.9,
+                                      fontWeight: FontWeight.w700,
+                                      color:
+                                          textColor.withValues(alpha: 0.72),
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    height: 1,
+                                    margin: const EdgeInsets.symmetric(
+                                        horizontal: 4),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.transparent,
+                                          textColor.withValues(alpha: 0.35),
+                                          Colors.transparent,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                    if (u.isNotEmpty) ...[
+                    if (showImg) ...[
                       const SizedBox(width: 5),
                       SizedBox(
-                        width: 100,
-                        height: 34,
+                        width: 128,
+                        height: 48,
                         child: _WalletSigImage(url: u),
                       ),
                     ],
@@ -582,8 +653,8 @@ class _WalletSigImage extends StatefulWidget {
 }
 
 class _WalletSigImageState extends State<_WalletSigImage> {
-  static const double _sigW = 100;
-  static const double _sigH = 34;
+  static const double _sigW = 128;
+  static const double _sigH = 48;
 
   Uint8List? _pngBytes;
   bool _loading = true;
@@ -666,7 +737,7 @@ class _WalletSigImageState extends State<_WalletSigImage> {
       b,
       width: _sigW,
       height: _sigH,
-      fit: BoxFit.fitHeight,
+      fit: BoxFit.contain,
       gaplessPlayback: true,
       filterQuality: FilterQuality.high,
     );
@@ -692,7 +763,10 @@ class MemberDigitalWalletBack extends StatelessWidget {
   final String? signatureImageUrl;
   final String signatoryName;
   final String signatoryCargo;
+  final String signatoryCpf;
   final String fraseRodape;
+  /// Ver [WalletSignatureStrip.showDigitalSignature].
+  final bool showDigitalSignature;
 
   const MemberDigitalWalletBack({
     super.key,
@@ -711,6 +785,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
     required this.signatureImageUrl,
     required this.signatoryName,
     required this.signatoryCargo,
+    this.signatoryCpf = '',
+    this.showDigitalSignature = true,
     this.fraseRodape = '',
   });
 
@@ -771,8 +847,10 @@ class MemberDigitalWalletBack extends StatelessWidget {
                           imageUrl: signatureImageUrl,
                           signatoryName: signatoryName,
                           signatoryCargo: signatoryCargo,
+                          signatoryCpf: signatoryCpf,
                           textColor: textColor,
                           stripAccent: accentGold,
+                          showDigitalSignature: showDigitalSignature,
                         ),
                       ],
                     ),

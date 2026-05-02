@@ -300,16 +300,20 @@ pw.Widget _normaCultaSignatureBlock(
   /// Largura máx. do bloco de assinatura (ofício): proporcional ao conteúdo, centrado na página.
   const maxSigBlockPt = 248.0;
   const lineWPt = 198.0;
+  /// Selo digital em PNG (várias linhas): mesma largura que a linha de assinatura e altura
+  /// próxima ao slot do certificado (~112×28 pt) porém ampliada para o preview legível.
+  const sigRasterWPt = lineWPt;
+  const sigRasterHPt = 58.0;
 
   final sigChildren = <pw.Widget>[
     if (sigImage != null) ...[
-      // Modelo atual: assinatura destacada imediatamente acima da linha do nome.
+      // Assinatura digital (imagem) imediatamente acima da linha do nome.
       pw.SizedBox(
-        width: 148,
-        height: 30,
+        width: sigRasterWPt,
+        height: sigRasterHPt,
         child: pw.Image(sigImage, fit: pw.BoxFit.contain),
       ),
-      pw.SizedBox(height: 3),
+      pw.SizedBox(height: 5),
     ] else if (reserveManualSignatureSpace) ...[
       pw.Container(
         width: 132,

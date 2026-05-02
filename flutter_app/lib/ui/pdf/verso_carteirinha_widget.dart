@@ -22,6 +22,8 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
     this.assinaturaImage,
     this.signatoryNome = '',
     this.signatoryCargo = '',
+    this.signatoryCpfDoc = '',
+    this.includeDigitalSignature = true,
     this.showRegrasUso = false,
   })  : regrasUso = (regrasUso == null || regrasUso.isEmpty)
             ? kRegrasPadrao
@@ -57,12 +59,20 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
   final pw.ImageProvider? assinaturaImage;
   final String signatoryNome;
   final String signatoryCargo;
+  final String signatoryCpfDoc;
+  /// `true` = raster da assinatura no PDF; `false` = reserva em branco para assinar à mão.
+  final bool includeDigitalSignature;
 
   /// `false` = igual à carteira digital na app (sem lista de regras no meio do verso).
   final bool showRegrasUso;
 
   static const double cardWidthPt = 242.64;
   static const double cardHeightPt = 153.07;
+
+  /// Selo digital (PNG) no verso — área maior para o mesmo preview usado em certificados/cartas.
+  static const double _sigRasterWPt = 102.0;
+  static const double _sigRasterHPt = 46.0;
+  static const double _sigStripMaxHPt = 52.0;
 
   static pw.Widget _miniField(String label, String value, PdfColor fg, bool ink) {
     final v = value.trim().isEmpty ? '—' : value.trim();
@@ -168,11 +178,14 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                   _miniField('Telefone', telefoneDoc, fg, ink),
                   pw.Spacer(),
                   if ((signatoryNome).trim().isNotEmpty ||
-                      assinaturaImage != null ||
-                      (signatoryCargo).trim().isNotEmpty) ...[
+                      (includeDigitalSignature && assinaturaImage != null) ||
+                      (signatoryCargo).trim().isNotEmpty ||
+                      (signatoryCpfDoc).trim().isNotEmpty ||
+                      !includeDigitalSignature) ...[
                     pw.Container(
                       width: double.infinity,
-                      constraints: const pw.BoxConstraints(maxHeight: 36),
+                      constraints: const pw.BoxConstraints(
+                          maxHeight: _sigStripMaxHPt + 18),
                       decoration: pw.BoxDecoration(
                         borderRadius: pw.BorderRadius.circular(8),
                         border: pw.Border.all(
@@ -277,14 +290,74 @@ class VersoCarteirinhaPdfWidget extends pw.StatelessWidget {
                                               ),
                                             ),
                                           ],
+                                          if (signatoryCpfDoc
+                                              .trim()
+                                              .isNotEmpty) ...[
+                                            pw.SizedBox(height: 1.1),
+                                            pw.Text(
+                                              'CPF: ${signatoryCpfDoc.trim()}',
+                                              maxLines: 1,
+                                              style: pw.TextStyle(
+                                                color: PdfColor(
+                                                  fg.red,
+                                                  fg.green,
+                                                  fg.blue,
+                                                  ink ? 0.82 : 0.85,
+                                                ),
+                                                fontSize: 4.9,
+                                                fontWeight:
+                                                    pw.FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                          if (!includeDigitalSignature) ...[
+                                            pw.SizedBox(height: 2.5),
+                                            pw.Container(
+                                              padding:
+                                                  const pw.EdgeInsets.symmetric(
+                                                      vertical: 4,
+                                                      horizontal: 4),
+                                              decoration: pw.BoxDecoration(
+                                                border: pw.Border.all(
+                                                  color: PdfColor(
+                                                    gradientStart.red,
+                                                    gradientStart.green,
+                                                    gradientStart.blue,
+                                                    0.45,
+                                                  ),
+                                                  width: 0.75,
+                                                ),
+                                                borderRadius:
+                                                    pw.BorderRadius.circular(
+                                                        4),
+                                              ),
+                                              child: pw.Center(
+                                                child: pw.Text(
+                                                  'Área para assinatura à mão',
+                                                  style: pw.TextStyle(
+                                                    color: PdfColor(
+                                                      fg.red,
+                                                      fg.green,
+                                                      fg.blue,
+                                                      0.62,
+                                                    ),
+                                                    fontSize: 4.4,
+                                                    fontWeight:
+                                                        pw.FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     ),
-                                    if (assinaturaImage != null) ...[
+                                    if (includeDigitalSignature &&
+                                        assinaturaImage != null) ...[
                                       pw.SizedBox(width: 3.5),
                                       pw.SizedBox(
-                                        width: 62,
-                                        height: 26,
+                                        width: _sigRasterWPt,
+                                        height: _sigRasterHPt,
                                         child: pw.Image(
                                           assinaturaImage!,
                                           fit: pw.BoxFit.contain,

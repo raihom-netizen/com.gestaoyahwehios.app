@@ -1591,12 +1591,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 320,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 0.84,
-                  ),
+                  gridDelegate: _muralArchiveGridDelegate(context),
                   itemCount: entry.value.length,
                   itemBuilder: (context, i) {
                     final d = entry.value[i];
@@ -1702,6 +1697,22 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       ),
     );
   }
+
+  /// Grelha responsiva: 2 colunas em telemóvel estreito, 3 em médio, até 4 em web/tablet.
+  SliverGridDelegate _muralArchiveGridDelegate(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width - ThemeCleanPremium.spaceMd * 2;
+    final maxExt = w < 400
+        ? (w - 12) / 2
+        : w < 640
+            ? (w - 24) / 3
+            : min(300.0, (w - 36) / 4);
+    return SliverGridDelegateWithMaxCrossAxisExtent(
+      maxCrossAxisExtent: max(132.0, maxExt),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 0.84,
+    );
+  }
 }
 
 Map<String, dynamic> _noticiaDataForSingleVideoRow(
@@ -1744,12 +1755,22 @@ class _EventGalleryDetailPage extends StatelessWidget {
     final videos = eventNoticiaVideosFromDoc(data);
     final titleStr = (data['title'] ?? 'Evento').toString();
     final dateStr = _galleryFormatDatePt(_galleryDetailEventDate(data));
+    final mq = MediaQuery.of(context);
+    final hPad = max(12.0, min(22.0, mq.size.width * 0.045));
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Text((data['title'] ?? 'Detalhes do evento').toString()),
+        elevation: 0,
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        title: Text(
+          (data['title'] ?? 'Detalhes do evento').toString(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 28),
         children: [
           if ((data['text'] ?? '').toString().trim().isNotEmpty)
             Padding(
@@ -1760,41 +1781,53 @@ class _EventGalleryDetailPage extends StatelessWidget {
               ),
             ),
           if (photos.isNotEmpty) ...[
-            const Text(
+            Text(
               'Fotos',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                fontSize: mq.size.width < 400 ? 15 : 17,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0F172A),
+                letterSpacing: -0.2,
+              ),
             ),
             const SizedBox(height: 10),
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: photos.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 1,
-              ),
-              itemBuilder: (_, i) => InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          _FullScreenGallery(images: photos, initial: i),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: SafeNetworkImage(
-                    imageUrl: photos[i],
-                    fit: BoxFit.cover,
-                    errorWidget: Container(
-                      color: const Color(0xFFF1F5F9),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.broken_image_outlined),
+              gridDelegate:
+                  _muralDetailPhotosGridDelegate(mq.size.width),
+              itemBuilder: (_, i) => Material(
+                color: Colors.white,
+                elevation: 0,
+                shadowColor: Colors.black12,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            _FullScreenGallery(images: photos, initial: i),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: SafeNetworkImage(
+                        imageUrl: photos[i],
+                        fit: BoxFit.cover,
+                        errorWidget: Container(
+                          color: const Color(0xFFF1F5F9),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.broken_image_outlined),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -4674,6 +4707,27 @@ class _EventPostLinksRow extends StatelessWidget {
   }
 }
 
+/// Limites da visualização ampliada (web / tablet largo) — imagem centrada, legível, sem “fullscreen” exagerado.
+const double _kMuralLightboxMaxWidthWeb = 760;
+const double _kMuralLightboxMaxHeightWeb = 520;
+const double _kMuralLightboxMaxWidthTablet = 720;
+
+/// Miniaturas na página de detalhe do evento (antes de abrir o lightbox).
+SliverGridDelegate _muralDetailPhotosGridDelegate(double listViewportWidth) {
+  final inner = max(200.0, listViewportWidth - 32);
+  final maxExt = inner < 360
+      ? (inner - 8) / 2
+      : inner < 620
+          ? (inner - 16) / 3
+          : min(220.0, (inner - 24) / 4);
+  return SliverGridDelegateWithMaxCrossAxisExtent(
+    maxCrossAxisExtent: max(115.0, maxExt),
+    mainAxisSpacing: 12,
+    crossAxisSpacing: 12,
+    childAspectRatio: 0.92,
+  );
+}
+
 // Galeria full screen: web usa HTTP+memory (FreshFirebaseStorageImage); fallback abrir no navegador.
 class _ResilientGalleryImage extends StatelessWidget {
   final String imageUrl;
@@ -4682,18 +4736,34 @@ class _ResilientGalleryImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    final w = mq.size.width;
-    final h = (mq.size.height - mq.padding.vertical - kToolbarHeight - 24)
-        .clamp(200.0, mq.size.height);
+    final screenW = mq.size.width;
+    final screenH = mq.size.height;
+    final availH = (screenH -
+            mq.padding.vertical -
+            kToolbarHeight -
+            28)
+        .clamp(200.0, screenH);
+    final wideLayout = screenW >= 560;
+    final capWeb = kIsWeb || wideLayout;
+    double lw = screenW - (capWeb ? 48 : 18);
+    double lh = availH;
+    if (capWeb) {
+      lw = min(lw, kIsWeb ? _kMuralLightboxMaxWidthWeb : _kMuralLightboxMaxWidthTablet);
+      lh = min(lh, kIsWeb ? _kMuralLightboxMaxHeightWeb : 560);
+    } else {
+      lh = min(lh, screenH * 0.88);
+    }
+    lw = max(120.0, lw);
+    lh = max(160.0, lh);
     final dpr = mq.devicePixelRatio;
-    final memW = (w * dpr).round().clamp(64, 4096);
-    final memH = (h * dpr).round().clamp(64, 4096);
+    final memW = (lw * dpr).round().clamp(64, 4096);
+    final memH = (lh * dpr).round().clamp(64, 4096);
     return FreshFirebaseStorageImage(
       key: ValueKey(imageUrl),
       imageUrl: imageUrl,
       fit: BoxFit.contain,
-      width: w,
-      height: h,
+      width: lw,
+      height: lh,
       memCacheWidth: memW,
       memCacheHeight: memH,
       placeholder: const Center(
@@ -4764,53 +4834,62 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0B0F14),
       appBar: AppBar(
         leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
             onPressed: () => Navigator.maybePop(context),
             tooltip: 'Voltar'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xB3000000),
         foregroundColor: Colors.white,
         elevation: 0,
         title: widget.images.length > 1
-            ? Text('${_current + 1} / ${widget.images.length}',
-                style: const TextStyle(fontSize: 14))
+            ? Text(
+                '${_current + 1} / ${widget.images.length}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              )
             : null,
       ),
-      body: PageView.builder(
-        controller: _ctrl,
-        itemCount: widget.images.length,
-        onPageChanged: (p) => setState(() => _current = p),
-        itemBuilder: (_, i) {
-          final raw = widget.images[i].trim();
-          final url = sanitizeImageUrl(raw);
-          final valid = url.startsWith('http://') ||
-              url.startsWith('https://') ||
-              url.toLowerCase().startsWith('gs://') ||
-              firebaseStorageMediaUrlLooksLike(url);
-          if (!valid) {
+      body: SafeArea(
+        child: PageView.builder(
+          controller: _ctrl,
+          itemCount: widget.images.length,
+          onPageChanged: (p) => setState(() => _current = p),
+          itemBuilder: (_, i) {
+            final raw = widget.images[i].trim();
+            final url = sanitizeImageUrl(raw);
+            final valid = url.startsWith('http://') ||
+                url.startsWith('https://') ||
+                url.toLowerCase().startsWith('gs://') ||
+                firebaseStorageMediaUrlLooksLike(url);
+            if (!valid) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.broken_image_rounded,
+                        size: 64, color: Colors.white54),
+                    const SizedBox(height: 16),
+                    Text('Imagem indisponível',
+                        style: TextStyle(color: Colors.white70, fontSize: 16)),
+                  ],
+                ),
+              );
+            }
             return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.broken_image_rounded,
-                      size: 64, color: Colors.white54),
-                  const SizedBox(height: 16),
-                  Text('Imagem indisponível',
-                      style: TextStyle(color: Colors.white70, fontSize: 16)),
-                ],
+              child: InteractiveViewer(
+                minScale: 0.65,
+                maxScale: 4.0,
+                boundaryMargin: const EdgeInsets.all(48),
+                child: _ResilientGalleryImage(imageUrl: url),
               ),
             );
-          }
-          return Center(
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: _ResilientGalleryImage(imageUrl: url),
-            ),
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -7506,8 +7585,8 @@ class _FixosTabState extends State<_FixosTab> {
   /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instâncias com data.
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadProximosNoticias() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 80));
+    // Token em cache: evita ida forçada à rede a cada abertura da lista.
+    await FirebaseAuth.instance.currentUser?.getIdToken();
     final now = DateTime.now();
     final rangeStart = DateTime(now.year, now.month, now.day);
     final rangeEnd = rangeStart.add(const Duration(days: 400));

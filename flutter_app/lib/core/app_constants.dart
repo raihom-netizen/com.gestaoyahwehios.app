@@ -217,6 +217,22 @@ class AppConstants {
   /// WhatsApp do suporte master (somente dígitos com DDI/DDD). Ex.: 5562999999999
   static const String masterSupportWhatsApp = '';
 
+  /// Conta master do produto: vê/gerencia todas as igrejas (bypass de isolamento multi-tenant).
+  static const String productMasterEmail = 'raihom@gmail.com';
+  /// CPF (somente dígitos) do titular master — reforço além do e-mail.
+  static const String productMasterCpfDigits = '94536368191';
+
+  /// Identifica o operador global (e-mail ou CPF do [linkedCpf] do painel).
+  static bool isProductMasterAccount({
+    String? email,
+    String? cpfDigitsOrRaw,
+  }) {
+    final e = (email ?? '').trim().toLowerCase();
+    if (e == productMasterEmail) return true;
+    final d = (cpfDigitsOrRaw ?? '').replaceAll(RegExp(r'\D'), '');
+    return d.isNotEmpty && d == productMasterCpfDigits;
+  }
+
   // ——— Limite de membros por plano ———
   /// Liberdade de membros a mais após o limite do plano antes de travar inclusão.
   static const int membersGraceOverLimit = 5;

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
+import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -1833,7 +1834,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
 
   Future<Map<String, dynamic>> _loadFinanceSummary() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final rows = await _queryFinanceRows();
+    final rows = await financeFirestoreOpWithRetry(_queryFinanceRows);
     final contaLabels = <String, String>{
       for (final c in _contas) c.id: c.nome,
     };

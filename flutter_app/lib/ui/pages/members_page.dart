@@ -234,13 +234,16 @@ class _MembersPageState extends State<MembersPage> {
     };
   }
 
-  /// True se o usuário pode transferir membro para outra igreja (ADM total do sistema: MASTER, ADMIN, ADM ou raihom@gmail.com).
+  /// True se o usuário pode transferir membro para outra igreja.
+  /// Só [master] do Painel (rota com `role: master`) ou [AppConstants.isProductMasterAccount] —
+  /// **não** o papel [adm] da igreja (administrador local), que deve ficar isolado ao tenant.
   bool get _canTransferMember {
-    final r = (widget.role ?? '').toString().toUpperCase();
-    if (r == 'MASTER' || r == 'ADMIN' || r == 'ADM') return true;
-    final email =
-        FirebaseAuth.instance.currentUser?.email?.trim().toLowerCase() ?? '';
-    return email == 'raihom@gmail.com';
+    final raw = (widget.role ?? '').toString().trim().toLowerCase();
+    if (raw == 'master') return true;
+    return AppConstants.isProductMasterAccount(
+      email: FirebaseAuth.instance.currentUser?.email,
+      cpfDigitsOrRaw: widget.linkedCpf,
+    );
   }
 
   /// Carrega lista de igrejas (tenants) para o painel master (mudar igreja do membro).
@@ -554,7 +557,7 @@ class _MembersPageState extends State<MembersPage> {
 
   void _scheduleMembersAutoRefresh() {
     _membersRealtimeDebounce?.cancel();
-    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 650), () {
+    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 450), () {
       if (!mounted) return;
       _refreshMembers();
     });
@@ -581,18 +584,14 @@ class _MembersPageState extends State<MembersPage> {
           .snapshots()
           .listen((_) => _scheduleMembersAutoRefresh()),
     );
+    // Uma query OR em vez de dois listeners (menos ligações + menos leituras em mudança).
     _membersRealtimeSubs.add(
       db
           .collection('users')
-          .where('tenantId', isEqualTo: tenantId)
-          .limit(_membersLoadLimit)
-          .snapshots()
-          .listen((_) => _scheduleMembersAutoRefresh()),
-    );
-    _membersRealtimeSubs.add(
-      db
-          .collection('users')
-          .where('igrejaId', isEqualTo: tenantId)
+          .where(Filter.or(
+            Filter('tenantId', isEqualTo: tenantId),
+            Filter('igrejaId', isEqualTo: tenantId),
+          ))
           .limit(_membersLoadLimit)
           .snapshots()
           .listen((_) => _scheduleMembersAutoRefresh()),
@@ -2190,10 +2189,16 @@ class _MembersPageState extends State<MembersPage> {
     bool _loadingCep = false;
     bool _pickingProfilePhoto = false;
 
+    /// Uma leitura por abertura do diálogo — evita novo Future a cada setDlg (checkboxes / toggles).
+    final canTransferChurch = _canTransferMember;
+    final Future<List<MapEntry<String, String>>>? tenantsForTransferFuture =
+        canTransferChurch ? _loadTenantsForMove() : null;
+
     /// Dados retornados ao salvar: funções lidas do ValueNotifier no momento do clique para garantir gravação correta.
-    final result = await showDialog<Map<String, dynamic>?>(
+    final dialogResult = await showDialog<dynamic>(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) {
           final isMob = MediaQuery.of(ctx).size.width < 600;
@@ -2212,7 +2217,7 @@ class _MembersPageState extends State<MembersPage> {
                   maxHeight:
                       MediaQuery.of(ctx).size.height * (isMob ? 0.9 : 0.85)),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.max,
                 children: [
                   // Header
                   Container(
@@ -2236,7 +2241,7 @@ class _MembersPageState extends State<MembersPage> {
                         ),
                         IconButton(
                             icon: const Icon(Icons.close_rounded),
-                            onPressed: () => Navigator.pop(ctx, false)),
+                            onPressed: () => Navigator.pop(ctx, null)),
                       ],
                     ),
                   ),
@@ -2459,10 +2464,12 @@ class _MembersPageState extends State<MembersPage> {
                                 ),
                               ),
                             ),
-                          // Igreja (ADM total do sistema: permite transferir membro para outra igreja)
-                          if (staffEdit && _canTransferMember)
+                          // Igreja — só master global / Painel Master (não administrador da igreja)
+                          if (staffEdit &&
+                              canTransferChurch &&
+                              tenantsForTransferFuture != null)
                             FutureBuilder<List<MapEntry<String, String>>>(
-                              future: _loadTenantsForMove(),
+                              future: tenantsForTransferFuture,
                               builder: (ctx, snap) {
                                 if (!snap.hasData)
                                   return const SizedBox(height: 0);
@@ -3519,7 +3526,10 @@ class _MembersPageState extends State<MembersPage> {
       ),
     );
 
-    if (result == null || result['saved'] != true || !mounted) return;
+    if (!mounted) return;
+    if (dialogResult == null || dialogResult is! Map) return;
+    final result = Map<String, dynamic>.from(dialogResult as Map);
+    if (result['saved'] != true) return;
 
     _applyOptimisticMemberEditOverlay(
         member.id, Map<String, dynamic>.from(result));
@@ -3802,8 +3812,7 @@ class _MembersPageState extends State<MembersPage> {
 
     final newTenantIdRaw = (result['newTenantId'] ?? '').toString().trim();
     final previousTenantId = _tenantIdForMemberData(member.data).trim();
-    // Quem vê o dropdown de igreja (_canTransferMember) precisa gravar a troca;
-    // antes só `role == master` e comparava com o painel — ADM/ADMIN ignorados e falso negativo se tenant do membro ≠ painel.
+    // Quem vê o dropdown de igreja (_canTransferMember) grava a troca de tenant.
     final isMoveToOtherChurch = _canTransferMember &&
         newTenantIdRaw.isNotEmpty &&
         newTenantIdRaw != previousTenantId;

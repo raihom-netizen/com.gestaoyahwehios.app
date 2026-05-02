@@ -1,11 +1,29 @@
 rules_version = '2';
-// Deploy — membros: indisponibilidade escala por e-mail (campos dedicados) + leitura só na própria igreja (+ master); CPF público via Cloud Function.
-// Master: CPF 94536368191, Raihom Severino Barbosa, raihom@gmail.com — acesso a tudo.
-// Também gestor da igreja Brasil para Cristo. Nenhuma igreja vê dados da outra; só o master vê todas.
+// Deploy — membros: indisponibilidade escala por e-mail (campos dedicados) + leitura só na própria igreja (+ operador global); CPF público via Cloud Function.
+// Operador global (multi-tenant): e-mail raihom@gmail.com OU CPF 94536368191 em users/{uid} OU documento admins/{uid}.
+// ADM/gestor/pastor **da igreja** ficam isolados ao tenant (sameChurch / canAccessTenant); não recebem bypass por role() ADM/MASTER no doc users.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
     function isMasterEmail() { return isSignedIn() && request.auth.token.email == 'raihom@gmail.com'; }
+    /// Reforço ao e-mail: mesmo CPF que [AppConstants.productMasterCpfDigits] no doc users (formatos comuns).
+    function userIsProductMasterByCpf() {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(p)
+        && (
+          ('cpf' in get(p).data && (get(p).data.cpf == '94536368191' || get(p).data.cpf == '945.363.681-91'))
+          || ('CPF' in get(p).data && (get(p).data.CPF == '94536368191' || get(p).data.CPF == '945.363.681-91'))
+          || ('linkedCpf' in get(p).data && get(p).data.linkedCpf == '94536368191')
+        );
+    }
+    /// Painel SaaS / leitura cruzada: só operador do produto ou entrada em admins/{uid} — não usar role ADM/GESTOR da igreja.
+    function isPlatformOperator() {
+      return isSignedIn() && (
+        isMasterEmail()
+        || userIsProductMasterByCpf()
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
     // role: documento users primeiro (campo role ou array roles); fallback em custom claims (sem "if", só expressões)
     function role() {
       let p = /databases/$(database)/documents/users/$(request.auth.uid);
@@ -19,11 +37,12 @@ service cloud.firestore {
                 : request.auth.token.role))
         : request.auth.token.role;
     }
-    function isMaster() { return isMasterEmail() || (isSignedIn() && role() != null && (role() == 'MASTER' || role() == 'master' || role() == 'Master')); }
+    /// Legado: nome conservado; significado = operador global (e-mail/CPF/admins), **sem** role MASTER/ADM no cadastro users.
+    function isMaster() { return isPlatformOperator(); }
     function isAdm() { return isSignedIn() && role() != null && (role() == 'ADM' || role() == 'ADMIN' || role() == 'adm' || role() == 'admin' || role() == 'Adm' || role() == 'Admin' || role() == 'administrador' || role() == 'administradora' || role() == 'Administrador' || role() == 'Administradora'); }
-    // Quem pode acessar painel admin: master, adm ou documento em admins (fallback quando users/uid não existe)
+    // Painel master YAHWEH (vendas, licenças, analytics global): só operador de plataforma — não ADM local da igreja.
     function isAdminPanel() {
-      return isSignedIn() && (isMaster() || isAdm() || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      return isSignedIn() && isMaster();
     }
     // sameChurch: documento users ou custom claims (igrejaId/tenantId) — evita permission-denied Mural/Departamentos/Eventos
     function sameChurch(tenantId) {
@@ -755,9 +774,7 @@ service cloud.firestore {
     // Links oficiais Instagram / YouTube / WhatsApp + nome de exibição (site divulgação + login)
     match /config/marketing_official {
       allow read: if true;
-      allow write: if isAdminPanel()
-        || (isSignedIn() && request.auth.token.role != null
-            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+      allow write: if isMaster();
     }
 
     match /config/memberCard {
@@ -768,29 +785,25 @@ service cloud.firestore {
     // Aviso global (melhorias / manutenção) — leitura por qualquer usuário logado; escrita: master/adm (doc, roles array ou token)
     match /config/global_announcement {
       allow read: if isSignedIn();
-      allow write: if isAdminPanel()
-        || (isSignedIn() && request.auth.token.role != null
-            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+      allow write: if isMaster();
     }
 
-    // Histórico de avisos globais (somente painel master / ADM).
+    // Histórico de avisos globais (somente operador de plataforma).
     match /global_announcement_audit/{id} {
-      allow read, create, delete: if isAdminPanel()
-        || (isSignedIn() && request.auth.token.role != null
-            && (request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']));
+      allow read, create, delete: if isMaster();
       allow update: if false;
     }
 
     match /config/analytics {
-      allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
-      allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      allow read: if isSignedIn() && isMaster();
+      allow write: if isMaster();
     }
     match /analytics/{docId} {
-      allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
-      allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      allow read: if isSignedIn() && isMaster();
+      allow write: if isMaster();
       match /daily_hits/{hitId} {
-        allow read: if isSignedIn() && (isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin']);
-        allow write: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+        allow read: if isSignedIn() && isMaster();
+        allow write: if isMaster();
       }
     }
 
@@ -861,16 +874,12 @@ service cloud.firestore {
       allow delete: if isAdminPanel();
     }
 
-    // Sugestões/Críticas — painel master: leitura por role (users doc ou token)
+    // Sugestões/Críticas — operador global ou autor do documento.
     match /suggestions/{id} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn() && (
-        isMaster() || isAdm() ||
-        request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'] ||
-        resource.data.userId == request.auth.uid
-      );
-      allow update: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
-      allow delete: if isMaster() || isAdm() || request.auth.token.role in ['MASTER', 'master', 'ADM', 'ADMIN', 'adm', 'admin'];
+      allow read: if isSignedIn() && (isMaster() || resource.data.userId == request.auth.uid);
+      allow update: if isMaster();
+      allow delete: if isMaster();
     }
 
     // ADMIN (painel master atual) — leitura para todo painel master (inclui quem entra só por admins/{uid})

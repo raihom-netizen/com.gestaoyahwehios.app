@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/ui/pages/finance_smart_input_page.dart';
 import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
     show RelatorioFinanceiroPage;
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
+import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -2225,26 +2226,33 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
-    _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-    _futureContas = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('contas')
-        .orderBy('nome')
-        .get();
+    _future = financeFirestoreOpWithRetry(
+      () => widget.financeCol.orderBy('createdAt', descending: true).get(),
+    );
+    _futureContas = financeFirestoreOpWithRetry(
+      () => FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('contas')
+          .orderBy('nome')
+          .get(),
+    );
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-      _futureContas = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('contas')
-          .orderBy('nome')
-          .get();
+      _future = financeFirestoreOpWithRetry(
+        () => widget.financeCol.orderBy('createdAt', descending: true).get(),
+      );
+      _futureContas = financeFirestoreOpWithRetry(
+        () => FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('contas')
+            .orderBy('nome')
+            .get(),
+      );
       _futureSettings = FinanceTenantSettings.load(widget.tenantId);
     });
   }

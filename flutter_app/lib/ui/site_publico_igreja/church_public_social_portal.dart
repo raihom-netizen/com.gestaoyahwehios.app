@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -1273,6 +1274,10 @@ int lightboxInitialMediaPage(
   return idx.clamp(0, count - 1);
 }
 
+/// Limites no **web** — modal mais compacto e legível (evita mídia “fullscreen”).
+const double _kPublicLightboxMaxWidthWeb = 720;
+const double _kPublicLightboxMaxHeightWeb = 520;
+
 /// Modal estilo Instagram (desktop: mídia à esquerda, texto à direita).
 class ChurchPublicPostLightbox {
   ChurchPublicPostLightbox._();
@@ -1309,17 +1314,19 @@ class ChurchPublicPostLightbox {
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: Colors.black.withValues(alpha: kIsWeb ? 0.45 : 0.55),
       builder: (ctx) {
+        final insetWeb = const EdgeInsets.symmetric(horizontal: 28, vertical: 40);
+        final insetMo = const EdgeInsets.symmetric(horizontal: 14, vertical: 22);
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          insetPadding: kIsWeb ? insetWeb : insetMo,
           backgroundColor: Colors.transparent,
           elevation: 0,
           child: LayoutBuilder(
             builder: (context, c) {
               final screenH = MediaQuery.sizeOf(context).height;
-              final wide = c.maxWidth >= 880;
-              final radius = BorderRadius.circular(24);
+              final wide = c.maxWidth >= 840;
+              final radius = BorderRadius.circular(26);
               final initialPage = lightboxInitialMediaPage(p, playWeb, mediaFocus);
               final mediaSection = _LightboxMediaPager(
                 post: p,
@@ -1354,8 +1361,15 @@ class ChurchPublicPostLightbox {
               );
 
               final mqSize = MediaQuery.sizeOf(context);
-              final dialogH =
-                  (screenH * 0.92).clamp(400.0, mqSize.height * 0.94);
+              final dialogH = kIsWeb
+                  ? min(
+                      min(screenH * 0.74, _kPublicLightboxMaxHeightWeb),
+                      mqSize.height * 0.88,
+                    ).clamp(320.0, mqSize.height * 0.9)
+                  : (screenH * 0.92).clamp(400.0, mqSize.height * 0.94);
+              final maxDialogW = kIsWeb
+                  ? min(_kPublicLightboxMaxWidthWeb, c.maxWidth)
+                  : min(1080.0, c.maxWidth);
               final lbPhotos = eventNoticiaPhotoUrls(p);
               final lbAr = postFeedCarouselAspectRatioForIndex(
                 p,
@@ -1364,51 +1378,83 @@ class ChurchPublicPostLightbox {
               );
               final mobileMediaClip =
                   churchMuralCarouselClipHeight(context, c.maxWidth, lbAr);
-              final mobileMediaH =
-                  mobileMediaClip.clamp(240.0, mqSize.height * 0.62);
-              return ClipRRect(
-                borderRadius: radius,
-                child: Material(
-                  color: Colors.white,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: 1080,
-                      maxHeight: dialogH,
-                    ),
-                    child: SizedBox(
-                      height: dialogH,
-                      child: wide
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  flex: 11,
+              final mobileMediaH = mobileMediaClip.clamp(
+                220.0,
+                mqSize.height * (kIsWeb ? 0.50 : 0.62),
+              );
+              final mediaFlex = kIsWeb ? 10 : 11;
+              final textFlex = kIsWeb ? 10 : 9;
+              final shell = Material(
+                color: Colors.white,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: maxDialogW,
+                    maxHeight: dialogH,
+                  ),
+                  child: SizedBox(
+                    height: dialogH,
+                    child: wide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                flex: mediaFlex,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    border: Border(
+                                      right: BorderSide(
+                                        color: Colors.black.withValues(
+                                            alpha: kIsWeb ? 0.06 : 0.05),
+                                      ),
+                                    ),
+                                  ),
                                   child: mediaSection,
                                 ),
-                                Expanded(
-                                  flex: 9,
-                                  child: textSection,
+                              ),
+                              Expanded(
+                                flex: textFlex,
+                                child: textSection,
+                              ),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(
+                                height: mobileMediaH,
+                                width: double.infinity,
+                                child: ColoredBox(
+                                  color: const Color(0xFFF1F5F9),
+                                  child: mediaSection,
                                 ),
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                SizedBox(
-                                  height: mobileMediaH,
-                                  width: double.infinity,
-                                  child: ColoredBox(
-                                    color: const Color(0xFFF1F5F9),
-                                    child: mediaSection,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: textSection,
-                                ),
-                              ],
-                            ),
-                    ),
+                              ),
+                              Expanded(
+                                child: textSection,
+                              ),
+                            ],
+                          ),
                   ),
+                ),
+              );
+              return Container(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                          alpha: kIsWeb ? 0.20 : 0.14),
+                      blurRadius: kIsWeb ? 44 : 28,
+                      offset: const Offset(0, 22),
+                      spreadRadius: -6,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: radius,
+                  child: shell,
                 ),
               );
             },
