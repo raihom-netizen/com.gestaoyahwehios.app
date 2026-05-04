@@ -1,6 +1,5 @@
 import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:convert' show jsonDecode;
-import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -15,7 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp, kAvisoFeedWebpQuality, kHighResWebpQuality;
+    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
@@ -400,11 +399,12 @@ class _InstagramMuralState extends State<InstagramMural> {
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
       _feedLoadError = e;
     } finally {
-      if (!mounted || requestEpoch != _feedRequestEpoch) return;
-      setState(() {
-        _isFeedInitialLoading = false;
-        _isFeedPageLoading = false;
-      });
+      if (mounted && requestEpoch == _feedRequestEpoch) {
+        setState(() {
+          _isFeedInitialLoading = false;
+          _isFeedPageLoading = false;
+        });
+      }
     }
   }
 
@@ -3198,13 +3198,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _pickImages() async {
     setState(() => _mediaPicking = true);
     try {
-      final webpQ = widget.type == 'aviso'
-          ? kAvisoFeedWebpQuality
-          : kHighResWebpQuality;
       final files = await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
-        webpOutputQuality: webpQ,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
       for (final f in files) {
         final bytes = await f.readAsBytes();
@@ -3225,9 +3222,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
-        webpOutputQuality: widget.type == 'aviso'
-            ? kAvisoFeedWebpQuality
-            : kHighResWebpQuality,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
       if (file != null) {
         final bytes = await file.readAsBytes();
@@ -3563,64 +3558,71 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               padding.right,
               12 + MediaQuery.viewInsetsOf(context).bottom,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _saving
-                        ? null
-                        : () => Navigator.maybePop(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: ThemeCleanPremium.primary,
-                      side: BorderSide(
-                        color: ThemeCleanPremium.primary.withValues(
-                            alpha: 0.45),
+            // Altura fixa: evita botões a esticar por todo o ecrã (Android/Web) quando
+            // o `bottomNavigationBar` recebe maxHeight grande + `CrossAxisAlignment.stretch`.
+            child: SizedBox(
+              height: ThemeCleanPremium.minTouchTarget + 8,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.maybePop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        side: BorderSide(
+                          color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.45),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text(
-                      'Cancelar',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.check_circle_rounded, size: 22),
-                    label: Text(
-                      _saving ? 'Publicando…' : publishLabel,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF1D4ED8),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: _saving ? null : _save,
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check_circle_rounded, size: 22),
+                      label: Text(
+                        _saving ? 'Publicando…' : publishLabel,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1D4ED8),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -3666,6 +3668,15 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               fontSize: 12, color: Colors.grey.shade500),
                         ),
                       ]),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Recorte livre · WebP premium · até Full HD (1920 px)',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.25,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       Wrap(spacing: 8, runSpacing: 8, children: [
                         ...allPreviews,

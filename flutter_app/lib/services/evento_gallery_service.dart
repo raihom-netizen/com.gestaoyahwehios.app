@@ -27,7 +27,7 @@ class EventoGalleryService {
   static const int _photoMaxHeight = 1080;
 
   /// Adiciona mídia a um evento da coleção [eventos] (por eventoId).
-  /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 640×480, thumb, upload e salva URL + thumb.
+  /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 720p HD, thumb, upload e salva URL + thumb.
   /// Foto: upload em alta resolução e salva URL (getDownloadURL).
   Future<void> adicionarMidiaAoEvento(String eventoId, File arquivo, bool isVideo) async {
     final eventoRef = _firestore.collection('eventos').doc(eventoId);
@@ -92,7 +92,7 @@ class EventoGalleryService {
       } else {
         final MediaInfo? info = await VideoCompress.compressVideo(
           p,
-          quality: VideoQuality.Res640x480Quality,
+          quality: VideoQuality.Res1280x720Quality,
           deleteOrigin: false,
           includeAudio: true,
         );

@@ -19,14 +19,25 @@ enum HighResCropProfile {
 const int kHighResCropMaxWidth = 3840;
 const int kHighResCropMaxHeight = 2160;
 
+/// Limite na codificação WebP final — padrão **Full HD** no maior lado (retrato/paisagem).
+/// Usado em avisos e eventos do mural após o recorte.
+const int kPremiumFeedFullHdMaxWidth = 1920;
+const int kPremiumFeedFullHdMaxHeight = 1920;
+
+/// Foto de membro (1:1): não usar teto Full HD do feed.
+const int kMemberCropWebpMaxEdgePx = 768;
+
 /// Qualidade na saída do recorte nativo (sem perda antes do WebP).
 const int kCropperCompressQuality = 100;
 
-/// WebP final — bom equilíbrio tamanho/nitidez para 4K (eventos / mural geral).
-const int kHighResWebpQuality = 95;
+/// WebP premium — avisos **e** eventos no mural (unificado).
+const int kPremiumMuralFeedWebpQuality = 95;
 
-/// WebP para **avisos** (artes com texto): ficheiro menor, texto legível em 3G.
-const int kAvisoFeedWebpQuality = 90;
+/// WebP final — retrocompat (igual ao premium mural).
+const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;
+
+/// WebP avisos — retrocompat (unificado com eventos para nitidez consistente).
+const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
@@ -183,14 +194,29 @@ Future<XFile?> cropEncodePickedToWebp(
 
   final pathIn = cropped?.path ?? picked.path;
   final rawBytes = await XFile(pathIn).readAsBytes();
-  return _bytesToWebpXFile(rawBytes, quality: webpOutputQuality);
+  final feed = profile == HighResCropProfile.feedFree;
+  return _bytesToWebpXFile(
+    rawBytes,
+    quality: webpOutputQuality,
+    encodeMaxWidth:
+        feed ? kPremiumFeedFullHdMaxWidth : kMemberCropWebpMaxEdgePx,
+    encodeMaxHeight:
+        feed ? kPremiumFeedFullHdMaxHeight : kMemberCropWebpMaxEdgePx,
+  );
 }
 
-Future<XFile?> _bytesToWebpXFile(Uint8List rawBytes, {required int quality}) async {
+Future<XFile?> _bytesToWebpXFile(
+  Uint8List rawBytes, {
+  required int quality,
+  required int encodeMaxWidth,
+  required int encodeMaxHeight,
+}) async {
   if (rawBytes.isEmpty) return null;
   try {
     final out = await FlutterImageCompress.compressWithList(
       rawBytes,
+      minWidth: encodeMaxWidth,
+      minHeight: encodeMaxHeight,
       quality: quality,
       format: CompressFormat.webp,
     );

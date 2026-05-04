@@ -11,7 +11,7 @@ import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 
-/// Mobile (IO): MP4 pequeno envia direto (sem re-encoding); caso contrário 640×480 (mais rápido que 960).
+/// Mobile (IO): MP4 pequeno envia direto (sem re-encoding); caso contrário **720p HD** (equilíbrio nitidez/tempo).
 /// Thumb + uploads em paralelo; progresso de rede opcional.
 class VideoHandlerService implements IVideoHandlerService {
   VideoHandlerService._();
@@ -57,10 +57,9 @@ class VideoHandlerService implements IVideoHandlerService {
         // Evita minutos de CPU em telemóveis: envia o ficheiro já em H.264/AAC típico da galeria.
         compressed = File(path);
       } else {
-        // 640×480: transcodifica mais depressa e gera ficheiro menor (menos tempo na rede) que 960×540.
         final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
           path,
-          quality: VideoQuality.Res640x480Quality,
+          quality: VideoQuality.Res1280x720Quality,
           deleteOrigin: false,
           includeAudio: true,
         );

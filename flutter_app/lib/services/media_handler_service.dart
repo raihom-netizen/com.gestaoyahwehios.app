@@ -98,8 +98,8 @@ class MediaHandlerService {
   Future<XFile?> pickAndProcessLogoFromCamera() =>
       pickAndProcessLogoImage(source: ImageSource.camera);
 
-  /// Mural / avisos / eventos: recorte livre + WebP 4K (nativo); na web use [webCropContext].
-  /// [webpOutputQuality]: use [kAvisoFeedWebpQuality] para avisos (arte + texto, ficheiro menor).
+  /// Mural / avisos / eventos: recorte livre + WebP Full HD premium (nativo); na web use [webCropContext].
+  /// [webpOutputQuality]: use [kPremiumMuralFeedWebpQuality] (ou [kHighResWebpQuality]).
   Future<XFile?> pickCropEncodeFeedImageWebp({
     required ImageSource source,
     BuildContext? webCropContext,

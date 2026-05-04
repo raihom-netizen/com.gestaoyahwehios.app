@@ -41,6 +41,8 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -5049,6 +5051,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _notifyLeaders = false;
   bool _notifyMembers = false;
   bool _saving = false;
+  bool _mediaPicking = false;
   bool _uploadingVideo = false;
   /// null = a comprimir / a preparar; 0–1 = progresso real do upload ao Storage.
   double? _videoUploadFraction;
@@ -5632,25 +5635,66 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    final files =
-        await MediaHandlerService.instance.pickAndProcessMultipleImages();
-    for (final f in files) {
-      if (_existingUrls.length + _newImages.length >= _maxPhotosPerEvent) {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
-            backgroundColor: ThemeCleanPremium.error,
-            behavior: SnackBarBehavior.floating,
-          ));
-        break;
-      }
-      final bytes = await f.readAsBytes();
-      if (mounted)
+    setState(() => _mediaPicking = true);
+    try {
+      final files = await MediaHandlerService.instance
+          .pickMultiCropEncodeFeedWebpFromGallery(
+        context,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+      );
+      for (final f in files) {
+        if (_existingUrls.length + _newImages.length >= _maxPhotosPerEvent) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
+              backgroundColor: ThemeCleanPremium.error,
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          break;
+        }
+        final bytes = await f.readAsBytes();
+        if (!mounted) return;
         setState(() {
           _newImages.add(bytes);
           _newNames.add(f.name);
         });
+      }
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
+    }
+  }
+
+  Future<void> _pickCamera() async {
+    final totalAtual = _existingUrls.length + _newImages.length;
+    if (totalAtual >= _maxPhotosPerEvent) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Limite de $_maxPhotosPerEvent fotos por evento. Remova alguma para adicionar mais.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+    setState(() => _mediaPicking = true);
+    try {
+      final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
+        source: ImageSource.camera,
+        webCropContext: context,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+      );
+      if (file != null && mounted) {
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _newImages.add(bytes);
+          _newNames.add(file.name);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
     }
   }
 
@@ -5675,10 +5719,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       postDocId,
       slotIndex,
     );
+    final webp = bytesLookLikeWebp(bytes);
     return MediaUploadService.uploadBytesDetailed(
       storagePath: storagePath,
       bytes: bytes,
-      contentType: 'image/jpeg',
+      contentType: webp ? 'image/webp' : 'image/jpeg',
+      skipClientPrepare: webp,
     );
   }
 
@@ -5792,7 +5838,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 480p). Máx. ${_maxVideoSeconds}s.'));
+                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 720p HD). Máx. ${_maxVideoSeconds}s.'));
       final result = await VideoHandlerService.instance.pickCompressAndUpload(
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
@@ -5834,6 +5880,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _openAddMediaSheet() async {
+    if (_mediaPicking) return;
     final photosFull =
         (_existingUrls.length + _newImages.length) >= _maxPhotosPerEvent;
     final videosFull = _eventVideos.length >= _maxVideosPerEvent;
@@ -5851,111 +5898,177 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.circular(ThemeCleanPremium.radiusMd + 4),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Text(
-                'Adicionar mídia',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 17,
-                  color: Colors.grey.shade900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Escolha se deseja enviar foto(s) ou um vídeo.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 18),
-              ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFFF0FDF4),
-                  child: Icon(Icons.photo_library_rounded,
-                      color: Colors.green.shade700, size: 24),
-                ),
-                title: const Text('Foto(s)',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text(
-                  photosFull
-                      ? 'Limite de $_maxPhotosPerEvent fotos atingido'
-                      : 'Da galeria — Full HD comprimidas',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: photosFull
-                        ? ThemeCleanPremium.error
-                        : Colors.grey.shade600,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.workspace_premium_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Mídia premium',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          letterSpacing: -0.2,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                enabled: !photosFull,
-                onTap: photosFull
-                    ? null
-                    : () {
-                        Navigator.pop(ctx);
-                        _pickImages();
-                      },
-              ),
-              const SizedBox(height: 4),
-              ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                leading: CircleAvatar(
-                  backgroundColor:
-                      ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                  child: Icon(Icons.videocam_rounded,
-                      color: ThemeCleanPremium.primary, size: 24),
-                ),
-                title: const Text('Vídeo (arquivo)',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text(
-                  _uploadingVideo
-                      ? 'Aguarde o envio em andamento…'
-                      : videosFull
-                          ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                          : 'Até 60 s — MP4 leve envia direto; senão 480p',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: (_uploadingVideo || videosFull)
-                        ? Colors.grey.shade500
-                        : Colors.grey.shade600,
+                  const SizedBox(height: 6),
+                  Text(
+                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até 60 s.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      color: Colors.grey.shade600,
+                    ),
                   ),
-                ),
-                enabled: !_uploadingVideo && !videosFull,
-                onTap: (_uploadingVideo || videosFull)
-                    ? null
-                    : () {
-                        Navigator.pop(ctx);
-                        _pickAndUploadVideo();
-                      },
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: Colors.grey.shade200,
+                      ),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFFF0FDF4),
+                      child: Icon(Icons.photo_library_rounded,
+                          color: Colors.green.shade700, size: 24),
+                    ),
+                    title: const Text('Fotos da galeria',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull
+                          ? 'Limite de $_maxPhotosPerEvent fotos atingido'
+                          : 'Várias imagens · recorte por foto',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !photosFull && !_mediaPicking,
+                    onTap: photosFull || _mediaPicking
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _pickImages();
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: Colors.grey.shade200,
+                      ),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      child: Icon(Icons.camera_alt_rounded,
+                          color: ThemeCleanPremium.primary, size: 24),
+                    ),
+                    title: const Text('Tirar foto',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull
+                          ? 'Limite de fotos atingido'
+                          : 'Câmera · uma foto com recorte',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !photosFull && !_mediaPicking,
+                    onTap: photosFull || _mediaPicking
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _pickCamera();
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: Colors.grey.shade200,
+                      ),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      child: Icon(Icons.videocam_rounded,
+                          color: ThemeCleanPremium.primary, size: 24),
+                    ),
+                    title: const Text('Vídeo (arquivo)',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      _uploadingVideo
+                          ? 'Aguarde o envio em andamento…'
+                          : videosFull
+                              ? 'Máx. $_maxVideosPerEvent vídeos por evento'
+                              : 'Até 60 s — MP4 leve envia direto; senão 720p HD',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: (_uploadingVideo || videosFull)
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !_uploadingVideo && !videosFull,
+                    onTap: (_uploadingVideo || videosFull)
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _pickAndUploadVideo();
+                          },
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -6369,64 +6482,69 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               padding.right,
               12 + bottomInset,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _saving
-                        ? null
-                        : () => Navigator.maybePop(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: ThemeCleanPremium.primary,
-                      side: BorderSide(
-                        color: ThemeCleanPremium.primary
-                            .withValues(alpha: 0.45),
+            child: SizedBox(
+              height: ThemeCleanPremium.minTouchTarget + 8,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.maybePop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        side: BorderSide(
+                          color: ThemeCleanPremium.primary
+                              .withValues(alpha: 0.45),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text(
-                      'Cancelar',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.check_circle_rounded, size: 22),
-                    label: Text(
-                      _saving ? 'Publicando…' : publishLabel,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF1D4ED8),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: _saving ? null : _save,
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check_circle_rounded, size: 22),
+                      label: Text(
+                        _saving ? 'Publicando…' : publishLabel,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1D4ED8),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -6465,12 +6583,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Toque em «Adicionar» para escolher foto(s) ou vídeo. Vídeo em arquivo: até 60 s. Ou cole link YouTube/Vimeo abaixo.',
+                      'Toque em «Adicionar»: fotos com o mesmo padrão premium do mural (recorte + WebP Full HD) ou vídeo em arquivo (720p HD se precisar comprimir). Ou cole link YouTube/Vimeo abaixo.',
                       style: TextStyle(
                           fontSize: 12.5,
                           height: 1.35,
                           color: Colors.grey.shade600),
                     ),
+                    if (_mediaPicking) ...[
+                      const SizedBox(height: 10),
+                      const LinearProgressIndicator(minHeight: 3),
+                    ],
                     const SizedBox(height: 12),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       ...allPreviews,
@@ -6521,18 +6643,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: _uploadingVideo ? null : _openAddMediaSheet,
+                          onTap: (_uploadingVideo || _mediaPicking)
+                              ? null
+                              : _openAddMediaSheet,
                           borderRadius: BorderRadius.circular(12),
                           child: Container(
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
-                              color: _uploadingVideo
+                              color: (_uploadingVideo || _mediaPicking)
                                   ? Colors.grey.withValues(alpha: 0.15)
                                   : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: _uploadingVideo
+                                color: (_uploadingVideo || _mediaPicking)
                                     ? Colors.grey.shade300
                                     : ThemeCleanPremium.primary
                                         .withValues(alpha: 0.35),
@@ -6545,58 +6669,80 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                 ),
                               ],
                             ),
-                            child: _uploadingVideo
-                                ? Builder(
-                                    builder: (context) {
-                                      final upFrac = _videoUploadFraction;
-                                      return Column(
+                            child: _mediaPicking
+                                ? Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      if (upFrac != null) ...[
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                          child: ClipRRect(
-                                            borderRadius:
-                                                BorderRadius.circular(4),
-                                            child: LinearProgressIndicator(
-                                              value: upFrac,
-                                              minHeight: 5,
-                                              backgroundColor:
-                                                  Colors.grey.shade300,
-                                            ),
-                                          ),
+                                      const SizedBox(
+                                        width: 26,
+                                        height: 26,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Fotos…',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.grey.shade700,
                                         ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'Enviando ${(upFrac * 100).clamp(0, 100).round()}%',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ] else ...[
-                                        const SizedBox(
-                                          width: 26,
-                                          height: 26,
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'A preparar…',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ],
+                                      ),
                                     ],
-                                      );
-                                    },
                                   )
+                                : _uploadingVideo
+                                    ? Builder(
+                                        builder: (context) {
+                                          final upFrac = _videoUploadFraction;
+                                          return Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          if (upFrac != null) ...[
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10),
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                child: LinearProgressIndicator(
+                                                  value: upFrac,
+                                                  minHeight: 5,
+                                                  backgroundColor:
+                                                      Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Enviando ${(upFrac * 100).clamp(0, 100).round()}%',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey.shade700,
+                                              ),
+                                            ),
+                                          ] else ...[
+                                            const SizedBox(
+                                              width: 26,
+                                              height: 26,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'A preparar…',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey.shade700,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                          );
+                                        },
+                                      )
                                 : Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
