@@ -5,6 +5,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { topicPushNovo } from "./pushNovoConteudo";
+import { buildGyTopicMessage } from "./notificationBranding";
 
 const db = admin.firestore();
 
@@ -61,21 +62,22 @@ export const scheduledFornecedorAgendaReminders = functions
         const in24hWindow = diffMs >= MS_24H - WINDOW_MS && diffMs <= MS_24H + WINDOW_MS;
         if (in24hWindow && !d.reminder24hSentAt) {
           try {
-            await admin.messaging().send({
-              topic: topicPushNovo(tenantId, "fornecedor_agenda"),
-              notification: {
-                title: "Fornecedor — lembrete (24h)",
+            await admin.messaging().send(
+              buildGyTopicMessage({
+                topic: topicPushNovo(tenantId, "fornecedor_agenda"),
+                title: "📦 Fornecedor — 24h",
                 body: clip(`${titulo}`, 160),
-              },
-              data: {
-                type: "fornecedor_agenda_reminder",
-                reminder: "24h",
-                tenantId,
-                fornecedorId,
-                compromissoId: doc.id,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-              },
-            });
+                data: {
+                  type: "fornecedor_agenda_reminder",
+                  reminder: "24h",
+                  tenantId,
+                  fornecedorId,
+                  compromissoId: doc.id,
+                  click_action: "FLUTTER_NOTIFICATION_CLICK",
+                },
+                module: "fornecedor_agenda",
+              })
+            );
             await doc.ref.update({
               reminder24hSentAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -88,21 +90,22 @@ export const scheduledFornecedorAgendaReminders = functions
         const in60Window = diffMs >= MS_60M - WINDOW_MS && diffMs <= MS_60M + WINDOW_MS;
         if (in60Window && !d.reminder60mSentAt) {
           try {
-            await admin.messaging().send({
-              topic: topicPushNovo(tenantId, "fornecedor_agenda"),
-              notification: {
-                title: "Fornecedor — lembrete (1h)",
+            await admin.messaging().send(
+              buildGyTopicMessage({
+                topic: topicPushNovo(tenantId, "fornecedor_agenda"),
+                title: "📦 Fornecedor — 1h",
                 body: clip(`${titulo}`, 160),
-              },
-              data: {
-                type: "fornecedor_agenda_reminder",
-                reminder: "60m",
-                tenantId,
-                fornecedorId,
-                compromissoId: doc.id,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-              },
-            });
+                data: {
+                  type: "fornecedor_agenda_reminder",
+                  reminder: "60m",
+                  tenantId,
+                  fornecedorId,
+                  compromissoId: doc.id,
+                  click_action: "FLUTTER_NOTIFICATION_CLICK",
+                },
+                module: "fornecedor_agenda",
+              })
+            );
             await doc.ref.update({
               reminder60mSentAt: admin.firestore.FieldValue.serverTimestamp(),
             });

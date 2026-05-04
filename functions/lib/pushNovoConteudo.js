@@ -42,6 +42,7 @@ exports.topicPushNovo = topicPushNovo;
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const notificationBranding_1 = require("./notificationBranding");
 function safeTid(t) {
     return String(t || "").replace(/[^a-zA-Z0-9\-_.~%]/g, "_");
 }
@@ -65,16 +66,18 @@ exports.onNovoAvisoMuralPush = functions
     const rawBody = String(d.text || d.body || d.mensagem || "").trim();
     const body = clip(rawBody, 140) || title;
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: topicPushNovo(tenantId, "aviso"),
-            notification: { title: "Novo aviso", body },
+            title: "📢 Novo aviso",
+            body,
             data: {
                 type: "novo_aviso",
                 tenantId,
                 postId: context.params.id,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "aviso",
+        }));
     }
     catch (e) {
         functions.logger.error("onNovoAvisoMuralPush FCM", { tenantId, e });
@@ -97,16 +100,18 @@ exports.onNovoEventoNoticiaPush = functions
     }
     const body = clip(`${title}${extra}`, 180);
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: topicPushNovo(tenantId, "evento"),
-            notification: { title: "Novo evento", body },
+            title: "📅 Novo evento",
+            body,
             data: {
                 type: "novo_evento",
                 tenantId,
                 postId: context.params.id,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "evento",
+        }));
     }
     catch (e) {
         functions.logger.error("onNovoEventoNoticiaPush FCM", { tenantId, e });

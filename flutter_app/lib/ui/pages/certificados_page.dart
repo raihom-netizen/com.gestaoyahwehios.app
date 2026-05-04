@@ -455,6 +455,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
     if (_tenantData != null) {
       push(ChurchImageFields.logoStoragePath(_tenantData));
+      push(
+          '${ChurchStorageLayout.churchRoot(widget.tenantId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.jpg');
+      push(
+          '${ChurchStorageLayout.churchRoot(widget.tenantId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.png');
       push(ChurchStorageLayout.churchIdentityLogoPath(widget.tenantId));
       push(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(widget.tenantId));
       for (final u in churchTenantLogoUrlCandidates(_tenantData)) {

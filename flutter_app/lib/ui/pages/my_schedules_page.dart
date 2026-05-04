@@ -1064,10 +1064,14 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         'departmentId': deptId,
         'solicitanteCpf': _cpfDigits,
         'alvoCpf': chosen.cpf,
+        'alvoNome': chosen.nome,
         'status': 'pendente_alvo',
         'solicitanteNome': solicitanteNome.isNotEmpty ? solicitanteNome : _cpfDigits,
         'escalaTitle': escalaTitle,
         'escalaDateLabel': escalaDateLabel,
+        'escalaTime': escalaTime,
+        'escalaGeneratedByUid': (m['generatedByUid'] ?? '').toString().trim(),
+        'escalaGeneratedByName': (m['generatedByName'] ?? '').toString().trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
       if (context.mounted) {

@@ -42,6 +42,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const churchWelcomeSeed_1 = require("./churchWelcomeSeed");
 const publicSignupEmail_1 = require("./publicSignupEmail");
 const pushNovoConteudo_1 = require("./pushNovoConteudo");
+const notificationBranding_1 = require("./notificationBranding");
 const receitasRecorrentesScheduled_1 = require("./receitasRecorrentesScheduled");
 const churchMercadoPago_1 = require("./churchMercadoPago");
 admin.initializeApp();
@@ -4959,12 +4960,10 @@ exports.onScheduleCreate = functions
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "escala"),
-            notification: {
-                title: "Nova escala",
-                body,
-            },
+            title: "📋 Nova escala",
+            body,
             data: {
                 tenantId,
                 departmentId: deptId,
@@ -4972,7 +4971,8 @@ exports.onScheduleCreate = functions
                 type: "nova_escala",
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "escala",
+        }));
     }
     catch (e) {
         console.error("FCM send error (nova escala / gypush):", e);
@@ -5613,19 +5613,18 @@ exports.onNewMember = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: "admin",
-            notification: {
-                title: "⚡ Novo Cadastro!",
-                body: `${nome} acabou de se cadastrar pelo site público.`,
-            },
+            title: "⚡ Novo cadastro",
+            body: `${nome} acabou de se cadastrar pelo site público.`,
             data: {
                 type: "new_member",
                 tenantId,
                 memberId: membroId,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "generico",
+        }));
     }
     catch (err) {
         functions.logger.error("onNewMember notify error", {
@@ -5680,19 +5679,18 @@ exports.onNewMemberLegacy = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: "admin",
-            notification: {
-                title: "⚡ Novo Cadastro!",
-                body: `${nome} acabou de se cadastrar pelo site público.`,
-            },
+            title: "⚡ Novo cadastro",
+            body: `${nome} acabou de se cadastrar pelo site público.`,
             data: {
                 type: "new_member",
                 tenantId,
                 memberId: membroId,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "generico",
+        }));
     }
     catch (err) {
         functions.logger.error("onNewMemberLegacy notify error", {

@@ -16,6 +16,7 @@ import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
 import 'igreja_clean_shell.dart';
 import 'widgets/global_announcement_overlay.dart';
+import 'widgets/gestao_foreground_notification_snackbar.dart';
 import '../services/app_connectivity_service.dart';
 import '../services/auth_profile_cache_service.dart';
 import '../services/biometric_service.dart';
@@ -979,24 +980,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
             cpf: cpf,
             role: roleTxt,
             onForegroundMessage: (msg) {
-              if (!context.mounted) return;
-              final title = (msg.notification?.title ?? '').trim();
-              final body = (msg.notification?.body ?? '').trim();
-              final text = title.isNotEmpty
-                  ? '$title${body.isNotEmpty ? ' — $body' : ''}'
-                  : (body.isNotEmpty ? body : 'Nova notificação recebida');
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(text),
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                  backgroundColor: const Color(0xFF0F172A),
-                  duration: const Duration(seconds: 4),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              );
+              showGestaoForegroundNotificationSnackBar(context, msg);
             },
           );
         }

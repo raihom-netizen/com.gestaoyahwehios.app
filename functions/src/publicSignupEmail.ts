@@ -4,6 +4,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import { defineString } from "firebase-functions/params";
+import { gestaoBrandLogoUrl } from "./notificationBranding";
 
 const SENDGRID_KEY = defineString("SENDGRID_API_KEY", { default: "" });
 const SENDGRID_FROM = defineString("SENDGRID_FROM_EMAIL", { default: "" });
@@ -48,11 +49,17 @@ export async function trySendPublicSignupConfirmationEmail(opts: {
   const igreja = escapeHtml(opts.churchName.trim() || "sua igreja");
   const subject = `Cadastro recebido — ${opts.churchName.trim() || "Igreja"} — acompanhe a aprovação`;
 
+  const logo = gestaoBrandLogoUrl();
   const html = `
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"/></head>
 <body style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#111827;background:#f8fafc;padding:24px;">
-  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:28px 24px;box-shadow:0 10px 40px rgba(15,23,42,0.08);border:1px solid #e5e7eb;">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(15,23,42,0.08);border:1px solid #e5e7eb;">
+    <div style="background:linear-gradient(135deg,#10B981 0%,#047857 100%);padding:22px 20px;text-align:center;">
+      <img src="${logo}" alt="Gestão YAHWEH" width="200" style="max-width:72%;height:auto;display:block;margin:0 auto 10px;border:0;"/>
+      <p style="margin:0;font-size:11px;font-weight:700;color:rgba(255,255,255,0.92);letter-spacing:0.1em;text-transform:uppercase;">Cadastro público</p>
+    </div>
+    <div style="padding:28px 24px 24px;">
     <p style="margin:0 0 12px;font-size:18px;font-weight:700;color:#059669;">Cadastro enviado com sucesso</p>
     <p style="margin:0 0 16px;font-size:15px;">Olá, <strong>${nome}</strong>,</p>
     <p style="margin:0 0 12px;font-size:14px;color:#374151;">Seu cadastro em <strong>${igreja}</strong> foi recebido e está <strong>aguardando aprovação</strong> da liderança.</p>
@@ -63,6 +70,7 @@ export async function trySendPublicSignupConfirmationEmail(opts: {
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"/>
     <p style="margin:0;font-size:12px;color:#9ca3af;">Quando aprovado, o gestor poderá liberar seu acesso ao sistema (senha inicial costuma ser <strong>123456</strong>, salvo orientação da igreja).</p>
     <p style="margin:12px 0 0;font-size:11px;color:#d1d5db;">Gestão YAHWEH — mensagem automática</p>
+    </div>
   </div>
 </body></html>`;
 

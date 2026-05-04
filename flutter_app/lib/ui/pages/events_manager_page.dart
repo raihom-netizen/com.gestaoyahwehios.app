@@ -117,6 +117,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     if (AppPermissions.hasModulePermission(widget.permissions, 'eventos')) {
       return true;
     }
+    if (widget.permissions != null) {
+      if (AppPermissions.hasModulePermission(
+          widget.permissions, 'eventos_avisos_edicao')) {
+        return true;
+      }
+      if (AppPermissions.hasModulePermission(
+              widget.permissions, 'eventos_avisos_ver') &&
+          !AppPermissions.hasModulePermission(
+              widget.permissions, 'eventos_avisos_edicao')) {
+        return false;
+      }
+    }
     if (AppPermissions.isRestrictedMember(widget.role)) return false;
     final r = widget.role.toLowerCase();
     return r == 'adm' ||
@@ -124,6 +136,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         r == 'gestor' ||
         r == 'master' ||
         r == 'lider' ||
+        r == 'lider_departamento' ||
         r == 'pastor' ||
         r == 'pastora' ||
         r == 'secretario' ||

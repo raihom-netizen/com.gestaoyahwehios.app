@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
-/// PDF único de uma escala gerada — logo e dados da igreja, tabela de membros, assinaturas (celotex).
+/// PDF único de uma escala gerada — logo e dados da igreja, tabela de membros (CPF mascarado), assinatura única ao estilo ofício.
 Future<Uint8List> buildScheduleEscalaPdf({
   required Map<String, dynamic> escalaData,
   required ReportPdfBranding branding,
@@ -85,50 +85,75 @@ Future<Uint8List> buildScheduleEscalaPdf({
     );
   }
 
-  pw.Widget signatureLine(
-    String captionBelow, {
-    String signerName = '',
+  /// Uma linha de assinatura centralizada (padrão ofício).
+  pw.Widget officialSingleSignatureBlock({
+    required String captionBelow,
+    required String signerName,
     Uint8List? signatureBytes,
   }) {
     final hasSig = showDigitalSignatures &&
         signatureBytes != null &&
         signatureBytes.length > 24;
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        if (hasSig)
-          pw.Center(
-            child: pw.SizedBox(
-              width: 150,
-              height: 34,
-              child: pw.Image(
-                pw.MemoryImage(signatureBytes),
-                fit: pw.BoxFit.contain,
+    final lineW = 268.0;
+    return pw.Center(
+      child: pw.SizedBox(
+        width: lineW,
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            if (hasSig)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 6),
+                child: pw.SizedBox(
+                  width: 160,
+                  height: 38,
+                  child: pw.Image(
+                    pw.MemoryImage(signatureBytes!),
+                    fit: pw.BoxFit.contain,
+                  ),
+                ),
+              ),
+            pw.Container(
+              width: double.infinity,
+              decoration: pw.BoxDecoration(
+                border:
+                    pw.Border(bottom: pw.BorderSide(color: ink, width: 0.9)),
+              ),
+              padding: const pw.EdgeInsets.only(bottom: 2),
+              child: pw.SizedBox(height: hasSig ? 6 : 28),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              pdfSafeText(
+                signerName.trim().isNotEmpty ? signerName.trim() : captionBelow,
+              ),
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(
+                fontSize: 10,
+                color: ink,
+                fontWeight: pw.FontWeight.normal,
               ),
             ),
-          ),
-        pw.Container(
-          width: double.infinity,
-          decoration: pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: accent, width: 2.2)),
-          ),
-          padding: const pw.EdgeInsets.only(bottom: 3),
-          child: pw.SizedBox(height: hasSig ? 8 : 26),
+          ],
         ),
-        pw.SizedBox(height: 5),
-        pw.Text(
-          pdfSafeText(
-            signerName.trim().isNotEmpty ? signerName.trim() : captionBelow,
-          ),
-          style: pw.TextStyle(
-            fontSize: 9.2,
-            color: muted,
-            fontWeight: pw.FontWeight.bold,
-          ),
-        ),
-      ],
+      ),
     );
   }
+
+  final sigBytes = (preparedBySignatureBytes != null &&
+          preparedBySignatureBytes!.length > 24)
+      ? preparedBySignatureBytes
+      : ((approverSignatureBytes != null && approverSignatureBytes!.length > 24)
+          ? approverSignatureBytes
+          : null);
+  final combinedSignerLabel = () {
+    final a = preparedByName.trim();
+    final b = approverName.trim();
+    if (a.isNotEmpty && b.isNotEmpty) return '$a · $b';
+    if (a.isNotEmpty) return a;
+    if (b.isNotEmpty) return b;
+    return '';
+  }();
 
   doc.addPage(
     pw.MultiPage(
@@ -322,68 +347,22 @@ Future<Uint8List> buildScheduleEscalaPdf({
               ),
           ],
         ),
-        pw.SizedBox(height: 28),
-        pw.Container(
-          padding: const pw.EdgeInsets.fromLTRB(14, 14, 14, 16),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF8FAFC),
-            borderRadius: pw.BorderRadius.circular(10),
-            border: pw.Border.all(
-              color: PdfColor(accent.red, accent.green, accent.blue, 0.38),
-              width: 1.25,
-            ),
+        pw.SizedBox(height: 36),
+        pw.Text(
+          'Assinatura',
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: 12,
+            fontWeight: pw.FontWeight.bold,
+            color: ink,
+            letterSpacing: 0.4,
           ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              pw.Container(
-                height: 3,
-                decoration: pw.BoxDecoration(
-                  color: accent,
-                  borderRadius: pw.BorderRadius.circular(2),
-                ),
-              ),
-              pw.SizedBox(height: 12),
-              pw.Text(
-                'Assinaturas',
-                style: pw.TextStyle(
-                  fontSize: 17,
-                  fontWeight: pw.FontWeight.bold,
-                  color: ink,
-                ),
-              ),
-              pw.SizedBox(height: 14),
-              pw.Text(
-                'Responsável pela elaboração desta escala',
-                style: pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                  color: ink,
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              signatureLine(
-                'Nome completo (letra de forma legível)',
-                signerName: preparedByName,
-                signatureBytes: preparedBySignatureBytes,
-              ),
-              pw.SizedBox(height: 22),
-              pw.Text(
-                'Líder do ministério / Pastor responsável (conferência)',
-                style: pw.TextStyle(
-                  fontSize: 13,
-                  fontWeight: pw.FontWeight.bold,
-                  color: ink,
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              signatureLine(
-                'Nome, função e data',
-                signerName: approverName,
-                signatureBytes: approverSignatureBytes,
-              ),
-            ],
-          ),
+        ),
+        pw.SizedBox(height: 10),
+        officialSingleSignatureBlock(
+          captionBelow: 'Nome completo, função e data',
+          signerName: combinedSignerLabel,
+          signatureBytes: sigBytes,
         ),
         pw.SizedBox(height: 24),
         pw.Text(
@@ -407,8 +386,9 @@ Future<Uint8List> buildScheduleEscalaPdf({
   return doc.save();
 }
 
+/// Igual à lista ao abrir a escala no app: só os 3 dígitos centrais (`***.XXX-**`).
 String _formatCpfDisplay(String raw) {
   final d = raw.replaceAll(RegExp(r'\D'), '');
-  if (d.length != 11) return raw;
-  return '${d.substring(0, 3)}.${d.substring(3, 6)}.${d.substring(6, 9)}-${d.substring(9)}';
+  if (d.length == 11) return '***.${d.substring(6, 9)}-**';
+  return d.isEmpty ? '—' : '***.---**';
 }

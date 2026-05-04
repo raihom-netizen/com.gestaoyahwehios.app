@@ -41,6 +41,7 @@ exports.slugTopicPart = slugTopicPart;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const memberNotificationEmail_1 = require("./memberNotificationEmail");
+const notificationBranding_1 = require("./notificationBranding");
 const db = admin.firestore();
 function normalizeRole(value) {
     return String(value || "").trim().toUpperCase();
@@ -165,6 +166,22 @@ async function collectFcmTokensForCpfs(tenantId, cpfs) {
     }
     return [...out];
 }
+/** Tokens FCM por UIDs (users/{uid}/fcmTokens) — p.ex. quem gerou a escala. */
+async function collectFcmTokensForUids(uids) {
+    const out = new Set();
+    for (const raw of uids) {
+        const uid = String(raw || "").trim();
+        if (uid.length < 8)
+            continue;
+        const tokSnap = await db.collection("users").doc(uid).collection("fcmTokens").get();
+        for (const t of tokSnap.docs) {
+            const token = String((t.data() || {}).token || "").trim();
+            if (token)
+                out.add(token);
+        }
+    }
+    return [...out];
+}
 async function firstNameForCpf(tenantId, cpfDigits) {
     const col = db.collection("igrejas").doc(tenantId).collection("membros");
     const digits = cpfDigits.replace(/\D/g, "");
@@ -258,12 +275,12 @@ async function runMultiSegmentDelivery(params) {
         if (!tokens.length) {
             throw new functions.https.HttpsError("failed-precondition", "Nenhum aparelho com notificação para os membros selecionados.");
         }
-        const messages = tokens.map((token) => ({
+        const messages = tokens.map((token) => (0, notificationBranding_1.buildGyTokenMessage)({
             token,
-            notification: { title, body },
+            title,
+            body,
             data: baseData("member"),
-            android: { priority: "high" },
-            apns: { payload: { aps: { sound: "default" } } },
+            module: "pastoral",
         }));
         await sendEachInBatches(messages);
         return { topic: `direct_members_${memberList.length}` };
@@ -275,11 +292,13 @@ async function runMultiSegmentDelivery(params) {
         }
         for (const did of deptList) {
             const topic = `dept_${did}`;
-            await admin.messaging().send({
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                 topic,
-                notification: { title, body },
+                title,
+                body,
                 data: baseData("department"),
-            });
+                module: "pastoral",
+            }));
             topicsOut.push(topic);
         }
         return { topic: topicsOut.join(",") };
@@ -290,21 +309,25 @@ async function runMultiSegmentDelivery(params) {
         }
         for (const lab of cargoList) {
             const topic = `cargo_${slugTopicPart(lab)}`;
-            await admin.messaging().send({
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                 topic,
-                notification: { title, body },
+                title,
+                body,
                 data: baseData("cargo"),
-            });
+                module: "pastoral",
+            }));
             topicsOut.push(topic);
         }
         return { topic: topicsOut.join(",") };
     }
     const topic = `igreja_${tenantId}`;
-    await admin.messaging().send({
+    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
         topic,
-        notification: { title, body },
+        title,
+        body,
         data: baseData("broadcast"),
-    });
+        module: "pastoral",
+    }));
     return { topic };
 }
 /** Gestor ou pastoral: envia FCM para tópico (igreja, departamento, cargo) ou direto a um membro. */
@@ -576,18 +599,17 @@ exports.resendDevotionalEnvio = functions.region("us-central1").https.onCall(asy
         throw new functions.https.HttpsError("failed-precondition", "Conteúdo vazio.");
     }
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: `igreja_${tenantId}`,
-            notification: {
-                title: titulo,
-                body: body.length > 180 ? `${body.slice(0, 177)}...` : body,
-            },
+            title: titulo,
+            body: body.length > 180 ? `${body.slice(0, 177)}...` : body,
             data: {
                 tenantId,
                 type: "devocional",
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-        });
+            module: "devocional",
+        }));
     }
     catch (e) {
         functions.logger.error("resendDevotionalEnvio FCM", e);
@@ -727,21 +749,18 @@ exports.notifySchedulePublished = functions.region("us-central1").https.onCall(a
             .trim()
             .slice(0, 220);
         for (const token of tokens) {
-            messages.push({
+            messages.push((0, notificationBranding_1.buildGyTokenMessage)({
                 token,
-                notification: {
-                    title: "Você foi escalado(a)",
-                    body,
-                },
+                title: "📋 Você foi escalado(a)",
+                body,
                 data: {
                     tenantId,
                     type: "escala_publicada",
                     scheduleId,
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                 },
-                android: { priority: "high" },
-                apns: { payload: { aps: { sound: "default" } } },
-            });
+                module: "escala",
+            }));
         }
     }
     await sendEachInBatches(messages);
@@ -813,20 +832,18 @@ exports.onEscalaImpedimentoNotifyLeaders = functions
         .trim()
         .slice(0, 220);
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: `dept_${deptId}`,
-            notification: {
-                title: "Impedimento na escala",
-                body,
-            },
+            title: "🛡️ Impedimento na escala",
+            body,
             data: {
                 tenantId,
                 type: "escala_impedimento",
                 scheduleId: escId,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-            android: { priority: "high" },
-        });
+            module: "escala",
+        }));
     }
     catch (e) {
         functions.logger.error("onEscalaImpedimentoNotifyLeaders FCM", { tenantId, escId, e });
@@ -962,18 +979,17 @@ exports.dailyBirthdayTopicPush = functions
                 ? `Hoje é aniversário de ${names[0]}. Parabenize com carinho!`
                 : `Aniversariantes de hoje: ${names.slice(0, 8).join(", ")}${names.length > 8 ? "…" : ""}.`;
             const bodyOut = body.length > 200 ? `${body.slice(0, 197)}…` : body;
-            await admin.messaging().send({
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                 topic: `igreja_${tenantId}`,
-                notification: {
-                    title: "Aniversariantes de hoje",
-                    body: bodyOut,
-                },
+                title: "🎂 Aniversariantes de hoje",
+                body: bodyOut,
                 data: {
                     tenantId,
                     type: "birthday_daily",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                 },
-            });
+                module: "aniversario",
+            }));
             let birthdayEmailsSent = 0;
             try {
                 for (const r of birthdayEmailRecipients) {
@@ -1120,18 +1136,18 @@ exports.rollingScaleRemindersConfirmed = functions
                             .trim()
                             .slice(0, 220);
                         for (const token of tokens) {
-                            messages.push({
+                            messages.push((0, notificationBranding_1.buildGyTokenMessage)({
                                 token,
-                                notification: { title: "Lembrete: sua escala", body },
+                                title: "⏰ Lembrete: sua escala (~24h)",
+                                body,
                                 data: {
                                     tenantId,
                                     type: "escala_lembrete_24h",
                                     scheduleId: doc.id,
                                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                                 },
-                                android: { priority: "high" },
-                                apns: { payload: { aps: { sound: "default" } } },
-                            });
+                                module: "escala",
+                            }));
                         }
                     }
                     if (send1) {
@@ -1140,18 +1156,18 @@ exports.rollingScaleRemindersConfirmed = functions
                             .trim()
                             .slice(0, 220);
                         for (const token of tokens) {
-                            messages.push({
+                            messages.push((0, notificationBranding_1.buildGyTokenMessage)({
                                 token,
-                                notification: { title: "Escala em 1 hora", body },
+                                title: "⏱️ Escala em ~1 hora",
+                                body,
                                 data: {
                                     tenantId,
                                     type: "escala_lembrete_1h",
                                     scheduleId: doc.id,
                                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                                 },
-                                android: { priority: "high" },
-                                apns: { payload: { aps: { sound: "default" } } },
-                            });
+                                module: "escala",
+                            }));
                         }
                     }
                 }
@@ -1222,15 +1238,17 @@ exports.hourlyDevotionalBroadcast = functions
             const body = [texto, ref].filter((x) => x.length > 0).join("\n").trim();
             if (!body)
                 continue;
-            await admin.messaging().send({
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                 topic: `igreja_${tenantId}`,
-                notification: { title: titulo, body: body.length > 180 ? `${body.slice(0, 177)}...` : body },
+                title: titulo,
+                body: body.length > 180 ? `${body.slice(0, 177)}...` : body,
                 data: {
                     tenantId,
                     type: "devocional",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                 },
-            });
+                module: "devocional",
+            }));
             await db.collection("igrejas").doc(tenantId).collection("devocional_envios").add({
                 titulo,
                 texto,
@@ -1329,16 +1347,17 @@ exports.respondScheduleSwap = functions.region("us-central1").https.onCall(async
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 200);
-        const declMsgs = solTokens.map((token) => ({
+        const declMsgs = solTokens.map((token) => (0, notificationBranding_1.buildGyTokenMessage)({
             token,
-            notification: { title: "Troca de escala", body: declBody },
+            title: "❌ Troca de escala",
+            body: declBody,
             data: {
                 tenantId,
                 type: "escala_troca_recusada",
                 trocaId,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-            android: { priority: "high" },
+            module: "escala",
         }));
         await sendEachInBatches(declMsgs);
         return { ok: true, accepted: false };
@@ -1412,20 +1431,18 @@ exports.respondScheduleSwap = functions.region("us-central1").https.onCall(async
         .trim()
         .slice(0, 220);
     try {
-        await admin.messaging().send({
+        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
             topic: `dept_${deptId}`,
-            notification: {
-                title: "Escala alterada",
-                body: leaderBody,
-            },
+            title: "✅ Escala alterada",
+            body: leaderBody,
             data: {
                 tenantId,
                 type: "escala_troca_concluida",
                 scheduleId: escalaId,
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
             },
-            android: { priority: "high" },
-        });
+            module: "escala",
+        }));
     }
     catch (e) {
         functions.logger.error("respondScheduleSwap FCM dept topic", { tenantId, deptId, e });
@@ -1453,20 +1470,47 @@ exports.onEscalaTrocaInviteTarget = functions
         .trim()
         .slice(0, 220);
     const tokens = await collectFcmTokensForCpfs(tenantId, [alvo]);
-    if (!tokens.length)
-        return null;
-    const msgs = tokens.map((token) => ({
-        token,
-        notification: { title: "Pedido de troca de escala", body },
-        data: {
-            tenantId,
-            type: "escala_troca_convite",
-            trocaId: context.params.trocaId,
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
-        android: { priority: "high" },
-    }));
-    await sendEachInBatches(msgs);
+    if (tokens.length) {
+        const msgs = tokens.map((token) => (0, notificationBranding_1.buildGyTokenMessage)({
+            token,
+            title: "🔔 Pedido de troca de escala",
+            body,
+            data: {
+                tenantId,
+                type: "escala_troca_convite",
+                trocaId: context.params.trocaId,
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
+            module: "escala",
+        }));
+        await sendEachInBatches(msgs);
+    }
+    const creatorUid = String(d.escalaGeneratedByUid || "").trim();
+    if (creatorUid.length >= 8) {
+        const alvoToks = new Set(await collectFcmTokensForCpfs(tenantId, [alvo]));
+        const solToks = new Set(await collectFcmTokensForCpfs(tenantId, [sol]));
+        const creatorTokens = (await collectFcmTokensForUids([creatorUid])).filter((t) => !alvoToks.has(t) && !solToks.has(t));
+        if (creatorTokens.length) {
+            const alvoPrimeiro = await firstNameForCpf(tenantId, alvo);
+            const bodyCreator = `${solPrimeiro} pediu troca com ${alvoPrimeiro} — ${titleStr ? `${titleStr} ` : ""}${dateStr ? `(${dateStr})` : ""}.`
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 220);
+            const creatorMsgs = creatorTokens.map((token) => (0, notificationBranding_1.buildGyTokenMessage)({
+                token,
+                title: "🔔 Troca na sua escala",
+                body: bodyCreator,
+                data: {
+                    tenantId,
+                    type: "escala_troca_criador",
+                    trocaId: context.params.trocaId,
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                },
+                module: "escala",
+            }));
+            await sendEachInBatches(creatorMsgs);
+        }
+    }
     return null;
 });
 //# sourceMappingURL=pastoralComms.js.map

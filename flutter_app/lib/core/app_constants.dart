@@ -7,6 +7,9 @@ class AppConstants {
   /// URL base do site público da igreja, cadastro e site de divulgação (domínio atual em produção).
   static const String publicWebBaseUrl = 'https://gestaoyahweh.com.br';
 
+  /// Marca Gestão YAHWEH (PNG no deploy web, `web/brand/`) — notificações in-app e materiais.
+  static String get gestaoBrandLogoUrl => '$publicWebBaseUrl/brand/gestao_yahweh_mark.png';
+
   /// Canais oficiais (site de divulgação + login Android/iOS). String vazia = botão oculto.
   /// Ajuste para os links reais do projeto (handles @… ou URLs completas).
   static const String marketingOfficialYoutubeUrl =

@@ -202,6 +202,8 @@ abstract final class ChurchStorageLayout {
     final out = <String>[
       churchIdentityLogoPath(tid),
       churchIdentityLogoPathJpgLegacy(tid),
+      '${churchRoot(tid)}/$kSegCertificadosMidia/logo_atual.jpg',
+      '${churchRoot(tid)}/$kSegCertificadosMidia/logo_atual.png',
     ];
     final n = churchName?.trim();
     if (n != null && n.isNotEmpty) {

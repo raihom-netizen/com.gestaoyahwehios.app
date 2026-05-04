@@ -1717,6 +1717,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           role: widget.role,
           subscription: widget.subscription,
           linkedCpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
+          permissions: widget.permissions,
           embeddedInShell: true,
           initialSearchQuery: bootMember,
           initialOpenMemberDocId: bootOpenId,
@@ -1745,6 +1746,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
             key: const ValueKey('page_6'),
             tenantId: widget.tenantId,
             role: widget.role,
+            permissions: widget.permissions,
             embeddedInShell: true);
       case 7:
         final bootEvent = _shellBootstrapEventSearch;
@@ -1773,6 +1775,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
             key: const ValueKey('page_9'),
             tenantId: widget.tenantId,
             role: widget.role,
+            permissions: widget.permissions,
             embeddedInShell: true);
       case 10:
         return MySchedulesPage(

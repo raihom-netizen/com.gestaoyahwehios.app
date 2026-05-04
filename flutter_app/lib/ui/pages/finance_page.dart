@@ -3225,6 +3225,60 @@ class _ContaSaldoCard extends StatelessWidget {
 // Movimentações da conta: receitas (conta destino), despesas (conta origem) e transferências.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Filtros do extrato — alto contraste e ícones (evita chips «invisíveis» em tema claro).
+Widget _financeExtratoPremiumChip({
+  required String label,
+  required IconData icon,
+  required Color accent,
+  required bool selected,
+  required VoidCallback onTap,
+}) {
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 170),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? accent.withValues(alpha: 0.14) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? accent : const Color(0xFFCBD5E1),
+            width: selected ? 2 : 1.2,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.26),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ]
+              : ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 17, color: selected ? accent : const Color(0xFF64748B)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
+                color: selected ? accent : const Color(0xFF334155),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 bool _financeLancamentoEnvolveConta(Map<String, dynamic> data, String contaId) {
   if (contaId.isEmpty) return false;
   final origem = (data['contaOrigemId'] ?? '').toString();
@@ -3277,6 +3331,8 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   late DateTime _mesRefM;
   /// todos | entrada | saida | transferencia
   String _filtroMovimento = 'todos';
+  /// Filtro adicional: dízimo vs oferta (receitas de doação / MP).
+  String _filtroDoacao = 'todos';
   /// Só com extrato geral (`contaId` null); null = todas as contas.
   String? _filtroContaExtratoGeral;
 
@@ -3369,6 +3425,12 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                 return false;
               }
             }
+            if (_filtroDoacao != 'todos') {
+              if (!_financeIsDonationLancamento(data)) return false;
+              final lbl = _financeDonationKindLabel(data);
+              if (_filtroDoacao == 'dizimo' && lbl != 'Dízimo') return false;
+              if (_filtroDoacao == 'oferta' && lbl != 'Oferta') return false;
+            }
             return true;
           }).toList();
 
@@ -3437,34 +3499,82 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       ],
                     ),
                     Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        ChoiceChip(
-                          label: const Text('Todas'),
+                        _financeExtratoPremiumChip(
+                          label: 'Todas',
+                          icon: Icons.receipt_long_rounded,
+                          accent: ThemeCleanPremium.primary,
                           selected: _filtroMovimento == 'todos',
-                          onSelected: (_) =>
-                              setState(() => _filtroMovimento = 'todos'),
+                          onTap: () => setState(() => _filtroMovimento = 'todos'),
                         ),
-                        ChoiceChip(
-                          label: const Text('Receitas'),
+                        _financeExtratoPremiumChip(
+                          label: 'Receitas',
+                          icon: Icons.trending_up_rounded,
+                          accent: const Color(0xFF16A34A),
                           selected: _filtroMovimento == 'entrada',
-                          onSelected: (_) =>
-                              setState(() => _filtroMovimento = 'entrada'),
+                          onTap: () => setState(() => _filtroMovimento = 'entrada'),
                         ),
-                        ChoiceChip(
-                          label: const Text('Despesas'),
+                        _financeExtratoPremiumChip(
+                          label: 'Despesas',
+                          icon: Icons.trending_down_rounded,
+                          accent: const Color(0xFFDC2626),
                           selected: _filtroMovimento == 'saida',
-                          onSelected: (_) =>
-                              setState(() => _filtroMovimento = 'saida'),
+                          onTap: () => setState(() => _filtroMovimento = 'saida'),
                         ),
-                        ChoiceChip(
-                          label: const Text('Transfer.'),
+                        _financeExtratoPremiumChip(
+                          label: 'Transfer.',
+                          icon: Icons.swap_horiz_rounded,
+                          accent: const Color(0xFF7C3AED),
                           selected: _filtroMovimento == 'transferencia',
-                          onSelected: (_) => setState(
-                              () => _filtroMovimento = 'transferencia'),
+                          onTap: () => setState(() => _filtroMovimento = 'transferencia'),
                         ),
                       ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Doações (dízimo / oferta)',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _financeExtratoPremiumChip(
+                                label: 'Todas',
+                                icon: Icons.filter_list_rounded,
+                                accent: const Color(0xFF0D9488),
+                                selected: _filtroDoacao == 'todos',
+                                onTap: () => setState(() => _filtroDoacao = 'todos'),
+                              ),
+                              _financeExtratoPremiumChip(
+                                label: 'Dízimo',
+                                icon: Icons.church_rounded,
+                                accent: const Color(0xFF2563EB),
+                                selected: _filtroDoacao == 'dizimo',
+                                onTap: () => setState(() => _filtroDoacao = 'dizimo'),
+                              ),
+                              _financeExtratoPremiumChip(
+                                label: 'Oferta',
+                                icon: Icons.volunteer_activism_rounded,
+                                accent: const Color(0xFF9333EA),
+                                selected: _filtroDoacao == 'oferta',
+                                onTap: () => setState(() => _filtroDoacao = 'oferta'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                     if (widget.contaId == null || widget.contaId!.isEmpty)
                       Padding(
@@ -4779,6 +4889,7 @@ class _LancamentoCard extends StatelessWidget {
     final categoria =
         (data['categoria'] ?? data['title'] ?? 'Sem categoria').toString();
     final descricao = (data['descricao'] ?? '').toString();
+    final donorNm = (data['donorName'] ?? '').toString().trim();
     final origemNome = (data['contaOrigemNome'] ?? '').toString();
     final destinoNome = (data['contaDestinoNome'] ?? '').toString();
     final dt = _parseDate(data['createdAt'] ?? data['date']);
@@ -4805,7 +4916,9 @@ class _LancamentoCard extends StatelessWidget {
             ? '$origemNome → $destinoNome'
             : descricao)
         : (isDonation
-            ? (descricao.isNotEmpty ? descricao : categoria)
+            ? (donorNm.isNotEmpty
+                ? donorNm
+                : (descricao.isNotEmpty ? descricao : categoria))
             : descricao);
 
     final baseBorder = const Color(0xFFE8EEF4);
@@ -7274,16 +7387,24 @@ Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
   }
 }
 
-/// Texto único para cartão / extrato (fornecedor e/ou membro).
+/// Texto único para cartão / extrato (fornecedor, membro ou doador MP).
 String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
   final fn = (data['fornecedorNome'] ?? '').toString().trim();
-  final mn = (data['membroNome'] ?? '').toString().trim();
-  if (fn.isEmpty && mn.isEmpty) return null;
-  if (fn.isNotEmpty && mn.isNotEmpty) {
-    return 'Fornecedor · $fn · Membro · $mn';
+  final mnCadastro = (data['membroNome'] ?? '').toString().trim();
+  final donor = (data['donorName'] ?? '').toString().trim();
+  final origem = (data['origem'] ?? '').toString().toLowerCase();
+  final fromMp =
+      origem.contains('mercado_pago') || (data['mpPaymentId'] ?? '').toString().isNotEmpty;
+
+  if (fn.isEmpty && mnCadastro.isEmpty && donor.isEmpty) return null;
+  if (fn.isNotEmpty && (mnCadastro.isNotEmpty || donor.isNotEmpty)) {
+    final m = mnCadastro.isNotEmpty ? mnCadastro : donor;
+    return 'Fornecedor · $fn · Membro · $m';
   }
   if (fn.isNotEmpty) return 'Fornecedor · $fn';
-  return 'Membro · $mn';
+  if (mnCadastro.isNotEmpty) return 'Membro · $mnCadastro';
+  if (donor.isNotEmpty && fromMp) return 'Doador · $donor';
+  return null;
 }
 
 /// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
@@ -7372,8 +7493,9 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     }
   }
 
-  final membroIdRaw =
-      isEdit ? (data?['membroId'] ?? '').toString().trim() : '';
+  final membroIdRaw = isEdit
+      ? (data?['membroId'] ?? data?['memberId'] ?? '').toString().trim()
+      : '';
   String? membroId = membroIdRaw.isEmpty ? null : membroIdRaw;
   var membroNome = isEdit
       ? (data?['membroNome'] ?? '').toString().trim()
@@ -7385,6 +7507,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         break;
       }
     }
+  }
+  if (membroId != null && membroNome.isEmpty && isEdit && data != null) {
+    final dn = (data['donorName'] ?? '').toString().trim();
+    if (dn.isNotEmpty) membroNome = dn;
   }
 
   /// nenhum | fornecedor | membro — mutuamente exclusivo (exc. lock de fornecedor).
@@ -7544,7 +7670,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         icon: Icon(Icons.trending_down_rounded)),
                     ButtonSegment(
                         value: 'transferencia',
-                        label: Text('Transferência'),
+                        label: Text('Transf.'),
                         icon: Icon(Icons.swap_horiz_rounded)),
                   ],
                   selected: {t},
@@ -7576,6 +7702,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     }
                   }),
                   style: SegmentedButton.styleFrom(
+                    foregroundColor: const Color(0xFF334155),
+                    backgroundColor: const Color(0xFFF1F5F9),
                     selectedForegroundColor: t == 'entrada'
                         ? _financeEntradas
                         : t == 'saida'
@@ -7586,6 +7714,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         : t == 'saida'
                             ? const Color(0xFFFEF2F2)
                             : const Color(0xFFEEF2FF),
+                    side: const BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -7666,6 +7796,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         }),
                         showSelectedIcon: false,
                         style: SegmentedButton.styleFrom(
+                          foregroundColor: const Color(0xFF334155),
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          selectedForegroundColor: ThemeCleanPremium.primary,
+                          selectedBackgroundColor: const Color(0xFFEFF6FF),
+                          side: const BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
                           visualDensity: VisualDensity.compact,
                         ),
                       ),

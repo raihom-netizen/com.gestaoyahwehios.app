@@ -41,6 +41,7 @@ exports.scheduledFornecedorAgendaReminders = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const pushNovoConteudo_1 = require("./pushNovoConteudo");
+const notificationBranding_1 = require("./notificationBranding");
 const db = admin.firestore();
 const MS_24H = 24 * 60 * 60 * 1000;
 const MS_60M = 60 * 60 * 1000;
@@ -91,12 +92,10 @@ exports.scheduledFornecedorAgendaReminders = functions
             const in24hWindow = diffMs >= MS_24H - WINDOW_MS && diffMs <= MS_24H + WINDOW_MS;
             if (in24hWindow && !d.reminder24hSentAt) {
                 try {
-                    await admin.messaging().send({
+                    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                         topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "fornecedor_agenda"),
-                        notification: {
-                            title: "Fornecedor — lembrete (24h)",
-                            body: clip(`${titulo}`, 160),
-                        },
+                        title: "📦 Fornecedor — 24h",
+                        body: clip(`${titulo}`, 160),
                         data: {
                             type: "fornecedor_agenda_reminder",
                             reminder: "24h",
@@ -105,7 +104,8 @@ exports.scheduledFornecedorAgendaReminders = functions
                             compromissoId: doc.id,
                             click_action: "FLUTTER_NOTIFICATION_CLICK",
                         },
-                    });
+                        module: "fornecedor_agenda",
+                    }));
                     await doc.ref.update({
                         reminder24hSentAt: admin.firestore.FieldValue.serverTimestamp(),
                     });
@@ -118,12 +118,10 @@ exports.scheduledFornecedorAgendaReminders = functions
             const in60Window = diffMs >= MS_60M - WINDOW_MS && diffMs <= MS_60M + WINDOW_MS;
             if (in60Window && !d.reminder60mSentAt) {
                 try {
-                    await admin.messaging().send({
+                    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
                         topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "fornecedor_agenda"),
-                        notification: {
-                            title: "Fornecedor — lembrete (1h)",
-                            body: clip(`${titulo}`, 160),
-                        },
+                        title: "📦 Fornecedor — 1h",
+                        body: clip(`${titulo}`, 160),
                         data: {
                             type: "fornecedor_agenda_reminder",
                             reminder: "60m",
@@ -132,7 +130,8 @@ exports.scheduledFornecedorAgendaReminders = functions
                             compromissoId: doc.id,
                             click_action: "FLUTTER_NOTIFICATION_CLICK",
                         },
-                    });
+                        module: "fornecedor_agenda",
+                    }));
                     await doc.ref.update({
                         reminder60mSentAt: admin.firestore.FieldValue.serverTimestamp(),
                     });

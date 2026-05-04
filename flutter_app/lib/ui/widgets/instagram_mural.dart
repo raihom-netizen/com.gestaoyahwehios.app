@@ -73,6 +73,7 @@ import 'package:shimmer/shimmer.dart';
 import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import '../theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// O mural usa [SafeNetworkImage] (não [CachedNetworkImage] isolado em URLs Firebase na web).
@@ -141,11 +142,13 @@ class InstagramMural extends StatefulWidget {
   final String tenantId;
   final String role;
   final String churchSlug;
+  final List<String>? permissions;
   const InstagramMural({
     super.key,
     required this.tenantId,
     required this.role,
     required this.churchSlug,
+    this.permissions,
   });
 
   @override
@@ -176,12 +179,21 @@ class _InstagramMuralState extends State<InstagramMural> {
   }
 
   bool get _canEdit {
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_somente_leitura')) {
+      return false;
+    }
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_edicao')) {
+      return true;
+    }
     final r = widget.role.toLowerCase();
     return r == 'adm' ||
         r == 'admin' ||
         r == 'gestor' ||
         r == 'master' ||
-        r == 'lider';
+        r == 'lider' ||
+        r == 'lider_departamento';
   }
 
   bool get _canManageAll {

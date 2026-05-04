@@ -618,6 +618,9 @@ async function tryHandleChurchDonationPayment(payment) {
         paymentMethod: payment.payment_type_id || payment.payment_method_id || "pix",
         donorName,
         memberId: memberId || null,
+        /** Espelho para o app financeiro (campo usado em vínculo «Membro»). */
+        membroId: memberId || null,
+        membroNome: memberFull ? String(memberFull).trim().slice(0, 160) : null,
         donorDisplaySource: memberFull ? "membro_cadastro" : "informado_ou_mp",
         origem: "mercado_pago_doacao",
         conciliado: true,

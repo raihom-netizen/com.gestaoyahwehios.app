@@ -5,6 +5,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { buildGyTopicMessage } from "./notificationBranding";
 
 function safeTid(t: string): string {
   return String(t || "").replace(/[^a-zA-Z0-9\-_.~%]/g, "_");
@@ -34,16 +35,20 @@ export const onNovoAvisoMuralPush = functions
     const rawBody = String(d.text || d.body || d.mensagem || "").trim();
     const body = clip(rawBody, 140) || title;
     try {
-      await admin.messaging().send({
-        topic: topicPushNovo(tenantId, "aviso"),
-        notification: { title: "Novo aviso", body },
-        data: {
-          type: "novo_aviso",
-          tenantId,
-          postId: context.params.id,
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
-      });
+      await admin.messaging().send(
+        buildGyTopicMessage({
+          topic: topicPushNovo(tenantId, "aviso"),
+          title: "📢 Novo aviso",
+          body,
+          data: {
+            type: "novo_aviso",
+            tenantId,
+            postId: context.params.id,
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          module: "aviso",
+        })
+      );
     } catch (e) {
       functions.logger.error("onNovoAvisoMuralPush FCM", { tenantId, e });
     }
@@ -66,16 +71,20 @@ export const onNovoEventoNoticiaPush = functions
     }
     const body = clip(`${title}${extra}`, 180);
     try {
-      await admin.messaging().send({
-        topic: topicPushNovo(tenantId, "evento"),
-        notification: { title: "Novo evento", body },
-        data: {
-          type: "novo_evento",
-          tenantId,
-          postId: context.params.id,
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
-      });
+      await admin.messaging().send(
+        buildGyTopicMessage({
+          topic: topicPushNovo(tenantId, "evento"),
+          title: "📅 Novo evento",
+          body,
+          data: {
+            type: "novo_evento",
+            tenantId,
+            postId: context.params.id,
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          module: "evento",
+        })
+      );
     } catch (e) {
       functions.logger.error("onNovoEventoNoticiaPush FCM", { tenantId, e });
     }

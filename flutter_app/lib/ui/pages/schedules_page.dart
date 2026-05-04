@@ -33,6 +33,8 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/schedule_escala_pdf.dart';
+import 'package:gestao_yahweh/utils/schedule_swaps_report_pdf.dart';
+import 'package:gestao_yahweh/utils/escala_relatorio_premium_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -52,6 +54,44 @@ Map<String, dynamic> _remapScheduleCpfKeyedMap(
     }
   }
   return out;
+}
+
+/// Filtro da lista de membros no detalhe da escala (chips de resumo).
+enum _InstanceDetailMemberFilter {
+  todos,
+  confirmados,
+  pendentes,
+  indisponiveis,
+  faltaNj,
+  trocasRealizadas,
+}
+
+String _normCpfKeyForFilter(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
+
+bool _memberMatchesInstanceDetailFilter(
+  _InstanceDetailMemberFilter f,
+  String cpfKey,
+  Map<String, dynamic> confirmations, {
+  Set<String>? cpfsNormInCompletedSwaps,
+}) {
+  if (f == _InstanceDetailMemberFilter.todos) return true;
+  final raw = (confirmations[cpfKey] ?? '').toString();
+  final keyNorm = _normCpfKeyForFilter(cpfKey);
+  if (f == _InstanceDetailMemberFilter.trocasRealizadas) {
+    final set = cpfsNormInCompletedSwaps;
+    if (set == null || set.isEmpty) return false;
+    return keyNorm.length == 11 && set.contains(keyNorm);
+  }
+  if (f == _InstanceDetailMemberFilter.confirmados) return raw == 'confirmado';
+  if (f == _InstanceDetailMemberFilter.indisponiveis) return raw == 'indisponivel';
+  if (f == _InstanceDetailMemberFilter.faltaNj) return raw == 'falta_nao_justificada';
+  return raw != 'confirmado' && raw != 'indisponivel' && raw != 'falta_nao_justificada';
+}
+
+String _maskCpfListaEscala(String raw) {
+  final d = raw.replaceAll(RegExp(r'[^0-9]'), '');
+  if (d.length == 11) return '***.${d.substring(6, 9)}-**';
+  return raw.trim().isNotEmpty ? raw : '';
 }
 
 /// Data `dd/MM/aaaa` no diálogo «Gerar escalas».
@@ -339,6 +379,41 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }).toList();
   }
 
+  /// Filtro de período do relatório aplicado a uma data (ex.: [resolvedAt] da troca).
+  bool _dateInReportPeriod(DateTime dt) {
+    final day = DateTime(dt.year, dt.month, dt.day);
+    final now = DateTime.now();
+    bool inRange() {
+      switch (_periodFilter) {
+        case 'todos':
+          return true;
+        case 'diario':
+          final today = _startOfDay(now);
+          return !day.isBefore(today) && !day.isAfter(_endOfDay(now));
+        case 'semanal':
+          final weekStart = now.subtract(Duration(days: now.weekday - 1));
+          return !day.isBefore(_startOfDay(weekStart)) && !day.isAfter(_endOfDay(now));
+        case 'mes_anterior':
+          final prev = DateTime(now.year, now.month - 1);
+          return !day.isBefore(_startOfMonth(prev)) && !day.isAfter(_endOfMonth(prev));
+        case 'mes_atual':
+          return !day.isBefore(_startOfMonth(now)) && !day.isAfter(_endOfMonth(now));
+        case 'anual':
+          return !day.isBefore(_startOfYear(now)) && !day.isAfter(_endOfYear(now));
+        case 'periodo':
+          if (_periodStart != null && _periodEnd != null) {
+            return !day.isBefore(_startOfDay(_periodStart!)) &&
+                !day.isAfter(_endOfDay(_periodEnd!));
+          }
+          return true;
+        default:
+          return true;
+      }
+    }
+
+    return inRange();
+  }
+
   /// Pool só com filtro de departamento (ignora chips de período) — exclusão por mês/ano.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _deptOnlyPool(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
@@ -468,6 +543,253 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         context,
         bytes: bytes,
         filename: 'escala_${doc.id}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível gerar o PDF: $e')),
+        );
+      }
+    }
+  }
+
+  String _deptDisplayNameForReport(String deptId, List<_DeptItem> depts) {
+    for (final e in depts) {
+      if (e.id == deptId) return e.name;
+    }
+    return deptId.isNotEmpty ? deptId : '—';
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTrocasConcluidasForReport(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    var list = docs.where((d) {
+      if ((d.data()['status'] ?? '').toString() != 'concluida') return false;
+      final dept = (d.data()['departmentId'] ?? '').toString();
+      if (_reportDeptId.isNotEmpty && dept != _reportDeptId) return false;
+      if (_scopedDeptLeader && !_managedDeptIds.contains(dept)) return false;
+      return true;
+    }).toList();
+    list = list.where((d) {
+      DateTime? resolved;
+      try {
+        resolved = (d.data()['resolvedAt'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      if (resolved == null) return false;
+      return _dateInReportPeriod(resolved);
+    }).toList();
+    list.sort((a, b) {
+      final ta = (a.data()['resolvedAt'] as Timestamp?)?.toDate();
+      final tb = (b.data()['resolvedAt'] as Timestamp?)?.toDate();
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return tb.compareTo(ta);
+    });
+    return list;
+  }
+
+  /// Pedidos de troca no período (data de criação do registro).
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTrocasByCreatedForReport(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    var list = docs.where((d) {
+      final dept = (d.data()['departmentId'] ?? '').toString();
+      if (_reportDeptId.isNotEmpty && dept != _reportDeptId) return false;
+      if (_scopedDeptLeader && !_managedDeptIds.contains(dept)) return false;
+      return true;
+    }).toList();
+    list = list.where((d) {
+      DateTime? created;
+      try {
+        created = (d.data()['createdAt'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      if (created == null) return false;
+      return _dateInReportPeriod(created);
+    }).toList();
+    list.sort((a, b) {
+      final ta = (a.data()['createdAt'] as Timestamp?)?.toDate();
+      final tb = (b.data()['createdAt'] as Timestamp?)?.toDate();
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return tb.compareTo(ta);
+    });
+    return list;
+  }
+
+  Future<void> _exportPremiumTablePdf({
+    required String reportTitle,
+    required List<String> columnHeaders,
+    required List<List<String>> rows,
+    required String filenameSafe,
+  }) async {
+    if (rows.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nada para exportar neste filtro.')),
+        );
+      }
+      return;
+    }
+    final tid = await _effectiveTidFuture;
+    if (!mounted) return;
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gerando PDF…'), duration: Duration(seconds: 2)),
+        );
+      }
+      final branding = await loadReportPdfBranding(tid);
+      final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final t = tenantSnap.data() ?? {};
+      final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
+      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final bytes = await buildEscalaPremiumTablePdf(
+        branding: branding,
+        reportTitle: reportTitle,
+        churchAddress: address,
+        churchPhone: phone,
+        periodLabel: 'Período: $_periodLabelUppercase · Depart.: ${_reportDeptId.isEmpty ? 'Todos' : _reportDeptId}',
+        columnHeaders: columnHeaders,
+        rows: rows,
+      );
+      if (!mounted) return;
+      await showPdfActions(context, bytes: bytes, filename: filenameSafe);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF: $e')));
+      }
+    }
+  }
+
+  Future<void> _exportEscalasListPdf(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> escalas,
+    String reportTitle,
+    String filenameSafe,
+  ) async {
+    if (escalas.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nada para exportar neste filtro.')),
+        );
+      }
+      return;
+    }
+    final rows = <List<String>>[];
+    for (final d in escalas) {
+      final m = d.data();
+      DateTime? dt;
+      try {
+        dt = (m['date'] as Timestamp?)?.toDate();
+      } catch (_) {}
+      final ds = dt != null ? DateFormat('dd/MM/yyyy', 'pt_BR').format(dt) : '—';
+      rows.add([
+        ds,
+        (m['title'] ?? '').toString(),
+        (m['time'] ?? '').toString(),
+        (m['departmentName'] ?? '').toString(),
+      ]);
+    }
+    await _exportPremiumTablePdf(
+      reportTitle: reportTitle,
+      columnHeaders: const ['Data', 'Título', 'Horário', 'Departamento'],
+      rows: rows,
+      filenameSafe: filenameSafe,
+    );
+  }
+
+  Future<void> _exportTrocasPeriodoPdf(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> trocas,
+    List<_DeptItem> depts,
+  ) async {
+    if (trocas.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhuma troca neste filtro.')),
+        );
+      }
+      return;
+    }
+    final rows = <List<String>>[];
+    for (final d in trocas) {
+      final x = d.data();
+      final deptId = (x['departmentId'] ?? '').toString();
+      rows.add([
+        (x['status'] ?? '').toString(),
+        _deptDisplayNameForReport(deptId, depts),
+        (x['escalaTitle'] ?? '').toString(),
+        (x['escalaDateLabel'] ?? '').toString(),
+        (x['solicitanteNome'] ?? '').toString().trim().isNotEmpty
+            ? x['solicitanteNome'].toString()
+            : (x['solicitanteCpf'] ?? '').toString(),
+        (x['alvoNome'] ?? '').toString().trim().isNotEmpty
+            ? x['alvoNome'].toString()
+            : (x['alvoCpf'] ?? '').toString(),
+      ]);
+    }
+    await _exportPremiumTablePdf(
+      reportTitle: 'Trocas de escala (registros)',
+      columnHeaders: const ['Status', 'Depart.', 'Escala', 'Data esc.', 'Solicitante', 'Substituto'],
+      rows: rows,
+      filenameSafe: 'trocas_escala_periodo_${DateTime.now().millisecondsSinceEpoch}.pdf',
+    );
+  }
+
+  Future<void> _exportNameCountsPdf(
+    Map<String, int> map,
+    String reportTitle,
+    String filenameSafe,
+  ) async {
+    await _exportPremiumTablePdf(
+      reportTitle: reportTitle,
+      columnHeaders: const ['Nome', 'Ocorrências'],
+      rows: rowsFromNameCounts(map),
+      filenameSafe: filenameSafe,
+    );
+  }
+
+  Future<void> _exportTrocasConcluidasReportPdf(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> trocas,
+    List<_DeptItem> depts,
+  ) async {
+    if (trocas.isEmpty) return;
+    final tid = await _effectiveTidFuture;
+    if (!mounted) return;
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gerando PDF de trocas…'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      final branding = await loadReportPdfBranding(tid);
+      final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final t = tenantSnap.data() ?? {};
+      final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
+      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final rows = trocas
+          .map((d) {
+            final m = d.data();
+            final deptId = (m['departmentId'] ?? '').toString();
+            return rowMapFromTrocaDoc(
+              m,
+              departmentName: _deptDisplayNameForReport(deptId, depts),
+            );
+          })
+          .toList();
+      final bytes = await buildScheduleSwapsReportPdf(
+        rows: rows,
+        branding: branding,
+        churchAddress: address,
+        churchPhone: phone,
+        periodLabel: 'Período: $_periodLabelUppercase',
+      );
+      if (!mounted) return;
+      await showPdfActions(
+        context,
+        bytes: bytes,
+        filename: 'trocas_escala_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
     } catch (e) {
       if (mounted) {
@@ -1551,6 +1873,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
     final batch = FirebaseFirestore.instance.batch();
     final tsNow = Timestamp.now();
+    final genUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final genName = FirebaseAuth.instance.currentUser?.displayName ?? '';
     var skippedNoEligible = 0;
     for (final dt in dates) {
       final dayKey = ScheduleIntelValidators.ymdKey(DateTime(dt.year, dt.month, dt.day));
@@ -1601,6 +1925,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'preparedByMemberId': pick.preparedByMemberId,
         'approverMemberId': pick.approverMemberId,
         'signatureMode': pick.showDigitalSignatures ? 'digital' : 'manual',
+        'generatedByUid': genUid,
+        'generatedByName': genName,
         'createdAt': tsNow,
         'updatedAt': tsNow,
         'active': true,
@@ -2815,7 +3141,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   // ── Tab: Relatórios super premium (igreja, título CAIXA ALTA, gráficos, drill-down) ──
   Widget _buildReportsTab() {
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait([_instancesFuture, _tenantFuture, _deptsFuture]),
+      future: Future.wait([
+        _instancesFuture,
+        _tenantFuture,
+        _deptsFuture,
+        _effectiveTidFuture.then(
+          (tid) => FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(tid)
+              .collection('escala_trocas')
+              .limit(800)
+              .get(),
+        ),
+      ]),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -2825,15 +3163,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         final tenantSnap = snap.data![1] as DocumentSnapshot<Map<String, dynamic>>;
         final tenantData = tenantSnap.data();
         final depts = snap.data![2] as List<_DeptItem>;
+        final trocasSnapDocs = (snap.data![3] as QuerySnapshot<Map<String, dynamic>>).docs;
+        final trocasConcluidas = _filterTrocasConcluidasForReport(trocasSnapDocs);
+        final trocasPeriodo = _filterTrocasByCreatedForReport(trocasSnapDocs);
         if (_reportDeptId.isNotEmpty) {
           docs = docs.where((d) => (d.data()['departmentId'] ?? '').toString() == _reportDeptId).toList();
         }
         final deptMatch = depts.where((e) => e.id == _reportDeptId);
         final deptName = _reportDeptId.isEmpty ? 'TODOS' : (deptMatch.isEmpty ? _reportDeptId : deptMatch.first.name.toUpperCase());
 
-        int totalPresencas = 0, totalFaltas = 0, escalasRealizadas = 0;
+        int totalPresencas = 0, totalFaltaNj = 0, totalIndisponivel = 0, escalasRealizadas = 0;
         final memberStats = <String, _MemberScaleStats>{};
-        final whoMissed = <String, int>{}; // nome -> qtd faltas
+        final whoMissedNj = <String, int>{}; // falta não justificada
+        final whoIndisponivel = <String, int>{};
         final whoAttended = <String, int>{}; // nome -> qtd presenças
         final realizadasDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         final pendentesDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -2856,10 +3198,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               whoAttended[name] = (whoAttended[name] ?? 0) + 1;
             } else {
               allConfirmed = false;
-              if (status == 'indisponivel' || status == 'falta_nao_justificada') {
+              if (status == 'indisponivel') {
                 st.faltas++;
-                totalFaltas++;
-                whoMissed[name] = (whoMissed[name] ?? 0) + 1;
+                totalIndisponivel++;
+                whoIndisponivel[name] = (whoIndisponivel[name] ?? 0) + 1;
+              } else if (status == 'falta_nao_justificada') {
+                st.faltas++;
+                totalFaltaNj++;
+                whoMissedNj[name] = (whoMissedNj[name] ?? 0) + 1;
               }
             }
           }
@@ -2874,10 +3220,99 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         final escalasPendentes = escalasGeradas - escalasRealizadas;
         final list = memberStats.values.toList()..sort((a, b) => b.escalas.compareTo(a.escalas));
 
-        final chartMetrics = [escalasGeradas, escalasRealizadas, escalasPendentes, totalPresencas, totalFaltas];
+        final chartMetrics = [
+          escalasGeradas,
+          escalasRealizadas,
+          escalasPendentes,
+          totalPresencas,
+          totalFaltaNj,
+          totalIndisponivel,
+          trocasPeriodo.length,
+        ];
         final chartRawMax = chartMetrics.reduce((a, b) => a > b ? a : b);
         final chartMaxY = chartRawMax > 0 ? math.max(4.0, (chartRawMax * 1.22).ceilToDouble()) : 4.0;
         final chartGridInterval = chartMaxY <= 6 ? 1.0 : (chartMaxY / 6).ceilToDouble();
+
+        void reportBarDrill(int idx) {
+          void editDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+            Navigator.of(context).pop();
+            _editInstance(d);
+          }
+
+          final onEd = _canWrite ? editDoc : null;
+          switch (idx) {
+            case 0:
+              _showDrillDown(
+                context,
+                'Todas as escalas (${docs.length})',
+                ThemeCleanPremium.primary,
+                escalaDocs: docs,
+                onEditEscala: onEd,
+              );
+              return;
+            case 1:
+              _showDrillDown(
+                context,
+                'Escalas com todos confirmados (${realizadasDocs.length})',
+                ThemeCleanPremium.success,
+                escalaDocs: realizadasDocs,
+                onEditEscala: onEd,
+              );
+              return;
+            case 2:
+              _showDrillDown(
+                context,
+                'Escalas pendentes de confirmação (${pendentesDocs.length})',
+                Colors.amber.shade800,
+                escalaDocs: pendentesDocs,
+                onEditEscala: onEd,
+              );
+              return;
+            case 3:
+              _showDrillDown(
+                context,
+                'Presenças (${whoAttended.length} pessoas)',
+                ThemeCleanPremium.success,
+                lines: whoAttended.entries.map((e) => '${e.key} — ${e.value} confirmação(ões)').toList()..sort(),
+              );
+              return;
+            case 4:
+              _showDrillDown(
+                context,
+                'Falta não justificada (${whoMissedNj.length} pessoas)',
+                ThemeCleanPremium.error,
+                lines: whoMissedNj.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
+              );
+              return;
+            case 5:
+              _showDrillDown(
+                context,
+                'Indisponível (${whoIndisponivel.length} pessoas)',
+                const Color(0xFFDC2626),
+                lines: whoIndisponivel.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
+              );
+              return;
+            case 6:
+              _showDrillDown(
+                context,
+                'Trocas registradas (${trocasPeriodo.length})',
+                const Color(0xFF7C3AED),
+                lines: trocasPeriodo
+                    .map((d) {
+                      final x = d.data();
+                      final st = (x['status'] ?? '').toString();
+                      final tit = (x['escalaTitle'] ?? '').toString();
+                      final when = (x['escalaDateLabel'] ?? '').toString();
+                      return '$st — $tit ($when)';
+                    })
+                    .toList()
+                  ..sort(),
+              );
+              return;
+          }
+        }
+
+        final pdfTs = DateTime.now().millisecondsSinceEpoch;
 
         final nomeIgreja = (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
         final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
@@ -3007,19 +3442,26 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                               );
                             },
                           ),
+                          touchCallback: (FlTouchEvent event, barTouchResponse) {
+                            if (barTouchResponse?.spot == null) return;
+                            if (event is FlTapUpEvent) {
+                              reportBarDrill(barTouchResponse!.spot!.touchedBarGroupIndex);
+                            }
+                          },
                         ),
                         titlesData: FlTitlesData(
                           show: true,
                           bottomTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 30,
+                              reservedSize: 36,
                               getTitlesWidget: (v, meta) => Padding(
-                                padding: const EdgeInsets.only(top: 6),
+                                padding: const EdgeInsets.only(top: 4),
                                 child: Text(
                                   _barLabel(v.toInt()),
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                                  maxLines: 2,
+                                  style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.w600, color: Colors.grey.shade700, height: 1.15),
                                 ),
                               ),
                             ),
@@ -3056,11 +3498,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           _barGroup(1, escalasRealizadas.toDouble(), ThemeCleanPremium.success),
                           _barGroup(2, escalasPendentes.toDouble(), Colors.amber.shade700),
                           _barGroup(3, totalPresencas.toDouble(), ThemeCleanPremium.success),
-                          _barGroup(4, totalFaltas.toDouble(), ThemeCleanPremium.error),
+                          _barGroup(4, totalFaltaNj.toDouble(), ThemeCleanPremium.error),
+                          _barGroup(5, totalIndisponivel.toDouble(), const Color(0xFFDC2626)),
+                          _barGroup(6, trocasPeriodo.length.toDouble(), const Color(0xFF7C3AED)),
                         ],
                       ),
                       swapAnimationDuration: const Duration(milliseconds: 250),
                     ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Toque nas barras ou nos cartões para o preview. Ícone PDF no canto: relatório premium. Em listas de escalas, use editar para alterar.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -3073,12 +3525,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$escalasGeradas',
                         icon: Icons.calendar_month_rounded,
                         color: ThemeCleanPremium.primary,
-                        onTap: () => _showDrillDown(
-                          context,
-                          'Todas as escalas (${docs.length})',
-                          ThemeCleanPremium.primary,
-                          escalaDocs: docs,
-                        ),
+                        onTap: () => reportBarDrill(0),
+                        onExportPdf: () => _exportEscalasListPdf(docs, 'Escalas geradas', 'escalas_geradas_$pdfTs.pdf'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -3088,11 +3536,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$escalasRealizadas',
                         icon: Icons.check_circle_rounded,
                         color: ThemeCleanPremium.success,
-                        onTap: () => _showDrillDown(
-                          context,
-                          'Escalas com todos confirmados (${realizadasDocs.length})',
-                          ThemeCleanPremium.success,
-                          escalaDocs: realizadasDocs,
+                        onTap: () => reportBarDrill(1),
+                        onExportPdf: () => _exportEscalasListPdf(
+                          realizadasDocs,
+                          'Escalas realizadas (confirmadas)',
+                          'escalas_realizadas_$pdfTs.pdf',
                         ),
                       ),
                     ),
@@ -3103,12 +3551,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$escalasPendentes',
                         icon: Icons.schedule_rounded,
                         color: Colors.amber.shade700,
-                        onTap: () => _showDrillDown(
-                          context,
-                          'Escalas pendentes de confirmação (${pendentesDocs.length})',
-                          Colors.amber.shade800,
-                          escalaDocs: pendentesDocs,
-                        ),
+                        onTap: () => reportBarDrill(2),
+                        onExportPdf: () => _exportEscalasListPdf(pendentesDocs, 'Escalas pendentes', 'escalas_pendentes_$pdfTs.pdf'),
                       ),
                     ),
                   ],
@@ -3122,30 +3566,191 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         value: '$totalPresencas',
                         icon: Icons.person_rounded,
                         color: ThemeCleanPremium.success,
-                        onTap: () => _showDrillDown(
-                          context,
-                          'Presenças (${whoAttended.length} pessoas)',
-                          ThemeCleanPremium.success,
-                          lines: whoAttended.entries.map((e) => '${e.key} — ${e.value} confirmação(ões)').toList()..sort(),
-                        ),
+                        onTap: () => reportBarDrill(3),
+                        onExportPdf: () => _exportNameCountsPdf(whoAttended, 'Presenças (confirmações)', 'presencas_$pdfTs.pdf'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: _ReportMetricCard(
-                        label: 'Faltas',
-                        value: '$totalFaltas',
-                        icon: Icons.cancel_rounded,
+                        label: 'Falta NJ',
+                        value: '$totalFaltaNj',
+                        icon: Icons.person_off_rounded,
                         color: ThemeCleanPremium.error,
-                        onTap: () => _showDrillDown(
-                          context,
-                          'Faltas / indisponível (${whoMissed.length} pessoas)',
-                          ThemeCleanPremium.error,
-                          lines: whoMissed.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
-                        ),
+                        onTap: () => reportBarDrill(4),
+                        onExportPdf: () => _exportNameCountsPdf(whoMissedNj, 'Falta não justificada', 'falta_nao_justificada_$pdfTs.pdf'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ReportMetricCard(
+                        label: 'Indisponível',
+                        value: '$totalIndisponivel',
+                        icon: Icons.event_busy_rounded,
+                        color: const Color(0xFFDC2626),
+                        onTap: () => reportBarDrill(5),
+                        onExportPdf: () => _exportNameCountsPdf(whoIndisponivel, 'Indisponível', 'indisponivel_$pdfTs.pdf'),
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ReportMetricCard(
+                        label: 'Trocas geradas',
+                        value: '${trocasPeriodo.length}',
+                        icon: Icons.swap_horiz_rounded,
+                        color: const Color(0xFF7C3AED),
+                        onTap: () => reportBarDrill(6),
+                        onExportPdf: () => _exportTrocasPeriodoPdf(trocasPeriodo, depts),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                // ── Trocas de escala concluídas ──
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF7C3AED).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF5B21B6), size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Trocas efetuadas',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: trocasConcluidas.isEmpty
+                                ? null
+                                : () => _exportTrocasConcluidasReportPdf(trocasConcluidas, depts),
+                            icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                            label: const Text('PDF'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Substituições confirmadas no app (${trocasConcluidas.length} no período). Toque no card para detalhes.',
+                        style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 14),
+                      if (trocasConcluidas.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Text(
+                            'Nenhuma troca concluída neste filtro.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        )
+                      else
+                        ...trocasConcluidas.take(40).map((td) {
+                          final x = td.data();
+                          final sol = (x['solicitanteNome'] ?? '').toString().trim();
+                          final alv = (x['alvoNome'] ?? '').toString().trim();
+                          final when = (x['escalaDateLabel'] ?? '').toString();
+                          final tit = (x['escalaTitle'] ?? 'Escala').toString();
+                          final tim = (x['escalaTime'] ?? '').toString();
+                          final dep = _deptDisplayNameForReport((x['departmentId'] ?? '').toString(), depts);
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Material(
+                              color: const Color(0xFFFAF5FF),
+                              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                              child: InkWell(
+                                onTap: () {
+                                  var res = '—';
+                                  try {
+                                    final ts = x['resolvedAt'];
+                                    if (ts is Timestamp) {
+                                      res = DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(ts.toDate());
+                                    }
+                                  } catch (_) {}
+                                  _showDrillDown(
+                                    context,
+                                    tit,
+                                    const Color(0xFF5B21B6),
+                                    lines: [
+                                      'Data da escala: $when${tim.isNotEmpty ? ' às $tim' : ''}',
+                                      'Departamento: $dep',
+                                      'Saiu (titular): ${sol.isNotEmpty ? sol : (x['solicitanteCpf'] ?? '')}',
+                                      'Entrou (substituto): ${alv.isNotEmpty ? alv : (x['alvoCpf'] ?? '')}',
+                                      'Troca concluída em: $res',
+                                    ],
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(Icons.change_circle_rounded, color: Colors.deepPurple.shade600, size: 22),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              tit,
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '$when${tim.isNotEmpty ? ' · $tim' : ''} · $dep',
+                                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              '${sol.isNotEmpty ? sol : 'Titular'} → ${alv.isNotEmpty ? alv : 'Substituto'}',
+                                              style: TextStyle(fontSize: 13, color: Colors.grey.shade900, height: 1.35),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      if (trocasConcluidas.length > 40)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            '+ ${trocasConcluidas.length - 40} troca(s) — o PDF traz a lista completa do período.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
                 // ── Por membro ──
@@ -3229,14 +3834,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   String _barLabel(int i) {
-    const l = ['Geradas', 'Realizadas', 'Pendentes', 'Presenças', 'Faltas'];
+    const l = ['Geradas', 'Realizadas', 'Pendentes', 'Presenç.', 'F.NJ', 'Indisp.', 'Trocas'];
     return i >= 0 && i < l.length ? l[i] : '';
   }
 
   BarChartGroupData _barGroup(int x, double y, Color color) {
     return BarChartGroupData(
       x: x,
-      barRods: [BarChartRodData(toY: y.clamp(0.0, double.infinity), color: color, width: 18, borderRadius: const BorderRadius.vertical(top: Radius.circular(6)))],
+      barRods: [BarChartRodData(toY: y.clamp(0.0, double.infinity), color: color, width: 7, borderRadius: const BorderRadius.vertical(top: Radius.circular(5)))],
       showingTooltipIndicators: [],
     );
   }
@@ -3247,6 +3852,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     Color accent, {
     List<String>? lines,
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? escalaDocs,
+    void Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onEditEscala,
   }) {
     assert(lines != null || escalaDocs != null, 'Informe lines ou escalaDocs');
     assert(lines == null || escalaDocs == null, 'Use apenas lines ou escalaDocs');
@@ -3373,7 +3979,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (_, i) {
                           if (useEscalas) {
-                            return _EscalaDrillCard(doc: docs[i], accent: accent);
+                            final ed = onEditEscala;
+                            return _EscalaDrillCard(
+                              doc: docs[i],
+                              accent: accent,
+                              onEditPressed: ed == null ? null : () => ed(docs[i]),
+                            );
                           }
                           return _PremiumDrillLineTile(line: listLines[i], accent: accent);
                         },
@@ -4028,6 +4639,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   // ── Detalhes da escala gerada ──────────────────────────────────────────────
   void _showInstanceDetail(DocumentSnapshot<Map<String, dynamic>> doc, Color deptColor) {
     final dataHolder = ValueNotifier<Map<String, dynamic>>(Map<String, dynamic>.from(doc.data() ?? {}));
+    final filterNotifier = ValueNotifier<_InstanceDetailMemberFilter>(_InstanceDetailMemberFilter.todos);
     final docRef = doc.reference;
 
     showModalBottomSheet(
@@ -4039,7 +4651,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         initialChildSize: 0.7,
         maxChildSize: 0.95,
         minChildSize: 0.4,
-        builder: (ctx, scroll) => ValueListenableBuilder<Map<String, dynamic>>(
+        builder: (ctx, scroll) {
+        return ValueListenableBuilder<Map<String, dynamic>>(
           valueListenable: dataHolder,
           builder: (context, data, _) {
             final title = (data['title'] ?? '').toString();
@@ -4055,11 +4668,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             final obs = (data['observations'] ?? '').toString().trim();
 
             final bottomInset = MediaQuery.paddingOf(context).bottom;
-            return Padding(
-              padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
-              child: ListView(
-                controller: scroll,
-                children: [
+            return ValueListenableBuilder<_InstanceDetailMemberFilter>(
+              valueListenable: filterNotifier,
+              builder: (context, instanceMemberFilter, _) {
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
+                  child: ListView(
+                    controller: scroll,
+                    children: [
                   Center(
                     child: Container(
                       width: 40,
@@ -4187,187 +4803,205 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (_canWrite) ...[
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: () {
-                        final segs = doc.reference.path.split('/');
-                        final tid = segs.length >= 2 && segs[0] == 'igrejas'
-                            ? segs[1]
-                            : '';
-                        if (tid.isEmpty) {
-                          return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: () {
+                      final segs = doc.reference.path.split('/');
+                      final tid = segs.length >= 2 && segs[0] == 'igrejas' ? segs[1] : '';
+                      if (tid.isEmpty) {
+                        return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+                      }
+                      return FirebaseFirestore.instance
+                          .collection('igrejas')
+                          .doc(tid)
+                          .collection('escala_trocas')
+                          .where('escalaId', isEqualTo: doc.id)
+                          .snapshots();
+                    }(),
+                    builder: (context, tSnap) {
+                      final docs = (tSnap.hasData && !tSnap.hasError) ? tSnap.data!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                      final concluidas =
+                          docs.where((x) => (x.data()['status'] ?? '').toString() == 'concluida').toList();
+                      final cpfsSwapNorm = <String>{};
+                      for (final d in concluidas) {
+                        final m = d.data();
+                        for (final key in ['solicitanteCpf', 'alvoCpf']) {
+                          final n = _normCpfKeyForFilter((m[key] ?? '').toString());
+                          if (n.length == 11) cpfsSwapNorm.add(n);
                         }
-                        return FirebaseFirestore.instance
-                            .collection('igrejas')
-                            .doc(tid)
-                            .collection('escala_trocas')
-                            .where('escalaId', isEqualTo: doc.id)
-                            .snapshots();
-                      }(),
-                      builder: (context, tSnap) {
-                        if (tSnap.hasError || !tSnap.hasData) {
-                          return const SizedBox.shrink();
-                        }
-                        final docs = tSnap.data!.docs;
-                        final pendingLeader = docs
-                            .where((x) =>
-                                (x.data()['status'] ?? '').toString() ==
-                                'pendente')
-                            .toList();
-                        final pendingAlvo = docs
-                            .where((x) =>
-                                (x.data()['status'] ?? '').toString() ==
-                                'pendente_alvo')
-                            .toList();
-                        if (pendingLeader.isEmpty && pendingAlvo.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (pendingAlvo.isNotEmpty) ...[
-                                Text(
-                                  'Trocas aguardando o substituto',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.blueGrey.shade800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                ...pendingAlvo.map((t) {
-                                  final td = t.data();
-                                  final alvo =
-                                      (td['alvoCpf'] ?? '').toString();
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    color: Colors.blueGrey.shade50,
-                                    child: ListTile(
-                                      leading: Icon(Icons.hourglass_top_rounded,
-                                          color: Colors.blueGrey.shade600),
-                                      title: const Text(
-                                          'Convite enviado ao substituto'),
-                                      subtitle: Text(
-                                        'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                      isThreeLine: true,
-                                    ),
-                                  );
-                                }),
-                                if (pendingLeader.isNotEmpty)
-                                  const SizedBox(height: 12),
-                              ],
-                              if (pendingLeader.isNotEmpty) ...[
-                                Text(
-                                  'Trocas pendentes (aprovação manual)',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.deepPurple.shade800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                ...pendingLeader.map((t) {
-                                  final td = t.data();
-                                  final sol =
-                                      (td['solicitanteCpf'] ?? '').toString();
-                                  final alvo =
-                                      (td['alvoCpf'] ?? '').toString();
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    child: ListTile(
-                                      leading: Icon(Icons.swap_horiz_rounded,
-                                          color: Colors.deepPurple.shade600),
-                                      title: const Text(
-                                          'Pedido de troca de escala'),
-                                      subtitle: Text(
-                                        'Solicitante: $sol\nSubstituto: $alvo',
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                      isThreeLine: true,
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'Aprovar',
-                                            icon: const Icon(
-                                                Icons.check_circle_rounded,
-                                                color: Color(0xFF16A34A)),
-                                            onPressed: () =>
-                                                _resolverTrocaEscala(
-                                                    aprovar: true, troca: t),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Recusar',
-                                            icon: const Icon(Icons.cancel_rounded,
-                                                color: Color(0xFFDC2626)),
-                                            onPressed: () =>
-                                                _resolverTrocaEscala(
-                                                    aprovar: false, troca: t),
-                                          ),
-                                        ],
+                      }
+                      final pendingLeader = docs
+                          .where((x) => (x.data()['status'] ?? '').toString() == 'pendente')
+                          .toList();
+                      final pendingAlvo = docs
+                          .where((x) => (x.data()['status'] ?? '').toString() == 'pendente_alvo')
+                          .toList();
+                      final showPending = _canWrite && (pendingLeader.isNotEmpty || pendingAlvo.isNotEmpty);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (showPending)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (pendingAlvo.isNotEmpty) ...[
+                                    Text(
+                                      'Trocas aguardando o substituto',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.blueGrey.shade800,
                                       ),
                                     ),
-                                  );
-                                }),
-                              ],
-                            ],
+                                    const SizedBox(height: 8),
+                                    ...pendingAlvo.map((t) {
+                                      final td = t.data();
+                                      final alvo = (td['alvoCpf'] ?? '').toString();
+                                      return Card(
+                                        margin: const EdgeInsets.only(bottom: 8),
+                                        color: Colors.blueGrey.shade50,
+                                        child: ListTile(
+                                          leading: Icon(Icons.hourglass_top_rounded, color: Colors.blueGrey.shade600),
+                                          title: const Text('Convite enviado ao substituto'),
+                                          subtitle: Text(
+                                            'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                          isThreeLine: true,
+                                        ),
+                                      );
+                                    }),
+                                    if (pendingLeader.isNotEmpty) const SizedBox(height: 12),
+                                  ],
+                                  if (pendingLeader.isNotEmpty) ...[
+                                    Text(
+                                      'Trocas pendentes (aprovação manual)',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.deepPurple.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ...pendingLeader.map((t) {
+                                      final td = t.data();
+                                      final sol = (td['solicitanteCpf'] ?? '').toString();
+                                      final alvo = (td['alvoCpf'] ?? '').toString();
+                                      return Card(
+                                        margin: const EdgeInsets.only(bottom: 8),
+                                        child: ListTile(
+                                          leading: Icon(Icons.swap_horiz_rounded, color: Colors.deepPurple.shade600),
+                                          title: const Text('Pedido de troca de escala'),
+                                          subtitle: Text(
+                                            'Solicitante: $sol\nSubstituto: $alvo',
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                          isThreeLine: true,
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                tooltip: 'Aprovar',
+                                                icon: const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A)),
+                                                onPressed: () => _resolverTrocaEscala(aprovar: true, troca: t),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Recusar',
+                                                icon: const Icon(Icons.cancel_rounded, color: Color(0xFFDC2626)),
+                                                onPressed: () => _resolverTrocaEscala(aprovar: false, troca: t),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          _InteractiveStatusSummary(
+                            confirmations: confirmations,
+                            total: cpfs.length,
+                            trocasRealizadasCount: concluidas.length,
+                            selected: instanceMemberFilter,
+                            onSelect: (f) => filterNotifier.value = f,
                           ),
-                        );
-                      },
-                    ),
-                  ],
-                  _StatusSummary(confirmations: confirmations, total: cpfs.length),
-                  const SizedBox(height: 16),
-                  Text('Membros escalados', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: ThemeCleanPremium.onSurface)),
-                  const SizedBox(height: 10),
-                  for (var i = 0; i < cpfs.length; i++) Builder(
-                    builder: (context) {
-                      final memberIndex = i;
-                      final cpfKey = cpfs[memberIndex];
-                      return _MemberConfirmationTile(
-                        cpf: cpfKey,
-                        name: memberIndex < names.length ? names[memberIndex] : '',
-                        status: (confirmations[cpfKey] ?? '').toString(),
-                        unavailabilityReason: _reasonForCpf(unavailabilityReasons, cpfKey),
-                        canWrite: _canWrite,
-                        onChangeStatus: (newStatus) async {
-                          try {
-                            if (newStatus.isEmpty) {
-                              await docRef.update({
-                                'confirmations.$cpfKey': FieldValue.delete(),
-                                'unavailabilityReasons.$cpfKey': FieldValue.delete(),
-                              });
-                            } else {
-                              await docRef.update({'confirmations.$cpfKey': newStatus});
-                              if (newStatus != 'indisponivel') await docRef.update({'unavailabilityReasons.$cpfKey': FieldValue.delete()});
-                            }
-                            final snap = await docRef.get();
-                            if (snap.exists) dataHolder.value = Map<String, dynamic>.from(snap.data() ?? {});
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Status gravado com sucesso.'));
-                              _refreshInstances();
-                            }
-                          } catch (e) {
-                            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao gravar: $e'), backgroundColor: ThemeCleanPremium.error));
-                          }
-                        },
-                        onSubstituir: _canWrite ? () { Navigator.pop(ctx); _substituirMembro(context, doc, memberIndex); } : null,
-                        onExcluirMembro: _canWrite ? () { Navigator.pop(ctx); _excluirMembroDaEscala(context, doc, memberIndex); } : null,
+                          const SizedBox(height: 16),
+                          Text(
+                            'Membros escalados',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: ThemeCleanPremium.onSurface),
+                          ),
+                          const SizedBox(height: 10),
+                          for (var i = 0; i < cpfs.length; i++)
+                            if (_memberMatchesInstanceDetailFilter(
+                              instanceMemberFilter,
+                              cpfs[i],
+                              confirmations,
+                              cpfsNormInCompletedSwaps: cpfsSwapNorm,
+                            ))
+                              Builder(
+                                builder: (context) {
+                                  final memberIndex = i;
+                                  final cpfKey = cpfs[memberIndex];
+                                  return _MemberConfirmationTile(
+                                    cpf: cpfKey,
+                                    name: memberIndex < names.length ? names[memberIndex] : '',
+                                    status: (confirmations[cpfKey] ?? '').toString(),
+                                    unavailabilityReason: _reasonForCpf(unavailabilityReasons, cpfKey),
+                                    canWrite: _canWrite,
+                                    onChangeStatus: (newStatus) async {
+                                      try {
+                                        if (newStatus.isEmpty) {
+                                          await docRef.update({
+                                            'confirmations.$cpfKey': FieldValue.delete(),
+                                            'unavailabilityReasons.$cpfKey': FieldValue.delete(),
+                                          });
+                                        } else {
+                                          await docRef.update({'confirmations.$cpfKey': newStatus});
+                                          if (newStatus != 'indisponivel') {
+                                            await docRef.update({'unavailabilityReasons.$cpfKey': FieldValue.delete()});
+                                          }
+                                        }
+                                        final snap = await docRef.get();
+                                        if (snap.exists) dataHolder.value = Map<String, dynamic>.from(snap.data() ?? {});
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Status gravado com sucesso.'));
+                                          _refreshInstances();
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Erro ao gravar: $e'), backgroundColor: ThemeCleanPremium.error),
+                                          );
+                                        }
+                                      }
+                                    },
+                                    onSubstituir: _canWrite ? () { Navigator.pop(ctx); _substituirMembro(context, doc, memberIndex); } : null,
+                                    onExcluirMembro: _canWrite ? () { Navigator.pop(ctx); _excluirMembroDaEscala(context, doc, memberIndex); } : null,
+                                  );
+                                },
+                              ),
+                        ],
                       );
                     },
                   ),
-                ],
-              ),
+                    ],
+                  ),
+                );
+              },
             );
           },
-        ),
-      ),
-    );
+        );
+      },
+    ),
+    ).whenComplete(() {
+      filterNotifier.dispose();
+      dataHolder.dispose();
+    });
   }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6363,11 +6997,11 @@ class _MemberConfirmationTile extends StatelessWidget {
                       name.isNotEmpty ? name : cpf,
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                     ),
-                    if (name.isNotEmpty && cpf.replaceAll(RegExp(r'[^0-9]'), '').length >= 9)
+                    if (name.isNotEmpty && _maskCpfListaEscala(cpf).isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
-                          cpf,
+                          _maskCpfListaEscala(cpf),
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
                       ),
@@ -6431,10 +7065,20 @@ class _MemberConfirmationTile extends StatelessWidget {
   }
 }
 
-class _StatusSummary extends StatelessWidget {
+class _InteractiveStatusSummary extends StatelessWidget {
   final Map<String, dynamic> confirmations;
   final int total;
-  const _StatusSummary({required this.confirmations, required this.total});
+  /// Pedidos de troca com status `concluida` nesta escala.
+  final int trocasRealizadasCount;
+  final _InstanceDetailMemberFilter selected;
+  final ValueChanged<_InstanceDetailMemberFilter> onSelect;
+  const _InteractiveStatusSummary({
+    required this.confirmations,
+    required this.total,
+    required this.trocasRealizadasCount,
+    required this.selected,
+    required this.onSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -6453,10 +7097,48 @@ class _StatusSummary extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        _StatusBadge(label: 'Confirmados', count: confirmed, color: ThemeCleanPremium.success),
-        _StatusBadge(label: 'Pendentes', count: pending, color: Colors.amber.shade700),
-        _StatusBadge(label: 'Indisponíveis', count: unavailable, color: ThemeCleanPremium.error),
-        _StatusBadge(label: 'Falta NJ', count: faltaNj, color: const Color(0xFFB91C1C)),
+        _StatusBadge(
+          label: 'Todos',
+          count: total,
+          color: ThemeCleanPremium.primary,
+          selected: selected == _InstanceDetailMemberFilter.todos,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.todos),
+        ),
+        _StatusBadge(
+          label: 'Confirmados',
+          count: confirmed,
+          color: ThemeCleanPremium.success,
+          selected: selected == _InstanceDetailMemberFilter.confirmados,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.confirmados),
+        ),
+        _StatusBadge(
+          label: 'Pendentes',
+          count: pending,
+          color: Colors.amber.shade700,
+          selected: selected == _InstanceDetailMemberFilter.pendentes,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.pendentes),
+        ),
+        _StatusBadge(
+          label: 'Indisponíveis',
+          count: unavailable,
+          color: ThemeCleanPremium.error,
+          selected: selected == _InstanceDetailMemberFilter.indisponiveis,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.indisponiveis),
+        ),
+        _StatusBadge(
+          label: 'Falta NJ',
+          count: faltaNj,
+          color: const Color(0xFFB91C1C),
+          selected: selected == _InstanceDetailMemberFilter.faltaNj,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.faltaNj),
+        ),
+        _StatusBadge(
+          label: 'Trocas realiz.',
+          count: trocasRealizadasCount,
+          color: const Color(0xFF7C3AED),
+          selected: selected == _InstanceDetailMemberFilter.trocasRealizadas,
+          onTap: () => onSelect(_InstanceDetailMemberFilter.trocasRealizadas),
+        ),
       ],
     );
   }
@@ -6466,17 +7148,30 @@ class _StatusBadge extends StatelessWidget {
   final String label;
   final int count;
   final Color color;
-  const _StatusBadge({required this.label, required this.count, required this.color});
+  final bool selected;
+  final VoidCallback onTap;
+  const _StatusBadge({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 104),
+    final r = ThemeCleanPremium.radiusMd;
+    final chip = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      constraints: const BoxConstraints(minWidth: 96),
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: color.withOpacity(selected ? 0.22 : 0.08),
+        borderRadius: BorderRadius.circular(r),
+        border: Border.all(
+          color: selected ? color : color.withOpacity(0.2),
+          width: selected ? 2 : 1,
+        ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Column(
@@ -6485,6 +7180,14 @@ class _StatusBadge extends StatelessWidget {
           Text('$count', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
           Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
         ],
+      ),
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(r),
+        child: chip,
       ),
     );
   }
@@ -6532,8 +7235,9 @@ class _ReportSummaryCard extends StatelessWidget {
 class _EscalaDrillCard extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   final Color accent;
+  final VoidCallback? onEditPressed;
 
-  const _EscalaDrillCard({required this.doc, required this.accent});
+  const _EscalaDrillCard({required this.doc, required this.accent, this.onEditPressed});
 
   static String _statusLabel(String s) {
     switch (s) {
@@ -6700,6 +7404,20 @@ class _EscalaDrillCard extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onEditPressed != null) ...[
+                    const SizedBox(width: 4),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onEditPressed,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Icon(Icons.edit_calendar_rounded, color: accent, size: 22),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -6979,8 +7697,16 @@ class _ReportMetricCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback? onTap;
+  final VoidCallback? onExportPdf;
 
-  const _ReportMetricCard({required this.label, required this.value, required this.icon, required this.color, this.onTap});
+  const _ReportMetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onTap,
+    this.onExportPdf,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -7012,17 +7738,40 @@ class _ReportMetricCard extends StatelessWidget {
         ],
       ),
     );
-    if (onTap != null) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          onTap: onTap,
-          child: content,
+    final body = onTap != null
+        ? Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              onTap: onTap,
+              child: content,
+            ),
+          )
+        : content;
+    if (onExportPdf == null) return body;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        body,
+        Positioned(
+          top: 0,
+          right: 0,
+          child: Material(
+            color: Colors.white.withOpacity(0.92),
+            elevation: 1,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onExportPdf,
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: Icon(Icons.picture_as_pdf_rounded, size: 15, color: color),
+              ),
+            ),
+          ),
         ),
-      );
-    }
-    return content;
+      ],
+    );
   }
 }
 

@@ -195,6 +195,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   bool _loadingCep = false;
   bool _formHydrated = false;
+  /// Doc `igrejas/{id}` ainda não existia — não devemos marcar [_formHydrated] só por isso,
+  /// senão quando o doc for criado deixamos de correr [_applyData] e a pré-visualização da logo fica em branco.
+  bool _notedNonexistentIgrejaDoc = false;
   bool _logoTokenRefreshAttempted = false;
 
   /// Evita mÃºltiplas resoluÃ§Ãµes Storageâ†’URL para o mesmo tenant na mesma sessÃ£o.
@@ -270,6 +273,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   void _retryResolveTenant() {
     setState(() {
       _formHydrated = false;
+      _notedNonexistentIgrejaDoc = false;
       _logoTokenRefreshAttempted = false;
       _logoStorageHydrationTenantId = null;
       _resolvedIdFuture =
@@ -1300,7 +1304,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final resolvedId =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
       final png =
-          await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1280);
+          await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
       if (!mounted) return true;
       setState(() {
         _logoUploadPhase = 'uploading';
@@ -2366,11 +2370,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   });
                 }
               }
-            } else if (doc != null && !doc.exists && !_formHydrated) {
+            } else if (doc != null && !doc.exists) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || _formHydrated) return;
-                _formHydrated = true;
-                setState(() {});
+                if (!mounted) return;
+                if (!_notedNonexistentIgrejaDoc) {
+                  _notedNonexistentIgrejaDoc = true;
+                  setState(() {});
+                }
               });
             }
 

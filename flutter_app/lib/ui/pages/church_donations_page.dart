@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
@@ -580,21 +581,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     );
   }
 
-  bool _seeAllDonationHistory() {
-    final r = widget.role.toLowerCase();
-    return r == 'gestor' ||
-        r == 'adm' ||
-        r == 'admin' ||
-        r == 'master' ||
-        r == 'tesoureiro' ||
-        r == 'tesouraria' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'secretario' ||
-        r == 'presbitero' ||
-        r == 'diacono' ||
-        r == 'evangelista';
-  }
+  bool _seeAllDonationHistory() =>
+      AppPermissions.canSeeAllChurchDonationHistory(widget.role);
 
   @override
   Widget build(BuildContext context) {

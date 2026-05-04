@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -38,12 +39,15 @@ int _compareAgendaDayKeysAscending(String a, String b) {
 class CalendarPage extends StatefulWidget {
   final String tenantId;
   final String role;
+  /// Permissões fundidas ([users.permissions]) — ex. `agenda_edicao` / `agenda_ver`.
+  final List<String>? permissions;
   /// Dentro do [IgrejaCleanShell]: sem barra inferior sobreposta ao calendário; ações compactas na linha do modo de vista.
   final bool embeddedInShell;
   const CalendarPage({
     super.key,
     required this.tenantId,
     required this.role,
+    this.permissions,
     this.embeddedInShell = false,
   });
 
@@ -711,12 +715,18 @@ class _CalendarPageState extends State<CalendarPage>
       widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
 
   bool get _canWrite {
+    final p = widget.permissions;
+    if (p != null) {
+      if (AppPermissions.hasModulePermission(p, 'agenda_edicao')) return true;
+      if (AppPermissions.hasModulePermission(p, 'agenda_ver')) return false;
+    }
     final r = widget.role.toLowerCase();
     return r == 'adm' ||
         r == 'admin' ||
         r == 'gestor' ||
         r == 'master' ||
         r == 'lider' ||
+        r == 'lider_departamento' ||
         r == 'pastor' ||
         r == 'pastora' ||
         r == 'secretario' ||

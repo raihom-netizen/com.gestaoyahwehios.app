@@ -83,9 +83,8 @@ class _CargosPageState extends State<CargosPage> {
   /// Evita loop ao criar cargos padrão automaticamente.
   bool _triedAutoSeed = false;
 
-  /// Módulos extras gravados no doc do cargo e opcionalmente fundidos em `users.permissions`.
-  static const List<(String key, String label)> _kCargoModulePermissions = [
-    ('membros', 'Membros'),
+  /// Módulos “binários” (um chip) — [Membros], [Mural], [Eventos/Feed], [Agenda] e [Relatórios] têm secções dedicadas.
+  static const List<(String key, String label)> _kCargoSimpleChips = [
     ('departamentos', 'Departamentos'),
     ('financeiro', 'Financeiro'),
     ('patrimonio', 'Patrimônio'),
@@ -93,8 +92,188 @@ class _CargosPageState extends State<CargosPage> {
     ('certificados', 'Certificados'),
     ('cartas_transferencias', 'Cartas e transferências'),
     ('escalas', 'Escalas'),
-    ('relatorios', 'Relatórios'),
   ];
+
+  static const List<(String id, String label)> _kRelatorioPickIds = [
+    ('eventos', 'Eventos (PDF)'),
+    ('aniversariantes', 'Aniversariantes'),
+    ('membros', 'Membros'),
+    ('financeiro', 'Financeiro / dashboard'),
+    ('patrimonio', 'Patrimônio'),
+    ('fornecedores', 'Fornecedores e prestadores'),
+  ];
+
+  static int _parseTriMembros(Set<String> m) {
+    if (m.contains('membros_edicao') ||
+        (m.contains('membros') && !m.contains('membros_ver'))) {
+      return 2;
+    }
+    if (m.contains('membros_ver')) return 1;
+    return 0;
+  }
+
+  static int _parseTriMural(Set<String> m) {
+    if (m.contains('mural_avisos_edicao')) return 2;
+    if (m.contains('mural_avisos_somente_leitura')) return 1;
+    return 0;
+  }
+
+  static int _parseTriEventos(Set<String> m) {
+    if (m.contains('eventos_avisos_edicao') || m.contains('eventos')) {
+      return 2;
+    }
+    if (m.contains('eventos_avisos_ver')) return 1;
+    return 0;
+  }
+
+  static int _parseTriAgenda(Set<String> m) {
+    if (m.contains('agenda_edicao')) return 2;
+    if (m.contains('agenda_ver')) return 1;
+    return 0;
+  }
+
+  static (bool full, Set<String> picks) _parseRelatorios(Set<String> m) {
+    if (m.contains('relatorios')) return (true, <String>{});
+    final picks = <String>{};
+    for (final k in m) {
+      if (k.startsWith('relatorio_')) {
+        picks.add(k.substring(10));
+      }
+    }
+    return (false, picks);
+  }
+
+  /// Monta a lista persistida em `modulePermissions` / fundida em `users.permissions`.
+  static Set<String> _serializeModulePermissions({
+    required String cargoKey,
+    required int membrosTri,
+    required int muralTri,
+    required int eventosTri,
+    required int agendaTri,
+    required Set<String> simple,
+    required bool relatoriosFull,
+    required Set<String> relatorioPicks,
+  }) {
+    final out = <String>{...simple};
+    if (membrosTri == 1) out.add('membros_ver');
+    if (membrosTri == 2) {
+      out
+        ..add('membros_ver')
+        ..add('membros_edicao')
+        ..add('membros');
+    }
+    if (muralTri == 1) out.add('mural_avisos_somente_leitura');
+    if (muralTri == 2) out.add('mural_avisos_edicao');
+    if (eventosTri == 1) out.add('eventos_avisos_ver');
+    if (eventosTri == 2) {
+      out
+        ..add('eventos_avisos_ver')
+        ..add('eventos_avisos_edicao')
+        ..add('eventos');
+    }
+    if (agendaTri == 1) out.add('agenda_ver');
+    if (agendaTri == 2) {
+      out
+        ..add('agenda_ver')
+        ..add('agenda_edicao');
+    }
+    final isLiderDep = cargoKey.trim().toLowerCase() == 'lider_departamento';
+    if (isLiderDep) {
+      out.removeAll({'financeiro', 'patrimonio', 'fornecedores', 'relatorios'});
+      out.removeWhere((k) => k.startsWith('relatorio_'));
+      for (final id in relatorioPicks) {
+        if (id == 'eventos' || id == 'aniversariantes') {
+          out.add('relatorio_$id');
+        }
+      }
+    } else {
+      if (relatoriosFull) {
+        out.add('relatorios');
+      } else {
+        for (final id in relatorioPicks) {
+          out.add('relatorio_$id');
+        }
+      }
+    }
+    return out;
+  }
+
+  /// Secção “Super Premium”: níveis Padrão / Ver / Editar para cargos.
+  static Widget _cargoAccessTriTile({
+    required String title,
+    required String hint,
+    required IconData icon,
+    required int tri,
+    required ValueChanged<int> onChanged,
+    String label0 = 'Padrão',
+    String label1 = 'Só ver',
+    String label2 = 'Editar',
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            Color.lerp(primary, Colors.white, 0.92)!,
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (hint.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              hint,
+              style: TextStyle(fontSize: 11.5, height: 1.35, color: Colors.grey.shade600),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SegmentedButton<int>(
+            style: SegmentedButton.styleFrom(
+              selectedForegroundColor: Colors.white,
+              selectedBackgroundColor: primary,
+              side: BorderSide(color: primary.withValues(alpha: 0.35)),
+            ),
+            segments: [
+              ButtonSegment<int>(value: 0, label: Text(label0)),
+              ButtonSegment<int>(value: 1, label: Text(label1)),
+              ButtonSegment<int>(value: 2, label: Text(label2)),
+            ],
+            selected: {tri},
+            onSelectionChanged: (s) {
+              if (s.isEmpty) return;
+              onChanged(s.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   static IconData _iconForCargoModule(String key) {
     switch (key) {
@@ -546,6 +725,24 @@ class _CargosPageState extends State<CargosPage> {
         for (final e in modRaw) (e ?? '').toString().trim().toLowerCase(),
     };
 
+    var membrosTri = _parseTriMembros(moduleSel);
+    var muralTri = _parseTriMural(moduleSel);
+    var eventosTri = _parseTriEventos(moduleSel);
+    var agendaTri = _parseTriAgenda(moduleSel);
+    final relParsed = _parseRelatorios(moduleSel);
+    var relatoriosFull = relParsed.$1;
+    var relatorioPicks = {...relParsed.$2};
+    var simpleSel = <String>{
+      for (final c in _kCargoSimpleChips)
+        if (moduleSel.contains(c.$1)) c.$1,
+    };
+    final cargoKeyInitial =
+        (data['key'] ?? doc?.id ?? '').toString().trim().toLowerCase();
+    if (cargoKeyInitial == 'lider_departamento') {
+      relatoriosFull = false;
+      relatorioPicks.removeWhere((e) => e != 'eventos' && e != 'aniversariantes');
+    }
+
     final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -553,12 +750,47 @@ class _CargosPageState extends State<CargosPage> {
           final templates = ChurchFuncoesControleService.permissionTemplates;
           final templateValue =
               templates.any((t) => t.key == template) ? template : 'membro';
+          final cargoKeyLive = keyCtrl.text.trim().toLowerCase();
+          final isLiderDep = cargoKeyLive == 'lider_departamento';
+          final primary = ThemeCleanPremium.primary;
+          final chips = isLiderDep
+              ? _kCargoSimpleChips
+                  .where((c) =>
+                      c.$1 != 'financeiro' &&
+                      c.$1 != 'patrimonio' &&
+                      c.$1 != 'fornecedores')
+                  .toList()
+              : _kCargoSimpleChips.toList();
           return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            title: Text(doc == null ? 'Novo cargo' : 'Editar cargo'),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+            backgroundColor: const Color(0xFFF8FAFC),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.workspace_premium_rounded, color: primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    doc == null ? 'Novo cargo' : 'Editar cargo',
+                    style: GoogleFonts.manrope(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             content: SingleChildScrollView(
               child: SizedBox(
-                width: 420,
+                width: 440,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
@@ -574,6 +806,7 @@ class _CargosPageState extends State<CargosPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: keyCtrl,
+                      onChanged: (_) => setDlg(() {}),
                       decoration: InputDecoration(
                         labelText: 'Chave técnica (única)',
                         prefixIcon: const Icon(Icons.key_rounded),
@@ -582,6 +815,36 @@ class _CargosPageState extends State<CargosPage> {
                             : 'Usada em FUNÇÕES do membro.',
                       ),
                     ),
+                    if (isLiderDep) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: const Color(0xFFFDBA74).withValues(alpha: 0.8)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.shield_rounded,
+                                size: 18, color: Colors.orange.shade800),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Líder de departamento: sem Financeiro, Patrimônio e Fornecedores; relatórios apenas Eventos e Aniversariantes.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.35,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       controller: hierCtrl,
@@ -599,51 +862,160 @@ class _CargosPageState extends State<CargosPage> {
                         prefixIcon: Icon(Icons.security_rounded),
                       ),
                       items: templates
-                          .map((t) => DropdownMenuItem(value: t.key, child: Text(t.label)))
+                          .map((t) =>
+                              DropdownMenuItem(value: t.key, child: Text(t.label)))
                           .toList(),
                       onChanged: (v) => setDlg(() => template = v ?? 'membro'),
                     ),
-                    const SizedBox(height: 16),
-                    Text('Módulos extras no painel',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.grey.shade800)),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Acesso fino ao painel',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.grey.shade900,
+                      ),
+                    ),
                     const SizedBox(height: 6),
                     Text(
-                      'Somam-se ao modelo base. Ao vincular membro neste cargo, podem ser fundidos em users.permissions.',
+                      'Somam-se ao modelo base e podem ser fundidos em users.permissions ao vincular o membro.',
                       style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 12),
+                    _cargoAccessTriTile(
+                      title: 'Membros',
+                      hint:
+                          'Padrão = herda do modelo. «Só ver» limita edição da lista.',
+                      icon: Icons.people_alt_rounded,
+                      tri: membrosTri,
+                      onChanged: (v) => setDlg(() => membrosTri = v),
+                    ),
+                    _cargoAccessTriTile(
+                      title: 'Mural de avisos',
+                      hint:
+                          'Leitura = não publica. Publicar = criar/editar avisos.',
+                      icon: Icons.campaign_rounded,
+                      tri: muralTri,
+                      onChanged: (v) => setDlg(() => muralTri = v),
+                      label1: 'Leitura',
+                      label2: 'Publicar',
+                    ),
+                    _cargoAccessTriTile(
+                      title: 'Eventos (feed)',
+                      hint:
+                          'Alinhado ao Mural de Eventos — RSVP, feed e abas de gestão.',
+                      icon: Icons.event_rounded,
+                      tri: eventosTri,
+                      onChanged: (v) => setDlg(() => eventosTri = v),
+                    ),
+                    _cargoAccessTriTile(
+                      title: 'Agenda',
+                      hint: 'Calendário unificado — cultos, agenda interna e feed.',
+                      icon: Icons.calendar_month_rounded,
+                      tri: agendaTri,
+                      onChanged: (v) => setDlg(() => agendaTri = v),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Módulos adicionais',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.grey.shade900,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
+                        color: Colors.white,
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusMd),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
                       ),
                       child: Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: _kCargoModulePermissions.map((m) {
-                          final sel = moduleSel.contains(m.$1);
+                        children: chips.map((m) {
+                          final sel = simpleSel.contains(m.$1);
                           return _cargoModulePermissionChip(
                             moduleKey: m.$1,
                             label: m.$2,
                             selected: sel,
                             onTap: () => setDlg(() {
                               if (sel) {
-                                moduleSel.remove(m.$1);
+                                simpleSel.remove(m.$1);
                               } else {
-                                moduleSel.add(m.$1);
+                                simpleSel.add(m.$1);
                               }
                             }),
                           );
                         }).toList(),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Relatórios PDF',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.grey.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Pacote completo'),
+                      subtitle: const Text(
+                          'Todos os relatórios compatíveis com o modelo e com financeiro/patrimônio.'),
+                      value: relatoriosFull && !isLiderDep,
+                      onChanged: isLiderDep
+                          ? null
+                          : (v) => setDlg(() {
+                                relatoriosFull = v;
+                                if (v) relatorioPicks.clear();
+                              }),
+                    ),
+                    if (!relatoriosFull || isLiderDep) ...[
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          isLiderDep
+                              ? 'Marque só os PDFs deste cargo (máx.: Eventos e Aniversariantes).'
+                              : 'Ou escolha relatórios específicos:',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final r in _kRelatorioPickIds)
+                            if (!isLiderDep ||
+                                r.$1 == 'eventos' ||
+                                r.$1 == 'aniversariantes')
+                              FilterChip(
+                                label: Text(r.$2),
+                                selected: relatorioPicks.contains(r.$1),
+                                onSelected: relatoriosFull && !isLiderDep
+                                    ? null
+                                    : (on) {
+                                        setDlg(() {
+                                          if (on) {
+                                            relatorioPicks.add(r.$1);
+                                          } else {
+                                            relatorioPicks.remove(r.$1);
+                                          }
+                                        });
+                                      },
+                              ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -705,7 +1077,17 @@ class _CargosPageState extends State<CargosPage> {
       return;
     }
     final h = int.tryParse(hierCtrl.text.trim()) ?? 50;
-    final mods = moduleSel.toList()..sort();
+    final mods = _serializeModulePermissions(
+      cargoKey: key,
+      membrosTri: membrosTri,
+      muralTri: muralTri,
+      eventosTri: eventosTri,
+      agendaTri: agendaTri,
+      simple: simpleSel,
+      relatoriosFull: relatoriosFull,
+      relatorioPicks: relatorioPicks,
+    ).toList()
+      ..sort();
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final payload = <String, dynamic>{

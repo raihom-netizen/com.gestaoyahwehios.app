@@ -8,12 +8,14 @@ import '../widgets/instagram_mural.dart';
 class MuralPage extends StatefulWidget {
   final String tenantId;
   final String role;
+  final List<String>? permissions;
   /// Evita AppBar duplicada quando aberto dentro de [IgrejaCleanShell].
   final bool embeddedInShell;
   const MuralPage({
     super.key,
     required this.tenantId,
     required this.role,
+    this.permissions,
     this.embeddedInShell = false,
   });
 
@@ -100,6 +102,7 @@ class _MuralPageState extends State<MuralPage> {
                       tenantId: widget.tenantId,
                       role: widget.role,
                       churchSlug: snap.data!,
+                      permissions: widget.permissions,
                     ),
                   ],
                 ),

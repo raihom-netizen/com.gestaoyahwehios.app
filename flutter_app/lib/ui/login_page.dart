@@ -1612,26 +1612,43 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildNativeMobileChurchLogin(BuildContext context) {
     final topBar = ThemeCleanPremium.navSidebar;
     final theme = ThemeCleanPremium.primary;
+    // Fundo inferior uniforme (evita faixa mais escura com overlay/barreira ou tema escuro global).
+    const bgBottom = Color(0xFFF0F4FF);
 
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              topBar,
-              ThemeCleanPremium.primaryLight,
-              const Color(0xFFF0F4FF),
-              ThemeCleanPremium.surfaceVariant,
-            ],
-            stops: const [0.0, 0.12, 0.22, 1.0],
-          ),
+    return Theme(
+      data: ThemeCleanPremium.themeData,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: bgBottom,
+          systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarContrastEnforced: false,
         ),
-        child: SafeArea(
-          child: Column(
+        child: Scaffold(
+          backgroundColor: bgBottom,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        topBar,
+                        ThemeCleanPremium.primaryLight,
+                        bgBottom,
+                        bgBottom,
+                      ],
+                      stops: const [0.0, 0.14, 0.30, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              SafeArea(
+                child: Column(
             children: [
               AppBar(
                 leading: IconButton(
@@ -1891,6 +1908,9 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
             ],
           ),
         ),

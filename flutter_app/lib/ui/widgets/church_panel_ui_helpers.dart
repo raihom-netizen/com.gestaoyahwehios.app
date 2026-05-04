@@ -339,17 +339,27 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
               ],
             ),
             labelColor: p,
-            unselectedLabelColor:
-                onLight ? const Color(0xFF64748B) : Colors.white,
+            unselectedLabelColor: onLight
+                ? const Color(0xFF64748B)
+                : const Color(0xFFDBEAFE),
             labelStyle: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: fs,
               letterSpacing: 0.2,
             ),
             unselectedLabelStyle: TextStyle(
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w800,
               fontSize: fs,
               letterSpacing: 0.15,
+              shadows: onLight
+                  ? null
+                  : [
+                      Shadow(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        blurRadius: 2,
+                        offset: const Offset(0, 0.5),
+                      ),
+                    ],
             ),
             labelPadding: EdgeInsets.symmetric(horizontal: hPadTab),
             tabs: tabs,
@@ -399,8 +409,16 @@ class ChurchPanelPillPair extends StatelessWidget {
               curve: Curves.easeOutCubic,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               decoration: BoxDecoration(
-                color: selected ? Colors.white : Colors.transparent,
+                color: selected
+                    ? Colors.white
+                    : const Color(0xFF0F172A).withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: selected
+                      ? Colors.transparent
+                      : Colors.white.withValues(alpha: 0.45),
+                  width: 1.2,
+                ),
                 boxShadow: selected
                     ? [
                         BoxShadow(
@@ -417,7 +435,7 @@ class ChurchPanelPillPair extends StatelessWidget {
                   Icon(
                     icon,
                     size: 19,
-                    color: selected ? p : Colors.white,
+                    color: selected ? p : const Color(0xFFFFFBEB),
                   ),
                   const SizedBox(width: 6),
                   Flexible(
@@ -430,7 +448,15 @@ class ChurchPanelPillPair extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                         fontSize: 12.5,
                         letterSpacing: 0.15,
-                        color: selected ? p : Colors.white,
+                        color: selected ? p : const Color(0xFFFFFBEB),
+                        shadows: selected
+                            ? null
+                            : [
+                                Shadow(
+                                  color: Colors.black.withValues(alpha: 0.35),
+                                  blurRadius: 2,
+                                ),
+                              ],
                       ),
                     ),
                   ),

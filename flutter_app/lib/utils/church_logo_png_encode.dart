@@ -9,11 +9,11 @@ class ChurchLogoPngEncodeArgs {
 }
 
 /// Codifica a logo da igreja como PNG (transparência preservada quando o decode suportar).
-/// Limita o maior lado a [maxSide] px para o Storage não crescer sem controlo.
+/// Limita o maior lado a [maxSide] px (padrão Full HD 1920) para o Storage não crescer sem controlo.
 /// **Síncrono** — usar [encodeChurchLogoAsPngInIsolate] no cadastro da igreja para não bloquear a UI.
 Uint8List encodeChurchLogoAsPngSync(
   Uint8List raw, {
-  int maxSide = 1280,
+  int maxSide = 1920,
 }) {
   if (raw.isEmpty) return raw;
   try {
@@ -43,7 +43,7 @@ Uint8List _encodeChurchLogoIsolate(ChurchLogoPngEncodeArgs args) {
 /// Decode/resize/encode em **outra isolate** — evita “0%” eterno enquanto a UI está bloqueada.
 Future<Uint8List> encodeChurchLogoAsPngInIsolate(
   Uint8List raw, {
-  int maxSide = 1280,
+  int maxSide = 1920,
 }) {
   return compute(_encodeChurchLogoIsolate, ChurchLogoPngEncodeArgs(raw, maxSide));
 }
@@ -51,7 +51,7 @@ Future<Uint8List> encodeChurchLogoAsPngInIsolate(
 /// Compatível com chamadas antigas; preferir [encodeChurchLogoAsPngInIsolate] no fluxo de upload.
 Future<Uint8List> encodeChurchLogoAsPng(
   Uint8List raw, {
-  int maxSide = 1280,
+  int maxSide = 1920,
 }) async {
   return encodeChurchLogoAsPngSync(raw, maxSide: maxSide);
 }

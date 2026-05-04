@@ -80,7 +80,146 @@ class AppPermissions {
     if (permissions == null || permissions.isEmpty) return false;
     final key = moduleKey.trim().toLowerCase();
     final set = permissions.map((e) => e.trim().toLowerCase()).toSet();
-    return set.contains(key);
+    if (set.contains(key)) return true;
+    // Aliases (cargos granulares)
+    if (key == 'eventos' || key == 'eventos_avisos_edicao') {
+      return set.contains('eventos') || set.contains('eventos_avisos_edicao');
+    }
+    return false;
+  }
+
+  /// Há chaves `relatorio_*` sem o guarda-chuva `relatorios` — relatórios passam a ser só os marcados.
+  static bool usesGranularChurchReportsOnly(List<String>? permissions) {
+    if (permissions == null || permissions.isEmpty) return false;
+    final set = permissions.map((e) => e.trim().toLowerCase()).toSet();
+    if (set.contains('relatorios')) return false;
+    return set.any((k) => k.startsWith('relatorio_'));
+  }
+
+  /// PDF Relatório de Eventos (painel).
+  static bool canAccessRelatorioEventosPdf({List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_eventos')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return true;
+  }
+
+  /// PDF Relatório de Membros.
+  static bool canAccessRelatorioMembrosPdf(
+    String role, {
+    List<String>? permissions,
+    bool? memberCanEmitFullReports,
+  }) {
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_membros')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return canEmitFullChurchReports(
+      role,
+      memberCanEmitFullReports: memberCanEmitFullReports,
+      permissions: permissions,
+    );
+  }
+
+  /// PDF Aniversariantes.
+  static bool canAccessRelatorioAniversariantesPdf(
+    String role, {
+    List<String>? permissions,
+    bool? memberCanEmitFullReports,
+  }) {
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_aniversariantes')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return canEmitFullChurchReports(
+      role,
+      memberCanEmitFullReports: memberCanEmitFullReports,
+      permissions: permissions,
+    );
+  }
+
+  static bool canAccessRelatorioFinanceiroBundle(
+    String role, {
+    required bool canViewFinance,
+    List<String>? permissions,
+    bool? memberCanEmitFullReports,
+  }) {
+    if (!canViewFinance) return false;
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_financeiro')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return canEmitFullChurchReports(
+      role,
+      memberCanEmitFullReports: memberCanEmitFullReports,
+      permissions: permissions,
+    );
+  }
+
+  static bool canAccessRelatorioFornecedoresBundle(
+    String role, {
+    required bool canViewFinance,
+    List<String>? permissions,
+    bool? memberCanEmitFullReports,
+  }) {
+    if (!canViewFinance) return false;
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_fornecedores')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return canEmitFullChurchReports(
+      role,
+      memberCanEmitFullReports: memberCanEmitFullReports,
+      permissions: permissions,
+    );
+  }
+
+  static bool canAccessRelatorioPatrimonioBundle(
+    String role, {
+    required bool canViewPatrimonio,
+    List<String>? permissions,
+    bool? memberCanEmitFullReports,
+  }) {
+    if (!canViewPatrimonio) return false;
+    if (hasModulePermission(permissions, 'relatorios')) return true;
+    if (hasModulePermission(permissions, 'relatorio_patrimonio')) return true;
+    if (usesGranularChurchReportsOnly(permissions)) return false;
+    return canEmitFullChurchReports(
+      role,
+      memberCanEmitFullReports: memberCanEmitFullReports,
+      permissions: permissions,
+    );
+  }
+
+  /// Edição no diretório de membros: respeita `membros_ver` só leitura vs `membros_edicao`.
+  static bool canEditMembersDirectory(String role, List<String>? permissions) {
+    final p = permissions;
+    if (p != null && p.isNotEmpty) {
+      final set = p.map((e) => e.trim().toLowerCase()).toSet();
+      if (set.contains('membros_ver') &&
+          !set.contains('membros_edicao') &&
+          !set.contains('membros')) {
+        return false;
+      }
+      if (set.contains('membros_edicao') ||
+          (set.contains('membros') && !set.contains('membros_ver'))) {
+        return true;
+      }
+    }
+    return canEditAnyChurchMember(role);
+  }
+
+  /// Histórico completo de doações/dízimos (painel): tesouraria, pastoral e gestão — não obreiros/leigos.
+  static bool canSeeAllChurchDonationHistory(String role) {
+    final r = role.toLowerCase();
+    return r == 'gestor' ||
+        r == 'adm' ||
+        r == 'admin' ||
+        r == 'master' ||
+        r == 'tesoureiro' ||
+        r == 'tesouraria' ||
+        r == 'pastor' ||
+        r == 'pastora' ||
+        r == 'pastor_presidente' ||
+        r == 'secretario' ||
+        r == 'secretário' ||
+        r == 'secretária';
   }
 
   // Módulo financeiro — gestor pode liberar para membro via flag no doc do membro (podeVerFinanceiro)
@@ -179,6 +318,7 @@ class AppPermissions {
     bool? memberCanEmitFullReports,
     List<String>? permissions,
   }) {
+    if (usesGranularChurchReportsOnly(permissions)) return false;
     final s = ChurchRolePermissions.snapshotFor(role);
     if (!s.restrictedNav) return true;
     if (hasModulePermission(permissions, 'relatorios')) return true;

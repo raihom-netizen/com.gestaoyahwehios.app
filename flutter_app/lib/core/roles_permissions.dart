@@ -337,6 +337,11 @@ class ChurchRolePermissions {
         return s.editChurchProfile;
       case 2:
         // Equipe: diretório completo. Perfil básico (membro/visitante): só o próprio cadastro na UI — [MembersPage] filtra.
+        if (_hasGranularModule(permissions, 'membros_ver') ||
+            _hasGranularModule(permissions, 'membros_edicao') ||
+            _hasGranularModule(permissions, 'membros')) {
+          return true;
+        }
         return (s.viewMemberDirectory && !s.restrictedNav) ||
             (s.restrictedNav &&
                 (r == ChurchRoleKeys.membro || r == ChurchRoleKeys.visitante));

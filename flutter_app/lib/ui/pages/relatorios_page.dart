@@ -119,6 +119,46 @@ class RelatoriosPage extends StatelessWidget {
         permissions: permissions,
       );
 
+  bool get _canReportEventosPdf =>
+      AppPermissions.canAccessRelatorioEventosPdf(permissions: permissions);
+
+  bool get _canReportMembrosPdf => AppPermissions.canAccessRelatorioMembrosPdf(
+        role,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
+        permissions: permissions,
+      );
+
+  bool get _canReportAniversariantesPdf =>
+      AppPermissions.canAccessRelatorioAniversariantesPdf(
+        role,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
+        permissions: permissions,
+      );
+
+  bool get _canReportFinanceiroPdf =>
+      AppPermissions.canAccessRelatorioFinanceiroBundle(
+        role,
+        canViewFinance: _canFinance,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
+        permissions: permissions,
+      );
+
+  bool get _canReportFornecedoresPdf =>
+      AppPermissions.canAccessRelatorioFornecedoresBundle(
+        role,
+        canViewFinance: _canFinance,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
+        permissions: permissions,
+      );
+
+  bool get _canReportPatrimonioPdf =>
+      AppPermissions.canAccessRelatorioPatrimonioBundle(
+        role,
+        canViewPatrimonio: _canPatrimonio,
+        memberCanEmitFullReports: podeEmitirRelatoriosCompletos,
+        permissions: permissions,
+      );
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -178,6 +218,7 @@ class RelatoriosPage extends StatelessWidget {
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
               ],
+            if (_canReportEventosPdf) ...[
             _ReportCard(
               icon: Icons.event_rounded,
               title: 'Relatório de Eventos',
@@ -185,7 +226,8 @@ class RelatoriosPage extends StatelessWidget {
               color: const Color(0xFF0EA5E9),
               onTap: () => _openRelatorioEventos(context),
             ),
-            if (_canFullReports) ...[
+            ],
+            if (_canReportMembrosPdf) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ReportCard(
                 icon: Icons.people_rounded,
@@ -194,6 +236,8 @@ class RelatoriosPage extends StatelessWidget {
                 color: ThemeCleanPremium.primary,
                 onTap: () => _openRelatorioMembros(context),
               ),
+            ],
+            if (_canReportAniversariantesPdf) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ReportCard(
                 icon: Icons.cake_rounded,
@@ -204,7 +248,7 @@ class RelatoriosPage extends StatelessWidget {
                 onTap: () => _openRelatorioAniversariantes(context),
               ),
             ],
-            if (_canFinance) ...[
+            if (_canReportFinanceiroPdf) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ReportCard(
                 icon: Icons.account_balance_wallet_rounded,
@@ -214,6 +258,8 @@ class RelatoriosPage extends StatelessWidget {
                 color: const Color(0xFF059669),
                 onTap: () => _openRelatorioFinanceiro(context),
               ),
+            ],
+            if (_canReportFornecedoresPdf) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ReportCard(
                 icon: Icons.business_center_rounded,
@@ -224,7 +270,7 @@ class RelatoriosPage extends StatelessWidget {
                 onTap: () => _openRelatorioGastosFornecedores(context),
               ),
             ],
-            if (_canPatrimonio) ...[
+            if (_canReportPatrimonioPdf) ...[
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ReportCard(
                 icon: Icons.inventory_2_rounded,
@@ -243,17 +289,17 @@ class RelatoriosPage extends StatelessWidget {
   }
 
   void _openRelatorioMembros(BuildContext context) {
-    if (!_canFullReports) return;
+    if (!_canReportMembrosPdf) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioMembrosPage(tenantId: tenantId, role: role)));
   }
 
   void _openRelatorioAniversariantes(BuildContext context) {
-    if (!_canFullReports) return;
+    if (!_canReportAniversariantesPdf) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioAniversariantesPage(tenantId: tenantId)));
   }
 
   void _openRelatorioFinanceiro(BuildContext context) {
-    if (!_canFinance) return;
+    if (!_canReportFinanceiroPdf) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -263,7 +309,7 @@ class RelatoriosPage extends StatelessWidget {
   }
 
   void _openRelatorioGastosFornecedores(BuildContext context) {
-    if (!_canFinance) return;
+    if (!_canReportFornecedoresPdf) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -273,11 +319,12 @@ class RelatoriosPage extends StatelessWidget {
   }
 
   void _openRelatorioPatrimonio(BuildContext context) {
-    if (!_canPatrimonio) return;
+    if (!_canReportPatrimonioPdf) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioPatrimonioPage(tenantId: tenantId)));
   }
 
   void _openRelatorioEventos(BuildContext context) {
+    if (!_canReportEventosPdf) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioEventosPage(tenantId: tenantId)));
   }
 }

@@ -46,6 +46,7 @@ exports.sendGestaoYahwehHtmlEmail = sendGestaoYahwehHtmlEmail;
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const params_1 = require("firebase-functions/params");
+const notificationBranding_1 = require("./notificationBranding");
 const SENDGRID_KEY = (0, params_1.defineString)("SENDGRID_API_KEY", { default: "" });
 const SENDGRID_FROM = (0, params_1.defineString)("SENDGRID_FROM_EMAIL", { default: "" });
 const SENDGRID_FROM_NAME = (0, params_1.defineString)("SENDGRID_FROM_NAME", {
@@ -75,6 +76,11 @@ function panelLoginUrl() {
 function wrapEmail(opts) {
     const cta = escapeHtml(opts.ctaUrl);
     const pre = escapeHtml(opts.preheader.slice(0, 140));
+    const mod = opts.module || "generico";
+    const gradient = (0, notificationBranding_1.emailHeaderGradient)(mod);
+    const badge = escapeHtml((0, notificationBranding_1.emailModuleBadgeLabel)(mod));
+    const logo = (0, notificationBranding_1.gestaoBrandLogoUrl)();
+    const logoEsc = escapeHtml(logo);
     return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="description" content="${pre}"/></head>
 <body style="margin:0;padding:0;background:${BG_PAGE};font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0F172A;line-height:1.55;">
@@ -82,9 +88,10 @@ function wrapEmail(opts) {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${BG_PAGE};padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" style="max-width:560px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(15,23,42,0.08);border:1px solid #E2E8F0;">
-        <tr><td style="background:${BRAND_NAV};padding:18px 22px;">
-          <p style="margin:0;font-size:17px;font-weight:800;color:#fff;letter-spacing:-0.3px;">Gestão YAHWEH</p>
-          <p style="margin:6px 0 0;font-size:12px;color:rgba(255,255,255,0.88);">Equipe Gestão YAHWEH</p>
+        <tr><td style="background:${gradient};padding:22px 22px 18px;text-align:center;">
+          <img src="${logoEsc}" alt="Gestão YAHWEH" width="220" style="max-width:78%;height:auto;display:block;margin:0 auto 14px;border:0;outline:none;text-decoration:none;"/>
+          <p style="margin:0;font-size:11px;font-weight:700;color:rgba(255,255,255,0.92);letter-spacing:0.12em;text-transform:uppercase;">${badge}</p>
+          <p style="margin:8px 0 0;font-size:15px;font-weight:800;color:#fff;letter-spacing:-0.25px;">Gestão YAHWEH</p>
         </td></tr>
         <tr><td style="padding:26px 22px 8px;">
           ${opts.innerHtml}
@@ -121,6 +128,7 @@ function buildAvisoEmail(opts) {
             innerHtml: inner,
             ctaLabel: "Acessar painel de avisos",
             ctaUrl: url,
+            module: "aviso",
         }),
     };
 }
@@ -149,6 +157,7 @@ function buildEscalaEmail(opts) {
             innerHtml: inner,
             ctaLabel: "Confirmar presença na escala",
             ctaUrl: url,
+            module: "escala",
         }),
     };
 }
@@ -174,6 +183,7 @@ function buildEventoEmail(opts) {
             innerHtml: inner,
             ctaLabel: "Ver detalhes do evento",
             ctaUrl: url,
+            module: "evento",
         }),
     };
 }
@@ -193,6 +203,7 @@ function buildAniversarianteEmail(opts) {
             innerHtml: inner,
             ctaLabel: "Abrir o Gestão YAHWEH",
             ctaUrl: url,
+            module: "aniversario",
         }),
     };
 }

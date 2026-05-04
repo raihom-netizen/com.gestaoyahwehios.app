@@ -98,6 +98,9 @@ class MembersPage extends StatefulWidget {
   /// Abre a ficha (bottom sheet) deste membro uma vez ao carregar (ex.: QR carteirinha → painel).
   final String? initialOpenMemberDocId;
 
+  /// Vindo de [users.permissions] (cargos fundidos) — ex. `membros_ver` / `membros_edicao`.
+  final List<String>? permissions;
+
   const MembersPage({
     super.key,
     required this.tenantId,
@@ -109,6 +112,7 @@ class MembersPage extends StatefulWidget {
     this.embeddedInShell = false,
     this.initialSearchQuery,
     this.initialOpenMemberDocId,
+    this.permissions,
   });
 
   @override
@@ -798,7 +802,7 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
-        !AppPermissions.canEditAnyChurchMember(widget.role);
+        !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
     QuerySnapshot<Map<String, dynamic>> pendenteOut = pendenteSnap;
     if (selfOnlyMemberList) {
       bool keepSelf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
@@ -1312,7 +1316,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   /// Gestão completa da lista (qualquer membro): admin, gestor, pastor, secretário, tesoureiro etc.
-  bool get _canManage => AppPermissions.canEditAnyChurchMember(widget.role);
+  bool get _canManage =>
+      AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
   bool _isSelfMember(_MemberDoc member) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -2086,7 +2091,8 @@ class _MembersPageState extends State<MembersPage> {
 
   // ─── Editar Membro ────────────────────────────────────────────────────────
   Future<void> _editMember(BuildContext context, _MemberDoc member) async {
-    final staffEdit = AppPermissions.canEditAnyChurchMember(widget.role);
+    final staffEdit = AppPermissions.canEditMembersDirectory(
+        widget.role, widget.permissions);
     if (!staffEdit && !_isSelfMember(member)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
