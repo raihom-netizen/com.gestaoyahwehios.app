@@ -6341,6 +6341,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final padding = ThemeCleanPremium.pagePadding(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final minTouch = ThemeCleanPremium.minTouchTarget;
+    final publishLabel = widget.doc != null ? 'Atualizar Evento' : 'Publicar Evento';
 
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
@@ -6354,22 +6355,81 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ),
         title: Text(widget.doc != null ? 'Editar Evento' : 'Novo Evento',
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        actions: [
-          TextButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.check_rounded, color: Colors.white),
-            label: Text(_saving ? 'Publicando...' : 'Publicar',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
-            style: TextButton.styleFrom(minimumSize: Size(minTouch, minTouch)),
+      ),
+      bottomNavigationBar: Material(
+        elevation: 14,
+        shadowColor: const Color(0x59000000),
+        color: Theme.of(context).colorScheme.surface,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              padding.left,
+              12,
+              padding.right,
+              12 + bottomInset,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.maybePop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.primary,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.primary
+                            .withValues(alpha: 0.45),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text(
+                      'Cancelar',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_circle_rounded, size: 22),
+                    label: Text(
+                      _saving ? 'Publicando…' : publishLabel,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
       body: SafeArea(
         child: ListView(
@@ -7285,32 +7345,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   color: ThemeCleanPremium.primary),
             ),
             const SizedBox(height: 24),
-            ConstrainedBox(
-              constraints: BoxConstraints(minHeight: max(52, minTouch)),
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.publish_rounded),
-                label: Text(
-                    _saving
-                        ? 'Publicando...'
-                        : (widget.doc != null
-                            ? 'Atualizar Evento'
-                            : 'Publicar Evento'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 15)),
-                style: FilledButton.styleFrom(
-                    backgroundColor: ThemeCleanPremium.primary,
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm))),
-              ),
-            ),
+            SizedBox(height: max(24.0, minTouch * 0.25)),
             const SizedBox(height: 32),
           ],
         ),

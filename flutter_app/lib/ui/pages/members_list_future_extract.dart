@@ -400,7 +400,9 @@
                                                     AprovarMembrosPendentesPage(
                                                         tenantId:
                                                             _effectiveTenantId,
-                                                        gestorRole: widget.role)));
+                                                        gestorRole: widget.role,
+                                                        permissions:
+                                                            widget.permissions)));
                                         if (mounted) _refreshMembers();
                                       },
                                       borderRadius: BorderRadius.circular(

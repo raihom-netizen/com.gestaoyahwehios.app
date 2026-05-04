@@ -34,6 +34,7 @@ import 'admin_migrar_membros_page.dart';
 import 'admin_sugestoes_page.dart';
 import 'admin_divulgacao_media_page.dart';
 import 'master_saas_command_center_page.dart';
+import 'master_usuarios_controle_360_page.dart';
 import 'admin_aviso_global_page.dart';
 import 'pages/storage_usage_page.dart';
 import 'widgets/version_footer.dart';
@@ -55,6 +56,8 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Planos e cobranças';
     case AdminMenuItem.igrejasUsuarios:
       return 'Usuários e igrejas';
+    case AdminMenuItem.igrejasControle360:
+      return 'Controle 360 — Utilizadores';
     case AdminMenuItem.igrejasMercadoPago:
       return 'Mercado Pago';
     case AdminMenuItem.igrejasRecebimentos:
@@ -204,6 +207,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
       AdminMenuItem.igrejasLista: 'igrejas',
       AdminMenuItem.igrejasPlanos: 'planos',
       AdminMenuItem.igrejasUsuarios: 'usuarios',
+      AdminMenuItem.igrejasControle360: 'usuarios',
       AdminMenuItem.igrejasMercadoPago: 'financeiro',
       AdminMenuItem.igrejasRecebimentos: 'financeiro',
       AdminMenuItem.igrejasGestores: 'gestores',
@@ -467,6 +471,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
       case AdminMenuItem.igrejasUsuarios:
         content = const AdminUsuariosPage();
         break;
+      case AdminMenuItem.igrejasControle360:
+        content = const MasterUsuariosControle360Page();
+        break;
       case AdminMenuItem.igrejasMercadoPago:
         content = const MercadoPagoAdminPage(embeddedInMaster: true);
         break;
@@ -718,6 +725,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
       if (_canAccessMasterItem(AdminMenuItem.igrejasUsuarios))
         _drawerTile(context, Icons.people_rounded, 'Usuários',
             AdminMenuItem.igrejasUsuarios),
+      if (_canAccessMasterItem(AdminMenuItem.igrejasControle360))
+        _drawerTile(context, Icons.threesixty_rounded,
+            'Controle 360 — Utilizadores', AdminMenuItem.igrejasControle360),
       if (_canAccessMasterItem(AdminMenuItem.igrejasMercadoPago))
         _drawerTile(context, Icons.payment_rounded, 'Mercado Pago',
             AdminMenuItem.igrejasMercadoPago),

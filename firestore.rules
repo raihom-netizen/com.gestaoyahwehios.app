@@ -108,15 +108,26 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId))
         && get(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId)).data.get('authUid', '') == request.auth.uid;
     }
+    // `permissions` é lista de strings no app — usar `list.hasAny`; o operador `in` só serve para chaves de mapa.
     function hasTenantModulePermission(tenantId, moduleKey) {
       let tenantUserPath = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
       let rootUserPath = /databases/$(database)/documents/users/$(request.auth.uid);
       return isSignedIn() && (
         (exists(tenantUserPath) && get(tenantUserPath).data.permissions is list
-          && (moduleKey in get(tenantUserPath).data.permissions))
+          && get(tenantUserPath).data.permissions.hasAny([moduleKey]))
         || (exists(rootUserPath) && get(rootUserPath).data.permissions is list
-          && (moduleKey in get(rootUserPath).data.permissions))
+          && get(rootUserPath).data.permissions.hasAny([moduleKey]))
       );
+    }
+    /// Igual a [AppPermissions.hasModulePermission] para mural/eventos: aceita `eventos` ou `eventos_avisos_edicao`.
+    function hasTenantMuralEventosPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'eventos')
+        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao');
+    }
+    /// Edição de fichas / diretório: `membros` (legado) ou `membros_edicao` — não usar só `membros_ver` (leitura).
+    function hasTenantMembrosDirectoryEditPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'membros')
+        || hasTenantModulePermission(tenantId, 'membros_edicao');
     }
     function canWriteTenant(tenantId) {
       return canAccessTenant(tenantId) && (canManageChurch() || emailMatchesTenant(tenantId));
@@ -163,11 +174,11 @@ service cloud.firestore {
         r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
       );
     }
-    /// Mural: eventos (noticias) e avisos — pastoral + permissão granular `eventos` + papéis de edição no app.
+    /// Mural: eventos (noticias) e avisos — pastoral + permissão granular `eventos` / `eventos_avisos_edicao` + papéis de edição no app.
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
         || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
-        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'eventos'))
+        || (canAccessTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
         || (canAccessTenant(tenantId) && isEventosMuralEditorRole());
     }
     // Fallback: usuário autenticado pode ler/gravar (evita permission-denied em Departamentos, Presença, etc.)
@@ -257,6 +268,7 @@ service cloud.firestore {
 
         // Gravação: não basta estar logado — precisa ser da igreja (gestão) ou pastoral/secretariado,
         // ou o próprio membro (authUid) para atualizar a própria ficha. Cadastro público pendente mantido.
+        // Pastor auxiliar / ministerial: no app pode aprovar cadastros ([approvePendingMembers]) mas não entra em isPastoralOrSecretariatRole().
         allow update: if (request.auth == null
               && resource.data.PUBLIC_SIGNUP == true
               && resource.data.STATUS == 'pendente'
@@ -265,14 +277,15 @@ service cloud.firestore {
               isMaster()
               || canWriteTenant(id)
               || (canAccessTenant(id) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros'))
+              || (canAccessTenant(id) && isPastorAuxiliarRole())
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
               || (canAccessTenant(id) && resource.data.authUid == request.auth.uid)
               || (canAccessTenant(id) && memberId == request.auth.uid)
               || (canAccessTenant(id) && escalaIndisponibilidadeUpdateOnly() && memberEmailMatchesAuth())
             ));
         allow delete: if request.auth != null
           && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros')));
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id)));
       }
 
       // Legado: leitura só na própria igreja (backup se Functions ainda não rodaram).
@@ -282,7 +295,7 @@ service cloud.firestore {
         allow create, update: if false;
         allow delete: if request.auth != null
           && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(id) && hasTenantModulePermission(id, 'membros')));
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id)));
       }
 
       match /config/{docId} {
@@ -734,11 +747,11 @@ service cloud.firestore {
           (resource.data.tenantId is string && resource.data.tenantId != ''
             && (canWriteTenant(resource.data.tenantId)
               || (canAccessTenant(resource.data.tenantId) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(resource.data.tenantId) && hasTenantModulePermission(resource.data.tenantId, 'membros'))))
+              || (canAccessTenant(resource.data.tenantId) && hasTenantMembrosDirectoryEditPermission(resource.data.tenantId))))
           || (resource.data.igrejaId is string && resource.data.igrejaId != ''
             && (canWriteTenant(resource.data.igrejaId)
               || (canAccessTenant(resource.data.igrejaId) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(resource.data.igrejaId) && hasTenantModulePermission(resource.data.igrejaId, 'membros'))))
+              || (canAccessTenant(resource.data.igrejaId) && hasTenantMembrosDirectoryEditPermission(resource.data.igrejaId))))
         ));
 
       match /fcmTokens/{token} {

@@ -12,6 +12,7 @@ enum AdminMenuItem {
   igrejasLista,
   igrejasPlanos,
   igrejasUsuarios,
+  igrejasControle360,
   igrejasMercadoPago,
   igrejasRecebimentos,
   igrejasGestores,
@@ -166,6 +167,9 @@ class AdminMenuLateral extends StatelessWidget {
       if (itemVisible?.call(AdminMenuItem.igrejasLista) ?? true) _tile(AdminMenuItem.igrejasLista, Icons.church_rounded, 'Lista Igrejas', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasPlanos) ?? true) _tile(AdminMenuItem.igrejasPlanos, Icons.credit_card_rounded, 'Planos & Cobranças', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasUsuarios) ?? true) _tile(AdminMenuItem.igrejasUsuarios, Icons.people_rounded, 'Usuários', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasControle360) ?? true)
+        _tile(AdminMenuItem.igrejasControle360, Icons.threesixty_rounded,
+            'Controle 360 — Utilizadores', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasMercadoPago) ?? true) _tile(AdminMenuItem.igrejasMercadoPago, Icons.payment_rounded, 'Mercado Pago', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasRecebimentos) ?? true) _tile(AdminMenuItem.igrejasRecebimentos, Icons.receipt_long_rounded, 'Recebimentos Licenças', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasGestores) ?? true) _tile(AdminMenuItem.igrejasGestores, Icons.person_add_rounded, 'Ativar mais gestores', isCollapsed),
@@ -210,6 +214,7 @@ class AdminMenuLateral extends StatelessWidget {
         return const Color(0xFF38BDF8);
       case AdminMenuItem.igrejasLista:
       case AdminMenuItem.igrejasUsuarios:
+      case AdminMenuItem.igrejasControle360:
       case AdminMenuItem.igrejasGestores:
       case AdminMenuItem.sistemaMigrarMembros:
         return const Color(0xFF22C55E);

@@ -3549,67 +3549,78 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         title: Text(widget.doc != null
             ? 'Editar ${isEvento ? 'Evento' : 'Aviso'}'
             : 'Novo ${isEvento ? 'Evento' : 'Aviso'}'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check_rounded, color: Colors.white),
-              label: Text(_saving ? 'Salvando...' : 'Publicar',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700)),
-              style: TextButton.styleFrom(
-                minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                    ThemeCleanPremium.minTouchTarget),
-              ),
-            ),
-          ),
-        ],
       ),
       bottomNavigationBar: Material(
-        elevation: 12,
-        shadowColor: const Color(0x40000000),
+        elevation: 14,
+        shadowColor: const Color(0x59000000),
         color: Theme.of(context).colorScheme.surface,
         child: SafeArea(
           top: false,
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               padding.left,
-              10,
+              12,
               padding.right,
-              10 + MediaQuery.viewInsetsOf(context).bottom,
+              12 + MediaQuery.viewInsetsOf(context).bottom,
             ),
-            child: SizedBox(
-              height: math.max(52, ThemeCleanPremium.minTouchTarget),
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.publish_rounded),
-                label: Text(
-                  _saving ? 'Publicando...' : publishLabel,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800, fontSize: 15),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.maybePop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.primary,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.45),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text(
+                      'Cancelar',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_circle_rounded, size: 22),
+                    label: Text(
+                      _saving ? 'Publicando…' : publishLabel,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

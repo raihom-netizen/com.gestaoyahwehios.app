@@ -985,6 +985,7 @@ class _MasterPanelModulesSection extends StatelessWidget {
     _MasterModDef(AdminMenuItem.igrejasLista, Icons.church_rounded, 'Lista Igrejas'),
     _MasterModDef(AdminMenuItem.igrejasPlanos, Icons.credit_card_rounded, 'Planos & Cobranças'),
     _MasterModDef(AdminMenuItem.igrejasUsuarios, Icons.people_rounded, 'Usuários'),
+    _MasterModDef(AdminMenuItem.igrejasControle360, Icons.threesixty_rounded, 'Controle 360'),
     _MasterModDef(AdminMenuItem.igrejasMercadoPago, Icons.payment_rounded, 'Mercado Pago'),
     _MasterModDef(AdminMenuItem.igrejasRecebimentos, Icons.receipt_long_rounded, 'Recebimentos Licenças'),
     _MasterModDef(AdminMenuItem.igrejasGestores, Icons.person_add_rounded, 'Ativar mais gestores'),

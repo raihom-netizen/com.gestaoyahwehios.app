@@ -37,14 +37,9 @@ class AppRoles {
         r == 'pastor_presidente';
   }
 
-  /// Funções que podem ver financeiro e patrimônio
-  static bool canAccessFinanceAndPatrimonio(String role) {
-    final r = role.toLowerCase();
-    return [
-      admin, adm, master, gestor, tesouraria, tesoureiro, secretario, pastor, presbitero,
-      'administrador', 'administradora',
-    ].contains(r);
-  }
+  /// Alinhado a [ChurchRolePermissions.isFinanceCoreTeam] (admin, gestor, pastor, tesoureiro).
+  static bool canAccessFinanceAndPatrimonio(String role) =>
+      ChurchRolePermissions.isFinanceCoreTeam(role);
 
   /// Funções que podem editar escalas
   static bool canAccessEditSchedules(String role) {
@@ -205,59 +200,34 @@ class AppPermissions {
     return canEditAnyChurchMember(role);
   }
 
-  /// Histórico completo de doações/dízimos (painel): tesouraria, pastoral e gestão — não obreiros/leigos.
-  static bool canSeeAllChurchDonationHistory(String role) {
-    final r = role.toLowerCase();
-    return r == 'gestor' ||
-        r == 'adm' ||
-        r == 'admin' ||
-        r == 'master' ||
-        r == 'tesoureiro' ||
-        r == 'tesouraria' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'pastor_presidente' ||
-        r == 'secretario' ||
-        r == 'secretário' ||
-        r == 'secretária';
-  }
+  /// Histórico global de doações (todas as contribuições): mesmo núcleo que o Financeiro.
+  /// Membros sem este papel só veem as próprias linhas em [ChurchDonationsPage] (filtro por CPF).
+  static bool canSeeAllChurchDonationHistory(String role) =>
+      ChurchRolePermissions.isFinanceCoreTeam(role);
 
-  // Módulo financeiro — gestor pode liberar para membro via flag no doc do membro (podeVerFinanceiro)
+  /// Módulo financeiro (painel) — só administrador, gestor, pastor ou tesoureiro(a). Sem exceção por flag no membro.
   static bool canViewFinance(String role, {bool? memberCanViewFinance, List<String>? permissions}) {
-    final s = ChurchRolePermissions.snapshotFor(role);
-    if (s.viewFinance) return true;
-    final r = role.toLowerCase();
-    if (hasModulePermission(permissions, 'financeiro')) return true;
-    if (r == AppRoles.membro && memberCanViewFinance == true) return true;
-    return false;
+    return ChurchRolePermissions.isFinanceCoreTeam(role);
   }
 
-  // Módulo patrimônio — membro só se gestor liberar (podeVerPatrimonio no doc)
+  /// Patrimônio — mesmo núcleo do financeiro.
   static bool canViewPatrimonio(String role, {bool? memberCanViewPatrimonio, List<String>? permissions}) {
-    final s = ChurchRolePermissions.snapshotFor(role);
-    if (s.viewPatrimonio) return true;
-    final r = role.toLowerCase();
-    if (hasModulePermission(permissions, 'patrimonio')) return true;
-    if (r == AppRoles.membro && memberCanViewPatrimonio == true) return true;
-    return false;
+    return ChurchRolePermissions.isFinanceCoreTeam(role);
   }
 
-  /// Fornecedores/prestadores — granular `fornecedores`, flag no membro, ou mesmo critério do financeiro (tesoureiro, etc.).
+  /// Fornecedores/prestadores — mesmo núcleo (não presbítero, secretário, líder, obreiro).
   static bool canViewFornecedores(
     String role, {
     bool? memberCanViewFinance,
     bool? memberCanViewFornecedores,
     List<String>? permissions,
   }) {
-    if (hasModulePermission(permissions, 'fornecedores')) return true;
-    final r = role.toLowerCase();
-    if (r == AppRoles.membro && memberCanViewFornecedores == true) return true;
-    return canViewFinance(
-      role,
-      memberCanViewFinance: memberCanViewFinance,
-      permissions: permissions,
-    );
+    return ChurchRolePermissions.isFinanceCoreTeam(role);
   }
+
+  /// Hub «Relatórios» no painel — restrito ao núcleo financeiro/pastoral (não obreiros nem secretário).
+  static bool canAccessChurchRelatoriosHub(String role) =>
+      ChurchRolePermissions.isFinanceCoreTeam(role);
 
   /// Módulo Certificados (emissão / histórico) — não para papel [membro] básico.
   /// Acesso: ADM, gestor, secretário, pastor, etc. (editAnyMember), tesoureiro(a), ou permissão `certificados`.
@@ -298,7 +268,7 @@ class AppPermissions {
   static bool canEditSchedules(String role) =>
       ChurchRolePermissions.snapshotFor(role).editSchedulesAll;
 
-  /// Acesso restrito para role "membro": só Painel, Mural, Eventos, Pedidos, Agenda, Minha Escala, Cartão (e Finance se gestor liberar).
+  /// Acesso restrito para role "membro": menu reduzido (sem Finance/Património/Relatórios globais).
   static bool isRestrictedMember(String role) =>
       ChurchRolePermissions.snapshotFor(role).restrictedNav;
 
@@ -330,6 +300,12 @@ class AppPermissions {
   static bool canEditDepartments(String role, {List<String>? permissions}) {
     if (hasModulePermission(permissions, 'departamentos')) return true;
     return ChurchRolePermissions.snapshotFor(role).editDepartments;
+  }
+
+  /// Aprovações rápidas (cadastros públicos pendentes) — menu índice 18 + regra `membros` no Firestore.
+  static bool canApprovePendingMemberSignups(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'membros')) return true;
+    return ChurchRolePermissions.snapshotFor(role).approvePendingMembers;
   }
 
   /// Despesa acima do limite exige segunda aprovação (tesoureiro/líder não “auto-aprovam”).

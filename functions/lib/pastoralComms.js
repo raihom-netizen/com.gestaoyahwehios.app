@@ -848,6 +848,30 @@ exports.onEscalaImpedimentoNotifyLeaders = functions
     catch (e) {
         functions.logger.error("onEscalaImpedimentoNotifyLeaders FCM", { tenantId, escId, e });
     }
+    const creatorUid = String(after.generatedByUid || "").trim();
+    if (creatorUid.length >= 8) {
+        try {
+            const creatorTokens = await collectFcmTokensForUids([creatorUid]);
+            if (creatorTokens.length) {
+                const creatorMsgs = creatorTokens.map((token) => (0, notificationBranding_1.buildGyTokenMessage)({
+                    token,
+                    title: "📋 Sua escala: impedimento",
+                    body,
+                    data: {
+                        tenantId,
+                        type: "escala_impedimento_montagem",
+                        scheduleId: escId,
+                        click_action: "FLUTTER_NOTIFICATION_CLICK",
+                    },
+                    module: "escala",
+                }));
+                await sendEachInBatches(creatorMsgs);
+            }
+        }
+        catch (e) {
+            functions.logger.error("onEscalaImpedimentoNotifyLeaders FCM creator", { tenantId, escId, e });
+        }
+    }
     return null;
 });
 const TZ_BR = "America/Sao_Paulo";

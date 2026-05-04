@@ -4391,7 +4391,8 @@ class _MembersPageState extends State<MembersPage> {
           ],
         ),
         content: Text(
-            'Tem certeza que deseja excluir "$name"?\n\nEsta ação não pode ser desfeita.'),
+            'Excluir "$name" do cadastro, apagar ficheiros da ficha, remover o documento de login (Firebase) e o acesso com e-mail/senha? '
+            'Para voltar a ter acesso, será necessário um novo cadastro. Esta ação não pode ser desfeita.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -4407,18 +4408,39 @@ class _MembersPageState extends State<MembersPage> {
     );
     if (confirm != true || !mounted) return;
     final mid = member.id.trim();
+    final authUid = (member.data['authUid'] ?? member.data['auth_uid'] ?? '')
+        .toString()
+        .trim();
     setState(() => _optimisticRemovedMemberIds.add(mid));
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      try {
+        final payload = <String, dynamic>{
+          'tenantId': _effectiveTenantId,
+          'memberId': mid,
+        };
+        if (authUid.isNotEmpty) payload['authUid'] = authUid;
+        await FirebaseFunctions.instanceFor(region: 'us-central1')
+            .httpsCallable('purgeMemberFirebaseLogin')
+            .call(payload);
+      } catch (e, st) {
+        debugPrint('purgeMemberFirebaseLogin $e $st');
+        if (mounted) {
+          setState(() => _optimisticRemovedMemberIds.remove(mid));
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.feedbackSnackBar(
+              'Não foi possível remover o login (servidor). Verifique permissão ou tente de novo. $e',
+            ),
+          );
+        }
+        return;
+      }
       await FirebaseStorageCleanupService.deleteMemberRelatedFiles(
         tenantId: _effectiveTenantId,
         memberId: mid,
         data: member.data,
       );
       final db = FirebaseFirestore.instance;
-      final authUid = (member.data['authUid'] ?? member.data['auth_uid'] ?? '')
-          .toString()
-          .trim();
       final allTenantIds =
           await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
               _effectiveTenantId);
@@ -6636,7 +6658,8 @@ class _MembersPageState extends State<MembersPage> {
                           MaterialPageRoute(
                               builder: (_) => AprovarMembrosPendentesPage(
                                   tenantId: _effectiveTenantId,
-                                  gestorRole: widget.role)));
+                                  gestorRole: widget.role,
+                                  permissions: widget.permissions)));
                       if (mounted) _refreshMembers();
                     },
                     borderRadius:
@@ -6766,7 +6789,8 @@ class _MembersPageState extends State<MembersPage> {
                     MaterialPageRoute<void>(
                       builder: (_) => AprovarMembrosPendentesPage(
                           tenantId: _effectiveTenantId,
-                          gestorRole: widget.role),
+                          gestorRole: widget.role,
+                          permissions: widget.permissions),
                     ),
                   );
                   if (mounted) _refreshMembers();

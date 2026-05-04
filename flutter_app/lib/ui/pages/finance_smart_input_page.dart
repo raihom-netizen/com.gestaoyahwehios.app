@@ -408,23 +408,76 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     });
   }
 
-  Widget _parcelaExemploChip({required String label, required String inserir}) {
-    return ActionChip(
-      label: Text(label,
-          style: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600, height: 1.2)),
-      onPressed: _saving
-          ? null
-          : () {
-              ThemeCleanPremium.hapticAction();
-              _inserirExemploParcela(inserir);
-            },
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      side: BorderSide(
-        color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+  /// Campos com borda premium; [label] vazio = só hint (área de texto principal).
+  InputDecoration _financePremiumFieldDecoration(
+    String label, {
+    String? hintText,
+  }) {
+    final r = ThemeCleanPremium.radiusMd;
+    return InputDecoration(
+      labelText: label.isEmpty ? null : label,
+      hintText: hintText,
+      floatingLabelBehavior:
+          label.isEmpty ? FloatingLabelBehavior.never : FloatingLabelBehavior.auto,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(r)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(r),
+        borderSide: BorderSide(color: Colors.grey.shade300),
       ),
-      backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(r),
+        borderSide: const BorderSide(color: ThemeCleanPremium.primary, width: 2),
+      ),
+    );
+  }
+
+  /// Botões de exemplo com contraste alto (texto primary sobre fundo claro + borda), padrão super premium.
+  Widget _parcelaExemploChip({required String label, required String inserir}) {
+    final enabled = !_saving;
+    final r = ThemeCleanPremium.radiusMd;
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(r),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled
+              ? () {
+                  ThemeCleanPremium.hapticAction();
+                  _inserirExemploParcela(inserir);
+                }
+              : null,
+          splashColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+          highlightColor: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(r),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(r),
+              border: Border.all(color: ThemeCleanPremium.primary, width: 1.5),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.primary,
+                  height: 1.25,
+                  letterSpacing: -0.15,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -730,13 +783,26 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
         ),
         bottomNavigationBar: hasPreview
             ? Material(
-                elevation: 10,
+                elevation: 12,
+                shadowColor: Colors.black26,
                 color: ThemeCleanPremium.surfaceVariant,
                 child: SafeArea(
                   top: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
                     child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ThemeCleanPremium.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        minimumSize:
+                            const Size(double.infinity, ThemeCleanPremium.minTouchTarget + 2),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
                       onPressed: _saving || _importing || _rows.isEmpty
                           ? null
                           : _gravar,
@@ -749,7 +815,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Icon(Icons.check_rounded),
+                          : const Icon(Icons.check_rounded, size: 22),
                       label: Text(
                         _saving
                             ? 'A importar…'
@@ -757,6 +823,10 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
                       ),
                     ),
                   ),
@@ -784,6 +854,14 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       onPressed: _saving || _text.text.isEmpty
                           ? null
                           : _selecionarTudoTexto,
+                      style: TextButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        disabledForegroundColor: Colors.grey.shade400,
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
                       child: const Text('Selecionar tudo'),
                     ),
                     TextButton(
@@ -799,6 +877,14 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                                 });
                               }
                             },
+                      style: TextButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        disabledForegroundColor: Colors.grey.shade400,
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
                       child: const Text('Limpar campo'),
                     ),
                   ],
@@ -812,43 +898,49 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                   onChanged: (_) => _onMainTextChanged(),
                   minLines: 3,
                   maxLines: 14,
-                  decoration: InputDecoration(
+                  decoration: _financePremiumFieldDecoration(
+                    '',
                     hintText:
                         'Cole/digite livremente (ex.: 100,00, 85.50, 6 parcelas de 250, 1000,00 em 4x). Sem máscara automática.',
-                    border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    filled: true,
-                    fillColor: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 8),
-                Card(
-                  elevation: 0,
-                  color: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    side: BorderSide(color: ThemeCleanPremium.primary.withValues(alpha: 0.2)),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Row(
                           children: [
-                            Icon(
-                              Icons.auto_awesome,
-                              size: 18,
-                              color: ThemeCleanPremium.primary,
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                Icons.auto_awesome_rounded,
+                                size: 20,
+                                color: ThemeCleanPremium.primary,
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Sugestões (parcelas)',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.grey.shade800,
-                                fontSize: 13,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Sugestões (parcelas)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  color: ThemeCleanPremium.onSurface,
+                                  fontSize: 14,
+                                  letterSpacing: -0.2,
+                                ),
                               ),
                             ),
                           ],
@@ -900,26 +992,87 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                 ),
                 const SizedBox(height: 6),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
                     OutlinedButton.icon(
-                        onPressed: _importing ? null : _colar,
-                        icon: const Icon(Icons.paste, size: 18),
-                        label: const Text('Colar')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        side: const BorderSide(
+                          color: ThemeCleanPremium.primary,
+                          width: 1.5,
+                        ),
+                        minimumSize:
+                            const Size(0, ThemeCleanPremium.minTouchTarget),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
+                      onPressed: _importing ? null : _colar,
+                      icon: const Icon(Icons.content_paste_rounded, size: 20),
+                      label: const Text(
+                        'Colar',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
                     OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: ThemeCleanPremium.primary,
+                        side: const BorderSide(
+                          color: ThemeCleanPremium.primary,
+                          width: 1.5,
+                        ),
+                        minimumSize:
+                            const Size(0, ThemeCleanPremium.minTouchTarget),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
                       onPressed: _importing || _saving ? null : _pickCsv,
-                      icon: const Icon(Icons.table_chart_outlined, size: 18),
+                      icon: const Icon(Icons.table_chart_rounded, size: 20),
                       label: Text(
-                          _importing ? 'A abrir…' : 'Ficheiro CSV (extrato)'),
+                        _importing ? 'A abrir…' : 'Ficheiro CSV (extrato)',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                     FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ThemeCleanPremium.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 3,
+                        shadowColor:
+                            ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                        minimumSize:
+                            const Size(0, ThemeCleanPremium.minTouchTarget),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
                       onPressed: _saving ? null : _gerarLancamentos,
-                      icon: const Icon(Icons.playlist_add_check_rounded, size: 20),
-                      label: const Text('Gerar lançamentos'),
+                      icon: const Icon(Icons.playlist_add_check_rounded, size: 22),
+                      label: const Text(
+                        'Gerar lançamentos',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                     if (_rows.isNotEmpty) ...[
                       FilterChip(
+                        showCheckmark: false,
                         selected: _somenteSemCategoria,
                         onSelected: _saving
                             ? null
@@ -927,23 +1080,47 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                         label: const Text('Somente sem categoria'),
                         avatar: const Icon(Icons.filter_alt_outlined, size: 18),
                         selectedColor:
-                            ThemeCleanPremium.primary.withValues(alpha: 0.16),
+                            ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                        checkmarkColor: ThemeCleanPremium.primary,
+                        side: BorderSide(
+                          color: _somenteSemCategoria
+                              ? ThemeCleanPremium.primary
+                              : Colors.grey.shade300,
+                        ),
+                        labelStyle: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: _somenteSemCategoria
+                              ? ThemeCleanPremium.primary
+                              : ThemeCleanPremium.onSurface,
+                        ),
                       ),
                       TextButton(
                         onPressed: _saving
                             ? null
                             : () => _marcarTodosLancamentos(true),
+                        style: TextButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.primary,
+                          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                         child: const Text('Marcar todos'),
                       ),
                       TextButton(
                         onPressed:
                             _saving ? null : _marcarSomenteSemCategoria,
+                        style: TextButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.primary,
+                          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                         child: const Text('Marcar sem categoria'),
                       ),
                       TextButton(
                         onPressed: _saving
                             ? null
                             : () => _marcarTodosLancamentos(false),
+                        style: TextButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.onSurfaceVariant,
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                         child: const Text('Desmarcar'),
                       ),
                     ],
@@ -967,24 +1144,18 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                     Expanded(
                       child: TextField(
                         controller: _categoriaEntrada,
-                        decoration: const InputDecoration(
-                            labelText: 'Cat. padrão receita',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                            filled: true,
-                            fillColor: Colors.white),
+                        decoration: _financePremiumFieldDecoration(
+                          'Cat. padrão receita',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _categoriaSaida,
-                        decoration: const InputDecoration(
-                            labelText: 'Cat. padrão despesa',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                            filled: true,
-                            fillColor: Colors.white),
+                        decoration: _financePremiumFieldDecoration(
+                          'Cat. padrão despesa',
+                        ),
                       ),
                     ),
                   ],
@@ -1024,11 +1195,8 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                               ))
                           .toList(),
                       onChanged: (v) => setState(() => _contaId = v),
-                      decoration: const InputDecoration(
-                        labelText: 'Conta (débito e crédito do lote)',
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white,
+                      decoration: _financePremiumFieldDecoration(
+                        'Conta (débito e crédito do lote)',
                       ),
                     );
                   },
@@ -1049,8 +1217,10 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                       'Cole, escreva (Enter = nova linha; | separa itens) ou abra um CSV. Toque em «Gerar lançamentos» para ver a lista antes de gravar.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.grey.shade600,
-                        height: 1.4,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.45,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),

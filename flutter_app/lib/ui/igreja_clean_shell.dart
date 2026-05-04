@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/avatar_gestor_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -81,13 +82,13 @@ class IgrejaCleanShell extends StatefulWidget {
   final bool trialExpired;
   final Map<String, dynamic>? subscription;
 
-  /// Gestor pode liberar financeiro para role "membro" via doc do membro (podeVerFinanceiro).
+  /// Legado: campo no cadastro do membro; o painel Financeiro não usa mais para liberar acesso.
   final bool? podeVerFinanceiro;
 
-  /// Gestor pode liberar patrimônio para role "membro" via doc do membro (podeVerPatrimonio).
+  /// Legado; património no painel só para o núcleo financeiro/pastoral.
   final bool? podeVerPatrimonio;
 
-  /// Gestor pode liberar Fornecedores para role "membro" (podeVerFornecedores), além de permissão granular.
+  /// Legado; fornecedores no painel só para o mesmo núcleo.
   final bool? podeVerFornecedores;
 
   /// Gestor libera PDFs de membros/aniversariantes etc. (senão só Relatório de Eventos).
@@ -299,6 +300,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
       setState(() => _selectedIndex = idx);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = 2);
@@ -1842,6 +1844,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           key: const ValueKey('page_18'),
           tenantId: widget.tenantId,
           gestorRole: widget.role,
+          permissions: widget.permissions,
           embeddedInShell: true,
         );
       case 19:

@@ -161,6 +161,28 @@ class RelatoriosPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!AppPermissions.canAccessChurchRelatoriosHub(role)) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        appBar: AppBar(
+          backgroundColor: ThemeCleanPremium.primary,
+          foregroundColor: Colors.white,
+          title: const Text('Relatórios', style: TextStyle(fontWeight: FontWeight.w800)),
+        ),
+        body: const SafeArea(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                'Acesso restrito. Apenas administrador, gestor, pastor ou tesoureiro podem abrir o módulo Relatórios.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, height: 1.45),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final isMobile = ThemeCleanPremium.isMobile(context);
     final padding = ThemeCleanPremium.pagePadding(context);
     final hideAppBarMobile = isMobile && (embeddedInShell || !Navigator.canPop(context));

@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 class AprovarMembrosPendentesPage extends StatefulWidget {
   final String tenantId;
   final String gestorRole;
+  final List<String>? permissions;
   /// No [IgrejaCleanShell] o [ModuleHeaderPremium] já traz título e voltar — evita AppBar azul alto duplicado.
   final bool embeddedInShell;
 
@@ -20,6 +21,7 @@ class AprovarMembrosPendentesPage extends StatefulWidget {
     super.key,
     required this.tenantId,
     required this.gestorRole,
+    this.permissions,
     this.embeddedInShell = false,
   });
 
@@ -70,58 +72,151 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     return _tenantLinkageCache!;
   }
 
-  Future<void> _editarStatus(String id, String newStatus) async {
-    final linkage = await _getTenantLinkage();
-    await _membersCol.doc(id).update({
-      'alias': linkage['alias'],
-      'slug': linkage['slug'],
-      'tenantId': widget.tenantId,
-      'status': newStatus,
-      'STATUS': newStatus,
-      if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
-      if (newStatus == 'reprovado') 'reprovadoEm': FieldValue.serverTimestamp(),
-    });
-    if (newStatus == 'ativo') {
+  void _showApprovalError(Object e) {
+    if (!mounted) return;
+    final msg = e is FirebaseException
+        ? (e.message != null && e.message!.isNotEmpty
+            ? e.message!
+            : 'Sem permissão ou falha de rede (${e.code}).')
+        : e.toString();
+    ThemeCleanPremium.showErrorSnackBarWithRetry(context, msg);
+  }
+
+  Future<void> _aprovarUm(String id) async {
+    try {
+      final linkage = await _getTenantLinkage();
+      await _membersCol.doc(id).update({
+        'alias': linkage['alias'],
+        'slug': linkage['slug'],
+        'tenantId': widget.tenantId,
+        'status': 'ativo',
+        'STATUS': 'ativo',
+        'aprovadoEm': FieldValue.serverTimestamp(),
+      });
       try {
         await FirebaseFunctions.instanceFor(region: 'us-central1')
             .httpsCallable('setMemberApproved')
             .call({'tenantId': widget.tenantId, 'memberId': id});
       } catch (_) {}
+      if (mounted) setState(() => _selecionados.remove(id));
+    } catch (e) {
+      _showApprovalError(e);
     }
-    setState(() => _selecionados.remove(id));
+  }
+
+  Future<void> _confirmarExcluirUm(String id, String nomeRapido) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Excluir cadastro pendente'),
+        content: Text(
+          nomeRapido.trim().isNotEmpty
+              ? 'Remover permanentemente o cadastro de «$nomeRapido»? Não é possível desfazer.'
+              : 'Remover permanentemente este cadastro pendente? Não é possível desfazer.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _membersCol.doc(id).delete();
+      if (mounted) {
+        setState(() => _selecionados.remove(id));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(ThemeCleanPremium.successSnackBar('Cadastro excluído.'));
+      }
+    } catch (e) {
+      _showApprovalError(e);
+    }
   }
 
   Future<void> _batchAction(String newStatus) async {
     if (_selecionados.isEmpty) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final linkage = await _getTenantLinkage();
-    final batch = FirebaseFirestore.instance.batch();
-    for (final id in _selecionados) {
-      batch.update(_membersCol.doc(id), {
-        'alias': linkage['alias'],
-        'slug': linkage['slug'],
-        'tenantId': widget.tenantId,
-        'status': newStatus,
-        'STATUS': newStatus,
-        if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
-        if (newStatus == 'reprovado') 'reprovadoEm': FieldValue.serverTimestamp(),
-      });
-    }
-    await batch.commit();
-    if (newStatus == 'ativo') {
-      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      for (final id in _selecionados) {
-        try {
-          await functions
-              .httpsCallable('setMemberApproved')
-              .call({'tenantId': widget.tenantId, 'memberId': id});
-        } catch (_) {}
+    final count = _selecionados.length;
+    final ids = Set<String>.from(_selecionados);
+
+    if (newStatus == 'reprovado') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          title: const Text('Excluir cadastros'),
+          content: Text(
+            count == 1
+                ? 'Remover permanentemente 1 cadastro pendente? Não é possível desfazer.'
+                : 'Remover permanentemente $count cadastros pendentes? Não é possível desfazer.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Excluir'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        final batch = FirebaseFirestore.instance.batch();
+        for (final id in ids) {
+          batch.delete(_membersCol.doc(id));
+        }
+        await batch.commit();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
+              count == 1 ? 'Cadastro excluído.' : '$count cadastros excluídos.'));
+          setState(() => _selecionados.clear());
+        }
+      } catch (e) {
+        _showApprovalError(e);
       }
+      return;
     }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
-          '${_selecionados.length} membro(s) ${newStatus == 'ativo' ? 'aprovado(s)' : 'reprovado(s)'}.'));
-      setState(() => _selecionados.clear());
+
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final linkage = await _getTenantLinkage();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final id in ids) {
+        batch.update(_membersCol.doc(id), {
+          'alias': linkage['alias'],
+          'slug': linkage['slug'],
+          'tenantId': widget.tenantId,
+          'status': newStatus,
+          'STATUS': newStatus,
+          if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      if (newStatus == 'ativo') {
+        final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+        for (final id in ids) {
+          try {
+            await functions
+                .httpsCallable('setMemberApproved')
+                .call({'tenantId': widget.tenantId, 'memberId': id});
+          } catch (_) {}
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
+            '$count membro(s) aprovado(s).'));
+        setState(() => _selecionados.clear());
+      }
+    } catch (e) {
+      _showApprovalError(e);
     }
   }
 
@@ -141,39 +236,45 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       ),
     );
     if (ok != true) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final linkage = await _getTenantLinkage();
-    final batch = FirebaseFirestore.instance.batch();
-    for (final d in docs) {
-      batch.update(_membersCol.doc(d.id), {
-        'alias': linkage['alias'],
-        'slug': linkage['slug'],
-        'tenantId': widget.tenantId,
-        'status': 'ativo',
-        'STATUS': 'ativo',
-        'aprovadoEm': FieldValue.serverTimestamp(),
-      });
-    }
-    await batch.commit();
-    final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-    for (final d in docs) {
-      try {
-        await functions
-            .httpsCallable('setMemberApproved')
-            .call({'tenantId': widget.tenantId, 'memberId': d.id});
-      } catch (_) {}
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('${docs.length} membro(s) aprovado(s)!'));
-      setState(() => _selecionados.clear());
+    final n = docs.length;
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final linkage = await _getTenantLinkage();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final d in docs) {
+        batch.update(_membersCol.doc(d.id), {
+          'alias': linkage['alias'],
+          'slug': linkage['slug'],
+          'tenantId': widget.tenantId,
+          'status': 'ativo',
+          'STATUS': 'ativo',
+          'aprovadoEm': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      for (final d in docs) {
+        try {
+          await functions
+              .httpsCallable('setMemberApproved')
+              .call({'tenantId': widget.tenantId, 'memberId': d.id});
+        } catch (_) {}
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar('$n membro(s) aprovado(s)!'));
+        setState(() => _selecionados.clear());
+      }
+    } catch (e) {
+      _showApprovalError(e);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    if (!AppPermissions.canEditDepartments(widget.gestorRole)) {
+    if (!AppPermissions.canApprovePendingMemberSignups(widget.gestorRole,
+        permissions: widget.permissions)) {
       return const Scaffold(body: Center(child: Text('Acesso restrito.')));
     }
     return Scaffold(
@@ -341,7 +442,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                 IconButton(
                   icon: const Icon(Icons.cancel_rounded, color: Colors.redAccent),
                   onPressed: () => _batchAction('reprovado'),
-                  tooltip: 'Reprovar',
+                  tooltip: 'Excluir cadastros',
                   style: IconButton.styleFrom(
                       minimumSize: const Size(
                           ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
@@ -464,79 +565,88 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                       ),
                       child: Material(
                         color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          onTap: () => setState(() {
-                            if (sel) {
-                              _selecionados.remove(d.id);
-                            } else {
-                              _selecionados.add(d.id);
-                            }
-                          }),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Checkbox(
-                                  value: sel,
-                                  onChanged: (v) => setState(() {
-                                    if (v == true) {
-                                      _selecionados.add(d.id);
-                                    } else {
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  borderRadius:
+                                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                  onTap: () => setState(() {
+                                    if (sel) {
                                       _selecionados.remove(d.id);
+                                    } else {
+                                      _selecionados.add(d.id);
                                     }
                                   }),
-                                ),
-                                const SizedBox(width: 8),
-                                ClipOval(
-                                  child: SizedBox(
-                                    width: 44,
-                                    height: 44,
-                                    child: hasFoto
-                                        ? SafeNetworkImage(
-                                            imageUrl: foto,
-                                            fit: BoxFit.cover,
-                                            placeholder: _avatarPlaceholder(nome),
-                                            errorWidget: _avatarPlaceholder(nome),
-                                          )
-                                        : _avatarPlaceholder(nome),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: sel,
+                                        onChanged: (v) => setState(() {
+                                          if (v == true) {
+                                            _selecionados.add(d.id);
+                                          } else {
+                                            _selecionados.remove(d.id);
+                                          }
+                                        }),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ClipOval(
+                                        child: SizedBox(
+                                          width: 44,
+                                          height: 44,
+                                          child: hasFoto
+                                              ? SafeNetworkImage(
+                                                  imageUrl: foto,
+                                                  fit: BoxFit.cover,
+                                                  placeholder: _avatarPlaceholder(nome),
+                                                  errorWidget: _avatarPlaceholder(nome),
+                                                )
+                                              : _avatarPlaceholder(nome),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                          child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                            Text(nome,
+                                                style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 14)),
+                                            if (email.isNotEmpty)
+                                              Text(email,
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey.shade600)),
+                                          ])),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                    child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                      Text(nome,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w800, fontSize: 14)),
-                                      if (email.isNotEmpty)
-                                        Text(email,
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade600)),
-                                    ])),
-                                IconButton(
-                                  icon: const Icon(Icons.check_rounded,
-                                      color: ThemeCleanPremium.success),
-                                  onPressed: () => _editarStatus(d.id, 'ativo'),
-                                  tooltip: 'Aprovar',
-                                  style: IconButton.styleFrom(
-                                      minimumSize: const Size(
-                                          ThemeCleanPremium.minTouchTarget,
-                                          ThemeCleanPremium.minTouchTarget)),
-                                ),
-                                IconButton(
-                                  icon: Icon(Icons.close_rounded, color: Colors.red.shade400),
-                                  onPressed: () => _editarStatus(d.id, 'reprovado'),
-                                  tooltip: 'Reprovar',
-                                  style: IconButton.styleFrom(
-                                      minimumSize: const Size(
-                                          ThemeCleanPremium.minTouchTarget,
-                                          ThemeCleanPremium.minTouchTarget)),
-                                ),
-                              ],
-                            ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.check_rounded,
+                                    color: ThemeCleanPremium.success),
+                                onPressed: () => _aprovarUm(d.id),
+                                tooltip: 'Aprovar',
+                                style: IconButton.styleFrom(
+                                    minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget)),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.close_rounded, color: Colors.red.shade400),
+                                onPressed: () => _confirmarExcluirUm(d.id, nome),
+                                tooltip: 'Excluir cadastro',
+                                style: IconButton.styleFrom(
+                                    minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget)),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1581,7 +1691,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Aprovações e reprovações passam a aparecer aqui quando os campos aprovadoEm / reprovadoEm forem gravados.',
+                        'Aprovações aparecem pela data em aprovadoEm. Ao excluir um pendente (X), o cadastro é removido e não entra aqui; fichas antigas com status reprovado e reprovadoEm continuam visíveis.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade500, height: 1.35),
                       ),

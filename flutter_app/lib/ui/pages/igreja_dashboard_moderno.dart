@@ -597,7 +597,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _TarefasPendentes(tenantId: _effectiveTenantId, role: widget.role),
+                        _TarefasPendentes(
+                            tenantId: _effectiveTenantId,
+                            role: widget.role,
+                            permissions: widget.permissions),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         SizedBox(
                           width: isNarrow ? double.infinity : 380,
@@ -4637,7 +4640,9 @@ class _PainelDespesasDashboard extends StatelessWidget {
 class _TarefasPendentes extends StatelessWidget {
   final String tenantId;
   final String role;
-  const _TarefasPendentes({required this.tenantId, required this.role});
+  final List<String>? permissions;
+  const _TarefasPendentes(
+      {required this.tenantId, required this.role, this.permissions});
 
   @override
   Widget build(BuildContext context) {
@@ -4647,13 +4652,19 @@ class _TarefasPendentes extends StatelessWidget {
       icon: Icons.checklist_rounded,
       child: Column(
         children: [
-          if (AppPermissions.canEditDepartments(role)) ...[
+          if (AppPermissions.canApprovePendingMemberSignups(role,
+              permissions: permissions)) ...[
             _PendingRow(
               icon: Icons.person_add_rounded,
               color: const Color(0xFFE11D48),
               label: 'Membros pendentes de aprovação',
               stream: ref.collection('membros').where('status', isEqualTo: 'pendente').snapshots(),
-              onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(AprovarMembrosPendentesPage(tenantId: tenantId, gestorRole: role))),
+              onTap: () => Navigator.push(
+                  context,
+                  ThemeCleanPremium.fadeSlideRoute(AprovarMembrosPendentesPage(
+                      tenantId: tenantId,
+                      gestorRole: role,
+                      permissions: permissions))),
             ),
             const SizedBox(height: 10),
           ],

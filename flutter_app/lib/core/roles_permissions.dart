@@ -303,6 +303,22 @@ class ChurchRolePermissions {
     return permissions.map((e) => e.trim().toLowerCase()).contains(key);
   }
 
+  /// Administrador, gestor, pastor ou tesoureiro(a) — únicos com Financeiro, Património,
+  /// Fornecedores e Relatórios no painel. Ignora flags no cadastro do membro e permissões granulares.
+  static bool isFinanceCoreTeam(String role) {
+    final n = normalize(role);
+    const keys = <String>{
+      ChurchRoleKeys.master,
+      ChurchRoleKeys.adm,
+      ChurchRoleKeys.gestor,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.tesoureiro,
+      ChurchRoleKeys.tesouraria,
+    };
+    return keys.contains(n);
+  }
+
   /// Itens do menu [IgrejaCleanShell] (índices 0–23).
   static bool shellAllowsNavIndex(
     String role,
@@ -315,20 +331,11 @@ class ChurchRolePermissions {
     final s = snapshotFor(role);
     final r = normalize(role);
 
-    bool fin() =>
-        s.viewFinance ||
-        _hasGranularModule(permissions, 'financeiro') ||
-        (r == ChurchRoleKeys.membro && memberCanViewFinance == true);
+    bool fin() => isFinanceCoreTeam(role);
 
-    bool pat() =>
-        s.viewPatrimonio ||
-        _hasGranularModule(permissions, 'patrimonio') ||
-        (r == ChurchRoleKeys.membro && memberCanViewPatrimonio == true);
+    bool pat() => isFinanceCoreTeam(role);
 
-    bool fornec() =>
-        _hasGranularModule(permissions, 'fornecedores') ||
-        (r == ChurchRoleKeys.membro && memberCanViewFornecedores == true) ||
-        fin();
+    bool fornec() => isFinanceCoreTeam(role);
 
     switch (index) {
       case 0:
@@ -399,12 +406,13 @@ class ChurchRolePermissions {
         }
         return s.editAnyMember || s.approvePendingMembers;
       case 15:
-        return true;
+        return isFinanceCoreTeam(role);
       case 16:
         return true;
       case 17:
         return true;
       case 18:
+        if (_hasGranularModule(permissions, 'membros')) return true;
         return s.approvePendingMembers;
       case 19:
         return !s.restrictedNav &&

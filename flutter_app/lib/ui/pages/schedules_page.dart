@@ -37,7 +37,6 @@ import 'package:gestao_yahweh/utils/schedule_swaps_report_pdf.dart';
 import 'package:gestao_yahweh/utils/escala_relatorio_premium_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -68,6 +67,25 @@ enum _InstanceDetailMemberFilter {
 
 String _normCpfKeyForFilter(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
+/// Lê valor em mapas chaveados por CPF (`confirmations`, `unavailabilityReasons`) quando a
+/// chave no Firestore pode ser só dígitos e [memberCpfs] traz o CPF formatado, ou o inverso.
+String _scheduleCpfKeyedMapValue(String cpfKey, Map<String, dynamic> map) {
+  if (map.isEmpty) return '';
+  final direct = map[cpfKey];
+  if (direct != null) {
+    final s = direct.toString();
+    if (s.isNotEmpty) return s;
+  }
+  final norm = _normCpfKeyForFilter(cpfKey);
+  if (norm.length != 11) return '';
+  for (final e in map.entries) {
+    if (_normCpfKeyForFilter(e.key.toString()) == norm) {
+      return (e.value ?? '').toString();
+    }
+  }
+  return '';
+}
+
 bool _memberMatchesInstanceDetailFilter(
   _InstanceDetailMemberFilter f,
   String cpfKey,
@@ -75,7 +93,7 @@ bool _memberMatchesInstanceDetailFilter(
   Set<String>? cpfsNormInCompletedSwaps,
 }) {
   if (f == _InstanceDetailMemberFilter.todos) return true;
-  final raw = (confirmations[cpfKey] ?? '').toString();
+  final raw = _scheduleCpfKeyedMapValue(cpfKey, confirmations);
   final keyNorm = _normCpfKeyForFilter(cpfKey);
   if (f == _InstanceDetailMemberFilter.trocasRealizadas) {
     final set = cpfsNormInCompletedSwaps;
@@ -3191,7 +3209,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             memberStats.putIfAbsent(cpf, () => _MemberScaleStats(name: name, cpf: cpf));
             final st = memberStats[cpf]!;
             st.escalas++;
-            final status = (confirmations[cpf] ?? '').toString();
+            final status = _scheduleCpfKeyedMapValue(cpf, confirmations);
             if (status == 'confirmado') {
               st.presencas++;
               totalPresencas++;
@@ -4476,14 +4494,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   static String? _reasonForCpf(Map<String, dynamic> unavailabilityReasons, String cpf) {
-    final v = unavailabilityReasons[cpf];
-    if (v is Map && v['reason'] != null) return v['reason'].toString().trim();
-    for (final k in unavailabilityReasons.keys) {
-      if ((k ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '') == cpf.replaceAll(RegExp(r'[^0-9]'), '')) {
-        final val = unavailabilityReasons[k];
-        if (val is Map && val['reason'] != null) return val['reason'].toString().trim();
-        break;
-      }
+    final norm = _normCpfKeyForFilter(cpf);
+    String? fromVal(dynamic val) {
+      if (val is Map && val['reason'] != null) return val['reason'].toString().trim();
+      if (val is String && val.trim().isNotEmpty) return val.trim();
+      return null;
+    }
+    final direct = unavailabilityReasons[cpf];
+    final r0 = fromVal(direct);
+    if (r0 != null && r0.isNotEmpty) return r0;
+    for (final e in unavailabilityReasons.entries) {
+      final k = e.key.toString();
+      if (k != cpf && _normCpfKeyForFilter(k) != norm) continue;
+      final r = fromVal(e.value);
+      if (r != null && r.isNotEmpty) return r;
     }
     return null;
   }
@@ -4923,7 +4947,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             ),
                           _InteractiveStatusSummary(
                             confirmations: confirmations,
-                            total: cpfs.length,
+                            memberCpfs: cpfs,
                             trocasRealizadasCount: concluidas.length,
                             selected: instanceMemberFilter,
                             onSelect: (f) => filterNotifier.value = f,
@@ -4948,7 +4972,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                   return _MemberConfirmationTile(
                                     cpf: cpfKey,
                                     name: memberIndex < names.length ? names[memberIndex] : '',
-                                    status: (confirmations[cpfKey] ?? '').toString(),
+                                    status: _scheduleCpfKeyedMapValue(cpfKey, confirmations),
                                     unavailabilityReason: _reasonForCpf(unavailabilityReasons, cpfKey),
                                     canWrite: _canWrite,
                                     onChangeStatus: (newStatus) async {
@@ -7067,14 +7091,15 @@ class _MemberConfirmationTile extends StatelessWidget {
 
 class _InteractiveStatusSummary extends StatelessWidget {
   final Map<String, dynamic> confirmations;
-  final int total;
+  /// Mesma ordem do documento da escala — contagens alinhadas à lista «Membros escalados».
+  final List<String> memberCpfs;
   /// Pedidos de troca com status `concluida` nesta escala.
   final int trocasRealizadasCount;
   final _InstanceDetailMemberFilter selected;
   final ValueChanged<_InstanceDetailMemberFilter> onSelect;
   const _InteractiveStatusSummary({
     required this.confirmations,
-    required this.total,
+    required this.memberCpfs,
     required this.trocasRealizadasCount,
     required this.selected,
     required this.onSelect,
@@ -7082,13 +7107,15 @@ class _InteractiveStatusSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final total = memberCpfs.length;
     int confirmed = 0, unavailable = 0, faltaNj = 0;
-    for (final v in confirmations.values) {
-      if (v == 'confirmado') {
+    for (final cpf in memberCpfs) {
+      final raw = _scheduleCpfKeyedMapValue(cpf, confirmations);
+      if (raw == 'confirmado') {
         confirmed++;
-      } else if (v == 'indisponivel') {
+      } else if (raw == 'indisponivel') {
         unavailable++;
-      } else if (v == 'falta_nao_justificada') {
+      } else if (raw == 'falta_nao_justificada') {
         faltaNj++;
       }
     }
@@ -7202,35 +7229,6 @@ class _MemberScaleStats {
   _MemberScaleStats({required this.name, required this.cpf});
 }
 
-class _ReportSummaryCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-  const _ReportSummaryCard({required this.label, required this.value, required this.icon, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: color.withOpacity(0.2)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 28, color: color),
-          const SizedBox(height: 6),
-          Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color)),
-          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
-        ],
-      ),
-    );
-  }
-}
-
 /// Card premium para detalhe de uma escala no drill-down de relatórios.
 class _EscalaDrillCard extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
@@ -7282,7 +7280,7 @@ class _EscalaDrillCard extends StatelessWidget {
     var nNeg = 0;
     var nPend = 0;
     for (final cpf in cpfs) {
-      final s = (confirmations[cpf] ?? '').toString();
+      final s = _scheduleCpfKeyedMapValue(cpf, confirmations);
       if (s == 'confirmado') {
         nConf++;
       } else if (s == 'indisponivel' || s == 'falta_nao_justificada') {
@@ -7484,7 +7482,7 @@ class _EscalaDrillCard extends StatelessWidget {
                     ...List.generate(total, (i) {
                       final cpf = i < cpfs.length ? cpfs[i] : '';
                       final name = i < names.length && names[i].isNotEmpty ? names[i] : (cpf.isNotEmpty ? cpf : '—');
-                      final st = (confirmations[cpf] ?? '').toString();
+                      final st = _scheduleCpfKeyedMapValue(cpf, confirmations);
                       final col = _statusColor(st);
                       return Padding(
                         padding: EdgeInsets.only(bottom: i == total - 1 ? 0 : 8),

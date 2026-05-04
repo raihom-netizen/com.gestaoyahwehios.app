@@ -189,6 +189,63 @@ async function canManageTenant(uid: string, tokenRole: unknown, tokenTenantId: u
   return false;
 }
 
+async function callerBelongsToTenant(callerUid: string, tenantId: string): Promise<boolean> {
+  if (!tenantId) return false;
+  try {
+    const u = await db.collection("users").doc(callerUid).get();
+    const data = u.exists ? u.data() || {} : {};
+    const ut = String((data as any).tenantId || (data as any).igrejaId || "").trim();
+    if (ut === tenantId) return true;
+  } catch (_) {}
+  try {
+    const iu = await db.collection("igrejas").doc(tenantId).collection("users").doc(callerUid).get();
+    if (iu.exists) return true;
+  } catch (_) {}
+  return false;
+}
+
+/** Alinhado a [AppPermissions.canEditMembersDirectory] + pertença à igreja. */
+async function callerCanEditMembersDirectory(
+  callerUid: string,
+  tokenRole: unknown,
+  tokenTenantId: unknown,
+  tenantId: string,
+  email: string
+): Promise<boolean> {
+  if (await isAdminPanelActor(callerUid, tokenRole, email)) return true;
+  if (!(await callerBelongsToTenant(callerUid, tenantId))) return false;
+  if (await canManageTenant(callerUid, tokenRole, tokenTenantId, tenantId)) return true;
+
+  try {
+    const churchUser = await db.collection("igrejas").doc(tenantId).collection("users").doc(callerUid).get();
+    if (churchUser.exists) {
+      const perms = ((churchUser.data() as any)?.permissions as string[]) || [];
+      const set = new Set(perms.map((p) => String(p).trim().toLowerCase()));
+      if (set.has("membros_edicao") || (set.has("membros") && !set.has("membros_ver"))) return true;
+      if (set.has("membros_ver") && !set.has("membros_edicao") && !set.has("membros")) return false;
+    }
+  } catch (_) {}
+
+  const role = normalizeRole(await resolveRoleFromTokenOrDb(callerUid, tokenRole));
+  const allowed = new Set([
+    "MASTER",
+    "ADMIN",
+    "ADM",
+    "GESTOR",
+    "PASTOR_PRESIDENTE",
+    "PASTOR",
+    "PASTORA",
+    "PASTOR_AUXILIAR",
+    "SECRETARIO",
+    "PRESBITERO",
+    "PRESBITERA",
+    "LIDER_DEPARTAMENTO",
+    "LIDER",
+  ]);
+  if (allowed.has(role)) return true;
+  return false;
+}
+
 async function getDrive() {
   const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
@@ -4785,6 +4842,217 @@ export const setMemberPassword = functions
     }
     return { ok: true, message: "Senha alterada." };
   });
+
+/**
+ * Remove login Firebase Auth + users/usersIndex na igreja (Admin SDK).
+ * O cliente apaga em seguida `membros/{id}`, Storage, etc.
+ */
+export const purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+  }
+  const tenantId = String(data?.tenantId || "").trim();
+  const memberId = String(data?.memberId || "").trim();
+  const authUidOverride = String(data?.authUid || "").trim();
+  if (!tenantId || !memberId) {
+    throw new functions.https.HttpsError("invalid-argument", "tenantId e memberId são obrigatórios.");
+  }
+  const callerUid = context.auth.uid;
+  const email = String((context.auth.token?.email as string) || "").trim().toLowerCase();
+  const can = await callerCanEditMembersDirectory(
+    callerUid,
+    context.auth.token?.role,
+    context.auth.token?.igrejaId || context.auth.token?.tenantId,
+    tenantId,
+    email
+  );
+  if (!can) {
+    throw new functions.https.HttpsError("permission-denied", "Sem permissão para excluir este cadastro.");
+  }
+
+  const found = await findMemberDocument(tenantId, memberId);
+  if (!found) {
+    return { ok: true, skipped: true, reason: "membro_nao_encontrado" };
+  }
+
+  const d = found.data || {};
+  let authUid = authUidOverride || String((d as any).authUid || "").trim();
+  if (!authUid) {
+    const mid = String(memberId || "").trim();
+    if (mid.length >= 20 && mid.length <= 36 && /^[a-zA-Z0-9]+$/.test(mid)) {
+      try {
+        await admin.auth().getUser(mid);
+        authUid = mid;
+      } catch (_) {
+        /* não é UID Auth */
+      }
+    }
+  }
+
+  if (authUid && authUid === callerUid) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "Não é possível apagar a própria conta por este fluxo."
+    );
+  }
+
+  const cpf = String((d as any).CPF || (d as any).cpf || "").replace(/\D/g, "");
+
+  let authDeleted = false;
+  if (authUid) {
+    try {
+      await admin.auth().deleteUser(authUid);
+      authDeleted = true;
+    } catch (e: unknown) {
+      const code = String((e as { code?: string })?.code || "");
+      if (code !== "auth/user-not-found") {
+        console.warn("purgeMemberFirebaseLogin deleteUser", e);
+      }
+    }
+  }
+
+  if (authUid) {
+    try {
+      const tokRef = db.collection("users").doc(authUid).collection("fcmTokens");
+      const tokSnap = await tokRef.get();
+      const b = db.batch();
+      tokSnap.docs.forEach((doc) => b.delete(doc.ref));
+      if (!tokSnap.empty) await b.commit();
+    } catch (e) {
+      console.warn("purgeMemberFirebaseLogin fcmTokens", e);
+    }
+    try {
+      await db.collection("users").doc(authUid).delete();
+    } catch (e) {
+      console.warn("purgeMemberFirebaseLogin users", e);
+    }
+    try {
+      await db.collection("igrejas").doc(tenantId).collection("users").doc(authUid).delete();
+    } catch (e) {
+      console.warn("purgeMemberFirebaseLogin igrejas/users", e);
+    }
+  }
+
+  if (cpf.length === 11) {
+    try {
+      await db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf).delete();
+    } catch (_) {}
+    try {
+      await db.collection("igrejas").doc(tenantId).collection("usersIndex").doc(cpf).delete();
+    } catch (_) {}
+  }
+
+  try {
+    await db.collection("auditoria").add({
+      acao: "member_purge_login",
+      resource: "purgeMemberFirebaseLogin",
+      details: `memberId=${memberId} authUid=${authUid || "-"} authDeleted=${authDeleted}`,
+      usuario: email || callerUid,
+      uid: callerUid,
+      igrejaId: tenantId,
+      data: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (_) {}
+
+  return { ok: true, authDeleted, authUid: authUid || null };
+});
+
+/**
+ * Master: remapeia ficha `membros` + Storage + claims para um UID já existente no Auth
+ * (mesma lógica do script `scripts/migrate-membro-auth-uid.js`).
+ */
+export const masterRelinkMembroAuthUid = functions.region("us-central1").https.onCall(async (data, context) => {
+  const email = String(context.auth?.token?.email || "").trim().toLowerCase();
+  if (!context.auth || !(await isAdminPanelActor(context.auth.uid, context.auth.token?.role, email))) {
+    throw new functions.https.HttpsError("permission-denied", "Apenas operador do painel master.");
+  }
+  const tenantId = String(data?.tenantId || "").trim();
+  const memberId = String(data?.memberId || "").trim();
+  const newAuthUid = String(data?.newAuthUid || data?.to || "").trim();
+  if (!tenantId || !memberId || !newAuthUid) {
+    throw new functions.https.HttpsError("invalid-argument", "tenantId, memberId e newAuthUid são obrigatórios.");
+  }
+
+  const found = await findMemberDocument(tenantId, memberId);
+  if (!found) {
+    throw new functions.https.HttpsError("not-found", "Documento de membro não encontrado.");
+  }
+
+  const memberRef = found.ref;
+  const memberData = found.data || {};
+  const oldDocId = memberRef.id;
+  const authUser = await admin.auth().getUser(newAuthUid);
+
+  if (oldDocId === newAuthUid) {
+    const payload: Record<string, unknown> = {
+      ...((memberData as unknown) as Record<string, unknown>),
+      authUid: newAuthUid,
+      MEMBER_ID: newAuthUid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await memberRef.set(payload, { merge: true });
+    await applyMemberAuthSideEffects(tenantId, newAuthUid, payload as admin.firestore.DocumentData, authUser);
+    return { ok: true, unchanged: true, membroFirestoreId: newAuthUid };
+  }
+
+  const newRefProbe = db.collection("igrejas").doc(tenantId).collection("membros").doc(newAuthUid);
+  const clash = await newRefProbe.get();
+  if (clash.exists && clash.id !== memberRef.id) {
+    throw new functions.https.HttpsError(
+      "already-exists",
+      `Já existe outro cadastro em membros/${newAuthUid}. Resolva antes.`
+    );
+  }
+
+  await copyIgrejaMembroStorageFolder(tenantId, oldDocId, newAuthUid);
+
+  const newRef = db.collection("igrejas").doc(tenantId).collection("membros").doc(newAuthUid);
+  const payload: Record<string, unknown> = {
+    ...((memberData as unknown) as Record<string, unknown>),
+    authUid: newAuthUid,
+    MEMBER_ID: newAuthUid,
+    legacyMemberDocId: oldDocId,
+    photoStoragePath: `igrejas/${tenantId}/membros/${newAuthUid}/foto_perfil.jpg`,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  await newRef.set(payload, { merge: true });
+  await memberRef.delete();
+
+  const uidKeys = new Set<string>();
+  const aOld = String((memberData as any).authUid || "").trim();
+  if (aOld) uidKeys.add(aOld);
+  if (oldDocId.length >= 20 && /^[a-zA-Z0-9]+$/.test(oldDocId)) uidKeys.add(oldDocId);
+  for (const uk of uidKeys) {
+    if (uk === newAuthUid) continue;
+    const ref = db.collection("igrejas").doc(tenantId).collection("users").doc(uk);
+    const s = await ref.get();
+    if (s.exists) {
+      await db
+        .collection("igrejas")
+        .doc(tenantId)
+        .collection("users")
+        .doc(newAuthUid)
+        .set(s.data() || {}, { merge: true });
+      await ref.delete();
+    }
+  }
+
+  await applyMemberAuthSideEffects(tenantId, newAuthUid, payload, authUser);
+
+  try {
+    await db.collection("auditoria").add({
+      acao: "master_relink_membro_uid",
+      resource: "masterRelinkMembroAuthUid",
+      details: `tenant=${tenantId} oldDoc=${oldDocId} newUid=${newAuthUid}`,
+      usuario: email || context.auth.uid,
+      uid: context.auth.uid,
+      igrejaId: tenantId,
+      data: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (_) {}
+
+  return { ok: true, membroFirestoreId: newAuthUid, legacyDocId: oldDocId };
+});
 
 /**
  * Ao aprovar um membro pendente: vincula/cria usuário no Firebase Auth (senha 123456),

@@ -81,8 +81,12 @@ class _LoginPageState extends State<LoginPage> {
   /// App iOS/Android: com biometria + credenciais salvas, o usuário pode exibir e-mail/senha.
   bool _showManualCredentialFields = false;
   String? _errorMessage;
-  /// Indicador só no botão «Continuar com Google» durante OAuth.
+  /// Indicador só no botão «Continuar com Google» durante o diálogo nativo / popup.
   bool _oauthGoogleInFlight = false;
+  /// Pós-autenticação (reparo de vínculo, token) — fino, sem escurecer a tela inteira.
+  bool _sessionFinalizing = false;
+  /// Uma tentativa automática de biometria ao abrir o app (credenciais + biometria ativa).
+  bool _autoBiometricLaunched = false;
 
   _SmartStep _smartStep = _SmartStep.choosePersona;
 
@@ -217,6 +221,16 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _rememberLogin = true);
     }
     await _refreshQuickBiometricState();
+    _scheduleAutoBiometricProbe();
+  }
+
+  void _scheduleAutoBiometricProbe() {
+    if (kIsWeb) return;
+    if (!_nativeChurchLogin) return;
+    if (_useSmartFlow && _smartStep != _SmartStep.credentials) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_tryAutoBiometricLoginOnce());
+    });
   }
 
   Future<void> _persistCredentials() async {
@@ -257,6 +271,17 @@ class _LoginPageState extends State<LoginPage> {
     }
     final ready = _hasSavedCredentials && await BiometricService().canUseQuickBiometricLogin();
     if (mounted) setState(() => _quickBiometricReady = ready);
+  }
+
+  /// Abre o leitor de digital/face logo ao entrar no login (quando há senha salva e biometria ativa).
+  Future<void> _tryAutoBiometricLoginOnce() async {
+    if (_autoBiometricLaunched || !mounted) return;
+    if (!_nativeChurchLogin) return;
+    if (!_quickBiometricReady || _showManualCredentialFields) return;
+    if (_useSmartFlow && _smartStep != _SmartStep.credentials) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+    _autoBiometricLaunched = true;
+    await _onEntrarComBiometria();
   }
 
   Future<void> _forgetThisDevice() async {
@@ -301,8 +326,11 @@ class _LoginPageState extends State<LoginPage> {
       final okBio = await BiometricService().authenticate();
       if (!okBio) {
         if (!mounted) return;
+        setState(() => _showManualCredentialFields = true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Biometria não confirmada.')),
+          const SnackBar(
+            content: Text('Biometria não confirmada. Use Google ou e-mail e senha.'),
+          ),
         );
         return;
       }
@@ -368,11 +396,6 @@ class _LoginPageState extends State<LoginPage> {
       _hasSavedCredentials = _emailController.text.trim().isNotEmpty &&
           _senhaController.text.isNotEmpty;
       await _persistCredentials();
-      if (!_nativeChurchLogin) {
-        if (!mounted) return false;
-        await BiometricService().maybeEnableBiometrics(context);
-        await _refreshQuickBiometricState();
-      }
     } else {
       final u = FirebaseAuth.instance.currentUser;
       final login = (u?.email ?? _emailController.text).trim();
@@ -393,6 +416,10 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
       _hasSavedCredentials = false;
+      await _refreshQuickBiometricState();
+    }
+    if (mounted && _nativeChurchLogin) {
+      await BiometricService().maybeEnableBiometrics(context);
       await _refreshQuickBiometricState();
     }
     if (mounted) setState(() => _errorMessage = null);
@@ -493,7 +520,12 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _onGoogleChurchLogin() async {
-    if (!_showChurchGoogleButton || _loading || _oauthGoogleInFlight) return;
+    if (!_showChurchGoogleButton ||
+        _loading ||
+        _oauthGoogleInFlight ||
+        _sessionFinalizing) {
+      return;
+    }
     setState(() {
       _errorMessage = null;
       _oauthGoogleInFlight = true;
@@ -553,7 +585,19 @@ class _LoginPageState extends State<LoginPage> {
 
       if (cred.user == null || !mounted) return;
 
-      await _afterGoogleSignInSuccess();
+      if (mounted) {
+        setState(() {
+          _oauthGoogleInFlight = false;
+          _sessionFinalizing = true;
+        });
+      }
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) {
+          setState(() => _sessionFinalizing = false);
+        }
+      }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       await FirebaseAuth.instance.signOut();
@@ -966,7 +1010,7 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildChurchOAuthButtons(Color theme) {
     if (!_showChurchGoogleButton) return const SizedBox.shrink();
     final radius = BorderRadius.circular(ThemeCleanPremium.radiusMd);
-    final busy = _loading || _oauthGoogleInFlight;
+    final busy = _loading || _oauthGoogleInFlight || _sessionFinalizing;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1182,11 +1226,14 @@ class _LoginPageState extends State<LoginPage> {
           title: 'Sou membro',
           subtitle:
               'Já sou cadastrado na minha igreja. Entrar com Google ou e-mail e senha.',
-          onTap: () => setState(() {
-            _credentialsAsMembro = true;
-            _smartStep = _SmartStep.credentials;
-            _errorMessage = null;
-          }),
+          onTap: () {
+            setState(() {
+              _credentialsAsMembro = true;
+              _smartStep = _SmartStep.credentials;
+              _errorMessage = null;
+            });
+            _scheduleAutoBiometricProbe();
+          },
         ),
         const SizedBox(height: 12),
         card(
@@ -1273,11 +1320,14 @@ class _LoginPageState extends State<LoginPage> {
         OutlinedButton.icon(
           onPressed: _loading
               ? null
-              : () => setState(() {
+              : () {
+                  setState(() {
                     _credentialsAsMembro = false;
                     _smartStep = _SmartStep.credentials;
                     _errorMessage = null;
-                  }),
+                  });
+                  _scheduleAutoBiometricProbe();
+                },
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
             side: BorderSide(color: theme.withValues(alpha: 0.6)),
@@ -1647,6 +1697,21 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
+              if (_sessionFinalizing)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Material(
+                    elevation: 6,
+                    shadowColor: Colors.black26,
+                    child: LinearProgressIndicator(
+                      minHeight: 3,
+                      backgroundColor: Colors.white.withValues(alpha: 0.35),
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
               SafeArea(
                 child: Column(
             children: [
