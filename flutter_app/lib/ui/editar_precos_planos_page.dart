@@ -7,7 +7,8 @@ import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
 /// Lista todos os planos oficiais (mesma lista do painel divulgação e painel igreja).
-/// Permite ao master editar preço mensal e anual; grava em config/plans/items/{planId}.
+/// Permite ao master editar preços, nome exibido, texto de faixa de membros e limite máximo;
+/// grava em `config/plans/items/{planId}` (campos opcionais vazios removem override no Firestore).
 class EditarPrecosPlanosPage extends StatefulWidget {
   const EditarPrecosPlanosPage({super.key});
 
@@ -18,11 +19,11 @@ class EditarPrecosPlanosPage extends StatefulWidget {
 class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
   bool _loading = false;
   String? _err;
-  /// Preços carregados do Firestore (planId -> { priceMonthly, priceAnnual }).
-  final Map<String, double?> _priceMonthly = {};
-  final Map<String, double?> _priceAnnual = {};
   final Map<String, TextEditingController> _controllersMonthly = {};
   final Map<String, TextEditingController> _controllersAnnual = {};
+  final Map<String, TextEditingController> _controllersName = {};
+  final Map<String, TextEditingController> _controllersMembers = {};
+  final Map<String, TextEditingController> _controllersMaxMembers = {};
 
   @override
   void initState() {
@@ -38,11 +39,46 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
     for (final c in _controllersAnnual.values) {
       c.dispose();
     }
+    for (final c in _controllersName.values) {
+      c.dispose();
+    }
+    for (final c in _controllersMembers.values) {
+      c.dispose();
+    }
+    for (final c in _controllersMaxMembers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
+  void _disposeControllers() {
+    for (final c in _controllersMonthly.values) {
+      c.dispose();
+    }
+    for (final c in _controllersAnnual.values) {
+      c.dispose();
+    }
+    for (final c in _controllersName.values) {
+      c.dispose();
+    }
+    for (final c in _controllersMembers.values) {
+      c.dispose();
+    }
+    for (final c in _controllersMaxMembers.values) {
+      c.dispose();
+    }
+    _controllersMonthly.clear();
+    _controllersAnnual.clear();
+    _controllersName.clear();
+    _controllersMembers.clear();
+    _controllersMaxMembers.clear();
+  }
+
   Future<void> _load() async {
-    setState(() { _loading = true; _err = null; });
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('config')
@@ -55,25 +91,23 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
         byId[d.id] = d.data();
       }
 
-      _controllersMonthly.clear();
-      _controllersAnnual.clear();
-      _priceMonthly.clear();
-      _priceAnnual.clear();
+      _disposeControllers();
 
       for (final plan in planosOficiais) {
-        final data = byId[plan.id];
-        final m = (data != null && data['priceMonthly'] != null)
-            ? (data['priceMonthly'] is num ? (data['priceMonthly'] as num).toDouble() : null)
-            : plan.monthlyPrice;
-        final a = (data != null && data['priceAnnual'] != null)
-            ? (data['priceAnnual'] is num ? (data['priceAnnual'] as num).toDouble() : null)
-            : plan.annualPrice;
-        _priceMonthly[plan.id] = m;
-        _priceAnnual[plan.id] = a;
+        final merged = EffectivePlanConfig.merge(plan, byId[plan.id]);
         _controllersMonthly[plan.id] = TextEditingController(
-            text: m != null && m > 0 ? formatBrCurrencyInitial(m) : '');
+          text: merged.monthlyPrice != null && merged.monthlyPrice! > 0
+              ? formatBrCurrencyInitial(merged.monthlyPrice!)
+              : '',
+        );
+        final ann = merged.annualPrice;
         _controllersAnnual[plan.id] = TextEditingController(
-            text: a != null && a > 0 ? formatBrCurrencyInitial(a) : '');
+          text: ann != null && ann > 0 ? formatBrCurrencyInitial(ann) : '',
+        );
+        _controllersName[plan.id] = TextEditingController(text: merged.name);
+        _controllersMembers[plan.id] = TextEditingController(text: merged.members);
+        _controllersMaxMembers[plan.id] =
+            TextEditingController(text: '${merged.maxMembers}');
       }
     } catch (e) {
       _err = e.toString();
@@ -85,24 +119,74 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
   Future<void> _salvar(String id) async {
     final ctrlM = _controllersMonthly[id];
     final ctrlA = _controllersAnnual[id];
-    if (ctrlM == null || ctrlA == null) return;
+    final ctrlName = _controllersName[id];
+    final ctrlMem = _controllersMembers[id];
+    final ctrlMax = _controllersMaxMembers[id];
+    if (ctrlM == null ||
+        ctrlA == null ||
+        ctrlName == null ||
+        ctrlMem == null ||
+        ctrlMax == null) {
+      return;
+    }
+    final base = planosOficiais.firstWhere(
+      (p) => p.id == id,
+      orElse: () => planosOficiais.first,
+    );
+
     final valorM = parseBrCurrencyInput(ctrlM.text);
     final ar = ctrlA.text.trim();
     final valorA = ar.isEmpty ? null : parseBrCurrencyInput(ctrlA.text);
+
+    final nameText = ctrlName.text.trim();
+    final membersText = ctrlMem.text.trim();
+    final maxText = ctrlMax.text.trim();
+
+    Object maxMembersField = FieldValue.delete();
+    if (maxText.isNotEmpty) {
+      final parsedMax = int.tryParse(maxText);
+      if (parsedMax == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Limite de membros inválido — use um número inteiro.')),
+        );
+        return;
+      }
+      if (parsedMax < 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Limite de membros não pode ser negativo.')),
+        );
+        return;
+      }
+      maxMembersField =
+          parsedMax == base.maxMembers ? FieldValue.delete() : parsedMax;
+    }
+
+    final payload = <String, dynamic>{
+      'priceMonthly': valorM,
+      if (valorA != null) 'priceAnnual': valorA,
+      if (nameText.isEmpty || nameText == base.name)
+        'name': FieldValue.delete()
+      else
+        'name': nameText,
+      if (membersText.isEmpty || membersText == base.members)
+        'members': FieldValue.delete()
+      else
+        'members': membersText,
+      'maxMembers': maxMembersField,
+    };
+
     await FirebaseFirestore.instance
         .collection('config')
         .doc('plans')
         .collection('items')
         .doc(id)
-        .set({
-      'priceMonthly': valorM,
-      if (valorA != null) 'priceAnnual': valorA,
-      'name': planosOficiais.firstWhere((p) => p.id == id, orElse: () => planosOficiais.first).name,
-    }, SetOptions(merge: true));
+        .set(payload, SetOptions(merge: true));
     if (!mounted) return;
     PlanPriceService.invalidateCache();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Preços gravados no banco!')),
+      const SnackBar(content: Text('Plano atualizado no banco (preços e limites).')),
     );
     _load();
   }
@@ -115,54 +199,85 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       body: SafeArea(
         child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _err != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Erro: $_err', style: const TextStyle(color: ThemeCleanPremium.error, fontSize: 13)),
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: _load,
-                          child: const Text('Tentar novamente'),
-                        ),
-                      ],
+            ? const Center(child: CircularProgressIndicator())
+            : _err != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Erro: $_err',
+                              style: const TextStyle(
+                                  color: ThemeCleanPremium.error, fontSize: 13)),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            onPressed: _load,
+                            child: const Text('Tentar novamente'),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                )
-              : ListView(
-                  padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
-                  children: [
-                    Text(
-                      'Todos os planos (mesma lista do painel divulgação e painel igreja). '
-                      'Altere os valores e salve para atualizar no sistema.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                    ),
-                    const SizedBox(height: 16),
-                    ...planosOficiais.map((plan) {
-                      final ctrlM = _controllersMonthly[plan.id]!;
-                      final ctrlA = _controllersAnnual[plan.id]!;
-                      return MasterPremiumCard(
-                        margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-                        child: Column(
+                  )
+                : ListView(
+                    padding: EdgeInsets.fromLTRB(padding.left, padding.top,
+                        padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
+                    children: [
+                      Text(
+                        'Todos os planos (mesma lista do site e do painel igreja). '
+                        'Alterações aplicam na divulgação web e nos apps sem nova versão — '
+                        'dados vêm do Firestore com cache curto.',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(height: 16),
+                      ...planosOficiais.map((plan) {
+                        final ctrlM = _controllersMonthly[plan.id]!;
+                        final ctrlA = _controllersAnnual[plan.id]!;
+                        final ctrlN = _controllersName[plan.id]!;
+                        final ctrlMem = _controllersMembers[plan.id]!;
+                        final ctrlMax = _controllersMaxMembers[plan.id]!;
+                        return MasterPremiumCard(
+                          margin:
+                              const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+                          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                plan.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
+                                'ID: ${plan.id}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade600,
                                 ),
                               ),
-                              Text(
-                                '${plan.members} • ID: ${plan.id}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: ctrlN,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nome exibido',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: ctrlMem,
+                                decoration: const InputDecoration(
+                                  labelText: 'Faixa de membros (texto)',
+                                  hintText: 'Ex.: Até 100 membros',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: ctrlMax,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Limite máximo de membros',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -201,12 +316,17 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Deixe nome/faixa/limite iguais ao padrão ou vazio para remover override no Firestore.',
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                              ),
                             ],
                           ),
-                      );
-                    }),
-                  ],
-                ),
+                        );
+                      }),
+                    ],
+                  ),
       ),
     );
   }

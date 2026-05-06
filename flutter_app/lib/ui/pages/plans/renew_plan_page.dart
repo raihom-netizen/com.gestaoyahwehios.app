@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_service.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
-import 'package:gestao_yahweh/services/plan_price_service.dart';
+import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/mp_checkout_embed.dart';
@@ -35,7 +35,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   String? _err;
   bool _billingAnnual = false;
   bool _paymentPix = true;
-  Map<String, ({double? monthly, double? annual})>? _effectivePrices;
+  Map<String, EffectivePlanConfig>? _effectiveConfigs;
   /// Quando não nulo, exibe o checkout Mercado Pago na mesma tela (WebView / iframe).
   MpCheckoutSession? _checkoutSession;
   /// Quando não nulo, exibe PIX pronto com QR e copia-e-cola.
@@ -258,12 +258,18 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   }
 
   Future<void> _loadPrices() async {
-    final prices = await PlanPriceService.getEffectivePrices();
-    if (mounted) setState(() => _effectivePrices = prices);
+    final cfg = await PlanPriceService.getEffectivePlanConfigs();
+    if (mounted) setState(() => _effectiveConfigs = cfg);
   }
 
-  PlanoOficial get _selectedPlan =>
-      planosOficiais.firstWhere((p) => p.id == _selected, orElse: () => planosOficiais.first);
+  PlanoOficial get _selectedPlan {
+    final cfg = _effectiveConfigs?[_selected];
+    if (cfg != null) return cfg.toPlanoOficial();
+    return planosOficiais.firstWhere(
+      (p) => p.id == _selected,
+      orElse: () => planosOficiais.first,
+    );
+  }
 
   Future<void> _activate() async {
     setState(() { _loading = true; _err = null; });
@@ -566,15 +572,16 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                     spacing: 14,
                     runSpacing: 14,
                     children: planosOficiais.map((p) {
-                      final ep = _effectivePrices?[p.id];
+                      final cfg = _effectiveConfigs?[p.id];
+                      final display = cfg?.toPlanoOficial() ?? p;
                       return SizedBox(
                         width: isMobile ? double.infinity : 280,
                         child: _PlanCardOficial(
-                          plan: p,
+                          plan: display,
                           selected: p.id == _selected,
                           onTap: () => setState(() => _selected = p.id),
-                          priceMonthly: ep?.monthly ?? p.monthlyPrice,
-                          priceAnnual: ep?.annual ?? p.annualPrice,
+                          priceMonthly: cfg?.monthlyPrice ?? p.monthlyPrice,
+                          priceAnnual: cfg?.annualPrice ?? p.annualPrice,
                         ),
                       );
                     }).toList(),

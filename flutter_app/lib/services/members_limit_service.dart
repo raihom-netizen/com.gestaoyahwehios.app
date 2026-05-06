@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:gestao_yahweh/services/plan_price_service.dart';
 
 /// Resultado da verificação de limite de membros para o tenant.
 class MembersLimitResult {
@@ -149,11 +150,13 @@ class MembersLimitService {
     String? planIdOverride,
   }) async {
     final planId = planIdOverride ?? await getPlanIdForTenant(tenantId);
-    final planLimit = getPlanLimit(planId);
+    final configs = await PlanPriceService.getEffectivePlanConfigs();
+    final cfg = configs[planId];
+    final planLimit = cfg?.maxMembers ?? getPlanLimit(planId);
     final maxPerSource = planLimit > 0 ? planLimit + 200 : 2500;
     final currentCount = await countMembers(tenantId, maxPerSource: maxPerSource);
     final hardLimit = planLimit > 0 ? planLimit + AppConstants.membersGraceOverLimit : 99999;
-    final planName = getPlanName(planId);
+    final planName = cfg?.name ?? getPlanName(planId);
     return MembersLimitResult(
       currentCount: currentCount,
       planLimit: planLimit,

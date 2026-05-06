@@ -29,7 +29,13 @@ abstract final class AppTheme {
   static const Color cardBorderLight = Color(0xFFE8EEF4);
 }
 
-/// Centraliza o filho e limita a largura em telas largas (painéis / módulos).
+/// Centraliza o filho, limita a largura em telas largas e **amarra a altura** ao viewport
+/// do painel quando as constraints são finitas.
+///
+/// Sem [maxHeight] explícito, filhos com `Column` + `Expanded` ou `ListView` recebiam
+/// altura máxima infinita (só `minHeight`), o que travava módulos do painel Master na web/mobile.
+/// Com altura fixa à área útil, o conteúdo ocupa o ecrã disponível e a **rolagem fica no módulo**
+/// (`ListView`, `SingleChildScrollView`, `CustomScrollView`).
 class SaaSContentViewport extends StatelessWidget {
   final Widget child;
 
@@ -46,28 +52,32 @@ class SaaSContentViewport extends StatelessWidget {
         if (!avail.isFinite || avail <= 0) {
           return child;
         }
-        // Tablet/mobile no navegador: mesma altura mínima do viewport que no desktop.
+        final boundedV =
+            c.hasBoundedHeight && c.maxHeight.isFinite && c.maxHeight > 0;
+        final h = boundedV ? c.maxHeight : null;
+
         if (avail < AppTheme.desktopSidebarBreakpoint) {
-          if (c.hasBoundedHeight && c.maxHeight.isFinite && c.maxHeight > 0) {
-            return ConstrainedBox(
-              constraints: BoxConstraints(minHeight: c.maxHeight),
-              child: child,
+          if (h != null) {
+            return Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: avail,
+                height: h,
+                child: child,
+              ),
             );
           }
           return child;
         }
+
         final cap = maxWidthOverride ?? AppTheme.maxContentWidthDesktop;
         final useW = avail > cap ? cap : avail;
-        // Altura mínima = viewport: evita filhos com Column+Expanded sem altura definida na web
-        // e melhora rolagem quando o módulo usa um único scroll (CustomScrollView).
-        if (c.hasBoundedHeight && c.maxHeight.isFinite && c.maxHeight > 0) {
+        if (h != null) {
           return Align(
             alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: useW,
-                minHeight: c.maxHeight,
-              ),
+            child: SizedBox(
+              width: useW,
+              height: h,
               child: child,
             ),
           );

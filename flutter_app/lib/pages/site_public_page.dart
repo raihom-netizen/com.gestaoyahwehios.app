@@ -45,7 +45,7 @@ class SitePublicPage extends StatefulWidget {
 }
 
 class _SitePublicPageState extends State<SitePublicPage> {
-  Map<String, ({double? monthly, double? annual})>? _effectivePrices;
+  Map<String, EffectivePlanConfig>? _effectiveConfigs;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -64,9 +64,9 @@ class _SitePublicPageState extends State<SitePublicPage> {
         PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       });
     }
-    // Preços = mesma fonte do Master: Firestore `config/plans/items` (+ fallback [planosOficiais]).
-    PlanPriceService.getEffectivePrices().then((p) {
-      if (mounted) setState(() => _effectivePrices = p);
+    // Planos = mesma fonte do Master: Firestore `config/plans/items` (+ fallback [planosOficiais]).
+    PlanPriceService.getEffectivePlanConfigs().then((p) {
+      if (mounted) setState(() => _effectiveConfigs = p);
     });
   }
 
@@ -464,14 +464,15 @@ class _SitePublicPageState extends State<SitePublicPage> {
                             children: planosOficiais.asMap().entries.map((e) {
                               final i = e.key;
                               final p = e.value;
-                              final ep = _effectivePrices?[p.id];
+                              final cfg = _effectiveConfigs?[p.id];
+                              final display = cfg?.toPlanoOficial() ?? p;
                               return SizedBox(
                                 width: isMobile ? double.infinity : 280,
                                 child: _PlanCard(
-                                  plan: p,
+                                  plan: display,
                                   accent: _accentForPlan(i),
-                                  priceMonthly: ep?.monthly ?? p.monthlyPrice,
-                                  priceAnnual: ep?.annual ?? p.annualPrice,
+                                  priceMonthly: cfg?.monthlyPrice ?? p.monthlyPrice,
+                                  priceAnnual: cfg?.annualPrice ?? p.annualPrice,
                                 ),
                               );
                             }).toList(),

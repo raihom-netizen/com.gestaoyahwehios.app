@@ -6,12 +6,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — visão 360: utilizadores `users/`, filtro por igreja e plataforma,
 /// pesquisa moderna e remapeamento de UID de membro (Firebase Auth + ficha).
+///
+/// Quando [embeddedInMaster] é true (painel admin), não usa AppBar próprio —
+/// evita duplicar barra e garante corpo **apenas com scroll** (sem `Expanded`
+/// preso a constraints verticais indefinidas do viewport SaaS).
 class MasterUsuariosControle360Page extends StatefulWidget {
-  const MasterUsuariosControle360Page({super.key});
+  const MasterUsuariosControle360Page({super.key, this.embeddedInMaster = true});
+
+  /// Incorporado em [AdminPanelPage]: sem AppBar local; ações no cartão superior.
+  final bool embeddedInMaster;
 
   @override
   State<MasterUsuariosControle360Page> createState() =>
@@ -41,6 +49,7 @@ class _User360Row {
 
 class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle360Page> {
   bool _loading = true;
+  String? _loadError;
   List<_User360Row> _rows = [];
   final Map<String, String> _igrejaNomePorId = {};
   String _search = '';
@@ -54,7 +63,10 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final igSnap =
@@ -80,17 +92,23 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
           return a.email.toLowerCase().compareTo(b.email.toLowerCase());
         });
 
+      if (!mounted) return;
       setState(() {
         _igrejaNomePorId
           ..clear()
           ..addAll(map);
         _rows = list;
         _loading = false;
+        _loadError = null;
       });
-    } catch (_) {
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e.toString();
       setState(() {
         _rows = [];
         _loading = false;
+        _loadError =
+            msg.length > 280 ? '${msg.substring(0, 280)}…' : msg;
       });
     }
   }
@@ -234,330 +252,471 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
     final pad = ThemeCleanPremium.pagePadding(context);
     final df = DateFormat('dd/MM/yyyy HH:mm');
     final filtrados = _filtrados;
+    final primary = ThemeCleanPremium.primary;
 
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        title: const Text('Controle 360 — Utilizadores'),
-        actions: [
-          IconButton(
-            tooltip: 'Atualizar lista',
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _load,
+    final heroCard = MasterPremiumCard(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      primary.withValues(alpha: 0.22),
+                      primary.withValues(alpha: 0.08),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: primary.withValues(alpha: 0.2)),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                ),
+                child: Icon(Icons.threesixty_rounded, color: primary, size: 26),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Utilizadores — visão 360',
+                      style: GoogleFonts.manrope(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        letterSpacing: -0.35,
+                        color: ThemeCleanPremium.onSurface,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Documentos em users/. Plataforma = última sessão no painel da igreja (web / Android / iOS).',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.embeddedInMaster) ...[
+                IconButton(
+                  tooltip: 'Atualizar lista',
+                  onPressed: _load,
+                  icon: Icon(Icons.refresh_rounded, color: primary),
+                ),
+              ],
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilledButton.icon(
-              onPressed: _abrirRemapearUid,
-              icon: const Icon(Icons.swap_horiz_rounded),
-              label: const Text('Remapear UID membro'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7C3AED),
-                foregroundColor: Colors.white,
+          if (widget.embeddedInMaster) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _abrirRemapearUid,
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 20),
+                  label: const Text('Remapear UID membro'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          TextField(
+            decoration: InputDecoration(
+              prefixIcon: Icon(Icons.search_rounded, color: primary.withValues(alpha: 0.85)),
+              hintText: 'Pesquisar por e-mail, nome, UID, igreja…',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
+            onChanged: (v) => setState(() => _search = v),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: kIsWeb ? 320 : double.infinity,
+                child: DropdownButtonFormField<String?>(
+                  value: _filtroIgrejaId, // ignore: deprecated_member_use
+                  decoration: InputDecoration(
+                    labelText: 'Igreja',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Todas as igrejas'),
+                    ),
+                    ..._igrejaNomePorId.entries.map(
+                      (e) => DropdownMenuItem<String?>(
+                        value: e.key,
+                        child: Text(
+                          e.value,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _filtroIgrejaId = v),
+                ),
+              ),
+              FilterChip(
+                label: const Text('Todos'),
+                selected: _filtroPlataforma == 'todos',
+                selectedColor: primary.withValues(alpha: 0.18),
+                checkmarkColor: primary,
+                onSelected: (_) =>
+                    setState(() => _filtroPlataforma = 'todos'),
+              ),
+              FilterChip(
+                avatar: Icon(_platformIcon('web'), size: 18),
+                label: const Text('Web'),
+                selected: _filtroPlataforma == 'web',
+                selectedColor: primary.withValues(alpha: 0.18),
+                checkmarkColor: primary,
+                onSelected: (_) =>
+                    setState(() => _filtroPlataforma = 'web'),
+              ),
+              FilterChip(
+                avatar: Icon(_platformIcon('android'), size: 18),
+                label: const Text('Android'),
+                selected: _filtroPlataforma == 'android',
+                selectedColor: primary.withValues(alpha: 0.18),
+                checkmarkColor: primary,
+                onSelected: (_) =>
+                    setState(() => _filtroPlataforma = 'android'),
+              ),
+              FilterChip(
+                avatar: Icon(_platformIcon('ios'), size: 18),
+                label: const Text('iOS'),
+                selected: _filtroPlataforma == 'ios',
+                selectedColor: primary.withValues(alpha: 0.18),
+                checkmarkColor: primary,
+                onSelected: (_) =>
+                    setState(() => _filtroPlataforma = 'ios'),
+              ),
+              FilterChip(
+                label: const Text('Sem dados'),
+                selected: _filtroPlataforma == 'desconhecido',
+                selectedColor: primary.withValues(alpha: 0.18),
+                checkmarkColor: primary,
+                onSelected: (_) =>
+                    setState(() => _filtroPlataforma = 'desconhecido'),
+              ),
+            ],
           ),
         ],
       ),
-      body: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: pad,
-                    child: MasterPremiumCard(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.threesixty_rounded,
-                                  color: ThemeCleanPremium.primary, size: 28),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Todos os utilizadores com doc em users/',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 17,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Plataforma = última sessão no painel da igreja (web / Android / iOS). '
-                            'Abra o app para popular dados.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                              height: 1.35,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            decoration: InputDecoration(
-                              prefixIcon: const Icon(Icons.search_rounded),
-                              hintText:
-                                  'Pesquisar por e-mail, nome, UID, igreja…',
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            onChanged: (v) => setState(() => _search = v),
-                          ),
-                          const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: kIsWeb ? 320 : double.infinity,
-                                child: DropdownButtonFormField<String?>(
-                                  decoration: InputDecoration(
-                                    labelText: 'Igreja',
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  value: _filtroIgrejaId,
-                                  items: [
-                                    const DropdownMenuItem<String?>(
-                                      value: null,
-                                      child: Text('Todas as igrejas'),
-                                    ),
-                                    ..._igrejaNomePorId.entries.map(
-                                      (e) => DropdownMenuItem<String?>(
-                                        value: e.key,
-                                        child: Text(
-                                          e.value,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                  onChanged: (v) =>
-                                      setState(() => _filtroIgrejaId = v),
-                                ),
-                              ),
-                              ChoiceChip(
-                                label: const Text('Todos'),
-                                selected: _filtroPlataforma == 'todos',
-                                onSelected: (_) => setState(
-                                    () => _filtroPlataforma = 'todos'),
-                              ),
-                              ChoiceChip(
-                                avatar: Icon(_platformIcon('web'), size: 18),
-                                label: const Text('Web'),
-                                selected: _filtroPlataforma == 'web',
-                                onSelected: (_) => setState(
-                                    () => _filtroPlataforma = 'web'),
-                              ),
-                              ChoiceChip(
-                                avatar: Icon(_platformIcon('android'), size: 18),
-                                label: const Text('Android'),
-                                selected: _filtroPlataforma == 'android',
-                                onSelected: (_) => setState(
-                                    () => _filtroPlataforma = 'android'),
-                              ),
-                              ChoiceChip(
-                                avatar: Icon(_platformIcon('ios'), size: 18),
-                                label: const Text('iOS'),
-                                selected: _filtroPlataforma == 'ios',
-                                onSelected: (_) =>
-                                    setState(() => _filtroPlataforma = 'ios'),
-                              ),
-                              ChoiceChip(
-                                label: const Text('Sem dados'),
-                                selected:
-                                    _filtroPlataforma == 'desconhecido',
-                                onSelected: (_) => setState(() =>
-                                    _filtroPlataforma = 'desconhecido'),
-                              ),
-                            ],
-                          ),
-                        ],
+    );
+
+    Widget userTile(_User360Row r) {
+      final igNome = _igrejaNomePorId[r.tenantId] ?? r.tenantId;
+      final plat = r.platform.isEmpty ? '—' : r.platform;
+      final when =
+          r.platformAt != null ? df.format(r.platformAt!) : '—';
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: MasterPremiumCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _platformIcon(
+                    r.platform.isEmpty ? 'out' : r.platform,
+                  ),
+                  color: primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      r.nome.isEmpty ? '(sem nome)' : r.nome,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
-                    child: Text(
-                      'Mostrando ${filtrados.length} de ${_rows.length} carregados',
+                    const SizedBox(height: 4),
+                    Text(
+                      r.email.isEmpty ? 'sem e-mail' : r.email,
                       style: TextStyle(
-                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(
+                      'UID: ${r.uid}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Igreja: $igNome',
+                      style: TextStyle(
+                        fontSize: 12,
                         color: Colors.grey.shade700,
                       ),
                     ),
+                    if (r.role.isNotEmpty)
+                      Text(
+                        'Papel: ${r.role}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      plat.toUpperCase(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                        color: Color(0xFF4338CA),
+                      ),
+                    ),
                   ),
-                  Expanded(
-                    child: filtrados.isEmpty
-                        ? ThemeCleanPremium.premiumEmptyState(
-                            icon: Icons.people_outline_rounded,
-                            title: 'Nenhum resultado',
-                            subtitle: 'Ajuste filtros ou pesquisa.',
-                          )
-                        : ListView.builder(
-                            padding: EdgeInsets.fromLTRB(
-                                pad.left, 0, pad.right, 24),
-                            itemCount: filtrados.length,
-                            itemBuilder: (_, i) {
-                              final r = filtrados[i];
-                              final igNome =
-                                  _igrejaNomePorId[r.tenantId] ?? r.tenantId;
-                              final plat =
-                                  r.platform.isEmpty ? '—' : r.platform;
-                              final when = r.platformAt != null
-                                  ? df.format(r.platformAt!)
-                                  : '—';
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: MasterPremiumCard(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 14,
-                                  ),
-                                  child: Row(
+                  const SizedBox(height: 6),
+                  Text(
+                    when,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copiar UID',
+                    icon: const Icon(Icons.copy_rounded, size: 20),
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: r.uid));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          ThemeCleanPremium.successSnackBar('UID copiado'),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      primary: !widget.embeddedInMaster,
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      appBar: widget.embeddedInMaster
+          ? null
+          : AppBar(
+              title: const Text('Controle 360 — Utilizadores'),
+              actions: [
+                IconButton(
+                  tooltip: 'Atualizar lista',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: _load,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilledButton.icon(
+                    onPressed: _abrirRemapearUid,
+                    icon: const Icon(Icons.swap_horiz_rounded),
+                    label: const Text('Remapear UID membro'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      body: SafeArea(
+        child: _loading
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: primary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'A carregar utilizadores e igrejas…',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                color: primary,
+                onRefresh: _load,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    if (_loadError != null)
+                      SliverPadding(
+                        padding: pad,
+                        sliver: SliverToBoxAdapter(
+                          child: MasterPremiumCard(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.error_outline_rounded,
+                                  color: ThemeCleanPremium.error,
+                                  size: 28,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                        child: Icon(
-                                          _platformIcon(
-                                            r.platform.isEmpty
-                                                ? 'out'
-                                                : r.platform,
-                                          ),
-                                          color: ThemeCleanPremium.primary,
+                                      Text(
+                                        'Falha ao carregar dados',
+                                        style: GoogleFonts.manrope(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                          color: ThemeCleanPremium.onSurface,
                                         ),
                                       ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              r.nome.isEmpty
-                                                  ? '(sem nome)'
-                                                  : r.nome,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 15,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              r.email.isEmpty
-                                                  ? 'sem e-mail'
-                                                  : r.email,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: Colors.grey.shade800,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            SelectableText(
-                                              'UID: ${r.uid}',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade600,
-                                                fontFamily: 'monospace',
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Igreja: $igNome',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700,
-                                              ),
-                                            ),
-                                            if (r.role.isNotEmpty)
-                                              Text(
-                                                'Papel: ${r.role}',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey.shade700,
-                                                ),
-                                              ),
-                                          ],
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _loadError!,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          height: 1.4,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
                                         ),
                                       ),
-                                      Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 6),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFEEF2FF),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                            ),
-                                            child: Text(
-                                              plat.toUpperCase(),
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 11,
-                                                color: Color(0xFF4338CA),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            when,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Copiar UID',
-                                            icon: const Icon(
-                                                Icons.copy_rounded, size: 20),
-                                            onPressed: () async {
-                                              await Clipboard.setData(
-                                                ClipboardData(text: r.uid),
-                                              );
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
-                                                  ThemeCleanPremium
-                                                      .successSnackBar(
-                                                    'UID copiado',
-                                                  ),
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        ],
+                                      const SizedBox(height: 12),
+                                      FilledButton.icon(
+                                        onPressed: _load,
+                                        icon: const Icon(
+                                          Icons.refresh_rounded,
+                                          size: 20,
+                                        ),
+                                        label: const Text('Tentar novamente'),
                                       ),
                                     ],
                                   ),
                                 ),
-                              );
-                            },
+                              ],
+                            ),
                           ),
-                  ),
-                ],
+                        ),
+                      ),
+                    SliverPadding(
+                      padding: pad,
+                      sliver: SliverToBoxAdapter(child: heroCard),
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
+                      sliver: SliverToBoxAdapter(
+                        child: Text(
+                          'Mostrando ${filtrados.length} de ${_rows.length} carregados',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (filtrados.isEmpty && _loadError == null)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: ThemeCleanPremium.premiumEmptyState(
+                          icon: Icons.people_outline_rounded,
+                          title: 'Nenhum resultado',
+                          subtitle: 'Ajuste filtros ou pesquisa.',
+                        ),
+                      )
+                    else if (filtrados.isNotEmpty)
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          pad.left,
+                          0,
+                          pad.right,
+                          24,
+                        ),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, i) => userTile(filtrados[i]),
+                            childCount: filtrados.length,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
       ),
     );

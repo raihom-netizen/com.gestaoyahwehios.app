@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -41,8 +42,9 @@ const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
-/// **Web:** requer [webCropContext] para abrir o Cropper.js; se for null, só
-/// comprime para WebP sem recorte (degradação documentada).
+/// **Feed (eventos/avisos):** com [webCropContext] montado, usa recorte Flutter
+/// premium (iOS-like, mobile + web). Sem contexto na web: só WebP sem recorte.
+/// **Foto membro:** mantém [image_cropper] nativo / Cropper.js na web.
 Future<XFile?> pickCropEncodeWebp({
   required ImageSource source,
   required HighResCropProfile profile,
@@ -50,6 +52,7 @@ Future<XFile?> pickCropEncodeWebp({
   int webpOutputQuality = kHighResWebpQuality,
 }) async {
   final picker = ImagePicker();
+  final ctx = webCropContext;
   final picked = await picker.pickImage(
     source: source,
     imageQuality: 100,
@@ -57,12 +60,11 @@ Future<XFile?> pickCropEncodeWebp({
     maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : null,
   );
   if (picked == null) return null;
-  // Context só para Cropper.js na web; chamador deve garantir widget ainda montado.
-  // ignore: use_build_context_synchronously
+  if (ctx != null && !ctx.mounted) return null;
   return cropEncodePickedToWebp(
     picked,
     profile: profile,
-    webCropContext: webCropContext,
+    webCropContext: ctx,
     webpOutputQuality: webpOutputQuality,
   );
 }
@@ -94,13 +96,34 @@ Future<XFile?> cropEncodePickedToWebp(
   int webpOutputQuality = kHighResWebpQuality,
 }) async {
   final square = profile == HighResCropProfile.memberSquare;
+
+  /// Mural feed: um único fluxo Flutter (Confirmar/Cancelar na base, iOS-like).
+  if (profile == HighResCropProfile.feedFree && webCropContext != null) {
+    final bytes = await picked.readAsBytes();
+    if (bytes.isEmpty) return null;
+    // ignore: use_build_context_synchronously
+    if (!webCropContext.mounted) return null;
+    // ignore: use_build_context_synchronously
+    final croppedBytes = await Navigator.of(webCropContext, rootNavigator: true)
+        .push<Uint8List?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => PremiumFeedImageCropScreen(imageBytes: bytes),
+      ),
+    );
+    if (croppedBytes == null || croppedBytes.isEmpty) return null;
+    return _bytesToWebpXFile(
+      croppedBytes,
+      quality: webpOutputQuality,
+      encodeMaxWidth: kPremiumFeedFullHdMaxWidth,
+      encodeMaxHeight: kPremiumFeedFullHdMaxHeight,
+    );
+  }
+
   CroppedFile? cropped;
 
   if (kIsWeb) {
-    if (webCropContext != null) {
-      // [WebPresentStyle.dialog] empilha cabeçalho + crop 520×620 + barra + rodapé:
-      // em viewports baixos (mobile web / painel) os botões ficam fora da área visível.
-      // Tela cheia com ✓ na AppBar e ✕ para sair; tamanho do crop derivado da viewport.
+    if (webCropContext != null && square) {
       final ctx = webCropContext;
       final mq = MediaQuery.sizeOf(ctx);
       final reserved = kToolbarHeight + 120;
@@ -113,7 +136,7 @@ Future<XFile?> cropEncodePickedToWebp(
         maxHeight: kHighResCropMaxHeight,
         compressQuality: kCropperCompressQuality,
         compressFormat: ImageCompressFormat.jpg,
-        aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
         uiSettings: [
           WebUiSettings(
             context: ctx,

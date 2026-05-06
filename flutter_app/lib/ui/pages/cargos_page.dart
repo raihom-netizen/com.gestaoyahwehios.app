@@ -275,6 +275,112 @@ class _CargosPageState extends State<CargosPage> {
     );
   }
 
+  static IconData _iconForRelatorioPick(String id) {
+    switch (id) {
+      case 'eventos':
+        return Icons.picture_as_pdf_rounded;
+      case 'aniversariantes':
+        return Icons.cake_rounded;
+      case 'membros':
+        return Icons.people_alt_rounded;
+      case 'financeiro':
+        return Icons.account_balance_wallet_rounded;
+      case 'patrimonio':
+        return Icons.inventory_2_rounded;
+      case 'fornecedores':
+        return Icons.handshake_rounded;
+      default:
+        return Icons.description_rounded;
+    }
+  }
+
+  /// Mesmo vocabulário que [_cargoModulePermissionChip]. [FilterChip] M3 no diálogo
+  /// gerava rótulos ilegíveis em alguns estados de cor.
+  static Widget _cargoRelatorioPickChip({
+    required String pickId,
+    required String label,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    final primary = ThemeCleanPremium.primary;
+    Widget chip = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? primary : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? primary : const Color(0xFFE2E8F0),
+              width: selected ? 1.5 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: primary.withValues(alpha: 0.22),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected)
+                Container(
+                  width: 3,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: _kCargoListGoldAccent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              if (selected) const SizedBox(width: 8),
+              Icon(
+                _iconForRelatorioPick(pickId),
+                size: 18,
+                color: selected ? Colors.white : primary,
+              ),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 200),
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: -0.2,
+                    color: selected ? Colors.white : ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 17,
+                  color: Colors.white.withValues(alpha: 0.95),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!enabled) {
+      chip = Opacity(opacity: 0.5, child: IgnorePointer(child: chip));
+    }
+    return chip;
+  }
+
   static IconData _iconForCargoModule(String key) {
     switch (key) {
       case 'membros':
@@ -870,16 +976,21 @@ class _CargosPageState extends State<CargosPage> {
                     const SizedBox(height: 18),
                     Text(
                       'Acesso fino ao painel',
-                      style: TextStyle(
+                      style: GoogleFonts.manrope(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade900,
+                        letterSpacing: -0.2,
+                        color: ThemeCleanPremium.onSurface,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Somam-se ao modelo base e podem ser fundidos em users.permissions ao vincular o membro.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.35,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _cargoAccessTriTile(
@@ -918,10 +1029,11 @@ class _CargosPageState extends State<CargosPage> {
                     const SizedBox(height: 6),
                     Text(
                       'Módulos adicionais',
-                      style: TextStyle(
+                      style: GoogleFonts.manrope(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade900,
+                        letterSpacing: -0.2,
+                        color: ThemeCleanPremium.onSurface,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -929,7 +1041,14 @@ class _CargosPageState extends State<CargosPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white,
+                            Color.lerp(primary, Colors.white, 0.94)!,
+                          ],
+                        ),
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusMd),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
@@ -956,66 +1075,120 @@ class _CargosPageState extends State<CargosPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      'Relatórios PDF',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade900,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Pacote completo'),
-                      subtitle: const Text(
-                          'Todos os relatórios compatíveis com o modelo e com financeiro/patrimônio.'),
-                      value: relatoriosFull && !isLiderDep,
-                      onChanged: isLiderDep
-                          ? null
-                          : (v) => setDlg(() {
-                                relatoriosFull = v;
-                                if (v) relatorioPicks.clear();
-                              }),
-                    ),
-                    if (!relatoriosFull || isLiderDep) ...[
-                      const SizedBox(height: 4),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          isLiderDep
-                              ? 'Marque só os PDFs deste cargo (máx.: Eventos e Aniversariantes).'
-                              : 'Ou escolha relatórios específicos:',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white,
+                            Color.lerp(primary, Colors.white, 0.92)!,
+                          ],
                         ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          for (final r in _kRelatorioPickIds)
-                            if (!isLiderDep ||
-                                r.$1 == 'eventos' ||
-                                r.$1 == 'aniversariantes')
-                              FilterChip(
-                                label: Text(r.$2),
-                                selected: relatorioPicks.contains(r.$1),
-                                onSelected: relatoriosFull && !isLiderDep
-                                    ? null
-                                    : (on) {
+                          Row(
+                            children: [
+                              Icon(Icons.picture_as_pdf_rounded,
+                                  size: 20, color: primary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Relatórios PDF',
+                                  style: GoogleFonts.manrope(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.2,
+                                    color: ThemeCleanPremium.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              'Pacote completo',
+                              style: GoogleFonts.manrope(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Todos os relatórios compatíveis com o modelo e com financeiro/patrimônio.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.35,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                              ),
+                            ),
+                            value: relatoriosFull && !isLiderDep,
+                            activeThumbColor: Colors.white,
+                            activeTrackColor: primary,
+                            onChanged: isLiderDep
+                                ? null
+                                : (v) => setDlg(() {
+                                      relatoriosFull = v;
+                                      if (v) relatorioPicks.clear();
+                                    }),
+                          ),
+                          if (!relatoriosFull || isLiderDep) ...[
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                isLiderDep
+                                    ? 'Marque só os PDFs deste cargo (máx.: Eventos e Aniversariantes).'
+                                    : 'Ou escolha relatórios específicos:',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.35,
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final r in _kRelatorioPickIds)
+                                  if (!isLiderDep ||
+                                      r.$1 == 'eventos' ||
+                                      r.$1 == 'aniversariantes')
+                                    _cargoRelatorioPickChip(
+                                      pickId: r.$1,
+                                      label: r.$2,
+                                      selected:
+                                          relatorioPicks.contains(r.$1),
+                                      enabled:
+                                          !(relatoriosFull && !isLiderDep),
+                                      onTap: () {
                                         setDlg(() {
-                                          if (on) {
-                                            relatorioPicks.add(r.$1);
-                                          } else {
+                                          if (relatorioPicks
+                                              .contains(r.$1)) {
                                             relatorioPicks.remove(r.$1);
+                                          } else {
+                                            relatorioPicks.add(r.$1);
                                           }
                                         });
                                       },
-                              ),
+                                    ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
@@ -2219,63 +2392,177 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          color: ThemeCleanPremium.cardBackground,
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
                           boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
                         ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MembersPage(tenantId: widget.tenantId, role: widget.role))),
-                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              child: Row(
-                                children: [
-                                  FotoMembroWidget(
-                                    imageUrl: null,
-                                    size: 52,
-                                    tenantId: tidPhoto,
-                                    memberId: m.id,
-                                    cpfDigits:
-                                        cpfD.length == 11 ? cpfD : null,
-                                    authUid: au.isNotEmpty ? au : null,
-                                    memberData: m.data,
-                                    backgroundColor: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.12),
+                        child: ClipRRect(
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          child: IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  width: 4,
+                                  decoration: const BoxDecoration(
+                                    color: _kCargoListGoldAccent,
                                   ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(_nome(m.data), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                                        Text(
-                                          (m.data['EMAIL'] ?? m.data['email'] ?? '').toString(),
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                          overflow: TextOverflow.ellipsis,
+                                ),
+                                Expanded(
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => MembersPage(
+                                            tenantId: widget.tenantId,
+                                            role: widget.role,
+                                          ),
                                         ),
-                                      ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusMd),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 14),
+                                        child: Row(
+                                          children: [
+                                            FotoMembroWidget(
+                                              imageUrl: null,
+                                              size: 52,
+                                              tenantId: tidPhoto,
+                                              memberId: m.id,
+                                              cpfDigits: cpfD.length == 11
+                                                  ? cpfD
+                                                  : null,
+                                              authUid:
+                                                  au.isNotEmpty ? au : null,
+                                              memberData: m.data,
+                                              backgroundColor:
+                                                  ThemeCleanPremium.primary
+                                                      .withValues(
+                                                          alpha: 0.12),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    _nome(m.data),
+                                                    style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      letterSpacing: -0.2,
+                                                      color: ThemeCleanPremium
+                                                          .onSurface,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    (m.data['EMAIL'] ??
+                                                            m.data['email'] ??
+                                                            '')
+                                                        .toString(),
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: ThemeCleanPremium
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            if (_canWrite)
+                                              PopupMenuButton<String>(
+                                                icon: Icon(
+                                                    Icons.more_vert_rounded,
+                                                    color: Colors
+                                                        .grey.shade600),
+                                                shape:
+                                                    RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          ThemeCleanPremium
+                                                              .radiusSm),
+                                                ),
+                                                onSelected: (v) {
+                                                  if (v == 'remove') {
+                                                    _removeCargo(m);
+                                                  }
+                                                  if (v == 'change') {
+                                                    _changeCargo(m);
+                                                  }
+                                                  if (v == 'edit') {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            MembersPage(
+                                                          tenantId: widget
+                                                              .tenantId,
+                                                          role: widget.role,
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
+                                                },
+                                                itemBuilder: (_) => [
+                                                  const PopupMenuItem(
+                                                    value: 'change',
+                                                    child: Row(children: [
+                                                      Icon(
+                                                          Icons
+                                                              .swap_horiz_rounded,
+                                                          size: 20),
+                                                      SizedBox(width: 10),
+                                                      Text('Alterar cargo'),
+                                                    ]),
+                                                  ),
+                                                  const PopupMenuItem(
+                                                    value: 'remove',
+                                                    child: Row(children: [
+                                                      Icon(
+                                                        Icons
+                                                            .person_remove_rounded,
+                                                        size: 20,
+                                                        color: Color(
+                                                            0xFFDC2626),
+                                                      ),
+                                                      SizedBox(width: 10),
+                                                      Text(
+                                                        'Remover cargo',
+                                                        style: TextStyle(
+                                                            color: Color(
+                                                                0xFFDC2626)),
+                                                      ),
+                                                    ]),
+                                                  ),
+                                                  const PopupMenuItem(
+                                                    value: 'edit',
+                                                    child: Row(children: [
+                                                      Icon(Icons.edit_rounded,
+                                                          size: 20),
+                                                      SizedBox(width: 10),
+                                                      Text('Editar membro'),
+                                                    ]),
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                  if (_canWrite)
-                                    PopupMenuButton<String>(
-                                      icon: Icon(Icons.more_vert_rounded, color: Colors.grey.shade600),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                                      onSelected: (v) {
-                                        if (v == 'remove') _removeCargo(m);
-                                        if (v == 'change') _changeCargo(m);
-                                        if (v == 'edit') Navigator.push(context, MaterialPageRoute(builder: (_) => MembersPage(tenantId: widget.tenantId, role: widget.role)));
-                                      },
-                                      itemBuilder: (_) => [
-                                        const PopupMenuItem(value: 'change', child: Row(children: [Icon(Icons.swap_horiz_rounded, size: 20), SizedBox(width: 10), Text('Alterar cargo')])),
-                                        const PopupMenuItem(value: 'remove', child: Row(children: [Icon(Icons.person_remove_rounded, size: 20, color: Color(0xFFDC2626)), SizedBox(width: 10), Text('Remover cargo', style: TextStyle(color: Color(0xFFDC2626)))])),
-                                        const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit_rounded, size: 20), SizedBox(width: 10), Text('Editar membro')])),
-                                      ],
-                                    ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),

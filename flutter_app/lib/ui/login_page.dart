@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
@@ -96,6 +97,9 @@ class _LoginPageState extends State<LoginPage> {
   /// iPhone/iPad: exibir «Continuar com Apple» quando o SO suportar (nunca Android).
   bool _appleSignInAvailable = false;
 
+  /// Planos (preços/limites) do Firestore — mesma fonte do painel Master.
+  Map<String, EffectivePlanConfig>? _effectivePlanConfigs;
+
   bool get _showAppleSignInButton =>
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.iOS &&
@@ -141,6 +145,9 @@ class _LoginPageState extends State<LoginPage> {
         if (mounted) setState(() => _appleSignInAvailable = ok);
       });
     }
+    PlanPriceService.getEffectivePlanConfigs().then((c) {
+      if (mounted) setState(() => _effectivePlanConfigs = c);
+    });
   }
 
   void _clearError() {
@@ -1496,15 +1503,18 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 10),
             ...planosOficiais.map((p) {
-              final priceLabel = p.monthlyPrice != null
-                  ? '${brl.format(p.monthlyPrice!)}/mês'
-                  : (p.note ?? 'Sob consulta');
+              final cfg = _effectivePlanConfigs?[p.id];
+              final display = cfg?.toPlanoOficial() ?? p;
+              final monthly = cfg?.monthlyPrice ?? p.monthlyPrice;
+              final priceLabel = monthly != null
+                  ? '${brl.format(monthly)}/mês'
+                  : (display.note ?? 'Sob consulta');
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (p.featured)
+                    if (display.featured)
                       Padding(
                         padding: const EdgeInsets.only(right: 6, top: 2),
                         child: Icon(Icons.star_rounded,
@@ -1517,14 +1527,14 @@ class _LoginPageState extends State<LoginPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            p.name,
+                            display.name,
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
                           ),
                           Text(
-                            p.members,
+                            display.members,
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,

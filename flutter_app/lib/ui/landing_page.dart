@@ -1,39 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 // ✅ Evita o erro do "R$"
 String money(double v) => 'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
-String annualLabel(double monthly) => 'Anual: ${money(monthly * 10)} (12 por 10)';
 
-class PlanTier {
-  final String name;
-  final String members;
-  final double? monthlyPrice;
-  final bool featured;
+/// Página de Planos em `/planos` — mesma fonte do Master: `config/plans/items` + [planosOficiais].
+class LandingPage extends StatefulWidget {
+  const LandingPage({super.key});
 
-  const PlanTier({
-    required this.name,
-    required this.members,
-    required this.monthlyPrice,
-    this.featured = false,
-  });
+  @override
+  State<LandingPage> createState() => _LandingPageState();
 }
 
-// ✅ Planos oficiais (SaaS)
-const planTiers = <PlanTier>[
-  PlanTier(name: 'Plano Inicial', members: 'Até 100 membros', monthlyPrice: 49.90),
-  PlanTier(name: 'Plano Essencial', members: '100 a 150 membros', monthlyPrice: 59.90, featured: true),
-  PlanTier(name: 'Plano Intermediario', members: '150 a 250 membros', monthlyPrice: 69.90),
-  PlanTier(name: 'Plano Avancado', members: '250 a 350 membros', monthlyPrice: 89.90),
-  PlanTier(name: 'Plano Profissional', members: '350 a 400 membros', monthlyPrice: 99.90),
-  PlanTier(name: 'Plano Premium', members: '400 a 500 membros', monthlyPrice: 169.90),
-  PlanTier(name: 'Plano Premium Plus', members: '500 a 600 membros', monthlyPrice: 189.90),
-  PlanTier(name: 'Plano Corporativo', members: 'Acima de 600 membros', monthlyPrice: null),
-];
+class _LandingPageState extends State<LandingPage> {
+  Map<String, EffectivePlanConfig>? _configs;
 
-/// ✅ Página de Planos (visual mais moderno)
-class LandingPage extends StatelessWidget {
-  const LandingPage({super.key});
+  @override
+  void initState() {
+    super.initState();
+    PlanPriceService.getEffectivePlanConfigs().then((c) {
+      if (mounted) setState(() => _configs = c);
+    });
+  }
 
   Widget _pill(String text, {bool featured = false}) {
     return Container(
@@ -41,7 +31,8 @@ class LandingPage extends StatelessWidget {
       decoration: BoxDecoration(
         color: featured ? const Color(0xFFE9F2FF) : const Color(0xFFF1F3F7),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: featured ? const Color(0xFFBBD6FF) : const Color(0xFFE3E7EF)),
+        border: Border.all(
+            color: featured ? const Color(0xFFBBD6FF) : const Color(0xFFE3E7EF)),
       ),
       child: Text(
         text,
@@ -54,7 +45,11 @@ class LandingPage extends StatelessWidget {
     );
   }
 
-  Widget _planCard(BuildContext context, PlanTier p) {
+  Widget _planCard(
+    BuildContext context,
+    PlanoOficial p, {
+    required double? annualPrice,
+  }) {
     final border = p.featured
         ? ThemeCleanPremium.primaryLight
         : const Color(0xFFE6EAF2);
@@ -86,13 +81,15 @@ class LandingPage extends StatelessWidget {
           _pill(p.members),
           const SizedBox(height: 14),
           Text(
-            p.monthlyPrice == null ? 'Valor a combinar' : '${money(p.monthlyPrice!)} / mês',
+            p.monthlyPrice == null
+                ? (p.note ?? 'Valor a combinar')
+                : '${money(p.monthlyPrice!)} / mês',
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 4),
-          if (p.monthlyPrice != null)
+          if (p.monthlyPrice != null && annualPrice != null)
             Text(
-              annualLabel(p.monthlyPrice!),
+              'Anual: ${money(annualPrice)} (12 por 10)',
               style: const TextStyle(fontSize: 12, color: Color(0xFF667085)),
             ),
           const SizedBox(height: 16),
@@ -139,7 +136,8 @@ class LandingPage extends StatelessWidget {
                     color: ThemeCleanPremium.onSurface)),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false),
+                onPressed: () =>
+                    Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false),
                 child: const Text('Home'),
               ),
               TextButton(
@@ -184,12 +182,16 @@ class LandingPage extends StatelessWidget {
                       children: [
                         const Text(
                           'Planos Gestão YAHWEH',
-                          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white),
+                          style: TextStyle(
+                              fontSize: 30,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white),
                         ),
                         const SizedBox(height: 8),
                         const Text(
                           'Simples, completo e do seu jeito.\nEscolha o plano ideal conforme a quantidade de membros da sua igreja.',
-                          style: TextStyle(fontSize: 14, color: Color(0xFFEAF2FF), height: 1.3),
+                          style: TextStyle(
+                              fontSize: 14, color: Color(0xFFEAF2FF), height: 1.3),
                         ),
                         const SizedBox(height: 14),
                         Wrap(
@@ -224,10 +226,19 @@ class LandingPage extends StatelessWidget {
                         spacing: 16,
                         runSpacing: 16,
                         children: [
-                          for (final p in planTiers)
-                            SizedBox(
-                              width: columns == 1 ? w : (w - (16 * (columns - 1))) / columns,
-                              child: _planCard(context, p),
+                          for (final base in planosOficiais)
+                            Builder(
+                              builder: (context) {
+                                final cfg = _configs?[base.id];
+                                final p = cfg?.toPlanoOficial() ?? base;
+                                final ann = cfg?.annualPrice ?? p.annualPrice;
+                                return SizedBox(
+                                  width: columns == 1
+                                      ? w
+                                      : (w - (16 * (columns - 1))) / columns,
+                                  child: _planCard(context, p, annualPrice: ann),
+                                );
+                              },
                             ),
                         ],
                       );
@@ -258,7 +269,9 @@ class LandingPage extends StatelessWidget {
                         const Expanded(
                           child: Text(
                             'Plano anual: pague 12 meses como 10. Economia de 2 mensalidades no pagamento anual.',
-                            style: TextStyle(color: Color(0xFF475467), fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                                color: Color(0xFF475467),
+                                fontWeight: FontWeight.w600),
                           ),
                         ),
                         const SizedBox(width: 10),
