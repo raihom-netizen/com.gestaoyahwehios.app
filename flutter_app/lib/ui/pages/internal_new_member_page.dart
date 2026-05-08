@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -305,19 +306,26 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     final limitResult = await limitService.checkLimit(widget.tenantId);
     if (limitResult.isBlocked) {
       if (!mounted) return;
+      final iosReader = IosPaymentsGate.shouldHidePayments;
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Limite do plano'),
           content: Text(limitResult.blockedDialogMessage),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendi')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendi'),
+            ),
             FilledButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const RenewPlanPage()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RenewPlanPage()),
+                );
               },
-              child: const Text('Ver planos'),
+              child: Text(iosReader ? 'Atualizar plano' : 'Ver planos'),
             ),
           ],
         ),

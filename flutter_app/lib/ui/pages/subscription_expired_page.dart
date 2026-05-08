@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -103,6 +104,8 @@ class SubscriptionExpiredPage extends StatelessWidget {
                         style: TextStyle(color: Colors.grey.shade700, height: 1.35),
                       ),
                       const SizedBox(height: 22),
+                      // Em iOS sob o gate, o botao leva para a tela
+                      // "Atualizar plano" que abre o site externo.
                       SizedBox(
                         width: double.infinity,
                         height: 52,
@@ -114,7 +117,11 @@ class SubscriptionExpiredPage extends StatelessWidget {
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          label: const Text('Renovar Licença / Pagar Agora'),
+                          label: Text(
+                            IosPaymentsGate.shouldHidePayments
+                                ? 'Atualizar plano'
+                                : 'Renovar Licença / Pagar Agora',
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),

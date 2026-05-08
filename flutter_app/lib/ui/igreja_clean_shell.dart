@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -1073,7 +1074,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Planos e assinatura',
+                  tooltip: IosPaymentsGate.shouldHidePayments
+                      ? 'Atualizar plano'
+                      : 'Planos e assinatura',
                   onPressed: () => Navigator.push(context,
                       ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
                   // Material estável na web (subset de ícones arredondados pode falhar).
@@ -1089,7 +1092,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                   onPressed: () => Navigator.push(context,
                       ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
                   style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                  tooltip: 'Planos',
+                  tooltip: IosPaymentsGate.shouldHidePayments
+                      ? 'Atualizar plano'
+                      : 'Planos',
                 ),
               IconButton(
                 icon: const Icon(Icons.logout_rounded,
@@ -1398,7 +1403,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                 ThemeCleanPremium.spaceMd),
             child: compact
                 ? Tooltip(
-                    message: 'Adquirir plano',
+                    message: IosPaymentsGate.shouldHidePayments
+                        ? 'Atualizar plano'
+                        : 'Adquirir plano',
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
@@ -1457,18 +1464,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                             ),
                           ],
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.add_card_rounded,
+                            const Icon(Icons.add_card_rounded,
                                 size: 20,
                                 color: ThemeCleanPremium.navSidebarAccent),
-                            SizedBox(width: 10),
-                            Text('Adquirir Plano',
-                                style: TextStyle(
-                                    color: ThemeCleanPremium.navSidebarAccent,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14)),
+                            const SizedBox(width: 10),
+                            Text(
+                              IosPaymentsGate.shouldHidePayments
+                                  ? 'Atualizar plano'
+                                  : 'Adquirir Plano',
+                              style: const TextStyle(
+                                  color: ThemeCleanPremium.navSidebarAccent,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14),
+                            ),
                           ],
                         ),
                       ),
@@ -1649,18 +1660,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                           ),
                         ],
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.add_card_rounded,
+                          const Icon(Icons.add_card_rounded,
                               size: 20,
                               color: ThemeCleanPremium.navSidebarAccent),
-                          SizedBox(width: 10),
-                          Text('Adquirir Plano',
-                              style: TextStyle(
-                                  color: ThemeCleanPremium.navSidebarAccent,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14)),
+                          const SizedBox(width: 10),
+                          Text(
+                            IosPaymentsGate.shouldHidePayments
+                                ? 'Atualizar plano'
+                                : 'Adquirir Plano',
+                            style: const TextStyle(
+                                color: ThemeCleanPremium.navSidebarAccent,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14),
+                          ),
                         ],
                       ),
                     ),

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 
 /// Resultado da verificação de limite de membros para o tenant.
@@ -35,9 +36,14 @@ class MembersLimitResult {
   int get slotsLeftInPlan => planLimit - currentCount;
 
   /// Mensagem curta para banner/aviso.
+  /// Em iOS sob o gate (Apple 3.1.3), texto orienta a "atualizar plano"
+  /// (que leva ao site externo) sem call-to-action interno de compra.
   String get shortMessage {
+    final iosReader = IosPaymentsGate.shouldHidePayments;
     if (isBlocked) {
-      return 'Limite do plano atingido. Faça upgrade para cadastrar novos membros.';
+      return iosReader
+          ? 'Limite do plano atingido. Atualize seu plano para cadastrar novos membros.'
+          : 'Limite do plano atingido. Faça upgrade para cadastrar novos membros.';
     }
     if (isOverLimitWarning) {
       final rest = slotsLeftBeforeBlock;
@@ -53,10 +59,19 @@ class MembersLimitResult {
   }
 
   /// Mensagem para diálogo quando bloqueado.
-  String get blockedDialogMessage =>
-      'Seu plano ($planName) permite até $planLimit membros. '
-      'Você já utilizou a tolerância de ${AppConstants.membersGraceOverLimit} membros a mais. '
-      'Para cadastrar novos membros, faça upgrade do plano em Assinatura.';
+  /// Em iOS sob o gate, evita o termo "Assinatura" (menu interno) e orienta
+  /// o usuario a usar o botao "Atualizar plano" — que leva ao site externo.
+  String get blockedDialogMessage {
+    if (IosPaymentsGate.shouldHidePayments) {
+      return 'Seu plano ($planName) permite até $planLimit membros. '
+          'Você já utilizou a tolerância de '
+          '${AppConstants.membersGraceOverLimit} membros a mais. '
+          'Para cadastrar novos membros, atualize seu plano.';
+    }
+    return 'Seu plano ($planName) permite até $planLimit membros. '
+        'Você já utilizou a tolerância de ${AppConstants.membersGraceOverLimit} membros a mais. '
+        'Para cadastrar novos membros, faça upgrade do plano em Assinatura.';
+  }
 }
 
 /// Serviço para verificar limite de membros por plano e exibir avisos/bloqueio.

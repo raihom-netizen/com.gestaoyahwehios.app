@@ -9,10 +9,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../widgets/app_shell.dart';
+import '../../widgets/ios_payment_unavailable_view.dart';
 import '../../widgets/mp_checkout_embed.dart';
 import '../../widgets/primary_button.dart';
 
@@ -332,6 +334,12 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Apple Guideline 3.1.1 — em iOS com `exibir_pagamento_ios=false` o app se
+    // comporta como Reader/SaaS: sem precos, sem botoes de cobranca direta.
+    if (IosPaymentsGate.shouldHidePayments) {
+      return IosPaymentUnavailableView(embedded: widget.embeddedInShell);
+    }
+
     final cs = Theme.of(context).colorScheme;
     final isMobile = ThemeCleanPremium.isMobile(context);
     final pad = ThemeCleanPremium.pagePadding(context);

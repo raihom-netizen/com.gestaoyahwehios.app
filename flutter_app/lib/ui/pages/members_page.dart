@@ -47,6 +47,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -5378,6 +5379,8 @@ class _MembersPageState extends State<MembersPage> {
                 : (widget.subscription?['planId'] ?? '').toString().trim(),
       );
       if (result.isBlocked && context.mounted) {
+        // Em iOS sob o gate, "Atualizar plano" leva a tela com link externo.
+        final iosReader = IosPaymentsGate.shouldHidePayments;
         await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -5399,7 +5402,7 @@ class _MembersPageState extends State<MembersPage> {
                         MaterialPageRoute(
                             builder: (_) => const RenewPlanPage()));
                   },
-                  child: const Text('Ver planos')),
+                  child: Text(iosReader ? 'Atualizar plano' : 'Ver planos')),
             ],
           ),
         );
@@ -8558,7 +8561,9 @@ class _MembersLimitBanner extends StatelessWidget {
               behavior: SnackBarBehavior.floating,
               action: isBlocked
                   ? SnackBarAction(
-                      label: 'Ver planos',
+                      label: IosPaymentsGate.shouldHidePayments
+                          ? 'Atualizar plano'
+                          : 'Ver planos',
                       textColor: Colors.white,
                       onPressed: () => Navigator.push(
                           context,

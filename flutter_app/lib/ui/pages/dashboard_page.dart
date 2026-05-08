@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -128,6 +129,11 @@ class DashboardPage extends StatelessWidget {
 
     Widget banner() {
       final status = (subscription?['status'] ?? '').toString().toUpperCase();
+      // Em iOS sob o gate, o botao leva para a tela "Atualizar plano" que abre
+      // o site externo (Apple 3.1.3 / Multiplatform Service).
+      final iosReader = IosPaymentsGate.shouldHidePayments;
+      final ctaLabel = iosReader ? 'Atualizar plano' : 'Ativar plano';
+      final ctaLabelTrial = iosReader ? 'Atualizar plano' : 'Ver planos';
 
       if (trialExpired) {
         return Container(
@@ -155,7 +161,7 @@ class DashboardPage extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const RenewPlanPage()),
                   );
                 },
-                child: const Text('Ativar plano'),
+                child: Text(ctaLabel),
               ),
             ],
           ),
@@ -188,7 +194,7 @@ class DashboardPage extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const RenewPlanPage()),
                   );
                 },
-                child: const Text('Ver planos'),
+                child: Text(ctaLabelTrial),
               ),
             ],
           ),

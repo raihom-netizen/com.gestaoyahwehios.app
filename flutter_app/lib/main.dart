@@ -53,6 +53,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
@@ -464,6 +465,12 @@ void main() async {
     } catch (_) {}
   }
   configureFirestoreForOfflineAndSpeed();
+  // Apple Guideline 3.1.1: em iOS, le `exibir_pagamento_ios` do Remote Config
+  // antes de qualquer rota que possa exibir checkout/precos. Nao bloqueante:
+  // mantem default conservador (sem cobranca no app) se o fetch falhar.
+  try {
+    await IosPaymentsGate.initialize();
+  } catch (_) {}
   try {
     await AppConnectivityService.instance.start();
     StorageUploadQueueService.instance.start();

@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
+import 'package:gestao_yahweh/services/express_login_service.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -29,6 +30,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
+import 'package:gestao_yahweh/ui/widgets/login_expresso_faixa.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
@@ -86,6 +88,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _oauthGoogleInFlight = false;
   /// Pós-autenticação (reparo de vínculo, token) — fino, sem escurecer a tela inteira.
   bool _sessionFinalizing = false;
+  /// Indicador da faixa flutuante «Login expresso» (Google silencioso → Apple → Google UI).
+  bool _expressLoginInFlight = false;
   /// Uma tentativa automática de biometria ao abrir o app (credenciais + biometria ativa).
   bool _autoBiometricLaunched = false;
 
@@ -433,6 +437,80 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return false;
     Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
     return true;
+  }
+
+  /// Login expresso (faixa flutuante) — tenta Google silencioso, depois Apple
+  /// no iOS, e por fim Google com UI. Reaproveita [_afterGoogleSignInSuccess]
+  /// para reparo de vínculo e roteamento pós-login.
+  Future<void> _onLoginExpresso() async {
+    if (_expressLoginInFlight || _loading || _sessionFinalizing) return;
+    if (kIsWeb) {
+      // Na web a faixa não é desenhada — manter guarda defensiva.
+      return;
+    }
+    setState(() {
+      _expressLoginInFlight = true;
+      _errorMessage = null;
+    });
+    try {
+      final result = await ExpressLoginService.tryExpressLogin();
+      if (!mounted) return;
+      if (result.isCancellation || result.isUnsupported) return;
+
+      if (result.isError) {
+        final msg = (result.errorMessage?.trim().isNotEmpty ?? false)
+            ? 'Não foi possível concluir o login expresso.\n${result.errorMessage}'
+            : 'Não foi possível concluir o login expresso. Tente novamente ou use e-mail e senha.';
+        setState(() => _errorMessage = msg);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+        return;
+      }
+
+      // Sucesso: aplica o mesmo pós-login do botão Google convencional.
+      if (FirebaseAuth.instance.currentUser == null) return;
+      setState(() {
+        _expressLoginInFlight = false;
+        _sessionFinalizing = true;
+      });
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) {
+          setState(() => _sessionFinalizing = false);
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      _showFirebaseAuthErrorSnack(e);
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      final code = (e.code).toLowerCase();
+      final msg = code.contains('not-found')
+          ? (_credentialsAsMembro
+              ? 'Não encontramos cadastro de membro ou gestor com este Google/Apple. '
+                  'Confira se o e-mail na igreja é o mesmo da conta usada.'
+              : 'Não encontramos uma igreja vinculada a esta conta. '
+                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
+          : (e.message ?? e.code);
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+    } catch (e) {
+      if (!mounted) return;
+      const msg = 'Falha no login expresso. Tente de novo ou use e-mail e senha.';
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
+    } finally {
+      if (mounted && _expressLoginInFlight) {
+        setState(() => _expressLoginInFlight = false);
+      }
+    }
   }
 
   Future<void> _afterGoogleSignInSuccess() async {
@@ -1769,7 +1847,9 @@ class _LoginPageState extends State<LoginPage> {
                     ThemeCleanPremium.spaceMd,
                     ThemeCleanPremium.spaceMd,
                     ThemeCleanPremium.spaceMd,
-                    24,
+                    // Espaço extra no rodapé para o conteúdo nunca ficar
+                    // escondido sob a faixa flutuante «Login expresso».
+                    24 + 84,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1986,6 +2066,17 @@ class _LoginPageState extends State<LoginPage> {
             ],
           ),
         ),
+              // Faixa flutuante «Login expresso» — colada ao rodapé sobre o
+              // conteúdo (mesmo padrão do app Controle Total).
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: LoginExpressoFaixa(
+                  onTap: _onLoginExpresso,
+                  loading: _expressLoginInFlight,
+                ),
+              ),
             ],
           ),
         ),

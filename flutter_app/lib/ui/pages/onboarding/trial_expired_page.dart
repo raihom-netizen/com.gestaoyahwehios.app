@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_card.dart';
@@ -9,6 +10,7 @@ class TrialExpiredPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iosReader = IosPaymentsGate.shouldHidePayments;
     return Scaffold(
       body: SafeArea(
         child: AppShell(
@@ -22,17 +24,18 @@ class TrialExpiredPage extends StatelessWidget {
                   style: TextStyle(height: 1.35)),
 
               const SizedBox(height: 14),
-              const SectionCard(
+              SectionCard(
                 child: Text(
-                  'Nesta base você já tem o fluxo completo. O botão abaixo ativa o plano em modo DEMO '
-                  '(sem pagamento) apenas para validar o sistema. Depois, você integra Mercado Pago e webhooks.',
-                  style: TextStyle(height: 1.35),
+                  iosReader
+                      ? 'Veja os planos disponiveis e finalize a contratacao no nosso site. Apos o pagamento o plano eh ativado automaticamente neste app.'
+                      : 'Nesta base você já tem o fluxo completo. O botão abaixo ativa o plano em modo DEMO (sem pagamento) apenas para validar o sistema. Depois, você integra Mercado Pago e webhooks.',
+                  style: const TextStyle(height: 1.35),
                 ),
               ),
 
               const Spacer(),
               PrimaryButton(
-                text: 'Escolher plano',
+                text: iosReader ? 'Atualizar plano' : 'Escolher plano',
                 icon: Icons.workspace_premium,
                 onPressed: () {
                   Navigator.of(context).push(
