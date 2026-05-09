@@ -8,12 +8,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:intl/intl.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
@@ -529,6 +531,27 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final url = _checkoutEmbedUrl;
     if (url == null || url.isEmpty) return;
     final primary = ThemeCleanPremium.primary;
+
+    // Apple Guideline 3.1.1 / 3.2.1(viii): em iOS native, NAO abrir
+    // checkout Mercado Pago em WebView embedded. Coleta de pagamento
+    // (mesmo doacao admin de igreja) deve ocorrer no Safari externo.
+    if (IosPaymentsGate.isIosNative) {
+      try {
+        final uri = Uri.parse(url);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Não foi possível abrir o navegador. Acesse o link manualmente.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+      return;
+    }
 
     await showMercadoPagoCheckoutFullscreen(
       context,

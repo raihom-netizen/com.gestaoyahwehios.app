@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -1538,6 +1539,10 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildPlanosResumoCard(Color theme) {
     final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    // Apple Guideline 3.1.1 — em iOS native (app instalado no iPhone),
+    // a tela pré-login NÃO pode mostrar preços nem qualquer CTA de compra.
+    // Só nome do plano, capacidade e um botão que abre o site no Safari.
+    final iosReader = IosPaymentsGate.isIosNative;
     return Card(
       elevation: 0,
       color: Colors.white,
@@ -1572,7 +1577,9 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Mensalidades aproximadas; no cadastro você confirma o plano e a forma de pagamento.',
+              iosReader
+                  ? 'Veja a capacidade de cada plano. Para contratar ou trocar de plano, use o botão abaixo — a contratação é feita no nosso site.'
+                  : 'Mensalidades aproximadas; no cadastro você confirma o plano e a forma de pagamento.',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade700,
@@ -1621,16 +1628,18 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      priceLabel,
-                      textAlign: TextAlign.end,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                        color: theme,
+                    if (!iosReader) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        priceLabel,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: theme,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               );
@@ -1639,10 +1648,14 @@ class _LoginPageState extends State<LoginPage> {
             Align(
               alignment: Alignment.center,
               child: TextButton.icon(
-                onPressed: () => Navigator.pushNamed(context, '/planos'),
+                onPressed: iosReader
+                    ? _openExternalUpgradePlanFromLogin
+                    : () => Navigator.pushNamed(context, '/planos'),
                 icon: Icon(Icons.open_in_new_rounded, size: 18, color: theme),
                 label: Text(
-                  'Ver página completa de planos',
+                  iosReader
+                      ? 'Atualizar plano no site'
+                      : 'Ver página completa de planos',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: theme,
@@ -2090,6 +2103,44 @@ class _LoginPageState extends State<LoginPage> {
       if (!await canLaunchUrl(uri)) return;
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {}
+  }
+
+  /// Abre Safari na rota expressa de atualização de plano
+  /// (`gestaoyahweh.com.br/atualizar-plano`).
+  ///
+  /// Usado pelo card pré-login em iOS native (Apple Guideline 3.1.1) — aqui
+  /// não há sessão, então não há e-mail conhecido; o site pede login só pra
+  /// identificar a igreja/plano antes do checkout Mercado Pago.
+  Future<void> _openExternalUpgradePlanFromLogin() async {
+    final params = <String, String>{
+      'from': 'ios_app',
+      'utm_source': 'app_ios',
+      'utm_medium': 'login_planos',
+    };
+    final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
+        .replace(queryParameters: params);
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Não foi possível abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Não foi possível abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   /// Entrada do app nativo: Play Store (Android) ou convite TestFlight (iPhone).

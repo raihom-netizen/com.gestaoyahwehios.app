@@ -39,6 +39,7 @@ import 'ui/admin_panel_page.dart';
 import 'ui/landing_page.dart';
 import 'ui/signup_page.dart';
 import 'ui/pages/signup_completar_gestor_page.dart';
+import 'ui/pages/plans/express_renew_gate_page.dart';
 import 'ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -54,6 +55,7 @@ import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
@@ -723,6 +725,33 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 ? <String>[]
                 : path.split('/').where((s) => s.isNotEmpty).toList();
 
+            // ── iOS App Store (Apple Guideline 3.1.1 / 3.1.3) ──
+            // No app iOS nativo, NUNCA expor páginas com preços/checkout
+            // (LandingPage, RenewPlanPage, SitePublicPage). Redireciona
+            // tudo para login ou para a tela informativa sem preços.
+            if (IosPaymentsGate.isIosNative) {
+              if (path == '/') {
+                final em = uri.queryParameters['email']?.trim();
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (_) => LoginPage(
+                    title: 'Entrar — Painel da Igreja',
+                    afterLoginRoute: '/painel',
+                    showFleetBranding: false,
+                    backRoute: '/',
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                  ),
+                );
+              }
+              if (path == '/planos' || path == '/pagamento') {
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (_) => const IosPaymentUnavailableView(),
+                );
+              }
+            }
+
             Widget pagina;
             // Rota dinâmica para /igreja_<slug> ou /igreja-<slug> — exibe perfil público da igreja
             final igrejaMatch =
@@ -851,6 +880,17 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 case '/pagamento':
                   pagina = const RenewPlanPage();
                   break;
+                case '/atualizar-plano': {
+                  // Fluxo «Atualizar plano expresso» — vindo do app iOS via
+                  // Safari (IosPaymentUnavailableView). Só pede login para
+                  // identificar a igreja e leva direto ao checkout MP.
+                  final em = uri.queryParameters['email']?.trim();
+                  pagina = ExpressRenewGatePage(
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                  );
+                  break;
+                }
                 case '/signup': {
                   final em = uri.queryParameters['email']?.trim();
                   pagina = SignupPage(

@@ -6,8 +6,33 @@
 /// 11.2.295+1508: faixa flutuante «Login expresso» no login mobile
 /// (Google silencioso → Apple iOS → Google UI), igual Controle Total app.
 /// 11.2.295+1509: deploy de publicação (web + AAB Play + ZIP iOS).
+/// 11.2.295+1510: «Atualizar plano expresso» — rota web `/atualizar-plano`
+/// com login simples (identifica igreja), header com plano atual + vencimento
+/// e checkout Mercado Pago direto, sem passar pelo painel.
+/// 11.2.295+1511: hardening Apple App Store — `IosPaymentUnavailableView` sem
+/// preços (CTA topo + rodapé), `_buildPlanosResumoCard` esconde preços em iOS
+/// native, gate iOS no `onGenerateRoute` para `/`, `/planos`, `/pagamento`,
+/// botões de doação e «Adquirir Sistema» abrem Safari externo (Guideline
+/// 3.2.1(viii)), header «Super Premium» na rota web `/atualizar-plano` com
+/// botão Login Expresso (Google popup/redirect), Info.plist com
+/// `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`,
+/// `NSContactsUsageDescription` e `LSApplicationQueriesSchemes`.
+/// 11.2.295+1512: revisão profunda iOS App Store —
+///   • `Runner.entitlements`: re-adicionado Sign in with Apple (Guideline
+///     4.8) + `aps-environment=production` para Firebase Messaging.
+///   • `PrivacyInfo.xcprivacy` (obrigatório desde maio/2024) registrado
+///     no `project.pbxproj` (Tracking=false, Required Reason APIs).
+///   • `_showCheckoutPreviewModal` em `church_donations_page` e
+///     `church_public_donation_sheet`: em iOS native abre Safari externo
+///     em vez de WebView Mercado Pago embedded (3.2.1(viii)).
+///   • Banner de trial expirado / trial ativo no `dashboard_page` com
+///     copy neutralizada para iOS (sem termo «pagamento»).
+/// 11.2.295+1513: deploy de publicação (regras + functions + web + AAB
+/// Play + ZIP iOS + push Codemagic). Documentos de migração em
+/// `docs/migracoes/` atualizados com todo o hardening iOS para replicar
+/// nos projetos Controle Total e Moova Super Premium.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1509';
+const String appBuildNumber = '1513';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

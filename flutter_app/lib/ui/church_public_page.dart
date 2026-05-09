@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
@@ -1884,6 +1885,17 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               },
                               onDoacao: () {
                                 logChurchPublic('app_bar_doacao');
+                                // Apple Guideline 3.2.1(viii): doações em iOS
+                                // só podem ser coletadas via website/SMS, não
+                                // dentro do binário do app. Em iOS native,
+                                // abre o site público da igreja no Safari.
+                                if (IosPaymentsGate.isIosNative) {
+                                  final url = Uri.parse(
+                                      '${AppConstants.publicWebBaseUrl}/igreja/$slugClean');
+                                  unawaited(launchUrl(url,
+                                      mode: LaunchMode.externalApplication));
+                                  return;
+                                }
                                 showChurchPublicDonationSheet(
                                   context,
                                   tenantId: igrejaId,
@@ -2361,6 +2373,14 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                         onAdquirirSistema: () {
                                           logChurchPublic(
                                               'footer_adquirir_sistema');
+                                          if (IosPaymentsGate.isIosNative) {
+                                            final url = Uri.parse(
+                                                '${AppConstants.publicWebBaseUrl}/atualizar-plano?from=ios_app');
+                                            unawaited(launchUrl(url,
+                                                mode: LaunchMode
+                                                    .externalApplication));
+                                            return;
+                                          }
                                           Navigator.pushNamed(
                                               context, '/planos');
                                         },
@@ -5275,6 +5295,13 @@ class _ChurchTenantFallback extends StatelessWidget {
             _PublicFooter(
               onAdquirirSistema: () {
                 logChurchPublicLocal('footer_adquirir_sistema');
+                if (IosPaymentsGate.isIosNative) {
+                  final url = Uri.parse(
+                      '${AppConstants.publicWebBaseUrl}/atualizar-plano?from=ios_app');
+                  unawaited(launchUrl(url,
+                      mode: LaunchMode.externalApplication));
+                  return;
+                }
                 Navigator.pushNamed(context, '/planos');
               },
               onDeveloperWhatsApp: () {

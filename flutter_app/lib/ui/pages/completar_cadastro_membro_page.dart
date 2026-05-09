@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 
@@ -215,7 +216,9 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
                       Navigator.pop(ctx);
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const RenewPlanPage()));
                     },
-                    child: const Text('Ver planos'),
+                    child: Text(IosPaymentsGate.shouldHidePayments
+                        ? 'Atualizar plano'
+                        : 'Ver planos'),
                   ),
                 ],
               ),

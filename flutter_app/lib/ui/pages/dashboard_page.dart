@@ -147,10 +147,12 @@ class DashboardPage extends StatelessWidget {
             children: [
               const Icon(Icons.warning_amber_rounded, color: Color(0xFFB75A00)),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Seu teste gratis expirou. Para continuar usando todos os recursos, ative um plano.',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                  iosReader
+                      ? 'Seu teste gratis expirou. Para continuar usando todos os recursos, atualize seu plano no site.'
+                      : 'Seu teste gratis expirou. Para continuar usando todos os recursos, ative um plano.',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(width: 10),
@@ -180,10 +182,12 @@ class DashboardPage extends StatelessWidget {
             children: [
               const Icon(Icons.info_outline, color: Color(0xFF1D4ED8)),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Teste gratis ativo. Vincule o pagamento para nao perder acesso quando o periodo encerrar.',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                  iosReader
+                      ? 'Teste gratis ativo. Para nao perder acesso quando o periodo encerrar, atualize seu plano no site.'
+                      : 'Teste gratis ativo. Vincule o pagamento para nao perder acesso quando o periodo encerrar.',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(width: 10),

@@ -4,21 +4,21 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_constants.dart';
 import '../../data/planos_oficiais.dart';
-import '../../services/plan_price_service.dart';
 import '../theme_clean_premium.dart';
 import 'app_shell.dart';
 
 /// Tela de "Atualizar plano" exibida em iOS sob o gate `exibir_pagamento_ios`.
 ///
-/// Estrategia (Apple Guideline 3.1.3 — Multiplatform Service / Reader):
-///   1. Mostrar a lista de planos com precos (apenas informativo).
-///   2. Botao unico "Atualizar plano" abre o navegador externo (Safari) na
-///      pagina publica de planos do site (gestaoyahweh.com.br/planos), onde
-///      o usuario completa a compra (PIX/cartao) via gateway externo.
-///   3. O webhook do Mercado Pago atualiza o status no Firestore. O app
-///      detecta via snapshot listener (ja implementado em RenewPlanPage) e
-///      libera o plano automaticamente — sem nenhuma compra digital ocorrer
-///      dentro do binario do app iOS.
+/// Estrategia (Apple Guideline 3.1.1 / 3.1.3 — Multiplatform Service / Reader):
+///
+///   1. Mostrar **somente informacoes** dos planos (nome, capacidade,
+///      recursos). Sem precos, sem ciclo de cobranca, sem qualquer CTA
+///      de compra dentro do binario iOS.
+///   2. Botao «Atualizar plano no site» (no topo e no rodape) abre Safari
+///      em `gestaoyahweh.com.br/atualizar-plano`, onde o utilizador faz
+///      login e completa a compra (PIX/Cartao) via Mercado Pago.
+///   3. Webhook MP atualiza o status no Firestore — o app detecta via
+///      snapshot listener e libera o plano automaticamente.
 ///
 /// E o mesmo padrao usado por outros apps SaaS aprovados na App Store
 /// (ex.: Spotify, Netflix, Kindle e o competidor "enuves").
@@ -37,40 +37,25 @@ class IosPaymentUnavailableView extends StatefulWidget {
 }
 
 class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
-  Map<String, EffectivePlanConfig>? _configs;
   bool _opening = false;
-  bool _annual = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadPrices();
-  }
-
-  Future<void> _loadPrices() async {
-    try {
-      final cfg = await PlanPriceService.getEffectivePlanConfigs();
-      if (mounted) setState(() => _configs = cfg);
-    } catch (_) {
-      // Mantem precos default de [planosOficiais].
-    }
-  }
-
-  String _money(double v) =>
-      'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
-
-  /// URL externa do site publico onde o usuario pode contratar/atualizar o
-  /// plano. Inclui `email` quando o usuario esta autenticado, para o site
-  /// pre-preencher o cadastro/login e amarrar o pagamento ao tenant correto.
+  /// URL externa do site publico — abre direto o «modo expresso»
+  /// (`/atualizar-plano`): site pede login (so pra identificar a igreja),
+  /// mostra plano atual + vencimento, lista de planos e leva ao checkout
+  /// Mercado Pago sem passar pelo painel.
+  ///
+  /// Inclui `email` quando o usuario esta autenticado, para o site
+  /// pre-preencher o login e amarrar o pagamento ao tenant correto.
   Uri _buildExternalUrl() {
     final user = FirebaseAuth.instance.currentUser;
     final email = (user?.email ?? '').trim();
     final params = <String, String>{
+      'from': 'ios_app',
       'utm_source': 'app_ios',
       'utm_medium': 'manage_subscription',
       if (email.isNotEmpty) 'email': email,
     };
-    return Uri.parse('${AppConstants.publicWebBaseUrl}/planos')
+    return Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
         .replace(queryParameters: params);
   }
 
@@ -84,7 +69,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/planos manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -94,7 +79,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/planos manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -104,24 +89,42 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
     }
   }
 
+  Widget _buildUpgradeCta(BuildContext context, {required String label}) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 52,
+      child: FilledButton.icon(
+        onPressed: _opening ? null : _openExternalPlans,
+        icon: _opening
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.open_in_new_rounded),
+        label: Text(
+          _opening ? 'Abrindo navegador...' : label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
+          ),
+        ),
+        style: FilledButton.styleFrom(
+          backgroundColor: cs.primary,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPlanCard(BuildContext context, PlanoOficial p) {
     final cs = Theme.of(context).colorScheme;
-    final cfg = _configs?[p.id];
-    final monthly = cfg?.monthlyPrice ?? p.monthlyPrice;
-    final annual = cfg?.annualPrice ?? p.annualPrice;
-    final priceLabel = _annual
-        ? (annual != null
-            ? '${_money(annual)} / ano'
-            : (p.note ?? 'Sob consulta'))
-        : (monthly != null
-            ? '${_money(monthly)} / mes'
-            : (p.note ?? 'Sob consulta'));
-    final hint = _annual && monthly != null
-        ? 'equivalente a ${_money(monthly)} / mes'
-        : (!_annual && annual != null
-            ? 'anual: ${_money(annual)} (12 por 10)'
-            : null);
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -155,8 +158,8 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
               ),
               if (p.featured)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: cs.primary.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(999),
@@ -172,27 +175,15 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                 ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             p.members,
-            style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 12.5),
           ),
-          const SizedBox(height: 8),
-          Text(
-            priceLabel,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: p.featured ? cs.primary : const Color(0xFF1E293B),
-            ),
-          ),
-          if (hint != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              hint,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            ),
-          ],
+          const SizedBox(height: 10),
+          const _PlanFeatureLine('Painel web + app mobile + site público'),
+          const _PlanFeatureLine('Membros, eventos, escalas e financeiro'),
+          const _PlanFeatureLine('Backups automáticos e segurança'),
         ],
       ),
     );
@@ -211,7 +202,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Cabecalho
+                  // Cabeçalho
                   Row(
                     children: [
                       Container(
@@ -240,9 +231,9 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Veja os planos disponiveis e finalize a contratacao no '
-                    'nosso site. Depois do pagamento o plano eh ativado '
-                    'automaticamente neste app.',
+                    'Veja os planos disponíveis e a capacidade de cada um. '
+                    'Para contratar ou trocar de plano, use o botão abaixo — '
+                    'a contratação é feita no nosso site.',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.grey.shade800,
@@ -251,35 +242,11 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Toggle Mensal / Anual
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _CycleChip(
-                            label: 'Mensal',
-                            selected: !_annual,
-                            onTap: () => setState(() => _annual = false),
-                          ),
-                        ),
-                        Expanded(
-                          child: _CycleChip(
-                            label: 'Anual (12 por 10)',
-                            selected: _annual,
-                            onTap: () => setState(() => _annual = true),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  // CTA — TOPO
+                  _buildUpgradeCta(context, label: 'Atualizar plano no site'),
                   const SizedBox(height: 14),
 
-                  // Lista de planos
+                  // Lista de planos (somente informacoes — sem precos)
                   LayoutBuilder(
                     builder: (context, c) {
                       final isWide = c.maxWidth >= 560;
@@ -300,43 +267,12 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                   ),
                   const SizedBox(height: 18),
 
-                  // Botao principal: abre Safari externo
-                  SizedBox(
-                    height: 52,
-                    child: FilledButton.icon(
-                      onPressed: _opening ? null : _openExternalPlans,
-                      icon: _opening
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.open_in_new_rounded),
-                      label: Text(
-                        _opening
-                            ? 'Abrindo navegador...'
-                            : 'Atualizar plano no site',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: cs.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
+                  // CTA — RODAPÉ (mesma ação)
+                  _buildUpgradeCta(context, label: 'Atualizar plano no site'),
                   const SizedBox(height: 8),
                   Center(
                     child: Text(
-                      'Voce sera redirecionado para gestaoyahweh.com.br',
+                      'Você será redirecionado para gestaoyahweh.com.br',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
@@ -364,9 +300,9 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Apos confirmar o pagamento no site, o novo plano '
-                            'eh ativado automaticamente neste app — pode ser '
-                            'preciso reabrir o aplicativo.',
+                            'Após contratar o plano no site, ele é ativado '
+                            'automaticamente nesta conta — pode ser preciso '
+                            'reabrir o aplicativo.',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: Colors.grey.shade700,
@@ -379,7 +315,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Botao voltar (opcional)
+                  // Botão voltar (opcional, não embedded)
                   Builder(
                     builder: (ctx) {
                       final canPop = Navigator.of(ctx).canPop();
@@ -417,37 +353,37 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
   }
 }
 
-class _CycleChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _CycleChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
+class _PlanFeatureLine extends StatelessWidget {
+  final String text;
+  const _PlanFeatureLine(this.text);
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? cs.primary : Colors.transparent,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : cs.primary,
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 3),
+            child: Icon(
+              Icons.check_circle_rounded,
+              size: 14,
+              color: Color(0xFF10B981),
             ),
           ),
-        ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF334155),
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

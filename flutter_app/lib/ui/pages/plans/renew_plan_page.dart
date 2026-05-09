@@ -7,12 +7,14 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:intl/intl.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/ios_payment_unavailable_view.dart';
 import '../../widgets/mp_checkout_embed.dart';
@@ -25,7 +27,20 @@ class RenewPlanPage extends StatefulWidget {
   /// Quando true (ex.: bloqueio de licença no shell), não exibe AppBar próprio.
   final bool embeddedInShell;
 
-  const RenewPlanPage({super.key, this.embeddedInShell = false});
+  /// Modo «atualizar plano expresso» — fluxo abreviado para usuário vindo do
+  /// app iOS via `/atualizar-plano`:
+  ///   - Cabeçalho mostra plano atual + data de vencimento.
+  ///   - CTA «Ir para pagamento» fica fixo no topo após selecionar plano.
+  ///   - Esconde o botão «Ativar plano (demo)».
+  ///   - Após pagamento confirmado, exibe tela final com link «voltar ao app»
+  ///     em vez de redirecionar para `/painel`.
+  final bool expressMode;
+
+  const RenewPlanPage({
+    super.key,
+    this.embeddedInShell = false,
+    this.expressMode = false,
+  });
 
   @override
   State<RenewPlanPage> createState() => _RenewPlanPageState();
@@ -47,6 +62,14 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _churchBillingSub;
   String? _watchingTenantId;
   bool _paymentApprovedRedirected = false;
+
+  /// Modo expresso — última versão do doc da igreja (para mostrar plano
+  /// atual + data de vencimento no cabeçalho).
+  Map<String, dynamic>? _churchData;
+
+  /// Modo expresso — exibe a tela final «Pagamento confirmado» em vez de
+  /// redirecionar (já que o utilizador veio do site público / iPhone).
+  bool _expressPaymentDone = false;
   /// Primeiro snapshot só estabelece linha de base — evita "pagamento confirmado" ao abrir Planos com licença já paga.
   bool _billingBaselineEstablished = false;
   bool _wasBillingPaidAtBaseline = false;
@@ -169,6 +192,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   void _applyChurchBillingSnapshot(Map<String, dynamic>? data) {
     if (!mounted) return;
     if (data == null) return;
+    // Modo expresso: guardar para o cabeçalho — mesmo sem `billing` ainda.
+    if (widget.expressMode) {
+      setState(() => _churchData = data);
+    }
     // Sem `billing` ainda: não fixar linha de base (evita falso unpaid→paid no 2º evento na web).
     if (data['billing'] is! Map) return;
 
@@ -209,6 +236,16 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (!mounted || _paymentApprovedRedirected) return;
     _paymentApprovedRedirected = true;
     PaymentUiFeedbackService.notifyPaymentConfirmed();
+    // Modo expresso: NÃO sair da tela — mostrar confirmação inline para o
+    // utilizador voltar ao app iPhone manualmente (não tem painel aberto).
+    if (widget.expressMode) {
+      setState(() {
+        _expressPaymentDone = true;
+        _checkoutSession = null;
+        _pixSession = null;
+      });
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Pagamento confirmado. Retornando ao painel principal...'),
@@ -270,6 +307,216 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     return planosOficiais.firstWhere(
       (p) => p.id == _selected,
       orElse: () => planosOficiais.first,
+    );
+  }
+
+  // ---------------------- Modo expresso: cabeçalho ----------------------
+
+  String? _currentPlanLabel() {
+    final church = _churchData;
+    if (church == null) return null;
+    final raw = (church['planId'] ?? church['plano'] ?? '').toString().trim();
+    if (raw.isEmpty) return null;
+    PlanoOficial? found;
+    for (final p in planosOficiais) {
+      if (p.id.toLowerCase() == raw.toLowerCase()) {
+        found = p;
+        break;
+      }
+    }
+    return found?.name ?? raw;
+  }
+
+  String? _currentPlanExpiryLabel() {
+    final church = _churchData;
+    if (church == null) return null;
+    final end = LicenseAccessPolicy.churchAccessEnd(church);
+    if (end == null) return null;
+    final fmt = DateFormat('dd/MM/yyyy');
+    final now = DateTime.now();
+    final days = end.difference(now).inDays;
+    if (end.isBefore(now)) {
+      final overdue = now.difference(end).inDays;
+      return overdue <= 0
+          ? 'Vence hoje'
+          : 'Venceu há $overdue dia${overdue == 1 ? '' : 's'} (${fmt.format(end)})';
+    }
+    if (days <= 7) {
+      return 'Vence em $days dia${days == 1 ? '' : 's'} (${fmt.format(end)})';
+    }
+    return 'Vence em ${fmt.format(end)}';
+  }
+
+  Widget _buildExpressHeader(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final planLabel = _currentPlanLabel();
+    final expiry = _currentPlanExpiryLabel();
+    final user = FirebaseAuth.instance.currentUser;
+    final userEmail = (user?.email ?? '').trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [cs.primary, cs.primary.withValues(alpha: 0.85)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x18000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.workspace_premium_rounded,
+                    color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Atualizar plano',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (planLabel != null)
+            _ExpressInfoRow(
+              icon: Icons.verified_user_outlined,
+              label: 'Plano atual',
+              value: planLabel,
+            ),
+          if (expiry != null)
+            _ExpressInfoRow(
+              icon: Icons.event_outlined,
+              label: 'Vencimento',
+              value: expiry,
+            ),
+          if (userEmail.isNotEmpty)
+            _ExpressInfoRow(
+              icon: Icons.account_circle_outlined,
+              label: 'Conta',
+              value: userEmail,
+            ),
+          if (planLabel == null && expiry == null && userEmail.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Carregando dados da igreja…',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------- Modo expresso: tela final ----------------------
+
+  Widget _buildExpressDoneView(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFA7F3D0), width: 2),
+                ),
+                margin: const EdgeInsets.only(bottom: 16),
+                child: const Center(
+                  child: Icon(Icons.check_circle_rounded,
+                      color: Color(0xFF047857), size: 64),
+                ),
+              ),
+              const Center(
+                child: Text(
+                  'Pagamento confirmado!',
+                  style:
+                      TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Seu plano foi atualizado com sucesso. Agora você pode '
+                'voltar ao aplicativo Gestão YAHWEH no seu celular — o novo '
+                'plano já está ativo na sua conta.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade800, height: 1.4),
+              ),
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context)
+                    .pushNamedAndRemoveUntil('/painel', (_) => false),
+                icon: const Icon(Icons.dashboard_rounded),
+                label: const Text('Abrir o painel agora'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context)
+                    .pushNamedAndRemoveUntil('/', (_) => false),
+                icon: const Icon(Icons.home_outlined),
+                label: const Text('Voltar ao site'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 46),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  'Pode ser necessário reabrir o app no celular para que o '
+                  'novo plano apareça imediatamente.',
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -336,13 +583,30 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   Widget build(BuildContext context) {
     // Apple Guideline 3.1.1 — em iOS com `exibir_pagamento_ios=false` o app se
     // comporta como Reader/SaaS: sem precos, sem botoes de cobranca direta.
-    if (IosPaymentsGate.shouldHidePayments) {
+    // No modo expresso (vindo do site público) a flag não se aplica — esse
+    // fluxo só roda na web, onde o pagamento é permitido.
+    if (!widget.expressMode && IosPaymentsGate.shouldHidePayments) {
       return IosPaymentUnavailableView(embedded: widget.embeddedInShell);
     }
 
     final cs = Theme.of(context).colorScheme;
     final isMobile = ThemeCleanPremium.isMobile(context);
     final pad = ThemeCleanPremium.pagePadding(context);
+
+    // Modo expresso — pós-pagamento: tela final dedicada (não volta ao painel).
+    if (widget.expressMode && _expressPaymentDone) {
+      final doneBody = SafeArea(child: AppShell(padding: pad, child: _buildExpressDoneView(context)));
+      if (widget.embeddedInShell) return doneBody;
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('Pagamento confirmado'),
+          backgroundColor: ThemeCleanPremium.primary,
+          foregroundColor: Colors.white,
+        ),
+        body: doneBody,
+      );
+    }
 
     final body = SafeArea(
       child: AppShell(
@@ -566,14 +830,24 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                  const Text(
-                    'Planos oficiais',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  if (widget.expressMode) ...[
+                    _buildExpressHeader(context),
+                    const SizedBox(height: 18),
+                  ],
+                  Text(
+                    widget.expressMode
+                        ? 'Escolha o plano que melhor atende sua igreja'
+                        : 'Planos oficiais',
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Todos os módulos inclusos. O que muda é a escala de uso.',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                    widget.expressMode
+                        ? 'Todos os módulos inclusos — selecione plano e ciclo abaixo. O pagamento é feito pelo Mercado Pago.'
+                        : 'Todos os módulos inclusos. O que muda é a escala de uso.',
+                    style:
+                        TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                   const SizedBox(height: 20),
                   Wrap(
@@ -709,15 +983,17 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                     loading: _loading,
                     onPressed: _startSubscription,
                   ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _loading ? null : _activate,
-                    icon: const Icon(Icons.check_circle_outline, size: 18),
-                    label: const Text('Ativar plano (demo)'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 46),
+                  if (!widget.expressMode) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _activate,
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text('Ativar plano (demo)'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 46),
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
@@ -743,29 +1019,37 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (widget.embeddedInShell) {
       return body;
     }
+    final appBarTitle = widget.expressMode
+        ? 'Atualizar plano'
+        : 'Assinatura — Escolha seu plano';
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Assinatura — Escolha seu plano'),
+        title: Text(appBarTitle),
         backgroundColor: ThemeCleanPremium.primary,
         foregroundColor: Colors.white,
-        leading: IconButton(
-          tooltip: 'Voltar',
-          onPressed: _loading ? null : _onFecharPressed,
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _loading ? null : _onFecharPressed,
-            child: Text(
-              'Fechar',
-              style: TextStyle(
-                color: ThemeCleanPremium.navSidebarAccent,
-                fontWeight: FontWeight.w800,
+        automaticallyImplyLeading: !widget.expressMode,
+        leading: widget.expressMode
+            ? null
+            : IconButton(
+                tooltip: 'Voltar',
+                onPressed: _loading ? null : _onFecharPressed,
+                icon: const Icon(Icons.arrow_back_rounded),
               ),
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
+        actions: widget.expressMode
+            ? const [SizedBox.shrink()]
+            : [
+                TextButton(
+                  onPressed: _loading ? null : _onFecharPressed,
+                  child: Text(
+                    'Fechar',
+                    style: TextStyle(
+                      color: ThemeCleanPremium.navSidebarAccent,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
       ),
       body: body,
     );
@@ -904,6 +1188,52 @@ class _PlanCardOficial extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ExpressInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _ExpressInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.white.withValues(alpha: 0.85), size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  fontSize: 13,
+                  height: 1.35,
+                ),
+                children: [
+                  TextSpan(
+                    text: '$label: ',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  TextSpan(
+                    text: value,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

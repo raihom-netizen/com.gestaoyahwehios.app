@@ -3,20 +3,45 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Sign In with Apple removido do entitlement do target Runner para o archive
-	  App Store passar com perfis de provisionamento que não incluem essa capability
-	  (ex.: Codemagic com CM_PROVISIONING_PROFILE legado «gestaoyahwehiosapp»).
+	  ╔═══════════════════════════════════════════════════════════════════╗
+	  ║  CAPABILITIES iOS — Gestão YAHWEH (Bundle: com.gestaoyahwehios.app)║
+	  ╚═══════════════════════════════════════════════════════════════════╝
 
-	  O plugin sign_in_with_apple continua no projeto; o botão «Entrar com Apple»
-	  só aparece quando o SO reporta disponibilidade — sem entitlement, o login
-	  Apple no iOS deixa de ser oferecido até reativar.
+	  1) Sign In with Apple (com.apple.developer.applesignin)
+	     OBRIGATORIO pela Guideline 4.8 da App Store: apps que oferecem
+	     Google Sign-In (ou outro social login) DEVEM oferecer Sign in
+	     with Apple no iOS. Sem esta capability + provisioning profile
+	     com a feature ativa, a revisao Apple rejeita.
 
-	  Para voltar a oferecer Sign In with Apple:
-	  1) developer.apple.com → App ID com.gestaoyahwehios.app → Sign In with Apple
-	  2) Profiles → novo .mobileprovision App Store com essa capability
-	  3) Codemagic → CM_PROVISIONING_PROFILE = Base64 do novo perfil
-	  4) Recoloque aqui a chave com.apple.developer.applesignin (Default).
-	  Ver: IOS/CODEMAGIC_SIGN_IN_APPLE.txt
+	  2) Push Notifications (aps-environment = production)
+	     Necessario para `firebase_messaging` entregar pushes em
+	     dispositivos reais. Em builds App Store usar `production`.
+
+	  ╔══════════════════════════════════════════════════════════════════╗
+	  ║  CHECKLIST APPLE DEVELOPER + CODEMAGIC                          ║
+	  ╠══════════════════════════════════════════════════════════════════╣
+	  ║  developer.apple.com → Identifiers → App ID                     ║
+	  ║    com.gestaoyahwehios.app                                       ║
+	  ║      [x] Sign In with Apple                                      ║
+	  ║      [x] Push Notifications                                      ║
+	  ║                                                                  ║
+	  ║  Profiles → criar/regenerar .mobileprovision (App Store) que     ║
+	  ║  inclua AS DUAS capabilities acima.                              ║
+	  ║                                                                  ║
+	  ║  Codemagic → variavel CM_PROVISIONING_PROFILE = Base64 do novo   ║
+	  ║  perfil. (Ou ative «Automatic signing» na app config.)           ║
+	  ║                                                                  ║
+	  ║  Se o build falhar com:                                          ║
+	  ║    "Provisioning profile doesn't include the                     ║
+	  ║     com.apple.developer.applesignin entitlement"                 ║
+	  ║  ou similar para `aps-environment`, regenere o profile.          ║
+	  ╚══════════════════════════════════════════════════════════════════╝
 	-->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<key>aps-environment</key>
+	<string>production</string>
 </dict>
 </plist>

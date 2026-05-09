@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -1012,7 +1013,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                   Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const RenewPlanPage()));
                 },
-                child: const Text('Ver planos'),
+                child: Text(IosPaymentsGate.shouldHidePayments
+                    ? 'Atualizar plano'
+                    : 'Ver planos'),
               ),
             ],
           ),

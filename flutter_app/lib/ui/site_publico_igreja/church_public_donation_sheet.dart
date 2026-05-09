@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_toggle_pair.dart';
@@ -392,6 +394,25 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
   Future<void> _showCheckoutPreviewModal() async {
     final url = _checkoutEmbedUrl;
     if (url == null || url.isEmpty) return;
+
+    // Apple Guideline 3.2.1(viii): em iOS native, doacoes nao podem ser
+    // coletadas dentro do binario do app — abre o checkout em Safari.
+    if (IosPaymentsGate.isIosNative) {
+      try {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Não foi possível abrir o navegador. Acesse o link manualmente.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+      return;
+    }
 
     await showMercadoPagoCheckoutFullscreen(
       context,
