@@ -1,6 +1,6 @@
-# Entrada única: deploy produção completo (Firebase + AAB + iOS ZIP + Git push Codemagic).
+# Entrada unica: deploy producao completo (Firebase + AAB + iOS ZIP + Git push Codemagic).
 # Na raiz: .\scripts\deploy_completo.ps1
-# Ver implementação: deploy_release_completo_regras_funcoes_web_aab_ios_zip.ps1
+# Ver implementacao: deploy_release_completo_regras_funcoes_web_aab_ios_zip.ps1
 #
 # Flags (todos opcionais):
 #   -CopyTo "D:\Temporarios"    pasta de saida (AAB + ZIP iOS)
@@ -24,10 +24,12 @@ if (-not (Test-Path $release)) {
     exit 1
 }
 
-$args = @('-CopyTo', $CopyTo)
-if ($SkipGitPush)    { $args += '-SkipGitPush' }
-if ($ForceFunctions) { $args += '-ForceFunctions' }
-if ($ForceClean)     { $args += '-ForceClean' }
+# Splatting com hashtable (mais robusto que array via $args, que e
+# variavel automatica do PowerShell e gera comportamentos inesperados).
+$invokeArgs = @{ CopyTo = $CopyTo }
+if ($SkipGitPush)    { $invokeArgs.SkipGitPush    = $true }
+if ($ForceFunctions) { $invokeArgs.ForceFunctions = $true }
+if ($ForceClean)     { $invokeArgs.ForceClean     = $true }
 
-& $release @args
+& $release @invokeArgs
 exit $LASTEXITCODE

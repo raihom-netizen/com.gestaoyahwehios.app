@@ -9,6 +9,13 @@ IOS/*.mobileprovision
 **/*.p12
 *.p12
 
+# Saidas de deploy_completo.ps1 (artefatos AAB / ZIP iOS).
+# `-CopyTo/` acidental quando o splatting falhou — bloquear sempre.
+-CopyTo/
+**/-CopyTo/
+**/GestaoYahweh_*_play.aab
+**/GestaoYahweh_ios_sources_*.zip
+
 # Flutter (build local)
 flutter_app/.dart_tool/
 flutter_app/build/

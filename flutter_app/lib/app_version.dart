@@ -38,8 +38,12 @@
 /// do `deploy_completo.ps1`: `flutter clean+pub get` único na etapa 0,
 /// sub-scripts com `-SkipPubGet`, skip automático de Cloud Functions
 /// quando `/functions` não mudou (use `-ForceFunctions` para forçar).
+/// 11.2.295+1515: fix do splatting `$args` → `$invokeArgs` (hashtable)
+/// no `deploy_completo.ps1` — `+1514` criou pastas `-CopyTo/` poluindo
+/// o repo; este build remove os AAB/ZIP do Git, adiciona ao `.gitignore`
+/// e re-publica web/AAB Play/ZIP iOS no destino correto `D:\Temporarios`.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1514';
+const String appBuildNumber = '1515';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';
