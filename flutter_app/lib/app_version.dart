@@ -31,8 +31,15 @@
 /// Play + ZIP iOS + push Codemagic). Documentos de migração em
 /// `docs/migracoes/` atualizados com todo o hardening iOS para replicar
 /// nos projetos Controle Total e Moova Super Premium.
+/// 11.2.295+1514: limpeza de lints (`withOpacity` → `.withValues(alpha:)`
+/// em `renew_plan_page.dart`, remoção de `_watchingTenantId` não usado,
+/// `curly_braces_in_flow_control_structures` em `main.dart`,
+/// `messenger` capturado antes do await async no PIX copy). Otimização
+/// do `deploy_completo.ps1`: `flutter clean+pub get` único na etapa 0,
+/// sub-scripts com `-SkipPubGet`, skip automático de Cloud Functions
+/// quando `/functions` não mudou (use `-ForceFunctions` para forçar).
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1513';
+const String appBuildNumber = '1514';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

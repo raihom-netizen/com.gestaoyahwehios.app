@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         kReleaseMode;
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart' show NetworkImageLoadException;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -139,10 +138,12 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard> {
       final roleClaim = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
           .toString()
           .toUpperCase();
-      if (roleClaim == 'ADM' || roleClaim == 'ADMIN' || roleClaim == 'MASTER')
+      if (roleClaim == 'ADM' || roleClaim == 'ADMIN' || roleClaim == 'MASTER') {
         return 2;
-      if ((token.claims?['nivel'] ?? '').toString().toLowerCase() == 'adm')
+      }
+      if ((token.claims?['nivel'] ?? '').toString().toLowerCase() == 'adm') {
         return 2;
+      }
       if (token.claims?['admin'] == true) return 2;
     } catch (_) {}
 
@@ -161,7 +162,9 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard> {
       if (role == 'ADM' ||
           role == 'ADMIN' ||
           role == 'MASTER' ||
-          nivel == 'adm') return 2;
+          nivel == 'adm') {
+        return 2;
+      }
       return 1;
     } on TimeoutException {
       try {
@@ -481,8 +484,9 @@ void main() async {
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';
   if (kIsWeb && initialRoute != '/') {
     if (!initialRoute.startsWith('/')) initialRoute = '/$initialRoute';
-    if (initialRoute.length > 1 && initialRoute.endsWith('/'))
+    if (initialRoute.length > 1 && initialRoute.endsWith('/')) {
       initialRoute = initialRoute.replaceFirst(RegExp(r'/$'), '');
+    }
   }
   // Hosting SPA: alguns proxies/CDNs expõem /index.html — tratar como raiz (site de divulgação).
   if (kIsWeb) {
@@ -715,8 +719,9 @@ class _AppWithThemeState extends State<_AppWithTheme>
             final uri = Uri.parse(nomeRota);
             String path = uri.path.isEmpty ? '/' : uri.path;
             if (path != '/' && !path.startsWith('/')) path = '/$path';
-            if (path.length > 1 && path.endsWith('/'))
+            if (path.length > 1 && path.endsWith('/')) {
               path = path.replaceFirst(RegExp(r'/$'), '');
+            }
             final lowPath = path.toLowerCase();
             if (lowPath == '/index.html' || lowPath.endsWith('/index.html')) {
               path = '/';

@@ -1,6 +1,14 @@
 # Deploy web Gestao YAHWEH - build release + Firebase Hosting apenas
 # Uso (na raiz do repo):  .\scripts\deploy_web_hosting.ps1
 # Requisitos: Flutter no PATH, Firebase CLI logado (`firebase login`)
+#
+# -SkipPubGet: salta `flutter clean` + `flutter pub get` (usado pelo
+#   deploy completo, que ja roda essas etapas uma unica vez no inicio).
+
+param(
+    [switch] $SkipPubGet
+)
+
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
@@ -11,12 +19,16 @@ if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
 }
 
 Set-Location $FlutterApp
-Write-Host "=== flutter clean (evita locks / ficheiros duplicados no build web no Windows) ===" -ForegroundColor Cyan
-flutter clean
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Write-Host "=== flutter pub get ===" -ForegroundColor Cyan
-flutter pub get
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $SkipPubGet) {
+    Write-Host "=== flutter clean (evita locks / ficheiros duplicados no build web no Windows) ===" -ForegroundColor Cyan
+    flutter clean
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host "=== flutter pub get ===" -ForegroundColor Cyan
+    flutter pub get
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} else {
+    Write-Host "=== flutter clean / pub get saltados (-SkipPubGet) ===" -ForegroundColor DarkGray
+}
 
 Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop) ===" -ForegroundColor Cyan
 # FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).

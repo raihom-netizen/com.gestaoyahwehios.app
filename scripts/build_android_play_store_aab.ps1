@@ -13,7 +13,8 @@
 
 param(
     [string] $CopyTo = "D:\Temporarios",
-    [switch] $NoAutoSigning
+    [switch] $NoAutoSigning,
+    [switch] $SkipPubGet
 )
 
 $ErrorActionPreference = "Stop"
@@ -176,13 +177,20 @@ if (-not (Test-Path $KeyProps)) {
 
 Set-Location $FlutterApp
 
-Write-Host "=== flutter clean ===" -ForegroundColor Cyan
-flutter clean
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $SkipPubGet) {
+    Write-Host "=== flutter clean ===" -ForegroundColor Cyan
+    flutter clean
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n=== flutter pub get ===" -ForegroundColor Cyan
-flutter pub get
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host "`n=== flutter pub get ===" -ForegroundColor Cyan
+    flutter pub get
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} else {
+    Write-Host "=== flutter clean / pub get saltados (-SkipPubGet) ===" -ForegroundColor DarkGray
+    Write-Host "Limpando apenas build/app/outputs/bundle (release anterior)..." -ForegroundColor DarkGray
+    $oldBundle = Join-Path $FlutterApp "build\app\outputs\bundle\release\app-release.aab"
+    if (Test-Path $oldBundle) { Remove-Item $oldBundle -Force -ErrorAction SilentlyContinue }
+}
 
 if (-not (Test-Path $DebugInfoDir)) {
     New-Item -ItemType Directory -Path $DebugInfoDir | Out-Null

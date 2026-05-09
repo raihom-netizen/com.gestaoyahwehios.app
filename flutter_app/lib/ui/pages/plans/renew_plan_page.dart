@@ -60,7 +60,6 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   final _billing = BillingService();
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _churchBillingSub;
-  String? _watchingTenantId;
   bool _paymentApprovedRedirected = false;
 
   /// Modo expresso — última versão do doc da igreja (para mostrar plano
@@ -272,7 +271,6 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (_churchBillingSub != null) return;
     final tenantId = await _resolveTenantIdFromClaims();
     if (tenantId == null || tenantId.isEmpty) return;
-    _watchingTenantId = tenantId;
     _churchBillingSub = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId)
@@ -704,9 +702,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           height: 50,
                           child: FilledButton.icon(
                             onPressed: () async {
+                              final messenger = ScaffoldMessenger.of(context);
                               await Clipboard.setData(ClipboardData(text: px.qrCode));
                               if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 const SnackBar(
                                   content: Text('Código PIX copiado.'),
                                   behavior: SnackBarBehavior.floating,
@@ -1089,7 +1088,7 @@ class _PlanCardOficial extends StatelessWidget {
             border: Border.all(
               color: selected
                   ? cs.primary
-                  : (plan.featured ? cs.primary.withOpacity(0.6) : const Color(0xFFE5EAF3)),
+                  : (plan.featured ? cs.primary.withValues(alpha: 0.6) : const Color(0xFFE5EAF3)),
               width: selected ? 2.5 : 1,
             ),
             boxShadow: [
@@ -1100,7 +1099,7 @@ class _PlanCardOficial extends StatelessWidget {
               ),
               if (selected)
                 BoxShadow(
-                  color: cs.primary.withOpacity(0.15),
+                  color: cs.primary.withValues(alpha: 0.15),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -1124,7 +1123,7 @@ class _PlanCardOficial extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: cs.primary.withOpacity(0.1),
+                        color: cs.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -1266,7 +1265,7 @@ class _ChoiceChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           decoration: BoxDecoration(
-            color: selected ? cs.primary.withOpacity(0.12) : Colors.grey.shade100,
+            color: selected ? cs.primary.withValues(alpha: 0.12) : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
             border: Border.all(
               color: selected ? cs.primary : Colors.grey.shade300,
