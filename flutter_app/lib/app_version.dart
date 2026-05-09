@@ -42,8 +42,14 @@
 /// no `deploy_completo.ps1` — `+1514` criou pastas `-CopyTo/` poluindo
 /// o repo; este build remove os AAB/ZIP do Git, adiciona ao `.gitignore`
 /// e re-publica web/AAB Play/ZIP iOS no destino correto `D:\Temporarios`.
+/// 11.2.295+1516: workaround temporário para destravar build iOS na
+/// Codemagic — `aps-environment` removido do `Runner.entitlements`
+/// (provisioning profile actual não tem Push Notifications). Sign In
+/// with Apple mantido (Guideline 4.8 obrigatório). Push iOS volta
+/// quando profile for regenerado em developer.apple.com com a
+/// capability de Push Notifications activa.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1515';
+const String appBuildNumber = '1516';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

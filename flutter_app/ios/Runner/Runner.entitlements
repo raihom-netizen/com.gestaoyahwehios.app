@@ -13,9 +13,30 @@
 	     with Apple no iOS. Sem esta capability + provisioning profile
 	     com a feature ativa, a revisao Apple rejeita.
 
-	  2) Push Notifications (aps-environment = production)
-	     Necessario para `firebase_messaging` entregar pushes em
-	     dispositivos reais. Em builds App Store usar `production`.
+	  ⚠️  PUSH NOTIFICATIONS — DESABILITADO TEMPORARIAMENTE (build 1516)
+	  ────────────────────────────────────────────────────────────────────
+	  A capability `aps-environment = production` foi REMOVIDA deste
+	  ficheiro porque o provisioning profile actual em uso na Codemagic
+	  («GestaoYahwehBootstrap_1776438974») nao tem Push Notifications
+	  habilitado, fazendo o `flutter build ipa` abortar com:
+	    "Provisioning profile doesn't include the aps-environment
+	     entitlement."
+
+	  Consequencia: `firebase_messaging` NAO entrega pushes em iOS
+	  enquanto isto estiver removido. Restantes funcionalidades (login,
+	  Firestore, Storage) continuam a funcionar normalmente.
+
+	  PARA REACTIVAR PUSH iOS:
+	    1. developer.apple.com -> Identifiers -> com.gestaoyahwehios.app
+	       -> marcar [x] Push Notifications -> Save.
+	    2. Profiles -> regenerar .mobileprovision App Store (deve incluir
+	       Push Notifications + Sign In with Apple).
+	    3. Codemagic -> CM_PROVISIONING_PROFILE = Base64 do novo perfil
+	       (ou ativar «Automatic code signing»).
+	    4. Re-adicionar neste ficheiro:
+	         <key>aps-environment</key>
+	         <string>production</string>
+	    5. Bump de build + novo deploy.
 
 	  ╔══════════════════════════════════════════════════════════════════╗
 	  ║  CHECKLIST APPLE DEVELOPER + CODEMAGIC                          ║
@@ -23,25 +44,18 @@
 	  ║  developer.apple.com → Identifiers → App ID                     ║
 	  ║    com.gestaoyahwehios.app                                       ║
 	  ║      [x] Sign In with Apple                                      ║
-	  ║      [x] Push Notifications                                      ║
+	  ║      [ ] Push Notifications  (a marcar quando regenerar profile) ║
 	  ║                                                                  ║
 	  ║  Profiles → criar/regenerar .mobileprovision (App Store) que     ║
-	  ║  inclua AS DUAS capabilities acima.                              ║
+	  ║  inclua Sign In with Apple (e Push Notifications quando voltar). ║
 	  ║                                                                  ║
 	  ║  Codemagic → variavel CM_PROVISIONING_PROFILE = Base64 do novo   ║
 	  ║  perfil. (Ou ative «Automatic signing» na app config.)           ║
-	  ║                                                                  ║
-	  ║  Se o build falhar com:                                          ║
-	  ║    "Provisioning profile doesn't include the                     ║
-	  ║     com.apple.developer.applesignin entitlement"                 ║
-	  ║  ou similar para `aps-environment`, regenere o profile.          ║
 	  ╚══════════════════════════════════════════════════════════════════╝
 	-->
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>
 	</array>
-	<key>aps-environment</key>
-	<string>production</string>
 </dict>
 </plist>
