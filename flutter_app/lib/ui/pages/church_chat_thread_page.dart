@@ -1640,26 +1640,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         color: ThemeCleanPremium.onSurfaceVariant),
                     tooltip: 'Anexos (foto, vídeo, PDF, áudio…)',
                   ),
-                  IconButton(
-                    onPressed: (_sending || _voiceRecording)
-                        ? null
-                        : _openExpressionSheet,
-                    icon: Icon(Icons.interests_rounded,
-                        color: ThemeCleanPremium.primary),
-                    tooltip: 'Emojis e figurinhas',
-                  ),
-                  IconButton(
-                    onPressed: _sending ? null : _toggleVoiceRecordSend,
-                    icon: Icon(
-                      _voiceRecording ? Icons.stop_circle_rounded : Icons.mic_rounded,
-                      color: _voiceRecording
-                          ? ThemeCleanPremium.error
-                          : ThemeCleanPremium.onSurfaceVariant,
+                  if (!kIsWeb)
+                    IconButton(
+                      onPressed: _sending ? null : _toggleVoiceRecordSend,
+                      icon: Icon(
+                        _voiceRecording
+                            ? Icons.stop_circle_rounded
+                            : Icons.mic_rounded,
+                        color: _voiceRecording
+                            ? ThemeCleanPremium.error
+                            : ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                      tooltip: _voiceRecording
+                          ? 'Enviar gravação'
+                          : 'Gravar mensagem de voz',
                     ),
-                    tooltip: _voiceRecording
-                        ? 'Enviar gravação'
-                        : 'Gravar mensagem de voz',
-                  ),
                   Expanded(
                     child: TextField(
                       controller: _ctrl,
@@ -1670,6 +1665,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       enableSuggestions: true,
                       smartDashesType: SmartDashesType.enabled,
                       smartQuotesType: SmartQuotesType.enabled,
+                      /// Sem isto, [inferAndroidSpellCheckConfiguration] mantém spellcheck desligado.
+                      spellCheckConfiguration: const SpellCheckConfiguration(),
                       textCapitalization: TextCapitalization.sentences,
                       keyboardType: TextInputType.multiline,
                       textInputAction: TextInputAction.newline,
@@ -1683,6 +1680,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             : 'Mensagem',
                         hintStyle: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                        prefixIcon: _voiceRecording
+                            ? null
+                            : IconButton(
+                                tooltip: 'Emojis e figurinhas',
+                                onPressed: (_sending || _voiceRecording)
+                                    ? null
+                                    : _openExpressionSheet,
+                                icon: Icon(
+                                  Icons.emoji_emotions_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 44,
                         ),
                         filled: true,
                         fillColor: ThemeCleanPremium.cardBackground,
@@ -1709,7 +1722,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
+                            horizontal: 6, vertical: 10),
                       ),
                       onSubmitted: _voiceRecording
                           ? null

@@ -7,9 +7,11 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (só vínculos do membro).
@@ -1542,7 +1544,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     }
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _visible {
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredMemberDocs() {
     final docs = _docs ?? [];
     final q = widget.filterCtrl.text.trim().toLowerCase();
     final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -1564,16 +1566,47 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       }
       out.add(doc);
     }
-    out.sort((a, b) {
-      final na = (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '')
+    return out;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortMembersOnlineFirst(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> members,
+    Map<String, Timestamp> presenceByUid,
+  ) {
+    bool online(String uid) {
+      final ts = presenceByUid[uid];
+      if (ts == null) return false;
+      return DateTime.now().difference(ts.toDate()).inSeconds < 45;
+    }
+
+    final copy =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(members);
+    copy.sort((a, b) {
+      final da = a.data();
+      final db = b.data();
+      final authA = (da['authUid'] ?? da['firebaseUid'] ?? '').toString();
+      final authB = (db['authUid'] ?? db['firebaseUid'] ?? '').toString();
+      final onA = online(authA);
+      final onB = online(authB);
+      if (onA != onB) {
+        if (onA) return -1;
+        if (onB) return 1;
+      }
+      final na = (da['NOME_COMPLETO'] ?? da['nome'] ?? '')
           .toString()
           .toLowerCase();
-      final nb = (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '')
+      final nb = (db['NOME_COMPLETO'] ?? db['nome'] ?? '')
           .toString()
           .toLowerCase();
       return na.compareTo(nb);
     });
-    return out;
+    return copy;
+  }
+
+  String? _cpfDigitsFromMembro(Map<String, dynamic> d) {
+    final raw =
+        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    return raw.length == 11 ? raw : null;
   }
 
   @override
@@ -1581,51 +1614,61 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    final rows = _visible;
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: rows.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(28),
-              children: [
-                SizedBox(
-                  height: MediaQuery.sizeOf(context).height * 0.15,
-                ),
-                Text(
-                  (_docs ?? []).isEmpty
-                      ? 'Não foi possível listar membros.'
-                      : 'Nenhum membro corresponde ao filtro.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: ThemeCleanPremium.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45,
-                  ),
-                ),
-              ],
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-              itemCount: rows.length,
-              itemBuilder: (_, i) {
-                final doc = rows[i];
-                final d = doc.data();
-                final auth =
-                    (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
-                final nome =
-                    (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
-                final label = nome.isEmpty ? auth : nome;
-                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('igrejas')
-                      .doc(widget.tenantId)
-                      .collection('chat_presence')
-                      .doc(auth)
-                      .snapshots(),
-                  builder: (context, presSnap) {
-                    final on = ChurchChatService.isOnlineFromSnapshot(
-                        presSnap.data);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('chat_presence')
+          .snapshots(),
+      builder: (context, presSnap) {
+        final presenceByUid = <String, Timestamp>{};
+        for (final p in presSnap.data?.docs ?? []) {
+          final ts = p.data()['lastSeenAt'];
+          if (ts is Timestamp) presenceByUid[p.id] = ts;
+        }
+        final rows =
+            _sortMembersOnlineFirst(_filteredMemberDocs(), presenceByUid);
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final cachePx = (40 * dpr).round().clamp(96, 240);
+
+        return RefreshIndicator(
+          onRefresh: _load,
+          child: rows.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(28),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.sizeOf(context).height * 0.15,
+                    ),
+                    Text(
+                      (_docs ?? []).isEmpty
+                          ? 'Não foi possível listar membros.'
+                          : 'Nenhum membro corresponde ao filtro.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+                  itemCount: rows.length,
+                  itemBuilder: (_, i) {
+                    final doc = rows[i];
+                    final d = doc.data();
+                    final auth =
+                        (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+                    final nome =
+                        (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+                    final label = nome.isEmpty ? auth : nome;
+                    final ts = presenceByUid[auth];
+                    final on = ts != null &&
+                        DateTime.now().difference(ts.toDate()).inSeconds < 45;
+                    final photoUrl = imageUrlFromMap(d);
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Material(
@@ -1655,19 +1698,18 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                                   Stack(
                                     clipBehavior: Clip.none,
                                     children: [
-                                      CircleAvatar(
-                                        backgroundColor: ThemeCleanPremium
-                                            .primary
-                                            .withValues(alpha: 0.88),
-                                        child: Text(
-                                          label.isNotEmpty
-                                              ? label[0].toUpperCase()
-                                              : '?',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
+                                      StableMemberAvatar(
+                                        imageUrl:
+                                            photoUrl.isEmpty ? null : photoUrl,
+                                        tenantId: widget.tenantId,
+                                        memberId: doc.id,
+                                        cpfDigits: _cpfDigitsFromMembro(d),
+                                        authUid:
+                                            auth.isNotEmpty ? auth : null,
+                                        memberData: d,
+                                        size: 40,
+                                        memCacheWidth: cachePx,
+                                        memCacheHeight: cachePx,
                                       ),
                                       Positioned(
                                         right: -1,
@@ -1731,9 +1773,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                       ),
                     );
                   },
-                );
-              },
-            ),
+                ),
+        );
+      },
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
@@ -48,10 +49,16 @@ Future<void> showChurchChatExpressionSheet({
   required Future<void> Function(ChurchStickerPick pick) onStickerChosen,
   bool disposeOrphanController = false,
 }) async {
+  final mq = MediaQuery.sizeOf(context);
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
+    constraints: BoxConstraints(
+      maxWidth: mq.width,
+      maxHeight: mq.height * 0.94,
+    ),
     builder: (ctx) => _ExpressionSheetBody(
       tenantId: tenantId,
       textEditingController: textEditingController,
@@ -325,6 +332,7 @@ class _EmojiTabState extends State<_EmojiTab> {
             child: LayoutBuilder(
               builder: (ctx, c) {
                 final h = (c.maxHeight - 8).clamp(220.0, 520.0);
+                final appLocale = Localizations.maybeLocaleOf(ctx);
                 return EmojiPicker(
                   textEditingController: widget.controller,
                   onEmojiSelected: (category, emoji) {
@@ -338,11 +346,16 @@ class _EmojiTabState extends State<_EmojiTab> {
                   },
                   config: Config(
                     height: h,
-                    checkPlatformCompatibility: true,
+                    /// Na web e com fontes personalizadas, filtrar por «compatibilidade»
+                    /// pode esvaziar a grelha; locale pt melhora busca e categorias.
+                    checkPlatformCompatibility: false,
+                    locale: appLocale ?? const Locale('pt'),
                     emojiViewConfig: EmojiViewConfig(
                       backgroundColor: ThemeCleanPremium.cardBackground,
-                      columns: 8,
-                      emojiSizeMax: 28,
+                      columns: kIsWeb ? 10 : 8,
+                      emojiSizeMax: kIsWeb ? 26 : 28,
+                      buttonMode:
+                          kIsWeb ? ButtonMode.NONE : ButtonMode.MATERIAL,
                     ),
                   ),
                 );

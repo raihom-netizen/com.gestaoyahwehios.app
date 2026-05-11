@@ -2454,7 +2454,7 @@ class _HeaderVencimento extends StatelessWidget {
   }
 }
 
-/// Atalho da barra inferior do painel da igreja (índice no shell ou menu).
+/// Atalho da barra inferior do painel da igreja (índice no shell).
 class _ChurchShellFooterShortcut {
   final int? shellIndex;
   final String shortLabel;
@@ -2466,12 +2466,6 @@ class _ChurchShellFooterShortcut {
     required this.shortLabel,
     required this.accent,
   }) : opensDrawer = false;
-
-  const _ChurchShellFooterShortcut.menu({
-    required this.shortLabel,
-    required this.accent,
-  })  : shellIndex = null,
-        opensDrawer = true;
 }
 
 /// Chip colorido Super Premium — círculo com gradiente ao selecionar.
