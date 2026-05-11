@@ -10,6 +10,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_editor.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -1325,7 +1329,8 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           docs = docs.where((d) {
             final p = d.data();
             final t = (p['title'] ?? '').toString().toLowerCase();
-            final body = (p['text'] ?? '').toString().toLowerCase();
+            final body = churchPostPlainText(Map<String, dynamic>.from(p))
+                .toLowerCase();
             final loc = (p['location'] ?? '').toString().toLowerCase();
             return t.contains(q) || body.contains(q) || loc.contains(q);
           }).toList();
@@ -1787,12 +1792,14 @@ class _EventGalleryDetailPage extends StatelessWidget {
       body: ListView(
         padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 28),
         children: [
-          if ((data['text'] ?? '').toString().trim().isNotEmpty)
+          if (churchPostPlainText(Map<String, dynamic>.from(data))
+              .trim()
+              .isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: Text(
-                (data['text'] ?? '').toString(),
-                style: TextStyle(color: Colors.grey.shade800, height: 1.35),
+              child: ChurchPostRichTextViewer(
+                data: Map<String, dynamic>.from(data),
+                maxHeight: 420,
               ),
             ),
           if (photos.isNotEmpty) ...[
@@ -2787,7 +2794,7 @@ class _StoriesBar extends StatelessWidget {
       BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final title = (data['title'] ?? '').toString();
-    final text = (data['text'] ?? '').toString();
+    final text = churchPostPlainText(Map<String, dynamic>.from(data));
     final imgs = _eventImageUrlsFromData(data);
     final displayThumbAll = eventNoticiaDisplayVideoThumbnailUrl(data) ?? '';
     var img = imgs.isNotEmpty ? imgs.first : '';
@@ -3302,7 +3309,7 @@ class _EventoPostState extends State<_EventoPost>
 
   Future<void> _toggleLike() async {
     if (_myUid == null) return;
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final merged = NoticiaSocialService.mergedLikeUids(data);
     final liked = merged.contains(_myUid!);
     try {
@@ -3326,7 +3333,7 @@ class _EventoPostState extends State<_EventoPost>
   }
 
   void _onDoubleTap() async {
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final merged = NoticiaSocialService.mergedLikeUids(data);
     final liked = _myUid != null && merged.contains(_myUid!);
     if (liked || _myUid == null) {
@@ -3345,7 +3352,7 @@ class _EventoPostState extends State<_EventoPost>
 
   Future<void> _toggleRsvp() async {
     if (_myUid == null) return;
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final rsvpList = List<String>.from(
         ((data['rsvp'] as List?) ?? []).map((e) => e.toString()));
     final rsvp = rsvpList.contains(_myUid!);
@@ -3380,9 +3387,9 @@ class _EventoPostState extends State<_EventoPost>
   }
 
   Future<void> _openShareSheet(Rect? shareOrigin) async {
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final title = (data['title'] ?? '').toString();
-    final text = (data['text'] ?? '').toString();
+    final text = churchPostPlainText(Map<String, dynamic>.from(data));
     final loc = (data['location'] ?? '').toString();
     DateTime? dt;
     try {
@@ -3519,7 +3526,7 @@ class _EventoPostState extends State<_EventoPost>
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.doc.data() ?? {};
+    final data = widget.doc.data();
     final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
     final liked = _myUid != null && mergedLikes.contains(_myUid!);
     final likeCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
@@ -3529,7 +3536,6 @@ class _EventoPostState extends State<_EventoPost>
     final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
     final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
     final title = (data['title'] ?? '').toString();
-    final text = (data['text'] ?? '').toString();
     final allImages = _eventFeedCardPhotoUrls(data);
     final hasImages = allImages.isNotEmpty;
     final location = (data['location'] ?? '').toString();
@@ -3971,18 +3977,15 @@ class _EventoPostState extends State<_EventoPost>
           ]),
         ),
         // Texto de divulgação (título já está na faixa)
-        if (text.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: SelectableText(
-              text,
-              style: TextStyle(
-                  color: Colors.grey.shade800,
-                  fontSize: kIsWeb ? 13 : 14,
-                  height: 1.45,
-                  fontWeight: FontWeight.w500),
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: ChurchPostRichTextViewer(
+            key: ValueKey(
+                '${widget.doc.id}_${churchPostRichContentSig(Map<String, dynamic>.from(data))}'),
+            data: Map<String, dynamic>.from(data),
+            maxHeight: kIsWeb ? 380 : 440,
           ),
+        ),
         // Convite, site público e mapa
         _EventPostLinksRow(
           tenantId: widget.tenantId,
@@ -5021,7 +5024,8 @@ class _EventoFormPage extends StatefulWidget {
 }
 
 class _EventoFormPageState extends State<_EventoFormPage> {
-  late TextEditingController _title, _text, _videoUrl;
+  late TextEditingController _title, _videoUrl;
+  late QuillController _bodyQuill;
   late TextEditingController _cep,
       _logradouro,
       _numero,
@@ -5261,7 +5265,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
-    _text = TextEditingController(text: (data['text'] ?? '').toString());
+    _bodyQuill = QuillController(
+      document: churchPostDocumentFromData(data),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
     _videoUrl =
         TextEditingController(text: (data['videoUrl'] ?? '').toString());
     _cep = TextEditingController();
@@ -5418,7 +5425,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         await agendaCol.where('noticiaId', isEqualTo: noticiaId).limit(10).get();
     final payload = <String, dynamic>{
       'title': _title.text.trim(),
-      'description': _text.text.trim(),
+      'description': _bodyQuill.document.toPlainText().trim(),
       'startTime': Timestamp.fromDate(start),
       'endTime': Timestamp.fromDate(end),
       'noticiaId': noticiaId,
@@ -5556,10 +5563,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return out;
   }
 
+  Map<String, dynamic> _eventBodyFirestoreFields() {
+    final plain = _bodyQuill.document.toPlainText().trim();
+    return {
+      'text': plain,
+      kChurchPostTextDeltaKey: _bodyQuill.document.toDelta().toJson(),
+    };
+  }
+
   @override
   void dispose() {
     _title.dispose();
-    _text.dispose();
+    _bodyQuill.dispose();
     _videoUrl.dispose();
     _cep.dispose();
     _logradouro.dispose();
@@ -6131,7 +6146,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final payload = <String, dynamic>{
         'type': 'evento',
         'title': _title.text.trim(),
-        'text': _text.text.trim(),
+        ..._eventBodyFirestoreFields(),
         'imageUrl': firstUrl,
         'imageUrls': allUrlsSafe,
         'defaultImageUrl': firstUrl,
@@ -6245,7 +6260,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final payload = <String, dynamic>{
               'type': 'evento',
               'title': _title.text.trim(),
-              'text': _text.text.trim(),
+              ..._eventBodyFirestoreFields(),
               'imageUrl': retryFirst,
               'imageUrls': retrySafe,
               'defaultImageUrl': retryFirst,
@@ -6327,7 +6342,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final merge = <String, dynamic>{
               'type': 'evento',
               'title': _title.text.trim(),
-              'text': _text.text.trim(),
+              ..._eventBodyFirestoreFields(),
               'imageUrl': mergeFirst,
               'imageUrls': mergeSafe,
               'defaultImageUrl': mergeFirst,
@@ -6808,16 +6823,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         labelText: 'Título do evento *',
                         prefixIcon: Icon(Icons.title_rounded))),
                 const SizedBox(height: 14),
-                TextField(
-                    controller: _text,
-                    maxLines: 4,
-                    autocorrect: true,
-                    enableSuggestions: true,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                        labelText: 'Descrição / legenda',
-                        prefixIcon: Icon(Icons.notes_rounded),
-                        alignLabelWithHint: true)),
+                ChurchPostRichTextEditor(
+                  controller: _bodyQuill,
+                  label: 'Descrição / legenda',
+                  hint:
+                      'Formatação completa: negrito, cores, alinhamento, listas e tamanhos.',
+                ),
                 const SizedBox(height: 18),
                 Row(
                   children: [

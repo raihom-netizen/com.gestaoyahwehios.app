@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Controla se o app pode exibir UI de cobranca direta (Mercado Pago / cartao / PIX)
 /// em iOS, conforme Guideline 3.1.1 da App Store (compras digitais devem usar IAP
@@ -91,5 +94,21 @@ class IosPaymentsGate {
     } catch (_) {
       _flagShowPayments = _defaultIosShowPayments;
     }
+  }
+
+  /// Em iOS Reader/SaaS: abre rota web dedicada de alteração de plano.
+  /// Inclui e-mail atual (quando disponível) para login expresso.
+  static Future<bool> openUpgradePlansExternally({
+    String source = 'ios_app',
+  }) async {
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
+        .replace(queryParameters: {
+      'from': 'ios_app',
+      'utm_source': 'app_ios',
+      'utm_medium': source,
+      if (email.isNotEmpty) 'email': email,
+    });
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }

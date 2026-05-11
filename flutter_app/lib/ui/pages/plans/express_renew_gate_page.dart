@@ -13,8 +13,8 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 ///
 /// Tela pré-login (super premium):
 ///   - Logo do sistema, gradiente de marca e título «Atualizar plano».
-///   - Texto curto: «Para atualizar seu plano, clique aqui».
-///   - Botão grande «Login expresso» — usa o e-mail salvo no
+///   - CTA direto: «Clique aqui para alterar plano».
+///   - Botão grande com autenticação Google — usa o e-mail salvo no
 ///     navegador/celular (Google popup/redirect na web; Google silencioso →
 ///     Apple → Google interativo no app nativo).
 ///   - Link discreto para «Entrar com e-mail e senha» (fallback).
@@ -259,8 +259,8 @@ class _PremiumHeader extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Para atualizar seu plano, clique no botão abaixo. '
-            'Use o e-mail salvo no seu celular ou navegador.',
+            'Clique abaixo para alterar seu plano. '
+            'Faça login Google e siga direto para os planos e pagamento.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.92),
               fontSize: 13.5,
@@ -347,8 +347,8 @@ class _LoginCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Identificamos sua igreja e o plano atual a partir do e-mail. '
-            'Sem cadastro novo, sem painel — só plano e pagamento.',
+            'Após o login, carregamos somente a tela de planos (mensal/anual) '
+            'e o checkout Mercado Pago.',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey.shade700,
@@ -499,16 +499,16 @@ class _ExpressLoginButton extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Login expresso',
+                          'Clique aqui para alterar plano',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
-                            fontSize: 15,
+                            fontSize: 14.2,
                           ),
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Use o e-mail salvo do navegador/celular',
+                          'Entrar com Google e abrir planos',
                           style: TextStyle(
                             color: Color(0xFFD1FAE5),
                             fontSize: 11.5,

@@ -13,6 +13,9 @@ const int kChurchShellIndexFornecedores = 22;
 /// Índice do item "Cartas e transferências" em [IgrejaCleanShell] (`_items`).
 const int kChurchShellIndexChurchLetters = 14;
 
+/// Índice do item "Conversas" (chat WhatsApp) em [IgrejaCleanShell].
+const int kChurchShellIndexChat = 24;
+
 /// Encaminha toques em notificações push (FCM) para o módulo certo do painel da igreja.
 class ChurchPanelNavigationBridge {
   ChurchPanelNavigationBridge._();
@@ -65,6 +68,10 @@ class ChurchPanelNavigationBridge {
         return kChurchShellIndexEscalaGeral;
       case 'fornecedor_agenda_reminder':
         return kChurchShellIndexFornecedores;
+      case 'novo_chat':
+      case 'chat_message':
+      case 'church_chat':
+        return kChurchShellIndexChat;
       default:
         return null;
     }

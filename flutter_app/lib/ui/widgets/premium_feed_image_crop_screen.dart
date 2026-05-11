@@ -26,7 +26,7 @@ class PremiumFeedImageCropScreen extends StatefulWidget {
 
 class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen> {
   static const _ratios = <_RatioOption>[
-    _RatioOption(label: 'Original', ratio: null),
+    _RatioOption(label: 'Toda imagem', ratio: null),
     _RatioOption(label: '16×9', ratio: 16 / 9),
     _RatioOption(label: '4×3', ratio: 4 / 3),
     _RatioOption(label: '3×2', ratio: 3 / 2),
@@ -82,6 +82,19 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
               ),
             ),
           ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Text(
+              'Por defeito usa a foto inteira — arraste ou escolha outra proporção.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: Colors.white.withValues(alpha: 0.72),
+              ),
+            ),
+          ),
           const SizedBox(height: 10),
           Expanded(
             child: Padding(
@@ -92,6 +105,13 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
                   image: _bytes,
                   controller: _cropController,
                   aspectRatio: _ratios[_selectedRatioIndex].ratio,
+                  /// Modo livre: área inicial = imagem completa (antes ficava uma janela ao centro).
+                  initialRectBuilder:
+                      _ratios[_selectedRatioIndex].ratio == null
+                          ? InitialRectBuilder.withBuilder(
+                              (viewportRect, imageRect) => imageRect,
+                            )
+                          : null,
                   interactive: true,
                   baseColor: const Color(0xFF0A0A0A),
                   maskColor: Colors.black.withValues(alpha: 0.52),

@@ -1010,6 +1010,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               FilledButton(
                 onPressed: () {
                   Navigator.pop(ctx);
+                  if (IosPaymentsGate.shouldHidePayments &&
+                      IosPaymentsGate.isIosNative) {
+                    IosPaymentsGate.openUpgradePlansExternally(
+                        source: 'public_member_signup_limit');
+                    return;
+                  }
                   Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const RenewPlanPage()));
                 },

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,10 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart'
+    show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
@@ -34,15 +39,25 @@ class ConfiguracoesPage extends StatefulWidget {
   final String role;
   /// Permissões granulares (ex.: `configuracoes_banco`) definidas pelo gestor no cadastro.
   final List<String>? permissions;
+  /// Doc `subscriptions` mais recente (mesmo do shell) — exibir estado da licença da igreja.
+  final Map<String, dynamic>? subscription;
 
-  const ConfiguracoesPage({super.key, required this.tenantId, required this.role, this.permissions});
+  const ConfiguracoesPage({
+    super.key,
+    required this.tenantId,
+    required this.role,
+    this.permissions,
+    this.subscription,
+  });
 
   @override
   State<ConfiguracoesPage> createState() => _ConfiguracoesPageState();
 }
 
 class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
-  late bool _notifAvisos, _notifEscalas, _notifEventos, _notifAniversariantes;
+  late bool _notifAvisos, _notifEscalas, _notifEventos, _notifChat,
+      _notifAniversariantes;
+  late String _notifChatAlertMode;
   late bool _notifEmail, _notifCelular, _notifWeb;
   late bool _notif1Dia, _notif60Min;
   late TextEditingController _notifMinutosCtrl;
@@ -55,6 +70,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool _bioEnabled = false;
   bool _bioToggling = false;
   bool _cacheFotosPerfilNoAparelho = true;
+  SubscriptionGuardState? _subscriptionGuard;
+  bool _userAtivoNoPainel = false;
+  String _accountEmailDisplay = '';
 
   @override
   void initState() {
@@ -83,6 +101,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var av = prefs.getBool(_keyNotifAvisos) ?? true;
     var ev = prefs.getBool(_keyNotifEventos) ?? true;
     var es = prefs.getBool(_keyNotifEscalas) ?? true;
+    var ch = prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
+    var chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
+      prefs.getString(ChurchChatNotificationPrefs.sharedPrefsAlertModeKey) ??
+          ChurchChatNotificationPrefs.alertModeSound,
+    );
     final u = FirebaseAuth.instance.currentUser;
     if (u != null) {
       try {
@@ -95,17 +118,30 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           if (d['pushAvisos'] is bool) av = d['pushAvisos'] as bool;
           if (d['pushEventos'] is bool) ev = d['pushEventos'] as bool;
           if (d['pushEscalas'] is bool) es = d['pushEscalas'] as bool;
+          if (d['pushChat'] is bool) ch = d['pushChat'] as bool;
+          final rawAlertMode = d['pushChatAlertMode'];
+          if (rawAlertMode is String && rawAlertMode.trim().isNotEmpty) {
+            chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(rawAlertMode);
+          }
         }
       } catch (_) {}
     }
     await prefs.setBool(_keyNotifAvisos, av);
     await prefs.setBool(_keyNotifEventos, ev);
     await prefs.setBool(_keyNotifEscalas, es);
+    await prefs.setBool(ChurchChatNotificationPrefs.sharedPrefsKey, ch);
+    await prefs.setString(
+      ChurchChatNotificationPrefs.sharedPrefsAlertModeKey,
+      chatAlertMode,
+    );
+    await _loadAccountAndLicenseSnapshot();
     if (!mounted) return;
     setState(() {
       _notifAvisos = av;
       _notifEscalas = es;
       _notifEventos = ev;
+      _notifChat = ch;
+      _notifChatAlertMode = chatAlertMode;
       _notifAniversariantes = prefs.getBool(_keyNotifAniversariantes) ?? true;
       _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
       _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
@@ -118,6 +154,80 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           prefs.getBool(kPrefMemberPhotoDiskCacheV1) ?? true;
       _loading = false;
     });
+  }
+
+  Future<void> _loadAccountAndLicenseSnapshot() async {
+    final authUser = FirebaseAuth.instance.currentUser;
+    final email = (authUser?.email ?? '').trim();
+    var userAtivo = authUser != null;
+    SubscriptionGuardState? guard;
+    try {
+      final resolved =
+          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      final chSnap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(resolved)
+          .get();
+      guard = SubscriptionGuard.evaluate(
+        church: chSnap.data(),
+        subscription: widget.subscription,
+      );
+      if (authUser != null) {
+        try {
+          final uDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(authUser.uid)
+              .get();
+          userAtivo = uDoc.data()?['ativo'] == true;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    _subscriptionGuard = guard;
+    _userAtivoNoPainel = userAtivo;
+    _accountEmailDisplay = email.isNotEmpty ? email : '—';
+  }
+
+  Future<void> _trocarConta(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Trocar de conta'),
+        content: const Text(
+          'Você sairá desta sessão e poderá entrar com outro e-mail ou Google. '
+          'Deseja continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sair e ir para Entrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await LoginPreferences.clearOAuthHints();
+      if (!kIsWeb) {
+        await appGoogleSignOutForAccountPicker();
+      }
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    if (!context.mounted) return;
+    if (kIsWeb) {
+      try {
+        final p = await SharedPreferences.getInstance();
+        await p.remove('last_route');
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true)
+        .pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
   Future<void> _onBiometricSwitch(bool wantOn) async {
@@ -202,6 +312,117 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             : ListView(
                 padding: padding,
                 children: [
+                  _SectionTitle(
+                      icon: Icons.verified_user_rounded,
+                      title: 'Conta e licença'),
+                  _Card(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Sessão e plano da igreja',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.alternate_email_rounded,
+                                  color: ThemeCleanPremium.primary),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'E-mail conectado',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SelectableText(
+                                    _accountEmailDisplay,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MiniStatusChip(
+                                label: 'Utilizador',
+                                value: _userAtivoNoPainel ? 'Ativo' : 'Verificar cadastro',
+                                ok: _userAtivoNoPainel,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MiniStatusChip(
+                                label: 'Licença igreja',
+                                value: _subscriptionGuard?.masterBadgeLabel ?? '—',
+                                ok: _subscriptionGuard != null &&
+                                    !(_subscriptionGuard!.blocked),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_subscriptionGuard?.dataVencimento != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'Referência de vigência: ${_fmtShortDate(_subscriptionGuard!.dataVencimento!)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () => _trocarConta(context),
+                          icon: const Icon(Icons.swap_horiz_rounded, size: 20),
+                          label: const Text('Trocar de conta / outro login'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F766E),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14, horizontal: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Use esta opção para entrar com outro utilizador no mesmo aparelho '
+                          '(Google ou e-mail). O acesso rápido por digital/rosto segue as suas opções na tela Entrar.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   if (!_restrictedMemberSettings) ...[
                     _SectionTitle(icon: Icons.palette_outlined, title: 'Aparência'),
                     _Card(
@@ -375,6 +596,25 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                           setState(() => _notifEventos = v);
                           unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
                         }),
+                        _SwitchRow('Chat da igreja (mensagens)', _notifChat, (v) {
+                          setState(() => _notifChat = v);
+                          unawaited(_savePushPref(
+                            ChurchChatNotificationPrefs.sharedPrefsKey,
+                            'pushChat',
+                            v,
+                          ));
+                        }),
+                        const SizedBox(height: 8),
+                        _ChatAlertModeRow(
+                          value: _notifChatAlertMode,
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setState(() => _notifChatAlertMode = v);
+                            unawaited(
+                              ChurchChatNotificationPrefs.setChatAlertMode(mode: v),
+                            );
+                          },
+                        ),
                         _SwitchRow('Aniversariantes do dia', _notifAniversariantes, (v) => setState(() { _notifAniversariantes = v; _saveNotif(_keyNotifAniversariantes, v); })),
                         const Divider(height: 24),
                         Text('Antecedência:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
@@ -672,6 +912,63 @@ class _Card extends StatelessWidget {
   }
 }
 
+String _fmtShortDate(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+class _MiniStatusChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool ok;
+
+  const _MiniStatusChip({
+    required this.label,
+    required this.value,
+    required this.ok,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ok
+            ? ThemeCleanPremium.success.withOpacity(0.08)
+            : Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: ok
+              ? ThemeCleanPremium.success.withOpacity(0.35)
+              : Colors.orange.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: ok ? ThemeCleanPremium.success : Colors.orange.shade900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SwitchRow extends StatelessWidget {
   final String label;
   final bool value;
@@ -687,6 +984,60 @@ class _SwitchRow extends StatelessWidget {
         children: [
           Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
           Switch(value: value, onChanged: onChanged, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatAlertModeRow extends StatelessWidget {
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  const _ChatAlertModeRow({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = ChurchChatNotificationPrefs.normalizeAlertMode(value);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Alerta das conversas',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+          SizedBox(
+            width: 190,
+            child: DropdownButtonFormField<String>(
+              initialValue: normalized,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: ChurchChatNotificationPrefs.alertModeSound,
+                  child: Text('Som Whats + vibrar'),
+                ),
+                DropdownMenuItem(
+                  value: ChurchChatNotificationPrefs.alertModeVibrate,
+                  child: Text('Só vibrar'),
+                ),
+                DropdownMenuItem(
+                  value: ChurchChatNotificationPrefs.alertModeSilent,
+                  child: Text('Silencioso'),
+                ),
+              ],
+              onChanged: onChanged,
+            ),
+          ),
         ],
       ),
     );

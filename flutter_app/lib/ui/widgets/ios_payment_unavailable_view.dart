@@ -38,6 +38,18 @@ class IosPaymentUnavailableView extends StatefulWidget {
 
 class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
   bool _opening = false;
+  bool _autoOpened = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Um toque no botão "Atualizar plano" do app iOS já deve abrir o fluxo web expresso.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _autoOpened) return;
+      _autoOpened = true;
+      _openExternalPlans();
+    });
+  }
 
   /// URL externa do site publico — abre direto o «modo expresso»
   /// (`/atualizar-plano`): site pede login (so pra identificar a igreja),

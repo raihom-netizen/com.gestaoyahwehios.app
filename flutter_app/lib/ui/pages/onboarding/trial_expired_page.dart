@@ -38,6 +38,11 @@ class TrialExpiredPage extends StatelessWidget {
                 text: iosReader ? 'Atualizar plano' : 'Escolher plano',
                 icon: Icons.workspace_premium,
                 onPressed: () {
+                  if (iosReader && IosPaymentsGate.isIosNative) {
+                    IosPaymentsGate.openUpgradePlansExternally(
+                        source: 'trial_expired_page');
+                    return;
+                  }
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const RenewPlanPage()),
                   );

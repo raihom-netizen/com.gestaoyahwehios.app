@@ -7,10 +7,15 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart'
+    show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -39,6 +44,7 @@ import 'pages/cargos_page.dart';
 import 'pages/calendar_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
+import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'pages/pastoral_comunicacao_page.dart';
@@ -136,7 +142,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   String? _userPhotoUrlFromFirestore;
 
   /// Cache das páginas do menu para manter estado ao trocar de aba ou ao voltar ao app (evita recarregar e tela preta).
-  final List<Widget?> _pageCache = List.filled(24, null);
+  final List<Widget?> _pageCache = List.filled(25, null);
   bool _showPaymentConfirmedBanner = false;
   int _lastPaymentTick = 0;
   int _paymentBannerAnimSeed = 0;
@@ -172,6 +178,32 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   bool get _isMobile => MediaQuery.sizeOf(context).width < _breakpointDesktop;
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
+  Future<void> _openUpgradePlans() async {
+    if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
+      final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
+          .replace(queryParameters: {
+        'from': 'ios_app',
+        'utm_source': 'app_ios',
+        'utm_medium': 'church_shell',
+        if (email.isNotEmpty) 'email': email,
+      });
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        _showPanelSnack(
+          'Não foi possível abrir o navegador. Acesse /atualizar-plano manualmente.',
+          isError: true,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage()),
+    );
+  }
+
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
     // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
@@ -192,9 +224,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         accent: kChurchShellNavEntries[7].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: 6,
-        shortLabel: 'Mural',
-        accent: kChurchShellNavEntries[6].accent,
+        shellIndex: 24,
+        shortLabel: 'Chat',
+        accent: kChurchShellNavEntries[24].accent,
       ),
       _ChurchShellFooterShortcut.menu(
         shortLabel: 'Menu',
@@ -1077,8 +1109,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                   tooltip: IosPaymentsGate.shouldHidePayments
                       ? 'Atualizar plano'
                       : 'Planos e assinatura',
-                  onPressed: () => Navigator.push(context,
-                      ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
+                  onPressed: () => unawaited(_openUpgradePlans()),
                   // Material estável na web (subset de ícones arredondados pode falhar).
                   icon: const Icon(Icons.emoji_events_rounded,
                       color: Colors.white, size: 22),
@@ -1089,8 +1120,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                 IconButton(
                   icon: const Icon(Icons.emoji_events_rounded,
                       color: Colors.white, size: 22),
-                  onPressed: () => Navigator.push(context,
-                      ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
+                  onPressed: () => unawaited(_openUpgradePlans()),
                   style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                   tooltip: IosPaymentsGate.shouldHidePayments
                       ? 'Atualizar plano'
@@ -1105,6 +1135,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                       final p = await SharedPreferences.getInstance();
                       await p.remove('last_route');
                     } catch (_) {}
+                  }
+                  await LoginPreferences.clearOAuthHints();
+                  if (!kIsWeb) {
+                    await appGoogleSignOutForAccountPicker();
                   }
                   await FirebaseAuth.instance.signOut();
                   // Web: [AuthGate] troca para divulgação (evita stack duplicado / tela branca).
@@ -1409,10 +1443,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => Navigator.push(
-                            context,
-                            ThemeCleanPremium.fadeSlideRoute(
-                                const RenewPlanPage())),
+                        onTap: () => unawaited(_openUpgradePlans()),
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusMd),
                         child: Container(
@@ -1438,10 +1469,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusMd),
                     child: InkWell(
-                      onTap: () => Navigator.push(
-                          context,
-                          ThemeCleanPremium.fadeSlideRoute(
-                              const RenewPlanPage())),
+                      onTap: () => unawaited(_openUpgradePlans()),
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusMd),
                       child: Container(
@@ -1633,10 +1661,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                   child: InkWell(
                     onTap: () {
                       Navigator.of(context).pop();
-                      Navigator.push(
-                          context,
-                          ThemeCleanPremium.fadeSlideRoute(
-                              const RenewPlanPage()));
+                      unawaited(_openUpgradePlans());
                     },
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusSm),
@@ -1850,6 +1875,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           tenantId: widget.tenantId,
           role: widget.role,
           permissions: widget.permissions,
+          subscription: widget.subscription,
         );
       case 17:
         return SistemaInformacoesPage(
@@ -1913,6 +1939,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
           tenantId: widget.tenantId,
           role: widget.role,
           cpf: widget.cpf,
+          embeddedInShell: true,
+        );
+      case 24:
+        return ChurchChatHubPage(
+          key: const ValueKey('page_24'),
+          tenantId: widget.tenantId,
+          cpf: widget.cpf,
+          role: widget.role,
           embeddedInShell: true,
         );
       default:
@@ -1991,14 +2025,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
       child: SubscriptionExpiredPage(
         churchName: churchName,
         logoUrl: logoUrl,
-        onRenew: () => Navigator.push(
-            context, ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage())),
+        onRenew: () => unawaited(_openUpgradePlans()),
         onLogout: () async {
           if (kIsWeb) {
             try {
               final p = await SharedPreferences.getInstance();
               await p.remove('last_route');
             } catch (_) {}
+          }
+          await LoginPreferences.clearOAuthHints();
+          if (!kIsWeb) {
+            await appGoogleSignOutForAccountPicker();
           }
           await FirebaseAuth.instance.signOut();
         },
@@ -2224,7 +2261,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                                 /// Fornecedores / Financeiro: UI própria em ecrã completo (abas pill / resumo) — sem título duplicado.
                                 if (_selectedIndex != 0 &&
                                     _selectedIndex != 21 &&
-                                    _selectedIndex != 20)
+                                    _selectedIndex != 20 &&
+                                    _selectedIndex != 24)
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,

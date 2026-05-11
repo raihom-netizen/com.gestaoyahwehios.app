@@ -7020,3 +7020,6 @@ export {
   pruneContribuicoesDizimoHistorico,
 } from "./churchMercadoPago";
 
+export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
+export { onChurchChatMessageCreated } from "./churchChatNotify";
+

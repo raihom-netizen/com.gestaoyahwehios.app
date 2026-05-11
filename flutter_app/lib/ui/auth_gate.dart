@@ -25,6 +25,9 @@ import '../services/fcm_service.dart';
 import '../services/app_permissions.dart';
 import '../services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
+import '../services/church_chat_alert_notification_service.dart';
+import '../services/church_chat_notification_prefs.dart';
+import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
 class _IgrejaNaoVinculadaPage extends StatefulWidget {
@@ -561,6 +564,34 @@ class _AuthGateState extends State<AuthGate> {
         }
       }
 
+      // Regras do Firestore leem `users/{uid}.role` + vínculo à igreja; o papel efetivo do painel
+      // vem muitas vezes só da ficha em `membros` (FUNCOES). Sincroniza para liberar mural/avisos.
+      if (userDoc.exists && role.toString().trim().isNotEmpty) {
+        try {
+          final normalizedRole =
+              ChurchRolePermissions.normalize(role.toString());
+          if (normalizedRole.isNotEmpty) {
+            final prevStored = ChurchRolePermissions.normalize(
+                (userData['role'] ?? '').toString());
+            final tidStored = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
+                .toString()
+                .trim();
+            if (prevStored != normalizedRole || tidStored != igrejaId) {
+              unawaited(
+                db.collection('users').doc(user.uid).set(
+                  {
+                    'role': normalizedRole,
+                    'igrejaId': igrejaId,
+                    'tenantId': igrejaId,
+                  },
+                  SetOptions(merge: true),
+                ).catchError((_) {}),
+              );
+            }
+          }
+        } catch (_) {}
+      }
+
       final result = {
         'igrejaId': igrejaId,
         'role': role,
@@ -980,7 +1011,20 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
             cpf: cpf,
             role: roleTxt,
             onForegroundMessage: (msg) {
-              showGestaoForegroundNotificationSnackBar(context, msg);
+              unawaited(() async {
+                if (!context.mounted) return;
+                if (await ChurchChatNotificationPrefs.shouldSuppressForegroundSnack(
+                  msg,
+                )) {
+                  return;
+                }
+                await ChurchChatAlertNotificationService.instance
+                    .showForegroundAlertIfNeeded(
+                  msg,
+                );
+                if (!context.mounted) return;
+                showGestaoForegroundNotificationSnackBar(context, msg);
+              }());
             },
           );
         }

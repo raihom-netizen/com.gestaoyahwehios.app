@@ -158,6 +158,11 @@ class DashboardPage extends StatelessWidget {
               const SizedBox(width: 10),
               ElevatedButton(
                 onPressed: () {
+                  if (iosReader && IosPaymentsGate.isIosNative) {
+                    IosPaymentsGate.openUpgradePlansExternally(
+                        source: 'dashboard_trial_expired');
+                    return;
+                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const RenewPlanPage()),
@@ -193,6 +198,11 @@ class DashboardPage extends StatelessWidget {
               const SizedBox(width: 10),
               OutlinedButton(
                 onPressed: () {
+                  if (iosReader && IosPaymentsGate.isIosNative) {
+                    IosPaymentsGate.openUpgradePlansExternally(
+                        source: 'dashboard_trial_active');
+                    return;
+                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const RenewPlanPage()),
@@ -324,6 +334,12 @@ class DashboardPage extends StatelessWidget {
           return;
         }
         if (title == 'Assinatura') {
+          if (IosPaymentsGate.shouldHidePayments &&
+              IosPaymentsGate.isIosNative) {
+            IosPaymentsGate.openUpgradePlansExternally(
+                source: 'dashboard_assinatura');
+            return;
+          }
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const RenewPlanPage()),

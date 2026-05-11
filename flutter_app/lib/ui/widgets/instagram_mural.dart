@@ -73,6 +73,10 @@ import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_editor.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// O mural usa [SafeNetworkImage] (não [CachedNetworkImage] isolado em URLs Firebase na web).
@@ -412,7 +416,8 @@ class _InstagramMuralState extends State<InstagramMural> {
     final q = _feedSearchQuery.trim().toLowerCase();
     if (q.isEmpty) return true;
     final title = (data['title'] ?? '').toString().toLowerCase();
-    final text = (data['text'] ?? data['body'] ?? '').toString().toLowerCase();
+    final text = churchPostPlainText(Map<String, dynamic>.from(data))
+        .toLowerCase();
     return title.contains(q) || text.contains(q);
   }
 
@@ -509,7 +514,8 @@ class _InstagramMuralState extends State<InstagramMural> {
                   } catch (_) {}
                   final lat = d['locationLat'];
                   final lng = d['locationLng'];
-                  final texto = (d['text'] ?? d['body'] ?? '').toString();
+                  final texto =
+                      churchPostPlainText(Map<String, dynamic>.from(d));
                   final slug = widget.churchSlug.trim();
                   final inviteCardUrl = slug.isNotEmpty
                       ? AppConstants.shareNoticiaIgrejaEventoUrl(
@@ -1213,7 +1219,7 @@ class _PostCardState extends State<_PostCard>
           start: eventDt,
           location: (data['location'] ?? '').toString(),
           description: EventoCalendarIntegration.buildDescriptionWithPublicLink(
-            body: (data['text'] ?? '').toString(),
+            body: churchPostPlainText(Map<String, dynamic>.from(data)),
             churchSlug: widget.churchSlug,
           ),
           locationLat: lat is num
@@ -1465,10 +1471,9 @@ class _PostCardState extends State<_PostCard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final data = widget.doc.data();
+    final data = Map<String, dynamic>.from(widget.doc.data());
     final type = (data['type'] ?? 'aviso').toString();
     final title = (data['title'] ?? '').toString();
-    final text = (data['text'] ?? '').toString();
     final muralPhotos = _PostCard.photoUrlsOnlyForMural(data);
     final videoEntries = eventNoticiaVideosFromDoc(data);
     final photoCount = muralPhotos.length;
@@ -1848,23 +1853,21 @@ class _PostCardState extends State<_PostCard>
                   style: const TextStyle(
                       fontWeight: FontWeight.w800, fontSize: 15)),
             ),
-          if (text.isNotEmpty)
-            Padding(
-              padding: EdgeInsets.fromLTRB(16,
-                  (!isEvento && muralPhotos.isNotEmpty && title.isNotEmpty)
-                      ? 0
-                      : 12,
-                  16,
-                  4),
-              child: SelectableText(
-                text,
-                style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade800,
-                    height: 1.45,
-                    fontWeight: FontWeight.w500),
-              ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                16,
+                (!isEvento && muralPhotos.isNotEmpty && title.isNotEmpty)
+                    ? 0
+                    : 12,
+                16,
+                4),
+            child: ChurchPostRichTextViewer(
+              key: ValueKey(
+                  '${widget.doc.id}_${churchPostRichContentSig(data)}'),
+              data: data,
+              maxHeight: 400,
             ),
+          ),
 
           _MuralPostLinksRow(
             tenantId: widget.tenantId,
@@ -2014,10 +2017,10 @@ class _PostCardState extends State<_PostCard>
               IconButton(
                 tooltip: 'Copiar texto',
                 onPressed: () {
-                  final d = widget.doc.data();
+                  final d = Map<String, dynamic>.from(widget.doc.data());
                   Clipboard.setData(ClipboardData(
                       text:
-                          '${(d['title'] ?? '').toString()}\n${(d['text'] ?? '').toString()}'));
+                          '${(d['title'] ?? '').toString()}\n${churchPostPlainText(d)}'));
                   ScaffoldMessenger.of(context).showSnackBar(
                       ThemeCleanPremium.successSnackBar('Texto copiado!'));
                 },
@@ -2840,7 +2843,8 @@ class MuralAvisoEditorPage extends StatefulWidget {
 }
 
 class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
-  late TextEditingController _title, _text, _videoUrl;
+  late TextEditingController _title, _videoUrl;
+  late QuillController _bodyQuill;
   late TextEditingController _cep,
       _logradouro,
       _numero,
@@ -2878,7 +2882,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     super.initState();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
-    _text = TextEditingController(text: (data['text'] ?? '').toString());
+    _bodyQuill = QuillController(
+      document: churchPostDocumentFromData(data),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
     _videoUrl =
         TextEditingController(text: (data['videoUrl'] ?? '').toString());
     _cep = TextEditingController();
@@ -3182,7 +3189,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void dispose() {
     _title.dispose();
-    _text.dispose();
+    _bodyQuill.dispose();
     _videoUrl.dispose();
     _cep.dispose();
     _logradouro.dispose();
@@ -3333,10 +3340,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
       final hasVideo = _videoUrl.text.trim().isNotEmpty;
 
+      final plainBody = _bodyQuill.document.toPlainText().trim();
       final payload = <String, dynamic>{
         'type': widget.type,
         'title': _title.text.trim(),
-        'text': _text.text.trim(),
+        'text': plainBody,
+        kChurchPostTextDeltaKey: _bodyQuill.document.toDelta().toJson(),
         'imageUrl': firstUrl,
         'imageUrls': allUrls,
         'defaultImageUrl': firstUrl,
@@ -3769,16 +3778,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               labelText: 'Título *',
                               prefixIcon: Icon(Icons.title_rounded))),
                       const SizedBox(height: 14),
-                      TextField(
-                          controller: _text,
-                          maxLines: 4,
-                          autocorrect: true,
-                          enableSuggestions: true,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                              labelText: 'Texto / Descrição',
-                              prefixIcon: Icon(Icons.notes_rounded),
-                              alignLabelWithHint: true)),
+                      ChurchPostRichTextEditor(
+                        controller: _bodyQuill,
+                        label: 'Texto / Descrição',
+                        hint:
+                            'Formatação premium: negrito, cores, alinhamento, listas e tamanhos.',
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [

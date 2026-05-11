@@ -81,6 +81,43 @@ Manter sincronizados com o `+N` do pubspec.
 
 ## 2. iOS Reader / Multiplatform — arquivos Dart
 
+### 2.0 Regra obrigatória (maio/2026)
+
+No iOS native em modo Reader (`IosPaymentsGate.shouldHidePayments == true`):
+
+- **Nenhum CTA de upgrade** deve abrir `RenewPlanPage()` diretamente.
+- Todos os CTAs («Atualizar plano», «Ver planos», «Ativar plano», ações em
+  `SnackBar`, diálogos de limite e banners de trial/licença) devem abrir
+  **Safari externo** em `/atualizar-plano` com `email` quando disponível.
+
+Implementação padrão (helper central no gate):
+
+```dart
+static Future<bool> openUpgradePlansExternally({
+  String source = 'ios_app',
+}) async {
+  final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+  final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
+      .replace(queryParameters: {
+    'from': 'ios_app',
+    'utm_source': 'app_ios',
+    'utm_medium': source,
+    if (email.isNotEmpty) 'email': email,
+  });
+  return launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+```
+
+Uso padrão em qualquer botão:
+
+```dart
+if (IosPaymentsGate.shouldHidePayments && IosPaymentsGate.isIosNative) {
+  IosPaymentsGate.openUpgradePlansExternally(source: 'dashboard_trial_expired');
+  return;
+}
+Navigator.push(context, MaterialPageRoute(builder: (_) => const RenewPlanPage()));
+```
+
 ### 2.1 `lib/services/ios_payments_gate.dart` (NOVO)
 
 Serviço estático, sem estado de instância. API:
@@ -613,11 +650,16 @@ iOS 14.0+ é o mínimo aceito pela App Store em 2026.
 
 - [ ] `flutter pub get` baixou `firebase_remote_config`.
 - [ ] `IosPaymentsGate.initialize()` chamado em `main()`.
+- [ ] Existe `IosPaymentsGate.openUpgradePlansExternally(...)`.
 - [ ] `RenewPlanPage` em iOS (sem `expressMode`) mostra
       `IosPaymentUnavailableView`.
 - [ ] `IosPaymentUnavailableView` **não mostra preços** nem toggle
       Mensal/Anual. CTA está no topo E no rodapé.
 - [ ] Botões da view abrem Safari externo (`LaunchMode.externalApplication`).
+- [ ] Em iOS native, todos os CTAs de upgrade (dashboard, shell, members,
+      onboarding, signup público/interno, diálogos de limite, snackbars e tela de
+      licença expirada) chamam `openUpgradePlansExternally(...)` em vez de
+      `Navigator.push(...RenewPlanPage())`.
 - [ ] Banners/diálogos em iOS dizem «Atualizar plano» (não «Pagar»,
       «Comprar», «Adquirir», «Assinar», «Renovar agora»).
 - [ ] `_buildPlanosResumoCard` em iOS native: sem coluna de preço, com

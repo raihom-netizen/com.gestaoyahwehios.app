@@ -69,6 +69,7 @@ service cloud.firestore {
       let r = role();
       return r != null && (
         r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'líder' || r == 'Líder' || r == 'LÍDER' ||
         r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
         r == 'lider_depto' || r == 'LIDER_DEPTO'
       );
@@ -97,7 +98,56 @@ service cloud.firestore {
               || get(/databases/$(database)/documents/igrejas/$(tenantId)).data.gestorEmail == request.auth.token.email);
     }
     function canAccessTenant(tenantId) {
-      return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId);
+      return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId)
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
+        || memberLinkedToTenant(tenantId);
+    }
+    /// Membro cadastrado na igreja (doc por UID ou por CPF 11 dígitos vinculado ao authUid).
+    /// Evita bloqueio de gravação para quem está ativo em `membros`, mas sem espelho completo em `users`.
+    function memberLinkedToTenant(tenantId) {
+      let byUid = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      let cpf = exists(rootUser)
+        ? (
+            get(rootUser).data.cpf is string
+              ? get(rootUser).data.cpf
+              : (get(rootUser).data.CPF is string ? get(rootUser).data.CPF : '')
+          )
+        : '';
+      let byCpf = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
+      return isSignedIn() && (
+        exists(byUid)
+        || (cpf.size() == 11 && cpf.matches('^[0-9]{11}$') && exists(byCpf) && (
+          get(byCpf).data.authUid == request.auth.uid
+          || get(byCpf).data.firebaseUid == request.auth.uid
+        ))
+      );
+    }
+    /// Papéis em arrays `roles` (root `users` ou `igrejas/{tenant}/users`) — o app grava listas; [role()] só tratavia MASTER/ADM/GESTOR na lista.
+    function muralRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente',
+        'pastora_presidente', 'pastora presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar',
+        'ministerial', 'pastor_auxiliar_ministerial',
+        'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'secretária', 'Secretaria',
+        'PRESBITERO', 'presbitero', 'PRESBITERA', 'presbitera', 'Presbitero', 'Presbitera',
+        'lider', 'LIDER', 'Lider',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'Líder de Departamento', 'líder de departamento',
+        'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
+        'evangelista', 'EVANGELISTA', 'Evangelista',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
+        'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ]);
+    }
+    function muralRoleFromRolesArrays(tenantId) {
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return (exists(rootU) && muralRolesArrayMatches(get(rootU).data.roles))
+        || (exists(tenantU) && muralRolesArrayMatches(get(tenantU).data.roles));
     }
     /// Lançamento em `finance` cujo `memberDocId` aponta para o doc em `membros` do usuário logado (authUid).
     function financeDocReadBySubjectMember(tenantId) {
@@ -166,6 +216,7 @@ service cloud.firestore {
       let r = role();
       return r != null && (
         r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'líder' || r == 'LÍDER' || r == 'Líder' ||
         r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
         r == 'lider_depto' || r == 'LIDER_DEPTO' ||
         r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
@@ -174,12 +225,34 @@ service cloud.firestore {
         r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
       );
     }
+    /// Alguns cadastros guardam papel em `igrejas/{tenant}/users/{uid}.role` (string), sem popular `users/{uid}.role`.
+    function tenantUserRoleAllowsMural(tenantId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      let r = exists(p) && get(p).data.role is string ? get(p).data.role : '';
+      return [
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
+        'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'secretária', 'Secretaria',
+        'PRESBITERO', 'presbitero', 'PRESBITERA', 'presbitera', 'Presbitero', 'Presbitera',
+        'lider', 'LIDER', 'Lider', 'líder', 'LÍDER', 'Líder',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
+        'evangelista', 'EVANGELISTA', 'Evangelista',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
+        'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ].hasAny([r]);
+    }
     /// Mural: eventos (noticias) e avisos — pastoral + permissão granular `eventos` / `eventos_avisos_edicao` + papéis de edição no app.
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
-        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
-        || (canAccessTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
-        || (canAccessTenant(tenantId) && isEventosMuralEditorRole());
+        || (canAccessTenant(tenantId) && (
+          isPastoralOrSecretariatRole()
+          || isEventosMuralEditorRole()
+          || muralRoleFromRolesArrays(tenantId)
+          || tenantUserRoleAllowsMural(tenantId)
+          || hasTenantMuralEventosPermission(tenantId)
+        ));
     }
     // Fallback: usuário autenticado pode ler/gravar (evita permission-denied em Departamentos, Presença, etc.)
     function canWriteTenantIfSignedIn(tenantId) {
@@ -699,6 +772,68 @@ service cloud.firestore {
       match /agenda/{eventId} {
         allow read: if isMaster() || canAccessTenant(id);
         allow write: if canWriteMuralFeed(id);
+      }
+
+      // Chat membro-a-membro / grupos por departamento (retenção por expiresAt — limpeza via Cloud Function).
+      function chatUserDeptIds(tenantId) {
+        let p = /databases/$(database)/documents/igrejas/$(tenantId)/users_profile_chat/$(request.auth.uid);
+        return exists(p) && get(p).data.departmentIds is list
+          ? get(p).data.departmentIds
+          : [];
+      }
+      function canReadChatThreadDoc(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        return exists(path)
+          && (
+            (get(path).data.type == 'dm'
+              && get(path).data.participantUids is list
+              && request.auth.uid in get(path).data.participantUids)
+            || (get(path).data.type == 'department'
+              && get(path).data.departmentId is string
+              && chatUserDeptIds(tenantId).hasAny([get(path).data.departmentId]))
+          );
+      }
+
+      match /users_profile_chat/{uid} {
+        allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow delete: if false;
+      }
+
+      match /chat_presence/{uid} {
+        allow read: if canAccessTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow delete: if false;
+      }
+
+      // Favoritos / silenciar conversa / bloquear contacto (chat) — só o próprio doc.
+      match /chat_member_prefs/{uid} {
+        allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow delete: if false;
+      }
+
+      match /chat_threads/{threadId} {
+        allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
+        allow create: if canAccessTenant(id)
+          && (
+            (request.resource.data.type == 'dm'
+              && request.resource.data.participantUids is list
+              && request.auth.uid in request.resource.data.participantUids)
+            || (request.resource.data.type == 'department'
+              && request.resource.data.departmentId is string
+              && chatUserDeptIds(id).hasAny([request.resource.data.departmentId]))
+          );
+        allow update: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
+        allow delete: if isAdminPanel() || canWriteTenant(id);
+
+        match /messages/{msgId} {
+          allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
+          allow create: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+            && request.resource.data.senderUid == request.auth.uid
+            && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt']);
+          allow update, delete: if false;
+        }
       }
 
       // Pontes Mercado Pago (webhook — só Admin SDK / Functions).

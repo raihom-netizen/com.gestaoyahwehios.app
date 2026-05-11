@@ -22,6 +22,8 @@ Color gyModuleAccentColor(String? raw) {
       return const Color(0xFFE11D48);
     case 'generico':
       return const Color(0xFF3B82F6);
+    case 'chat':
+      return const Color(0xFF8B5CF6);
     default:
       return const Color(0xFF0F172A);
   }

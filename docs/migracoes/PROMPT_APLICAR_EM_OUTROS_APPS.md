@@ -75,9 +75,15 @@ PARTE 3 — Labels e textos condicionais
 
 10. Localize todos os botões/diálogos/banners que digam «Pagar»,
     «Comprar», «Assinar», «Adquirir», «Renovar agora», «Ver planos»,
-    «Vincule o pagamento» nos fluxos de gestor e troque o LABEL
-    (não a navegação) para «Atualizar plano» / «atualize seu plano no
-    site» quando `IosPaymentsGate.shouldHidePayments` for `true`.
+    «Vincule o pagamento» nos fluxos de gestor e:
+    - troque o LABEL para «Atualizar plano» / «atualize seu plano no
+      site» quando `IosPaymentsGate.shouldHidePayments` for `true`;
+    - no iOS native, faça todos esses CTAs abrirem Safari externo em
+      `/atualizar-plano` (não deixar `Navigator.push(RenewPlanPage())`
+      nesses pontos).
+    - implemente um helper central no gate (ex.:
+      `IosPaymentsGate.openUpgradePlansExternally(source: ...)`) e
+      reutilize em todos os botões/ações.
 11. Em `login_page.dart` ou equivalente, no card de planos pré-login:
     em iOS native (`IosPaymentsGate.isIosNative`), esconder coluna de
     preço e trocar «Ver página completa de planos» por «Atualizar
@@ -130,6 +136,10 @@ PARTE 6 — Encerramento
     depois (chave `exibir_pagamento_ios = false` para o Project ID
     correto do Controle Total).
 20. NÃO publicar / não fazer deploy. Apenas alterações de código.
+21. Validação obrigatória final (iOS):
+    - liste todos os pontos de CTA de upgrade encontrados;
+    - confirme que em cada um deles o iOS chama
+      `openUpgradePlansExternally(...)` com `email` quando disponível.
 
 Antes de começar:
 - Confirme nome do pacote no pubspec do Controle Total.
@@ -200,9 +210,16 @@ PARTE 1 — iOS Reader / Multiplatform (Guideline 3.1.1 / 3.1.3(b))
    IosPaymentUnavailableView). Veja seção 2.3 do caderno.
 7. Localize todos os botões/diálogos/banners que digam «Pagar»,
    «Comprar», «Assinar», «Adquirir», «Renovar», «Ver planos»,
-   «Vincule o pagamento» e troque o LABEL (não a navegação) para
-   «Atualizar plano» quando `IosPaymentsGate.shouldHidePayments` for
-   `true`. Liste antes os pontos detectados.
+   «Vincule o pagamento» e:
+   - troque o LABEL para «Atualizar plano» quando
+     `IosPaymentsGate.shouldHidePayments` for `true`;
+   - no iOS native, todos os CTAs de upgrade devem abrir Safari externo
+     em `/atualizar-plano` (não deixar push direto para página de
+     cobrança/planos nesses pontos).
+   - implemente helper central no gate (ex.:
+     `IosPaymentsGate.openUpgradePlansExternally(source: ...)`) e use em
+     todos os pontos.
+   Liste antes os pontos detectados.
 8. Em login pública / landing do Moova, em iOS native esconder
    preços (se houver bloco resumo) e trocar botão «Ver planos» por
    «Atualizar plano no site» que abre Safari em
@@ -319,6 +336,9 @@ PARTE 6 — Encerramento
 23. NÃO criar parâmetro Remote Config no console — eu faço manual
     depois (`exibir_pagamento_ios = false` para o Project ID Moova).
 24. NÃO publicar / não fazer deploy. Apenas alterações de código.
+25. Validação obrigatória final (iOS):
+    - reporte checklist com todos os CTAs de upgrade detectados;
+    - confirme um a um que chamam `openUpgradePlansExternally(...)`.
 
 Antes de mexer:
 - Confirme nome do pacote no pubspec.yaml do Moova.

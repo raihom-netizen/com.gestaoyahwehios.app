@@ -48,8 +48,13 @@
 /// with Apple mantido (Guideline 4.8 obrigatório). Push iOS volta
 /// quando profile for regenerado em developer.apple.com com a
 /// capability de Push Notifications activa.
+/// 11.2.295+1519: Chat hub — favoritos no topo (máx. 5), grupos e DM em ordem A–Z.
+/// 11.2.295+1518: Chat — pesquisa (lista + mensagens), favoritos, silenciar conversa,
+/// bloquear DM (`chat_member_prefs`), regras Firestore + FCM respeita mute/block por conversa.
+/// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
+/// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1516';
+const String appBuildNumber = '1519';
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

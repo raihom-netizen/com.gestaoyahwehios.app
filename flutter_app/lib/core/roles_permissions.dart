@@ -319,7 +319,7 @@ class ChurchRolePermissions {
     return keys.contains(n);
   }
 
-  /// Itens do menu [IgrejaCleanShell] (índices 0–23).
+  /// Itens do menu [IgrejaCleanShell] (índices 0–24).
   static bool shellAllowsNavIndex(
     String role,
     int index, {
@@ -425,6 +425,9 @@ class ChurchRolePermissions {
         return fornec();
       case 23:
         // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
+        return true;
+      case 24:
+        // Conversas (membros / departamentos).
         return true;
       default:
         return true;

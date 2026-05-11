@@ -320,6 +320,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
             FilledButton(
               onPressed: () {
                 Navigator.pop(ctx);
+                if (iosReader && IosPaymentsGate.isIosNative) {
+                  IosPaymentsGate.openUpgradePlansExternally(
+                      source: 'internal_new_member_limit');
+                  return;
+                }
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const RenewPlanPage()),

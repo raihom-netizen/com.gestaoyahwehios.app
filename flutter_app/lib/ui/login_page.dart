@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -152,6 +153,11 @@ class _LoginPageState extends State<LoginPage> {
     }
     PlanPriceService.getEffectivePlanConfigs().then((c) {
       if (mounted) setState(() => _effectivePlanConfigs = c);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 520), () {
+        if (mounted) unawaited(_tryExpressGoogleReconnect());
+      });
     });
   }
 
@@ -283,6 +289,66 @@ class _LoginPageState extends State<LoginPage> {
     }
     final ready = _hasSavedCredentials && await BiometricService().canUseQuickBiometricLogin();
     if (mounted) setState(() => _quickBiometricReady = ready);
+  }
+
+  /// Digital/Face ID antes de OAuth quando já há histórico neste aparelho (padrão Controle Total).
+  Future<bool> _guardOAuthWithBiometricIfNeeded() async {
+    if (kIsWeb) return true;
+    final bioOn = await BiometricService().isEnabled();
+    if (!bioOn) return true;
+    final hint = (await LoginPreferences.getLastLoginIdentifier()).isNotEmpty ||
+        (await LoginPreferences.getLastOAuthProvider()) != null;
+    if (!hint) return true;
+    return BiometricService().authenticate();
+  }
+
+  Future<void> _syncLoginPreferencesHints() async {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null) return;
+    final email = (u.email ?? '').trim();
+    if (email.isNotEmpty) {
+      await LoginPreferences.setLastLoginIdentifier(email);
+    }
+    final ids = u.providerData.map((p) => p.providerId).toList();
+    if (ids.contains('google.com')) {
+      await LoginPreferences.setLastOAuthProvider('google');
+    } else if (ids.contains('apple.com')) {
+      await LoginPreferences.setLastOAuthProvider('apple');
+    } else {
+      await LoginPreferences.setLastOAuthProvider('email');
+    }
+  }
+
+  /// Último login foi Google: tenta sessão silenciosa ao abrir a tela (rápido, sem UI).
+  Future<void> _tryExpressGoogleReconnect() async {
+    if (kIsWeb) return;
+    if (!_nativeChurchLogin) return;
+    if (_useSmartFlow && _smartStep != _SmartStep.credentials) return;
+    if (_loading ||
+        _oauthGoogleInFlight ||
+        _sessionFinalizing ||
+        _expressLoginInFlight) {
+      return;
+    }
+    if (FirebaseAuth.instance.currentUser != null) return;
+    final last = await LoginPreferences.getLastOAuthProvider();
+    if (last != 'google') return;
+    if (!mounted) return;
+    setState(() => _expressLoginInFlight = true);
+    try {
+      final result =
+          await ExpressLoginService.tryExpressLogin(allowFallbackToGoogleUi: false);
+      if (!mounted) return;
+      if (!result.success || FirebaseAuth.instance.currentUser == null) return;
+      setState(() => _sessionFinalizing = true);
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) setState(() => _sessionFinalizing = false);
+      }
+    } finally {
+      if (mounted) setState(() => _expressLoginInFlight = false);
+    }
   }
 
   /// Abre o leitor de digital/face logo ao entrar no login (quando há senha salva e biometria ativa).
@@ -434,6 +500,7 @@ class _LoginPageState extends State<LoginPage> {
       await BiometricService().maybeEnableBiometrics(context);
       await _refreshQuickBiometricState();
     }
+    await _syncLoginPreferencesHints();
     if (mounted) setState(() => _errorMessage = null);
     if (!mounted) return false;
     Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
@@ -449,6 +516,8 @@ class _LoginPageState extends State<LoginPage> {
       // Na web a faixa não é desenhada — manter guarda defensiva.
       return;
     }
+    final gated = await _guardOAuthWithBiometricIfNeeded();
+    if (!gated || !mounted) return;
     setState(() {
       _expressLoginInFlight = true;
       _errorMessage = null;
@@ -612,6 +681,8 @@ class _LoginPageState extends State<LoginPage> {
         _sessionFinalizing) {
       return;
     }
+    final gated = await _guardOAuthWithBiometricIfNeeded();
+    if (!gated || !mounted) return;
     setState(() {
       _errorMessage = null;
       _oauthGoogleInFlight = true;
@@ -751,6 +822,8 @@ class _LoginPageState extends State<LoginPage> {
         _loading) {
       return;
     }
+    final gated = await _guardOAuthWithBiometricIfNeeded();
+    if (!gated || !mounted) return;
     setState(() => _errorMessage = null);
     // Não usar `_loading` durante o sheet nativo da Apple — combina mal com o barrier
     // do Flutter e parece “tela escura” até o utilizador escolher a conta.

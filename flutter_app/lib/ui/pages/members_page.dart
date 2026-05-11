@@ -5397,6 +5397,11 @@ class _MembersPageState extends State<MembersPage> {
               FilledButton(
                   onPressed: () {
                     Navigator.pop(ctx);
+                    if (iosReader && IosPaymentsGate.isIosNative) {
+                      IosPaymentsGate.openUpgradePlansExternally(
+                          source: 'members_add_limit_dialog');
+                      return;
+                    }
                     Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -8565,10 +8570,18 @@ class _MembersLimitBanner extends StatelessWidget {
                           ? 'Atualizar plano'
                           : 'Ver planos',
                       textColor: Colors.white,
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const RenewPlanPage())))
+                      onPressed: () {
+                        if (IosPaymentsGate.shouldHidePayments &&
+                            IosPaymentsGate.isIosNative) {
+                          IosPaymentsGate.openUpgradePlansExternally(
+                              source: 'members_limit_snackbar');
+                          return;
+                        }
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const RenewPlanPage()));
+                      })
                   : null,
             ));
           }

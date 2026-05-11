@@ -13,7 +13,10 @@ Pasta com material para **replicar** features deste projeto
 1. **iOS App Store Hardening** (Guidelines 3.1.1, 3.1.3(b), 3.2.1(viii), 4.8)
    - `IosPaymentsGate` (Firebase Remote Config `exibir_pagamento_ios`).
    - `IosPaymentUnavailableView` (sem preços, CTA topo + rodapé).
+   - Helper central `openUpgradePlansExternally(...)` para iOS.
    - Gate `onGenerateRoute` para `/`, `/planos`, `/pagamento` em iOS native.
+   - Em iOS native, todos os CTAs de upgrade abrem Safari externo
+     (`/atualizar-plano?from=ios_app&email=...`), sem push direto para checkout.
    - Doações + checkout MP em iOS abrem Safari externo (não WebView).
    - Labels condicionais «Atualizar plano» (não «Pagar/Comprar/Assinar»).
 2. **Express Renew** — rota web pública `/atualizar-plano`

@@ -11,7 +11,7 @@ class FcmService {
 
   bool _configured = false;
 
-  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|fornecedor_agenda}`).
+  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|chat|fornecedor_agenda}`).
   static String fcmTenantSafe(String tenantId) =>
       tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~%]'), '_');
 
@@ -138,8 +138,8 @@ class FcmService {
     await syncPreferencePushTopics(uid: uid, tenantId: tid);
   }
 
-  /// Inscreve nos tópicos de novidade (avisos / eventos / escalas) conforme
-  /// [users/{uid}.pushAvisos], [pushEventos], [pushEscalas] (padrão true).
+  /// Inscreve nos tópicos de novidade (avisos / eventos / escalas / chat) conforme
+  /// [users/{uid}.pushAvisos], [pushEventos], [pushEscalas], [pushChat] (padrão true).
   /// Também chamado a partir de Configurações ao alterar os interruptores.
   Future<void> syncPreferencePushTopics({
     required String uid,
@@ -154,11 +154,13 @@ class FcmService {
       topicPushNovo(tid, 'aviso'),
       topicPushNovo(tid, 'evento'),
       topicPushNovo(tid, 'escala'),
+      topicPushNovo(tid, 'chat'),
     ];
 
     var pushAvisos = true;
     var pushEventos = true;
     var pushEscalas = true;
+    var pushChat = true;
     try {
       final doc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -167,6 +169,7 @@ class FcmService {
         if (d['pushAvisos'] is bool) pushAvisos = d['pushAvisos'] as bool;
         if (d['pushEventos'] is bool) pushEventos = d['pushEventos'] as bool;
         if (d['pushEscalas'] is bool) pushEscalas = d['pushEscalas'] as bool;
+        if (d['pushChat'] is bool) pushChat = d['pushChat'] as bool;
       }
     } catch (_) {
       try {
@@ -174,10 +177,11 @@ class FcmService {
         pushAvisos = prefs.getBool('notif_avisos') ?? true;
         pushEventos = prefs.getBool('notif_eventos') ?? true;
         pushEscalas = prefs.getBool('notif_escalas') ?? true;
+        pushChat = prefs.getBool('notif_chat') ?? true;
       } catch (_) {}
     }
 
-    final flags = [pushAvisos, pushEventos, pushEscalas];
+    final flags = [pushAvisos, pushEventos, pushEscalas, pushChat];
     for (var i = 0; i < topics.length; i++) {
       final t = topics[i];
       if (flags[i]) {

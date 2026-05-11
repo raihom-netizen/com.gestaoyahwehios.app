@@ -214,6 +214,12 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
                   FilledButton(
                     onPressed: () {
                       Navigator.pop(ctx);
+                      if (IosPaymentsGate.shouldHidePayments &&
+                          IosPaymentsGate.isIosNative) {
+                        IosPaymentsGate.openUpgradePlansExternally(
+                            source: 'completar_cadastro_limit');
+                        return;
+                      }
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const RenewPlanPage()));
                     },
                     child: Text(IosPaymentsGate.shouldHidePayments

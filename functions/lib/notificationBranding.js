@@ -32,6 +32,9 @@ function moduleAccentHex(kind) {
         case "aniversario":
             return "#E11D48";
         case "generico":
+            return "#3B82F6";
+        case "chat":
+            return "#8B5CF6";
         default:
             return "#3B82F6";
     }
