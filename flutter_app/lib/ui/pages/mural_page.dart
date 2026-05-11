@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import '../widgets/instagram_mural.dart';
@@ -26,14 +28,31 @@ class MuralPage extends StatefulWidget {
 class _MuralPageState extends State<MuralPage> {
   int _slugRetryKey = 0;
 
-  Future<String> _loadSlug() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .get();
+  /// Resolve o tenant com o mesmo ID que as regras Firestore usam para [sameChurch],
+  /// depois lê slug / fallback com rede ou cache.
+  Future<({String firestoreTenantId, String churchSlug})> _loadTenantAndSlug() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final tid =
+        await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+      widget.tenantId,
+      userUid: uid,
+    );
+    DocumentSnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .get(const GetOptions(source: Source.serverAndCache));
+    } catch (_) {
+      snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .get(const GetOptions(source: Source.cache));
+    }
     final data = snap.data() ?? {};
     final slug = (data['slug'] ?? '').toString().trim();
-    return slug.isEmpty ? widget.tenantId : slug;
+    final churchSlug = slug.isEmpty ? tid : slug;
+    return (firestoreTenantId: tid, churchSlug: churchSlug);
   }
 
   Future<void> _onRefresh() async {
@@ -75,9 +94,9 @@ class _MuralPageState extends State<MuralPage> {
               title: const Text('Mural de Avisos'),
             ),
       body: SafeArea(
-        child: FutureBuilder<String>(
+        child: FutureBuilder<({String firestoreTenantId, String churchSlug})>(
           key: ValueKey(_slugRetryKey),
-          future: _loadSlug(),
+          future: _loadTenantAndSlug(),
           builder: (context, snap) {
             if (snap.hasError) {
               return ChurchPanelErrorBody(
@@ -90,6 +109,7 @@ class _MuralPageState extends State<MuralPage> {
                 !snap.hasData) {
               return const ChurchPanelLoadingBody();
             }
+            final data = snap.data!;
             return RefreshIndicator(
               onRefresh: _onRefresh,
               child: SaaSContentViewport(
@@ -99,9 +119,9 @@ class _MuralPageState extends State<MuralPage> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
                     InstagramMural(
-                      tenantId: widget.tenantId,
+                      tenantId: data.firestoreTenantId,
                       role: widget.role,
-                      churchSlug: snap.data!,
+                      churchSlug: data.churchSlug,
                       permissions: widget.permissions,
                     ),
                   ],

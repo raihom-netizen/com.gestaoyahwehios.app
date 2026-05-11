@@ -330,9 +330,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<String> _effectiveIgrejaDocId() async {
     final hit = _cachedIgrejaDocId;
     if (hit != null && hit.isNotEmpty) return hit;
-    final r =
-        (await TenantResolverService.resolveEffectiveTenantId(widget.tenantId))
-            .trim();
+    final r = (await TenantResolverService
+            .resolveEffectiveTenantIdPreferringUserBinding(
+          widget.tenantId,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
+        ))
+        .trim();
     final id = r.isNotEmpty ? r : widget.tenantId.trim();
     _cachedIgrejaDocId = id;
     return id;

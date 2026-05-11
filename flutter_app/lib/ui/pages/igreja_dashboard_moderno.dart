@@ -243,9 +243,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Resolve o ID do tenant (documento em tenants): por id, slug ou alias (com normalização) — membros no mesmo path.
+  /// Resolve o ID do tenant + prefere o vínculo em `users` (mesmo critério que AuthGate / Mural / Eventos).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
 
   bool get _dashCanFinance => AppPermissions.canViewFinance(
         widget.role,
@@ -5136,7 +5139,10 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   DateTime rangeEnd, {
   bool apenasRotinaGerada = false,
 }) async {
-  final tid = await TenantResolverService.resolveEffectiveTenantId(tenantId);
+  final tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+    tenantId,
+    userUid: FirebaseAuth.instance.currentUser?.uid,
+  );
   final noticiasRef =
       FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('noticias');
   final templatesRef =

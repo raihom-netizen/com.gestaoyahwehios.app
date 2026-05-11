@@ -89,7 +89,10 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1538';
+const String appBuildNumber = '1539';
+
+/// 11.2.295+1539: deploy produção — tenant resolver (avisos/eventos/chat/módulos),
+/// login biométrico (skip lock), bump build Play/iOS/Codemagic.
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

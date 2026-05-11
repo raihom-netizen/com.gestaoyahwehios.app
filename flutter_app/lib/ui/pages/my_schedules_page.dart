@@ -717,7 +717,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   void initState() {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    _effectiveTidFuture = TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    _effectiveTidFuture = TenantResolverService
+        .resolveEffectiveTenantIdPreferringUserBinding(
+      widget.tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
     _bootstrap();
   }
 

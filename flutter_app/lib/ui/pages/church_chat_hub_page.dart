@@ -55,8 +55,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Future<void> _bootstrap() async {
-    final tid =
-        await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    final tid = await TenantResolverService
+        .resolveEffectiveTenantIdPreferringUserBinding(
+      widget.tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
     if (!mounted) return;
     setState(() => _resolvedTenantId = tid);
     unawaited(_loadChatNotifPrefs());

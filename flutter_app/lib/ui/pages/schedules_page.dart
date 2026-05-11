@@ -319,8 +319,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
-    final tid = await TenantResolverService.resolveEffectiveTenantId(
-        widget.tenantId);
+    final tid = await TenantResolverService
+        .resolveEffectiveTenantIdPreferringUserBinding(
+      widget.tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
     if (AppPermissions.canEditDepartments(widget.role)) {
       await ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(
         _departmentsCol(tid),

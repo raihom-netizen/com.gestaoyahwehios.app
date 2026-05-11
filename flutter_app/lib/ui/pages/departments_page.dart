@@ -153,15 +153,27 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   /// Igrejas novas também recebem seed no servidor ([ensureChurchWelcomeSeed]); o botão “Gravar padrões” cobre sincronização manual.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
       {bool forceServer = false}) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    String seed = widget.tenantId;
+    try {
+      seed = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: uid,
+      );
+    } catch (_) {}
+
     // Mesmo doc canónico que Pastoral / Escalas: onde há `departamentos` preenchidos
     // (evita lista vazia no doc "principal" quando os dados estão no irmão _sistema/_bpc).
     try {
       _effectiveTenantId = await TenantResolverService
-          .resolveChurchDocIdPreferringNonEmptyDepartments(widget.tenantId);
+          .resolveChurchDocIdPreferringNonEmptyDepartments(seed);
     } catch (_) {
       try {
         _effectiveTenantId =
-            await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+            await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+          widget.tenantId,
+          userUid: uid,
+        );
       } catch (_) {
         _effectiveTenantId = widget.tenantId;
       }

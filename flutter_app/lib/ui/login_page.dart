@@ -420,9 +420,6 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
       final ok = await _finalizeChurchLoginAfterAuth(persistPasswordFields: true);
-      if (ok) {
-        BiometricService.markBiometricVerifiedForNextPainelEntry();
-      }
       if (!ok) return;
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
@@ -502,6 +499,11 @@ class _LoginPageState extends State<LoginPage> {
     await _syncLoginPreferencesHints();
     if (mounted) setState(() => _errorMessage = null);
     if (!mounted) return false;
+    // Antes de navegar: evita segunda leitura biométrica no painel (corrida com o navigate).
+    // Login com e-mail/senha, Google (com guarda biométrica) ou «Entrar» biométrico já identificou o utilizador.
+    if (!kIsWeb && _nativeChurchLogin) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
     Navigator.pushReplacementNamed(context, widget.afterLoginRoute);
     return true;
   }

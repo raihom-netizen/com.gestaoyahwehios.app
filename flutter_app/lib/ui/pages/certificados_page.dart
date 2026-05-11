@@ -344,7 +344,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
     var tid = widget.tenantId;
     try {
-      tid = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
     } catch (_) {}
     try {
       return await FirebaseFirestore.instance

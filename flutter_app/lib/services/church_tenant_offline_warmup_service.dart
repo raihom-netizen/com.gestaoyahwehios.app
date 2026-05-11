@@ -46,7 +46,11 @@ class ChurchTenantOfflineWarmupService {
 
     String tenantId = tenantIdRaw;
     try {
-      final r = await TenantResolverService.resolveEffectiveTenantId(tenantIdRaw);
+      final r = await TenantResolverService
+          .resolveEffectiveTenantIdPreferringUserBinding(
+        tenantIdRaw,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
       if (r.trim().isNotEmpty) tenantId = r.trim();
     } catch (_) {}
 

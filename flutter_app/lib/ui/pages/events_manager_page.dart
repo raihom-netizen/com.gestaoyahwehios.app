@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_editor.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -115,6 +116,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   Map<String, dynamic>? _tenantData;
+  /// Mesmo critério que Chat/Mural: ID em `users` ganha sobre doc “irmão” do resolver.
+  String? _firestoreTenantId;
+  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
 
@@ -156,12 +160,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   CollectionReference<Map<String, dynamic>> get _noticias =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('noticias');
   CollectionReference<Map<String, dynamic>> get _templates =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('event_templates');
 
   void _onMainTabChanged() {
@@ -177,7 +181,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         widget.initialTabIndex.clamp(0, (_tab.length - 1).clamp(0, 99)) as int;
     _tab.index = startIndex;
     _tab.addListener(_onMainTabChanged);
-    _loadTenant();
+    unawaited(_bootstrapFirestoreTenant());
+  }
+
+  @override
+  void didUpdateWidget(covariant EventsManagerPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _firestoreTenantId = null;
+      unawaited(_bootstrapFirestoreTenant());
+    }
   }
 
   @override
@@ -187,11 +200,29 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     super.dispose();
   }
 
-  Future<void> _loadTenant() async {
+  Future<void> _bootstrapFirestoreTenant() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    try {
+      final tid =
+          await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: uid,
+      );
+      if (!mounted) return;
+      setState(() => _firestoreTenantId = tid);
+      await _loadTenantDoc();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _firestoreTenantId = widget.tenantId);
+      await _loadTenantDoc();
+    }
+  }
+
+  Future<void> _loadTenantDoc() async {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .get();
       if (mounted) setState(() => _tenantData = snap.data());
     } catch (_) {}
@@ -207,7 +238,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         context,
         MaterialPageRoute(
             builder: (_) => _EventoFormPage(
-                tenantId: widget.tenantId, noticias: _noticias, doc: doc)));
+                tenantId: _tid, noticias: _noticias, doc: doc)));
     if (result == true && mounted) {
       _feedTabKey.currentState?._refresh();
       setState(() {});
@@ -296,7 +327,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final urls = _eventImageUrlsFromData(data);
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
     final defaultPhotoUrl = ValueNotifier<String>(initialPhoto);
-    final tenantId = widget.tenantId;
+    final tenantId = _tid;
 
     Future<void> fillLocationFromCadastro() async {
       try {
@@ -906,7 +937,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
     final agendaCol = FirebaseFirestore.instance
         .collection('igrejas')
-        .doc(widget.tenantId)
+        .doc(_tid)
         .collection('agenda');
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     for (final dt in dates) {
@@ -1030,7 +1061,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             child: TabBarView(controller: _tab, children: [
           _FeedTab(
               key: _feedTabKey,
-              tenantId: widget.tenantId,
+              tenantId: _tid,
               churchSlug: (_tenantData?['slug'] ?? _tenantData?['slugId'] ?? '')
                   .toString()
                   .trim(),
@@ -1043,7 +1074,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               onDeleteEvento: _excluirEvento,
               initialFeedSearchQuery: widget.initialFeedSearchQuery),
           _GalleryArchiveTab(
-            tenantId: widget.tenantId,
+            tenantId: _tid,
             noticias: _noticias,
           ),
           if (_canWrite)

@@ -97,6 +97,36 @@ class TenantResolverService {
     return raw;
   }
 
+  /// Para queries em `igrejas/{id}/…`, prefere o ID que consta em `users/{uid}.igrejaId` /
+  /// `tenantId` quando esse doc for **irmão** do resolvido (mesmo slug — via [getAllRelatedIgrejaDocIds]).
+  ///
+  /// Evita `permission-denied` ou coleções aparentemente vazias: o resolver pode devolver um
+  /// documento canónico enquanto o vínculo do utilizador aponta para outro id da mesma igreja.
+  static Future<String> resolveEffectiveTenantIdPreferringUserBinding(
+    String seedId, {
+    String? userUid,
+  }) async {
+    final resolved = await resolveEffectiveTenantId(seedId.trim());
+    final uid = (userUid ?? '').trim();
+    if (uid.isEmpty) return resolved;
+
+    String claimId = '';
+    try {
+      final u = await _firestore.collection('users').doc(uid).get();
+      claimId =
+          (u.data()?['igrejaId'] ?? u.data()?['tenantId'] ?? '').toString().trim();
+    } catch (_) {}
+
+    if (claimId.isEmpty || claimId == resolved) return resolved;
+
+    try {
+      final siblings = await getAllRelatedIgrejaDocIds(resolved);
+      if (siblings.contains(claimId)) return claimId;
+    } catch (_) {}
+
+    return resolved;
+  }
+
   /// IDs em `igrejas/` ligados ao mesmo slug/alias + variantes `_sistema`/`_bpc`.
   /// Evita ler centenas de documentos (antes: 2× scan em Membros e painel).
   static Future<List<String>> getAllRelatedIgrejaDocIds(String resolvedId) async {

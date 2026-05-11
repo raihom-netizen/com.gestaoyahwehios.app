@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -113,7 +114,10 @@ Future<void> scheduleYahwehPanelImageWarmup(
   if (raw.isEmpty) return;
   final resolved = (resolvedTenantId != null && resolvedTenantId.trim().isNotEmpty)
       ? resolvedTenantId.trim()
-      : await TenantResolverService.resolveEffectiveTenantId(raw);
+      : await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+          raw,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
+        );
   if (resolved.isEmpty || !context.mounted) return;
   final base = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
   try {

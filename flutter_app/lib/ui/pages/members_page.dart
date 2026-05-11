@@ -171,7 +171,10 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e import/export.
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
 
   void _invalidateMemberPhotoCaches(
     String tenantId,

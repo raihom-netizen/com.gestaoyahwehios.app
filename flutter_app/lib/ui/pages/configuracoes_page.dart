@@ -162,8 +162,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var userAtivo = authUser != null;
     SubscriptionGuardState? guard;
     try {
-      final resolved =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      final resolved = await TenantResolverService
+          .resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: authUser?.uid,
+      );
       final chSnap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(resolved)
@@ -904,7 +907,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
 
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e MembersPage (import/export no mesmo tenant).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
 
   Future<void> _importarBackup(BuildContext context) async {
     final ctrl = TextEditingController();

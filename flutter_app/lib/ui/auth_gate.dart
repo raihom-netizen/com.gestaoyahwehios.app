@@ -412,7 +412,11 @@ class _AuthGateState extends State<AuthGate> {
       if (igrejaId.isEmpty) return null;
 
       try {
-        igrejaId = await TenantResolverService.resolveEffectiveTenantId(igrejaId);
+        igrejaId =
+            await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+          igrejaId,
+          userUid: user.uid,
+        );
       } catch (_) {}
 
       final hasIgrejaInDoc = (userData['igrejaId'] ?? '').toString().trim().isNotEmpty
