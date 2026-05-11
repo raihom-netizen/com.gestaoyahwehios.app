@@ -13,7 +13,7 @@ const int kChurchShellIndexFornecedores = 22;
 /// Índice do item "Cartas e transferências" em [IgrejaCleanShell] (`_items`).
 const int kChurchShellIndexChurchLetters = 14;
 
-/// Índice do item "Conversas" (chat WhatsApp) em [IgrejaCleanShell].
+/// Índice do item "Chat - Igreja" em [IgrejaCleanShell].
 const int kChurchShellIndexChat = 24;
 
 /// Encaminha toques em notificações push (FCM) para o módulo certo do painel da igreja.

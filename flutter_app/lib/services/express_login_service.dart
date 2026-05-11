@@ -23,8 +23,16 @@ class ExpressLoginService {
   ExpressLoginService._();
 
   /// Resultado da tentativa de login expresso.
+  ///
+  /// [onBeforeNativeOAuthUi] é chamado **antes** de abrir UI nativa (Apple ou seletor
+  /// Google). Use para desligar spinners/overlays em Flutter — caso contrário a app
+  /// pode ficar com barrier escuro por cima do picker do sistema.
   static Future<ExpressLoginResult> tryExpressLogin({
     bool allowFallbackToGoogleUi = true,
+    void Function()? onBeforeNativeOAuthUi,
+    /// Quando `true`, não volta a chamar `signInSilently` (já executado na 1.ª fase
+    /// sem overlay — evita spinner na faixa antes da UI nativa).
+    bool skipSilentPhase = false,
   }) async {
     if (kIsWeb) {
       return const ExpressLoginResult._(
@@ -40,15 +48,18 @@ class ExpressLoginService {
       );
     }
 
-    final silent = await _signInWithGoogleSilently();
-    if (silent != null) {
-      return ExpressLoginResult._(
-        kind: ExpressLoginKind.googleSilent,
-        userCredential: silent,
-      );
+    if (!skipSilentPhase) {
+      final silent = await _signInWithGoogleSilently();
+      if (silent != null) {
+        return ExpressLoginResult._(
+          kind: ExpressLoginKind.googleSilent,
+          userCredential: silent,
+        );
+      }
     }
 
     if (defaultTargetPlatform == TargetPlatform.iOS) {
+      onBeforeNativeOAuthUi?.call();
       try {
         final apple =
             await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
@@ -67,6 +78,7 @@ class ExpressLoginService {
       return const ExpressLoginResult._(kind: ExpressLoginKind.cancelled);
     }
 
+    onBeforeNativeOAuthUi?.call();
     try {
       final google = await GestorOAuthOnboardingService.signInWithGoogleNative();
       return ExpressLoginResult._(
@@ -105,6 +117,13 @@ class ExpressLoginService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Apenas Google silencioso — 1.ª fase do login expresso sem overlay na UI Flutter.
+  static Future<UserCredential?> tryGoogleSilentOnly() async {
+    if (kIsWeb) return null;
+    if (FirebaseAuth.instance.currentUser != null) return null;
+    return _signInWithGoogleSilently();
   }
 }
 

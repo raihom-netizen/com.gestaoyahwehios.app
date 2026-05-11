@@ -44,6 +44,7 @@ function previewFromMessage(msg: Record<string, unknown>): string {
   const mtype = String(msg.type || "text");
   if (mtype === "text") return String(msg.text || "").trim().slice(0, 140);
   if (mtype === "image") return "📷 Imagem";
+  if (mtype === "sticker") return "🎨 Figurinha";
   if (mtype === "video") return "🎬 Vídeo";
   if (mtype === "audio") return "🎵 Áudio";
   return "Nova mensagem";

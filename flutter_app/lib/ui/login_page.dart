@@ -334,7 +334,6 @@ class _LoginPageState extends State<LoginPage> {
     final last = await LoginPreferences.getLastOAuthProvider();
     if (last != 'google') return;
     if (!mounted) return;
-    setState(() => _expressLoginInFlight = true);
     try {
       final result =
           await ExpressLoginService.tryExpressLogin(allowFallbackToGoogleUi: false);
@@ -346,8 +345,8 @@ class _LoginPageState extends State<LoginPage> {
       } finally {
         if (mounted) setState(() => _sessionFinalizing = false);
       }
-    } finally {
-      if (mounted) setState(() => _expressLoginInFlight = false);
+    } catch (_) {
+      // Falha silenciosa — utilizador pode usar login manual ou «Login expresso».
     }
   }
 
@@ -518,12 +517,36 @@ class _LoginPageState extends State<LoginPage> {
     }
     final gated = await _guardOAuthWithBiometricIfNeeded();
     if (!gated || !mounted) return;
+
+    // Fase 1: Google silencioso sem indicador na faixa (evita «ecrã escuro» durante
+    // signInSilently — alinhado ao fluxo Controle Total).
+    final silentCred = await ExpressLoginService.tryGoogleSilentOnly();
+    if (!mounted) return;
+    if (silentCred != null && silentCred.user != null) {
+      setState(() {
+        _errorMessage = null;
+        _sessionFinalizing = true;
+      });
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) setState(() => _sessionFinalizing = false);
+      }
+      return;
+    }
+
     setState(() {
       _expressLoginInFlight = true;
       _errorMessage = null;
     });
     try {
-      final result = await ExpressLoginService.tryExpressLogin();
+      final result = await ExpressLoginService.tryExpressLogin(
+        skipSilentPhase: true,
+        onBeforeNativeOAuthUi: () {
+          if (!mounted) return;
+          setState(() => _expressLoginInFlight = false);
+        },
+      );
       if (!mounted) return;
       if (result.isCancellation || result.isUnsupported) return;
 
@@ -713,6 +736,9 @@ class _LoginPageState extends State<LoginPage> {
         WidgetsBinding.instance.scheduleFrame();
         await Future<void>.delayed(const Duration(milliseconds: 48));
         if (!mounted) return;
+        // Liberta o indicador **antes** do seletor nativo de conta (evita barrier +
+        // ícone de loading por cima da UI do Google).
+        setState(() => _oauthGoogleInFlight = false);
         // Só signOut local — rápido e abre o seletor. `disconnect()` era mais lento e
         // parecia «tela escura» até o Play Services responder.
         await appGoogleSignOutForAccountPicker();
@@ -1384,7 +1410,7 @@ class _LoginPageState extends State<LoginPage> {
           accent: ChurchShellAccentTokens.loginMembro,
           title: 'Sou membro',
           subtitle:
-              'Já sou cadastrado na minha igreja. Entrar com Google ou e-mail e senha.',
+              'Já sou cadastrado na minha igreja. Entrar com Google ou e-mail e senha — no painel: Chat Igreja, eventos, escalas e mais (Super Premium).',
           onTap: () {
             setState(() {
               _credentialsAsMembro = true;
@@ -1949,13 +1975,24 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'Um sistema de excelência feito para sua igreja',
+                        'Padrão Super Premium — excelência para sua igreja',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 15,
                           color: Colors.grey.shade800,
                           fontWeight: FontWeight.w600,
                           height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Chat Igreja: comunicação interna entre membros e departamentos no painel e no app.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -1995,7 +2032,8 @@ class _LoginPageState extends State<LoginPage> {
                               Text(
                                 _credentialsAsMembro
                                     ? 'Membro: use o mesmo e-mail cadastrado na igreja. '
-                                        'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.'
+                                        'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha. '
+                                        'No painel: Chat Igreja, eventos e escalas — Super Premium.'
                                     : 'Gestor: use o e-mail da conta da igreja. '
                                         'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.',
                                 style: TextStyle(
@@ -2440,7 +2478,7 @@ class _LoginPageState extends State<LoginPage> {
                           const SizedBox(height: 8),
                           Text(
                             _credentialsAsMembro
-                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha.'
+                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
                                 : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.',
                             textAlign: TextAlign.center,
                             style: TextStyle(

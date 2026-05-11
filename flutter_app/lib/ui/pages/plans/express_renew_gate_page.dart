@@ -48,12 +48,12 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
 
   Future<void> _onLoginExpresso() async {
     if (_expressInFlight) return;
-    setState(() {
-      _expressInFlight = true;
-      _expressError = null;
-    });
     try {
       if (kIsWeb) {
+        setState(() {
+          _expressInFlight = true;
+          _expressError = null;
+        });
         // Web: signInWithPopup → fallback signInWithRedirect (Safari/iOS).
         final provider = firebaseWebGoogleAuthProvider();
         try {
@@ -72,8 +72,19 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
           }
         }
       } else {
-        // Mobile native (raro para esta rota, mas suportado).
-        final res = await ExpressLoginService.tryExpressLogin();
+        // Mobile: 1.ª fase silenciosa sem indicador; depois Apple / Google com UI.
+        setState(() => _expressError = null);
+        final silentCred = await ExpressLoginService.tryGoogleSilentOnly();
+        if (!mounted) return;
+        if (silentCred != null && silentCred.user != null) return;
+        setState(() => _expressInFlight = true);
+        final res = await ExpressLoginService.tryExpressLogin(
+          skipSilentPhase: true,
+          onBeforeNativeOAuthUi: () {
+            if (!mounted) return;
+            setState(() => _expressInFlight = false);
+          },
+        );
         if (res.isError && mounted) {
           setState(() => _expressError =
               res.errorMessage ?? 'Falha no login expresso. Tente de novo.');

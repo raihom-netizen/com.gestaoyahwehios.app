@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -207,6 +208,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
     // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
+    // Painel, Membros, Eventos, Avisos, Chat — o drawer continua acessível pelo menu no topo.
     final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
@@ -224,13 +226,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
         accent: kChurchShellNavEntries[7].accent,
       ),
       _ChurchShellFooterShortcut(
+        shellIndex: 6,
+        shortLabel: 'Avisos',
+        accent: kChurchShellNavEntries[6].accent,
+      ),
+      _ChurchShellFooterShortcut(
         shellIndex: 24,
         shortLabel: 'Chat',
         accent: kChurchShellNavEntries[24].accent,
-      ),
-      _ChurchShellFooterShortcut.menu(
-        shortLabel: 'Menu',
-        accent: const Color(0xFF6366F1),
       ),
     ];
 
@@ -335,6 +338,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
+      unawaited(ChurchTenantOfflineWarmupService.instance
+          .scheduleWarmupAfterLogin(widget.tenantId));
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = 2);
       } else if (widget.initialShellIndex != null &&
@@ -802,8 +807,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   static const List<({String title, List<int> indices})> _menuSections = [
     (title: 'Geral', indices: [0, 1, 23]),
     (title: 'Pessoas', indices: [2, 3, 4, 5]),
-    // Pastoral (19) fica em Comunicação, não em Financeiro.
-    (title: 'Comunicação', indices: [6, 7, 8, 9, 18, 19]),
+    // Pastoral (19) e Chat - Igreja (24) em Comunicação, não em Financeiro.
+    (title: 'Comunicação', indices: [6, 7, 8, 9, 18, 19, 24]),
     (title: 'Agenda', indices: [10, 11]),
     (title: 'Documentos', indices: [12, 13, 14]),
     (title: 'Sistema', indices: [15, 16, 17]),
@@ -816,6 +821,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   /// Abaixo de [_kSearchIconOnlyMaxWidth] só ícone — libera espaço para saudação e ações.
   static const double _kSearchIconOnlyMaxWidth = 352;
   static const double _kSearchCompactLabelMaxWidth = 400;
+
+  /// Nome para saudação no cabeçalho azul e, no telemóvel, subtítulo no cartão do módulo.
+  String _shellUserGreetingName() {
+    final user = FirebaseAuth.instance.currentUser;
+    final fallback = user?.email ?? 'Usuário';
+    final dn = (user?.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    return fallback;
+  }
 
   Widget _buildHeaderSearchChip() {
     if (!_globalSearchAllowed) return const SizedBox.shrink();
@@ -917,8 +931,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
 
   Widget _buildHeader({required bool licenseBlocked}) {
     final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? 'Usuário';
-    final firstName = userName.split(' ').first;
+    final greetingName = _shellUserGreetingName();
     final photoUrl = (user?.photoURL ?? '').trim().isNotEmpty
         ? user!.photoURL
         : _userPhotoUrlFromFirestore;
@@ -1003,7 +1016,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '$periodo, $firstName',
+                      '$periodo, $greetingName',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -2266,6 +2279,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,
+                                    subtitle: _isMobile
+                                        ? _shellUserGreetingName()
+                                        : null,
                                     onPainelBack:
                                         _isMobile && _selectedIndex != 0
                                             ? () =>

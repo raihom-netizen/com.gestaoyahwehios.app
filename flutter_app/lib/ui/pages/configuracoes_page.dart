@@ -195,8 +195,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
         title: const Text('Trocar de conta'),
         content: const Text(
-          'Você sairá desta sessão e poderá entrar com outro e-mail ou Google. '
-          'Deseja continuar?',
+          'Você sairá desta sessão e poderá entrar com outra conta Google, Apple '
+          '(iPhone) ou outro e-mail e senha.\n\nContinuar?',
         ),
         actions: [
           TextButton(
@@ -295,6 +295,25 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool get _showMercadoPagoChurchSettings =>
       AppPermissions.canViewChurchMercadoPagoSettings(widget.role, permissions: widget.permissions);
 
+  /// Método de login atual (texto curto para a secção «Conta Google / e-mail»).
+  String get _connectedLoginMethodLabel {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null) return '—';
+    for (final p in u.providerData) {
+      switch (p.providerId) {
+        case 'google.com':
+          return 'Google';
+        case 'apple.com':
+          return 'Apple';
+        case 'password':
+          return 'E-mail e senha';
+        default:
+          break;
+      }
+    }
+    return 'Conta ligada';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -313,32 +332,27 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 padding: padding,
                 children: [
                   _SectionTitle(
-                      icon: Icons.verified_user_rounded,
-                      title: 'Conta e licença'),
+                    icon: Icons.switch_account_rounded,
+                    title: 'Conta Google / e-mail',
+                  ),
                   _Card(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          'Sessão e plano da igreja',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.grey.shade900,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                color: const Color(0xFF0F766E).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(Icons.alternate_email_rounded,
-                                  color: ThemeCleanPremium.primary),
+                              child: const Icon(
+                                Icons.smartphone_rounded,
+                                color: Color(0xFF0F766E),
+                                size: 22,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -346,7 +360,50 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'E-mail conectado',
+                                    'Quem está ligado neste aparelho',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.grey.shade900,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Forma de entrada: $_connectedLoginMethodLabel',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                Icons.alternate_email_rounded,
+                                color: ThemeCleanPremium.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'E-mail da sessão',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,
@@ -357,7 +414,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                                   SelectableText(
                                     _accountEmailDisplay,
                                     style: const TextStyle(
-                                      fontSize: 15,
+                                      fontSize: 16,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
@@ -366,7 +423,93 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 20,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Para usar outra conta neste telemóvel',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.grey.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              const _ConfigHelpBullet(
+                                text:
+                                    'Toque no botão verde «Trocar de conta» abaixo.',
+                              ),
+                              const _ConfigHelpBullet(
+                                text:
+                                    'Na tela Entrar, pode escolher outra conta Google, entrar com Apple (iPhone) ou outro e-mail e senha.',
+                              ),
+                              const _ConfigHelpBullet(
+                                text:
+                                    'Se usa Google, o telemóvel mostra o seletor de contas para escolher qual usar.',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () => _trocarConta(context),
+                          icon: const Icon(Icons.logout_rounded, size: 22),
+                          label: const Text('Trocar de conta'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F766E),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 16,
+                              horizontal: 16,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Digital ou Face ID continuam iguais às opções que marcou na tela Entrar '
+                          '(«Lembrar neste aparelho» + biometria).',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _SectionTitle(
+                    icon: Icons.verified_user_rounded,
+                    title: 'Estado e licença da igreja',
+                  ),
+                  _Card(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Row(
                           children: [
                             Expanded(
@@ -388,7 +531,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                           ],
                         ),
                         if (_subscriptionGuard?.dataVencimento != null) ...[
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           Text(
                             'Referência de vigência: ${_fmtShortDate(_subscriptionGuard!.dataVencimento!)}',
                             style: TextStyle(
@@ -397,28 +540,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             ),
                           ),
                         ],
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: () => _trocarConta(context),
-                          icon: const Icon(Icons.swap_horiz_rounded, size: 20),
-                          label: const Text('Trocar de conta / outro login'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F766E),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 14, horizontal: 16),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Use esta opção para entrar com outro utilizador no mesmo aparelho '
-                          '(Google ou e-mail). O acesso rápido por digital/rosto segue as suas opções na tela Entrar.',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            height: 1.35,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -867,6 +988,44 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         setState(() => _sugestaoEnviando = false);
       }
     }
+  }
+}
+
+class _ConfigHelpBullet extends StatelessWidget {
+  final String text;
+
+  const _ConfigHelpBullet({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.arrow_right_rounded,
+              size: 18,
+              color: ThemeCleanPremium.primary,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.38,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

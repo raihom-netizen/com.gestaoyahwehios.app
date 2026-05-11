@@ -455,7 +455,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
                           const _SectionTitle(
                             title: "Planos oficiais",
                             subtitle:
-                                "Todos os modulos inclusos. O que muda e a escala de uso.",
+                                "Todos os módulos inclusos. O que muda é a escala de uso — padrão Super Premium.",
                           ),
                           const SizedBox(height: 12),
                           Wrap(
@@ -506,7 +506,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
                           const _SectionTitle(
                             title: "Tudo o que está incluído",
                             subtitle:
-                                "Nenhum plano é capado: o sistema completo já vem ativo, com estes módulos.",
+                                "Nenhum plano é capado: o sistema completo já vem ativo — incluindo Chat Igreja para comunicação interna entre membros e departamentos.",
                           ),
                           const SizedBox(height: 16),
                           const _PremiumIncludedFeaturesGrid(),
@@ -602,6 +602,11 @@ class _YahwehPublicFaqSection extends StatelessWidget {
               ),
               const Divider(height: 1),
               tile(
+                'O que é o Chat Igreja?',
+                'É o módulo de comunicação interna: mensagens diretas entre membros e grupos ligados aos departamentos, com presença online e alertas — disponível no painel web e no app, no padrão Super Premium do sistema.',
+              ),
+              const Divider(height: 1),
+              tile(
                 'Onde ficam armazenados dados e mídias?',
                 'Em infraestrutura cloud com regras de acesso por perfil (igreja, gestor e membro). Você controla o que é público no site e o que permanece interno.',
               ),
@@ -680,7 +685,7 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Membros: use seu e-mail cadastrado na igreja para localizar o painel na página inicial. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
+          'Membros: use seu e-mail cadastrado na igreja para entrar no painel e aceder ao Chat Igreja, eventos, escalas e mais. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
         ),
       ],
@@ -868,11 +873,22 @@ class _LeftHero extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              "Um sistema de excelência feito para sua igreja",
+              "Padrão Super Premium — excelência para sua igreja",
               style: TextStyle(
                 fontSize: isMobile ? 13 : 15,
                 color: Colors.black54,
                 fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Chat Igreja: conversas entre membros e grupos por departamento — no painel e no aplicativo.",
+              style: TextStyle(
+                fontSize: isMobile ? 12 : 13.5,
+                color: Colors.black.withValues(alpha: 0.42),
+                fontWeight: FontWeight.w600,
+                height: 1.35,
               ),
               textAlign: TextAlign.center,
             ),
@@ -1157,7 +1173,7 @@ class _PlanCard extends StatelessWidget {
             Text("Anual: ${money(annual)} (12 por 10)", style: const TextStyle(fontSize: 12, color: Colors.black45)),
           const SizedBox(height: 12),
           const Text(
-            "App + Painel Web + Site publico\nEventos, escalas e financeiro (MP/PIX automatico)\nBackups automaticos e seguranca",
+            "App + Painel Web + Site público\nChat Igreja, eventos, escalas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
             style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
           ),
         ],
@@ -1179,7 +1195,10 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (icon: Icons.event_note_rounded, label: 'Escalas'),
     (icon: Icons.calendar_month_rounded, label: 'Agendas'),
     (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
-    (icon: Icons.forum_rounded, label: 'Pastoral & Comunicação'),
+    (
+      icon: Icons.chat_bubble_rounded,
+      label: 'Chat Igreja — comunicação interna (membros e departamentos)',
+    ),
     (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
     (icon: Icons.inventory_2_rounded, label: 'Controle de patrimônio'),
     (

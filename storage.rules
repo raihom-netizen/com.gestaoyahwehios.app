@@ -20,10 +20,17 @@ service firebase.storage {
         || request.resource.contentType == '';
     }
 
-    /// Chat: fotos, vídeos, áudio (voz / ficheiro).
+    /// Chat: fotos, vídeos, áudio (voz / ficheiro), PDF e documentos Office.
     function chatMediaOrBlob() {
       return mediaImageVideoOrBlob()
-        || request.resource.contentType.matches('audio/.*');
+        || request.resource.contentType.matches('audio/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType.matches('application/msword')
+        || request.resource.contentType.matches('application/vnd.ms-.*')
+        || request.resource.contentType.matches(
+             'application/vnd.openxmlformats-officedocument.*')
+        || request.resource.contentType.matches('text/.*')
+        || request.resource.contentType.matches('application/rtf');
     }
 
     // Só imagem (foto de membro, logo, patrimônio) + octet-stream / vazio
@@ -170,6 +177,14 @@ service firebase.storage {
       allow write: if request.auth != null
         && request.resource.size < 45 * 1024 * 1024
         && chatMediaOrBlob();
+    }
+
+    // Biblioteca de figurinhas do chat (imagens — pasta por igreja).
+    match /igrejas/{igrejaId}/chat_stickers/{path=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 8 * 1024 * 1024
+        && photoImageOrBlob();
     }
 
     match /eventos/{eventoId}/{path=**} {

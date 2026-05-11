@@ -995,6 +995,21 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
                 ],
               ),
             ),
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                'O site público e as telas de login destacam o padrão Super Premium e o Chat Igreja '
+                '(mensagens internas entre membros e grupos por departamento). '
+                'Vídeo institucional e galeria abaixo alinham com essa comunicação.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: Colors.grey.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
             if (_uploading) ...[
               const SizedBox(height: 12),
               ClipRRect(

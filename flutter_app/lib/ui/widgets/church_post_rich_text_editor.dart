@@ -4,6 +4,13 @@ import 'package:flutter_quill/flutter_quill.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
+// ── Regressão «tela cinza» (sobretudo iOS) ────────────────────────────────────
+// Nunca colocar QuillEditor com scrollable: true dentro de ListView/scroll pai
+// nos formulários de criação (eventos / avisos). O scroll deve ser único no pai;
+// o editor embutido usa scrollable: false + altura intrínseca — ver [ChurchPostRichTextEditor].
+// Ecrã inteiro (fullscreen) usa scroll próprio dentro de [Expanded], ok.
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Configuração partilhada da barra Quill (eventos / avisos).
 QuillSimpleToolbarConfig churchPostQuillToolbarConfig() {
   return const QuillSimpleToolbarConfig(
@@ -252,19 +259,26 @@ class _ChurchPostRichTextEditorState extends State<ChurchPostRichTextEditor> {
                 ),
               ),
               if (!_fullscreenActive)
-                SizedBox(
-                  height: 220,
-                  child: QuillEditor.basic(
-                    controller: widget.controller,
-                    focusNode: _focus,
-                    scrollController: _scroll,
-                    config: QuillEditorConfig(
-                      placeholder: 'Escreva aqui…',
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
-                      scrollable: true,
-                      expands: false,
-                      minHeight: 200,
-                      autoFocus: false,
+                // Sem scroll interno: o pai (ListView nos formulários de evento/aviso)
+                // já faz scroll. Scroll aninhado no iOS costuma resultar em área cinza sem
+                // renderizar o editor (flutter_quill + viewport).
+                RepaintBoundary(
+                  child: Material(
+                    color: Colors.white,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 200),
+                      child: QuillEditor.basic(
+                        controller: widget.controller,
+                        focusNode: _focus,
+                        scrollController: _scroll,
+                        config: const QuillEditorConfig(
+                          placeholder: 'Escreva aqui…',
+                          padding: EdgeInsets.fromLTRB(12, 10, 12, 14),
+                          // OBRIGATÓRIO false aqui quando o pai é scrollável — não alterar.
+                          scrollable: false,
+                          autoFocus: false,
+                        ),
+                      ),
                     ),
                   ),
                 )

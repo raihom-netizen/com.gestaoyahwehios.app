@@ -66,7 +66,7 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
       Icons.card_giftcard_rounded, 'Doação', Color(0xFFDC2626)),
   /// Chat entre membros / grupos por departamento (estilo WhatsApp).
   ChurchShellNavEntry(
-      Icons.chat_rounded, 'Conversas', Color(0xFF25D366)),
+      Icons.forum_rounded, 'Chat - Igreja', Color(0xFF25D366)),
 ];
 
 /// Acentos derivados de [kChurchShellNavEntries] — login, marketing e Torre Master SaaS

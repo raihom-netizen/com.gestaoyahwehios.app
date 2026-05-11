@@ -795,10 +795,32 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
     }
   }
 
+  /// Abertura mais rápida do painel: perfil em disco primeiro (mobile), rede em paralelo.
+  Future<Map<String, dynamic>?> _profileFutureCacheFirst() async {
+    if (!kIsWeb) {
+      final cached = await AuthProfileCacheService.instance.load(widget.user.uid);
+      if (cached != null &&
+          (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        unawaited(_silentRefreshProfileCache());
+        return cached;
+      }
+    }
+    return _profileFutureWithOfflineFallback();
+  }
+
+  Future<void> _silentRefreshProfileCache() async {
+    try {
+      final fresh = await widget.loadProfile();
+      if (fresh != null) {
+        await AuthProfileCacheService.instance.save(widget.user.uid, fresh);
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
-    _profileFuture = _profileFutureWithOfflineFallback();
+    _profileFuture = _profileFutureCacheFirst();
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
     _biometricFuture = kIsWeb
         ? Future.value(false)
@@ -890,8 +912,29 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
       future: _readyFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          return Scaffold(
+            backgroundColor: const Color(0xFFF0F4FF),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(strokeWidth: 2.8),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'A preparar o seu painel…',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
         }
 

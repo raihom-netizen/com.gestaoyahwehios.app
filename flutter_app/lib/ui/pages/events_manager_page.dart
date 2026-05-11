@@ -6566,6 +6566,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       ),
       body: SafeArea(
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right,
               padding.bottom + bottomInset),
           children: [
