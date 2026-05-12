@@ -69,6 +69,7 @@ import 'aniversariantes_ano_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart';
 import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
@@ -167,7 +168,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         .doc(_effectiveTenantId)
         .collection('finance')
         .orderBy('createdAt', descending: true)
-        .limit(6000)
+        .limit(ChurchDashboardQueryLimits.financeLedgerSnapshotMax)
         .snapshots();
   }
 
@@ -260,7 +261,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     // Refresca o token antes dos snapshots — regras Firestore com auth costumam falhar
     // com token velho (painel “perde” dados até novo login sem isto).
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      // Sem `true`: evita round-trip forçado ao servidor em cada pull-to-refresh
+      // (token ainda válido = resposta imediata; `true` só quando regras falharem com 403).
+      await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
     final resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;

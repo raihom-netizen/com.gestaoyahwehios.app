@@ -64,6 +64,11 @@ String churchPostPlainText(Map<String, dynamic> data) {
   }
 }
 
+/// Delta JSON mínimo (só texto) para [kChurchPostTextDeltaKey] — compatível com leitores Quill.
+List<dynamic> churchPostDeltaJsonFromPlainText(String text) {
+  return _documentFromPlainText(text).toDelta().toJson();
+}
+
 /// Assinatura para [Key] quando o conteúdo rico ou o texto mudam.
 int churchPostRichContentSig(Map<String, dynamic> data) {
   final plain = churchPostPlainText(data);

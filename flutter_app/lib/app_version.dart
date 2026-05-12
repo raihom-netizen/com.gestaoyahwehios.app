@@ -89,8 +89,26 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1540';
+const String appBuildNumber = '1548';
 
+/// 11.2.295+1548: Painel — cap `finance` 2500; Cloud Function `onChurchFinanceWritePanelSummary`
+/// grava `igrejas/{id}/_panel_cache/finance_summary` (throttle 90s); regras `_panel_cache` leitura gestão.
+/// 11.2.295+1547: Chat Igreja — AppBar do thread com o mesmo gradiente 3 cores do hub/anexos;
+/// gradiente partilhado em `church_chat_premium_gradients.dart`.
+/// 11.2.295+1546: Painel — menos docs no stream `finance` (cap centralizado), refresh sem
+/// `getIdToken(true)` forçado; warmup pré-carrega `finance` recente; comentários nos limites.
+/// 11.2.295+1545: Chat hub — cabeçalho e abas com gradiente Super Premium (teal/azul/roxo),
+/// campos de pesquisa com moldura gradiente; thread — `prefer_interpolation` na pesquisa de mensagens.
+/// 11.2.295+1544: Chat Igreja — folha de anexos estilo WhatsApp (ícones coloridos + gradiente),
+/// bolhas próprias com gradiente Super Premium; foto/vídeo com barra Ampliar/Guardar ou Baixar;
+/// vídeo a partir da câmara.
+/// 11.2.295+1543: Eventos e avisos (mural) — descrição só com texto multilinha (sem Quill no
+/// formulário); grava `text` + `textDelta` mínimo para `ChurchPostRichTextViewer` e feed.
+/// 11.2.295+1542: Chat Igreja — lista «Conversas» estável (DM sem segundo stream no thread;
+/// foto de perfil + primeiro nome + prévia estilo WhatsApp); grupo mostra «Você» nas suas mensagens.
+/// 11.2.295+1541: login nativo painel igreja alinhado ao Controle Total — e-mail antes de
+/// Google/Apple/login expresso (sem Face ID pré-OAuth); confirma e-mail pós-conta; biometria
+/// opcional só após login (Ativar exige leitura); removida biometria automática ao abrir.
 /// 11.2.295+1540: deploy completo — web hosting, regras, functions, AAB Play,
 /// ZIP iOS Codemagic, chat/departamentos e correções recentes.
 

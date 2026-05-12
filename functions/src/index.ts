@@ -7023,3 +7023,5 @@ export {
 export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
 
+export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
+

@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -430,18 +431,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final prefix = sb.toString();
     final type = (m['type'] ?? 'text').toString();
     if (type == 'text') {
-      return prefix + (m['text'] ?? '').toString().toLowerCase();
+      return '$prefix${(m['text'] ?? '').toString().toLowerCase()}';
     }
-    if (type == 'image') return prefix + 'imagem foto imagem';
-    if (type == 'video') return prefix + 'vídeo video';
-    if (type == 'audio') return prefix + 'áudio audio';
+    if (type == 'image') return '$prefix' 'imagem foto imagem';
+    if (type == 'video') return '$prefix' 'vídeo video';
+    if (type == 'audio') return '$prefix' 'áudio audio';
     if (type == 'document') {
-      return prefix +
-          'documento pdf word excel ficheiro arquivo '
-              '${(m['fileName'] ?? '').toString().toLowerCase()}';
+      final fn = (m['fileName'] ?? '').toString().toLowerCase();
+      return '$prefix' 'documento pdf word excel ficheiro arquivo $fn';
     }
-    if (type == 'sticker') return prefix + 'figurinha sticker emoji';
-    return prefix + type.toLowerCase();
+    if (type == 'sticker') return '$prefix' 'figurinha sticker emoji';
+    return '$prefix${type.toLowerCase()}';
   }
 
   String _senderDisplayForMessage(
@@ -986,82 +986,129 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        decoration: BoxDecoration(
-          color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-        ),
-        child: SafeArea(
-          top: false,
+      builder: (ctx) {
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(10, 0, 10, 10 + bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                child: Row(
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  gradient: churchChatWhatsPremiumLinearGradient,
+                  boxShadow: [
+                    BoxShadow(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
                   children: [
-                    Icon(Icons.attach_file_rounded,
-                        color: ThemeCleanPremium.primary),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Enviar ficheiro',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: ThemeCleanPremium.onSurface,
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                      child: Text(
+                        'Super Premium · Mídia (estilo WhatsApp)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.98),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                          letterSpacing: 0.2,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded),
-                title: const Text('Foto — galeria'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  unawaited(_pickImage(ImageSource.gallery));
-                },
+              const SizedBox(height: 10),
+              Material(
+                color: ThemeCleanPremium.cardBackground,
+                borderRadius: BorderRadius.circular(20),
+                elevation: 8,
+                shadowColor: Colors.black26,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 18, horizontal: 6),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _WhatsStyleAttachTile(
+                          icon: Icons.collections_rounded,
+                          label: 'Galeria',
+                          color: const Color(0xFF169D5B),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickImage(ImageSource.gallery));
+                          },
+                        ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.photo_camera_rounded,
+                          label: 'Câmara',
+                          color: const Color(0xFF0EA5E9),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickImage(ImageSource.camera));
+                          },
+                        ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.video_library_rounded,
+                          label: 'Vídeo',
+                          color: const Color(0xFF7C3AED),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickVideo(ImageSource.gallery));
+                          },
+                        ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.videocam_rounded,
+                          label: 'Gravar',
+                          color: const Color(0xFFDB2777),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickVideo(ImageSource.camera));
+                          },
+                        ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.description_rounded,
+                          label: 'Doc.',
+                          color: const Color(0xFFEA580C),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickDocument());
+                          },
+                        ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.audio_file_rounded,
+                          label: 'Áudio',
+                          color: const Color(0xFF4F46E5),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickAudioFile());
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded),
-                title: const Text('Foto — câmara'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  unawaited(_pickImage(ImageSource.camera));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.video_library_rounded),
-                title: const Text('Vídeo'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  unawaited(_pickVideo());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.picture_as_pdf_rounded),
-                title: const Text('Documento (PDF, Word, Excel, …)'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  unawaited(_pickDocument());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.audio_file_rounded),
-                title: const Text('Ficheiro de áudio'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  unawaited(_pickAudioFile());
-                },
-              ),
-              const SizedBox(height: 8),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -1079,9 +1126,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     await _uploadAndSend(bytes, name, mime, kind);
   }
 
-  Future<void> _pickVideo() async {
+  Future<void> _pickVideo(ImageSource source) async {
     final picker = ImagePicker();
-    final x = await picker.pickVideo(source: ImageSource.gallery);
+    final x = await picker.pickVideo(source: source);
     if (x == null) return;
     final bytes = await x.readAsBytes();
     final name = x.name.isNotEmpty ? x.name : 'video.mp4';
@@ -1367,16 +1414,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       appBar: AppBar(
         elevation: 0,
         flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                ThemeCleanPremium.primary,
-                ThemeCleanPremium.primary.withValues(alpha: 0.92),
-                ThemeCleanPremium.primaryLight,
-              ],
-            ),
+          decoration: const BoxDecoration(
+            gradient: churchChatWhatsPremiumLinearGradient,
           ),
         ),
         foregroundColor: Colors.white,
@@ -1813,19 +1852,51 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             ),
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: bubbleBg,
-                              borderRadius: BorderRadius.only(
-                                topLeft: const Radius.circular(10),
-                                topRight: const Radius.circular(10),
-                                bottomLeft: Radius.circular(mine ? 10 : 2),
-                                bottomRight: Radius.circular(mine ? 2 : 10),
-                              ),
-                              border: Border.all(
-                                color: bubbleBorder,
-                              ),
-                              boxShadow: ThemeCleanPremium.softUiCardShadow,
-                            ),
+                            decoration: mine
+                                ? BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        const Color(0xFFB9E7D9),
+                                        ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.24),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(14),
+                                      topRight: const Radius.circular(14),
+                                      bottomLeft: const Radius.circular(14),
+                                      bottomRight: const Radius.circular(4),
+                                    ),
+                                    border: Border.all(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.14),
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.2),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 5),
+                                      ),
+                                    ],
+                                  )
+                                : BoxDecoration(
+                                    color: bubbleBg,
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(14),
+                                      topRight: const Radius.circular(14),
+                                      bottomLeft: Radius.circular(mine ? 14 : 4),
+                                      bottomRight:
+                                          Radius.circular(mine ? 4 : 14),
+                                    ),
+                                    border: Border.all(
+                                      color: bubbleBorder,
+                                    ),
+                                    boxShadow:
+                                        ThemeCleanPremium.softUiCardShadow,
+                                  ),
                             child: Column(
                               crossAxisAlignment: mine
                                   ? CrossAxisAlignment.end
@@ -1851,10 +1922,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 4),
                                     child: Text(
-                                      'Tu',
+                                      'Você',
                                       style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
                                         color: ThemeCleanPremium.onSurface
                                             .withValues(alpha: 0.48),
                                       ),
@@ -1999,7 +2070,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         : _showAttachmentSheet,
                     icon: Icon(Icons.attach_file_rounded,
                         color: ThemeCleanPremium.onSurfaceVariant),
-                    tooltip: 'Anexos (foto, vídeo, PDF, áudio…)',
+                    tooltip: 'Foto, vídeo, documento…',
                   ),
                   if (widget.isDepartment &&
                       (widget.departmentId?.trim().isNotEmpty ?? false))
@@ -2269,61 +2340,95 @@ class _MessageBody extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           quote,
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              height: 220,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  GestureDetector(
-                    onTap: () => churchChatOpenImageZoom(context, url),
-                    child: SafeNetworkImage(
-                      imageUrl: url,
-                      fit: BoxFit.cover,
-                      height: 220,
-                      width: double.infinity,
+          LayoutBuilder(
+            builder: (context, c) {
+              final maxW = c.maxWidth.isFinite ? c.maxWidth : 280.0;
+              final w = maxW.clamp(140.0, 280.0);
+              return Align(
+                alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                child: SizedBox(
+                  width: w,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Stack(
+                      alignment: Alignment.bottomCenter,
+                      children: [
+                        GestureDetector(
+                          onTap: () => churchChatOpenImageZoom(context, url),
+                          child: AspectRatio(
+                            aspectRatio: 4 / 3,
+                            child: SafeNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.cover,
+                              width: w,
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.72),
+                                ],
+                              ),
+                            ),
+                            child: SafeArea(
+                              top: false,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    onPressed: () =>
+                                        churchChatOpenImageZoom(context, url),
+                                    icon: const Icon(Icons.zoom_in_rounded,
+                                        size: 22),
+                                    label: const Text(
+                                      'Ampliar',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    onPressed: () =>
+                                        churchChatSaveImageUrl(context, url),
+                                    icon: const Icon(Icons.download_rounded,
+                                        size: 22),
+                                    label: const Text(
+                                      'Guardar',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Material(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Ampliar',
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                                minWidth: 32, minHeight: 32),
-                            icon: const Icon(Icons.zoom_in_rounded,
-                                color: Colors.white, size: 20),
-                            onPressed: () =>
-                                churchChatOpenImageZoom(context, url),
-                          ),
-                          IconButton(
-                            tooltip: 'Guardar',
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                                minWidth: 32, minHeight: 32),
-                            icon: const Icon(Icons.download_rounded,
-                                color: Colors.white, size: 20),
-                            onPressed: () =>
-                                churchChatSaveImageUrl(context, url),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
         ],
       );
@@ -2336,57 +2441,99 @@ class _MessageBody extends StatelessWidget {
         children: [
           quote,
           ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: ColoredBox(
-              color: Colors.black,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: ChurchHostedVideoSurface(
-                      videoUrl: url,
-                      autoPlay: false,
-                      layoutAspectRatio: 16 / 9,
-                    ),
+            borderRadius: BorderRadius.circular(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: ChurchHostedVideoSurface(
+                    videoUrl: url,
+                    autoPlay: false,
+                    layoutAspectRatio: 16 / 9,
                   ),
-                  Material(
-                    color: Colors.black87,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        IconButton(
-                          tooltip: 'Teatro / ecrã inteiro',
-                          icon: const Icon(
-                            Icons.fullscreen_rounded,
-                            color: Colors.white70,
-                          ),
-                          onPressed: () {
-                            showChurchHostedVideoTheater(
-                              context,
-                              videoUrl: url,
-                              title: 'Vídeo',
-                            );
-                          },
-                        ),
-                        IconButton(
-                          tooltip: 'Descarregar / partilhar',
-                          icon: const Icon(
-                            Icons.download_rounded,
-                            color: Colors.white70,
-                          ),
-                          onPressed: () => churchChatShareDownloadVideo(
-                            context,
-                            url,
-                            fileName:
-                                (data['fileName'] ?? '').toString(),
-                          ),
-                        ),
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        const Color(0xFF0F172A).withValues(alpha: 0.92),
+                        const Color(0xFF1E293B).withValues(alpha: 0.95),
                       ],
                     ),
                   ),
-                ],
-              ),
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 2),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 10),
+                              child: Text(
+                                'Toque no vídeo para reproduzir',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color:
+                                      Colors.white.withValues(alpha: 0.88),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              showChurchHostedVideoTheater(
+                                context,
+                                videoUrl: url,
+                                title: 'Vídeo',
+                              );
+                            },
+                            icon: const Icon(Icons.fullscreen_rounded, size: 22),
+                            label: const Text(
+                              'Ampliar',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () => churchChatShareDownloadVideo(
+                              context,
+                              url,
+                              fileName:
+                                  (data['fileName'] ?? '').toString(),
+                            ),
+                            icon: const Icon(Icons.download_rounded, size: 22),
+                            label: const Text(
+                              'Baixar',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -2481,6 +2628,79 @@ class _MessageBody extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Botão circular colorido na folha de anexos (referência visual WhatsApp / Super Premium).
+class _WhatsStyleAttachTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _WhatsStyleAttachTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          child: SizedBox(
+            width: 76,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        color,
+                        Color.lerp(color, Colors.black, 0.12)!,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.45),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                    color: ThemeCleanPremium.onSurface.withValues(alpha: 0.88),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

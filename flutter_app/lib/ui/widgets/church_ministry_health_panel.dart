@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
@@ -228,7 +229,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             base
                 .collection('finance')
                 .orderBy('createdAt', descending: true)
-                .limit(6000)
+                .limit(ChurchDashboardQueryLimits.financeLedgerSnapshotMax)
                 .get(),
           );
         }

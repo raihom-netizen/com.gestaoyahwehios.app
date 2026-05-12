@@ -41,12 +41,14 @@ class BiometricService {
       return;
     }
 
+    if (!context.mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Acesso rapido'),
         content: const Text(
-          'Deseja ativar acesso por digital/face para as proximas entradas?',
+          'Deseja ativar acesso por digital/face para as proximas entradas? '
+          'Ao tocar em Ativar, confirme com digital ou rosto (igual Controle Total).',
         ),
         actions: [
           TextButton(
@@ -54,7 +56,11 @@ class BiometricService {
             child: const Text('Nao'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () async {
+              final confirmed = await authenticate();
+              if (!ctx.mounted) return;
+              if (confirmed) Navigator.pop(ctx, true);
+            },
             child: const Text('Ativar'),
           ),
         ],

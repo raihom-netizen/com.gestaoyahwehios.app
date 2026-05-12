@@ -10,9 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_quill/flutter_quill.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
-import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_editor.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -5053,8 +5051,7 @@ class _EventoFormPage extends StatefulWidget {
 }
 
 class _EventoFormPageState extends State<_EventoFormPage> {
-  late TextEditingController _title, _videoUrl;
-  late QuillController _bodyQuill;
+  late TextEditingController _title, _videoUrl, _bodyDescription;
   late TextEditingController _cep,
       _logradouro,
       _numero,
@@ -5294,9 +5291,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
-    _bodyQuill = QuillController(
-      document: churchPostDocumentFromData(data),
-      selection: const TextSelection.collapsed(offset: 0),
+    _bodyDescription = TextEditingController(
+      text: churchPostPlainText(data),
     );
     _videoUrl =
         TextEditingController(text: (data['videoUrl'] ?? '').toString());
@@ -5454,7 +5450,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         await agendaCol.where('noticiaId', isEqualTo: noticiaId).limit(10).get();
     final payload = <String, dynamic>{
       'title': _title.text.trim(),
-      'description': _bodyQuill.document.toPlainText().trim(),
+      'description': _bodyDescription.text.trim(),
       'startTime': Timestamp.fromDate(start),
       'endTime': Timestamp.fromDate(end),
       'noticiaId': noticiaId,
@@ -5593,17 +5589,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Map<String, dynamic> _eventBodyFirestoreFields() {
-    final plain = _bodyQuill.document.toPlainText().trim();
+    final plain = _bodyDescription.text.trim();
     return {
       'text': plain,
-      kChurchPostTextDeltaKey: _bodyQuill.document.toDelta().toJson(),
+      kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plain),
     };
   }
 
   @override
   void dispose() {
     _title.dispose();
-    _bodyQuill.dispose();
+    _bodyDescription.dispose();
     _videoUrl.dispose();
     _cep.dispose();
     _logradouro.dispose();
@@ -6853,11 +6849,76 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         labelText: 'Título do evento *',
                         prefixIcon: Icon(Icons.title_rounded))),
                 const SizedBox(height: 14),
-                ChurchPostRichTextEditor(
-                  controller: _bodyQuill,
-                  label: 'Descrição / legenda',
-                  hint:
-                      'Formatação completa: negrito, cores, alinhamento, listas e tamanhos.',
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.article_outlined,
+                          size: 20,
+                          color:
+                              ThemeCleanPremium.primary.withValues(alpha: 0.9),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Descrição / divulgação',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Texto simples — sem negrito nem cores no editor. '
+                      'O mural e o site continuam a mostrar o conteúdo normalmente.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _bodyDescription,
+                      maxLines: null,
+                      minLines: 8,
+                      keyboardType: TextInputType.multiline,
+                      textCapitalization: TextCapitalization.sentences,
+                      autocorrect: true,
+                      enableSuggestions: true,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        alignLabelWithHint: true,
+                        hintText:
+                            'Convite, horários, local, link… Use Enter para parágrafos.',
+                        contentPadding: const EdgeInsets.fromLTRB(
+                            14, 14, 14, 16),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          borderSide: BorderSide(
+                            color: ThemeCleanPremium.primary
+                                .withValues(alpha: 0.75),
+                            width: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 18),
                 Row(

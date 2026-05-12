@@ -149,9 +149,6 @@ class _LoginPageState extends State<LoginPage> {
   bool _sessionFinalizing = false;
   /// Indicador da faixa flutuante «Login expresso» (Google silencioso → Apple → Google UI).
   bool _expressLoginInFlight = false;
-  /// Uma tentativa automática de biometria ao abrir o app (credenciais + biometria ativa).
-  bool _autoBiometricLaunched = false;
-
   _SmartStep _smartStep = _SmartStep.choosePersona;
 
   /// Após escolher persona: membro (true) ou gestor já cadastrado (false).
@@ -296,16 +293,6 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _rememberLogin = true);
     }
     await _refreshQuickBiometricState();
-    _scheduleAutoBiometricProbe();
-  }
-
-  void _scheduleAutoBiometricProbe() {
-    if (kIsWeb) return;
-    if (!_nativeChurchLogin) return;
-    if (_useSmartFlow && _smartStep != _SmartStep.credentials) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_tryAutoBiometricLoginOnce());
-    });
   }
 
   Future<void> _persistCredentials() async {
@@ -348,15 +335,42 @@ class _LoginPageState extends State<LoginPage> {
     if (mounted) setState(() => _quickBiometricReady = ready);
   }
 
-  /// Digital/Face ID antes de OAuth quando já há histórico neste aparelho (padrão Controle Total).
-  Future<bool> _guardOAuthWithBiometricIfNeeded() async {
-    if (kIsWeb) return true;
-    final bioOn = await BiometricService().isEnabled();
-    if (!bioOn) return true;
-    final hint = (await LoginPreferences.getLastLoginIdentifier()).isNotEmpty ||
-        (await LoginPreferences.getLastOAuthProvider()) != null;
-    if (!hint) return true;
-    return BiometricService().authenticate();
+  /// Igual Controle Total: **não** pedir digital/Face ID antes de Google ou login expresso;
+  /// o utilizador indica primeiro o e-mail da conta no app; biometria só depois (opcional).
+  bool _churchPanelEmailHintFilled() {
+    final t = _emailController.text.trim();
+    return t.contains('@');
+  }
+
+  bool _requireChurchPanelEmailBeforeOAuth() {
+    if (!_nativeChurchLogin) return true;
+    if (_churchPanelEmailHintFilled()) return true;
+    if (!mounted) return false;
+    const msg =
+        'Digite abaixo o e-mail da sua conta no app (o mesmo cadastrado na igreja). '
+        'Depois use Google, Apple ou login expresso.';
+    setState(() => _errorMessage = msg);
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar(msg),
+    );
+    return false;
+  }
+
+  /// Evita conta Google/Apple diferente do e-mail indicado (partilha de telemóvel, troca de conta).
+  Future<bool> _nativeChurchSignedEmailMatchesHint(User user) async {
+    if (!_nativeChurchLogin) return true;
+    final signed = (user.email ?? '').trim().toLowerCase();
+    if (signed.isEmpty) return true;
+    final field = _emailController.text.trim().toLowerCase();
+    if (field.contains('@')) {
+      return signed == field;
+    }
+    final last =
+        (await LoginPreferences.getLastLoginIdentifier()).trim().toLowerCase();
+    if (last.contains('@')) {
+      return signed == last;
+    }
+    return true;
   }
 
   Future<void> _syncLoginPreferencesHints() async {
@@ -388,10 +402,10 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     if (FirebaseAuth.instance.currentUser != null) return;
+    final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
+    if (!lastId.contains('@')) return;
     final last = await LoginPreferences.getLastOAuthProvider();
     if (last != 'google') return;
-    // Evita corrida com login biométrico+e-mail (mesmo frame / poucos ms).
-    if (_quickBiometricReady) return;
     if (!mounted) return;
     try {
       // Só Google silencioso — nunca Apple/Google UI aqui (evita vários pedidos
@@ -408,17 +422,6 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {
       // Falha silenciosa — utilizador pode usar login manual ou «Login expresso».
     }
-  }
-
-  /// Abre o leitor de digital/face logo ao entrar no login (quando há senha salva e biometria ativa).
-  Future<void> _tryAutoBiometricLoginOnce() async {
-    if (_autoBiometricLaunched || !mounted) return;
-    if (!_nativeChurchLogin) return;
-    if (!_quickBiometricReady || _showManualCredentialFields) return;
-    if (_useSmartFlow && _smartStep != _SmartStep.credentials) return;
-    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
-    _autoBiometricLaunched = true;
-    await _onEntrarComBiometria();
   }
 
   Future<void> _forgetThisDevice() async {
@@ -577,8 +580,7 @@ class _LoginPageState extends State<LoginPage> {
       // Na web a faixa não é desenhada — manter guarda defensiva.
       return;
     }
-    final gated = await _guardOAuthWithBiometricIfNeeded();
-    if (!gated || !mounted) return;
+    if (!_requireChurchPanelEmailBeforeOAuth()) return;
 
     // Fase 1: Google silencioso sem indicador na faixa (evita «ecrã escuro» durante
     // signInSilently — alinhado ao fluxo Controle Total).
@@ -668,6 +670,18 @@ class _LoginPageState extends State<LoginPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    if (!await _nativeChurchSignedEmailMatchesHint(user)) {
+      await _signOutFirebaseIfLoggedIn();
+      if (!mounted) return;
+      const msg =
+          'A conta Google/Apple não corresponde ao e-mail indicado. Confira o e-mail '
+          'cadastrado na igreja e tente de novo.';
+      setState(() => _errorMessage = msg);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+      return;
+    }
+
     if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
         user.uid)) {
       await user.getIdToken(false);
@@ -752,8 +766,7 @@ class _LoginPageState extends State<LoginPage> {
         _sessionFinalizing) {
       return;
     }
-    final gated = await _guardOAuthWithBiometricIfNeeded();
-    if (!gated || !mounted) return;
+    if (!_requireChurchPanelEmailBeforeOAuth()) return;
     setState(() {
       _errorMessage = null;
       _oauthGoogleInFlight = true;
@@ -884,8 +897,7 @@ class _LoginPageState extends State<LoginPage> {
         _loading) {
       return;
     }
-    final gated = await _guardOAuthWithBiometricIfNeeded();
-    if (!gated || !mounted) return;
+    if (!_requireChurchPanelEmailBeforeOAuth()) return;
     setState(() => _errorMessage = null);
     // Não usar `_loading` durante o sheet nativo da Apple — combina mal com o barrier
     // do Flutter e parece “tela escura” até o utilizador escolher a conta.
@@ -1443,7 +1455,6 @@ class _LoginPageState extends State<LoginPage> {
               _smartStep = _SmartStep.credentials;
               _errorMessage = null;
             });
-            _scheduleAutoBiometricProbe();
           },
         ),
         const SizedBox(height: 12),
@@ -1537,7 +1548,6 @@ class _LoginPageState extends State<LoginPage> {
                     _smartStep = _SmartStep.credentials;
                     _errorMessage = null;
                   });
-                  _scheduleAutoBiometricProbe();
                 },
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),

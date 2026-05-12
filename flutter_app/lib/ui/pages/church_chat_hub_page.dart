@@ -12,12 +12,18 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show
+        SafeCircleAvatarImage,
+        imageUrlFromMap,
+        isValidImageUrl,
+        sanitizeImageUrl;
+import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (só vínculos do membro).
-/// Na aba «Conversas», as DM permanecem listadas como os grupos (sem sumir por `hiddenForUids`);
-/// ordenação por última atividade.
+/// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
+/// foto de perfil a partir de `membros`, primeiro nome + prévia; presença só em `chat_presence`.
 class ChurchChatHubPage extends StatefulWidget {
   final String tenantId;
   final String cpf;
@@ -389,6 +395,31 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return t.isNotEmpty ? t : peer;
   }
 
+  /// Fotos dos membros (authUid / firebaseUid) para avatares na lista de DM.
+  static Map<String, String> _peerPhotoByUidFromMembros(
+    QuerySnapshot<Map<String, dynamic>>? memSnap,
+  ) {
+    final map = <String, String>{};
+    for (final m in memSnap?.docs ?? []) {
+      final d = m.data();
+      final au = (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+      if (au.isEmpty) continue;
+      final url = sanitizeImageUrl(imageUrlFromMap(d));
+      if (isValidImageUrl(url)) {
+        map[au] = url;
+      }
+    }
+    return map;
+  }
+
+  /// Primeiro nome na lista (estilo WhatsApp).
+  static String _firstNameForChatRow(String displayName) {
+    final t = displayName.trim();
+    if (t.isEmpty) return displayName;
+    final parts = t.split(RegExp(r'\s+'));
+    return parts.first;
+  }
+
   Future<void> _showThreadActionsSheet({
     required BuildContext context,
     required String tenantId,
@@ -621,124 +652,185 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Widget _buildConversasTab(BuildContext context, String tid, String uid) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatMemberPrefs.watch(tid),
-      builder: (context, prefSnap) {
-        final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
-              .collection('chat_threads')
-              .where('participantUids', arrayContains: uid)
-              .snapshots(),
-          builder: (context, snap) {
-            final dmDocs = snap.data?.docs ?? [];
-            final threads = <Widget>[];
-            final q = _searchCtrl.text.trim();
-            final ql = q.toLowerCase();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .limit(600)
+          .snapshots(),
+      builder: (context, memSnap) {
+        final photoByPeer = _peerPhotoByUidFromMembros(memSnap.data);
 
-            final deptCandidates = <_DeptEntry>[];
-            for (final d in _departments) {
-              if (q.isNotEmpty && !d.name.toLowerCase().contains(ql)) {
-                continue;
-              }
-              deptCandidates.add(d);
-            }
-            deptCandidates.sort((a, b) =>
-                a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-            final dmFiltered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-            for (final doc in dmDocs) {
-              final data = doc.data();
-              if ((data['type'] ?? '') == 'department') continue;
-              final peers = (data['participantUids'] as List?)
-                      ?.map((e) => e.toString())
-                      .toList() ??
-                  [];
-              final peer =
-                  peers.firstWhere((p) => p != uid, orElse: () => '');
-              if (prefs.isBlockedPeer(peer)) continue;
-              final disp = _dmDisplayTitle(doc, uid);
-              final preview = (data['lastMessagePreview'] ?? '').toString();
-              if (q.isNotEmpty) {
-                if (!disp.toLowerCase().contains(ql) &&
-                    !preview.toLowerCase().contains(ql)) {
-                  continue;
-                }
-              }
-              dmFiltered.add(doc);
-            }
-            dmFiltered.sort((a, b) {
-              final ta = _threadLastActivityMs(a.data());
-              final tb = _threadLastActivityMs(b.data());
-              final c = tb.compareTo(ta);
-              if (c != 0) return c;
-              return _dmDisplayTitle(a, uid)
-                  .toLowerCase()
-                  .compareTo(_dmDisplayTitle(b, uid).toLowerCase());
-            });
-
-            final favDepts = deptCandidates
-                .where((d) =>
-                    prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
-                .toList();
-            final restDepts = deptCandidates
-                .where((d) =>
-                    !prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
-                .toList();
-
-            final favDms =
-                dmFiltered.where((d) => prefs.isFavorite(d.id)).toList();
-            final restDms =
-                dmFiltered.where((d) => !prefs.isFavorite(d.id)).toList();
-
-            if (favDepts.isNotEmpty || favDms.isNotEmpty) {
-              threads.add(_sectionHeader(
-                  'Favoritos (até ${ChurchChatMemberPrefs.maxFavoriteThreads})'));
-              for (final d in favDepts) {
-                threads.add(_deptTile(context, tid, uid, d, prefs));
-              }
-              if (favDms.isNotEmpty) {
-                threads.add(_dmConversationsGrid(context, tid, uid, favDms, prefs));
-              }
-            }
-
-            if (restDepts.isNotEmpty) {
-              threads.add(_sectionHeader('Grupos (departamentos)'));
-              for (final d in restDepts) {
-                threads.add(_deptTile(context, tid, uid, d, prefs));
-              }
-            }
-
-            threads.add(_sectionHeader('Mensagens diretas'));
-            if (restDms.isEmpty) {
-              if (dmFiltered.isEmpty) {
-                threads.add(
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    child: Text(
-                      q.isNotEmpty
-                          ? 'Nenhuma conversa corresponde à pesquisa.'
-                          : 'Sem conversas diretas ainda. Use o botão + para escolher um membro.',
-                      style: TextStyle(
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: ChurchChatMemberPrefs.watch(tid),
+          builder: (context, prefSnap) {
+            final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('igrejas')
+                  .doc(tid)
+                  .collection('chat_threads')
+                  .where('participantUids', arrayContains: uid)
+                  .snapshots(),
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return ListView(
+                    padding: const EdgeInsets.all(24),
+                    children: [
+                      Icon(
+                        Icons.cloud_off_rounded,
+                        size: 48,
                         color: ThemeCleanPremium.onSurfaceVariant,
-                        height: 1.45,
-                        fontWeight: FontWeight.w500,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                );
-              }
-            } else {
-              threads.add(_dmConversationsGrid(context, tid, uid, restDms, prefs));
-            }
+                      const SizedBox(height: 12),
+                      Text(
+                        'Não foi possível atualizar a lista de conversas. '
+                        'Verifique a ligação e tente de novo.\n${snap.error}',
+                        style: TextStyle(
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                          height: 1.45,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                if (snap.connectionState == ConnectionState.waiting &&
+                    !snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-              children: threads,
+                final dmDocs = snap.data?.docs ?? [];
+                final threads = <Widget>[];
+                final q = _searchCtrl.text.trim();
+                final ql = q.toLowerCase();
+
+                final deptCandidates = <_DeptEntry>[];
+                for (final d in _departments) {
+                  if (q.isNotEmpty && !d.name.toLowerCase().contains(ql)) {
+                    continue;
+                  }
+                  deptCandidates.add(d);
+                }
+                deptCandidates.sort((a, b) =>
+                    a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+                final dmFiltered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                for (final doc in dmDocs) {
+                  final data = doc.data();
+                  if ((data['type'] ?? '').toString() == 'department') {
+                    continue;
+                  }
+                  final peers = (data['participantUids'] as List?)
+                          ?.map((e) => e.toString())
+                          .where((e) => e.isNotEmpty)
+                          .toList() ??
+                      [];
+                  final others = peers.where((p) => p != uid).toList();
+                  if (others.isEmpty) continue;
+                  final peer = others.first;
+                  if (prefs.isBlockedPeer(peer)) continue;
+                  final disp = _dmDisplayTitle(doc, uid);
+                  final preview = (data['lastMessagePreview'] ?? '').toString();
+                  if (q.isNotEmpty) {
+                    if (!disp.toLowerCase().contains(ql) &&
+                        !preview.toLowerCase().contains(ql)) {
+                      continue;
+                    }
+                  }
+                  dmFiltered.add(doc);
+                }
+                dmFiltered.sort((a, b) {
+                  final ta = _threadLastActivityMs(a.data());
+                  final tb = _threadLastActivityMs(b.data());
+                  final c = tb.compareTo(ta);
+                  if (c != 0) return c;
+                  return _dmDisplayTitle(a, uid)
+                      .toLowerCase()
+                      .compareTo(_dmDisplayTitle(b, uid).toLowerCase());
+                });
+
+                final favDepts = deptCandidates
+                    .where((d) =>
+                        prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
+                    .toList();
+                final restDepts = deptCandidates
+                    .where((d) =>
+                        !prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
+                    .toList();
+
+                final favDms =
+                    dmFiltered.where((d) => prefs.isFavorite(d.id)).toList();
+                final restDms =
+                    dmFiltered.where((d) => !prefs.isFavorite(d.id)).toList();
+
+                if (favDepts.isNotEmpty || favDms.isNotEmpty) {
+                  threads.add(_sectionHeader(
+                      'Favoritos (até ${ChurchChatMemberPrefs.maxFavoriteThreads})'));
+                  for (final d in favDepts) {
+                    threads.add(_deptTile(context, tid, uid, d, prefs));
+                  }
+                  if (favDms.isNotEmpty) {
+                    threads.add(_dmConversationListRows(
+                        context, tid, uid, favDms, prefs, photoByPeer));
+                  }
+                }
+
+                if (restDepts.isNotEmpty) {
+                  threads.add(_sectionHeader('Grupos (departamentos)'));
+                  for (final d in restDepts) {
+                    threads.add(_deptTile(context, tid, uid, d, prefs));
+                  }
+                }
+
+                threads.add(_sectionHeader('Mensagens diretas'));
+                if (restDms.isEmpty) {
+                  if (dmFiltered.isEmpty) {
+                    threads.add(
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 16),
+                        child: Text(
+                          q.isNotEmpty
+                              ? 'Nenhuma conversa corresponde à pesquisa.'
+                              : 'Sem conversas diretas ainda. Use o botão + para escolher um membro.',
+                          style: TextStyle(
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            height: 1.45,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    );
+                  } else {
+                    threads.add(
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text(
+                          'As conversas diretas favoritas aparecem na secção Favoritos acima.',
+                          style: TextStyle(
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            height: 1.45,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                } else {
+                  threads.add(_dmConversationListRows(
+                      context, tid, uid, restDms, prefs, photoByPeer));
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+                  children: threads,
+                );
+              },
             );
           },
         );
@@ -935,58 +1027,51 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
-  /// Grelha moderna para conversas diretas (membro a membro).
-  Widget _dmConversationsGrid(
+  /// Lista estilo WhatsApp: foto do perfil, primeiro nome, pré-visualização estável
+  /// (dados do documento em `chat_threads` — sem segundo listener no mesmo thread).
+  Widget _dmConversationListRows(
     BuildContext context,
     String tid,
     String uid,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
   ) {
-    return LayoutBuilder(
-      builder: (context, c) {
-        final w = c.maxWidth;
-        var n = 2;
-        if (w >= 1100) {
-          n = 4;
-        } else if (w >= 720) {
-          n = 3;
-        }
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: docs.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: n,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 0.78,
-          ),
-          itemBuilder: (ctx, i) =>
-              _dmGridTile(ctx, tid, uid, docs[i], prefs),
-        );
-      },
+    if (docs.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: [
+        for (final doc in docs)
+          _dmChatRow(context, tid, uid, doc, prefs, photoByPeerUid),
+      ],
     );
   }
 
-  Widget _dmGridTile(
+  Widget _dmChatRow(
     BuildContext context,
     String tid,
     String uid,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
   ) {
     final data = doc.data();
     final peers = (data['participantUids'] as List?)
             ?.map((e) => e.toString())
+            .where((e) => e.isNotEmpty)
             .toList() ??
         [];
-    final peer = peers.firstWhere((p) => p != uid, orElse: () => '');
-    final titles = data['titlesByUid'];
-    String title = peer;
-    if (titles is Map && titles[peer] != null) {
-      title = titles[peer].toString();
-    }
+    final others = peers.where((p) => p != uid).toList();
+    if (others.isEmpty) return const SizedBox.shrink();
+    final peer = others.first;
+    final fullTitle = _dmDisplayTitle(doc, uid);
+    final rowTitle = _firstNameForChatRow(fullTitle);
+    final preview =
+        (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
+    final ts = data['lastMessageAt'];
+    final photoUrl = photoByPeerUid[peer];
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final memCache = (52 * dpr).round().clamp(96, 240);
+
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('igrejas')
@@ -996,161 +1081,49 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           .snapshots(),
       builder: (context, pres) {
         final online = ChurchChatService.isOnlineFromSnapshot(pres.data);
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: ChurchChatService.threadRef(tid, doc.id).snapshots(),
-          builder: (context, thr) {
-            final tdata = thr.data?.data();
-            final preview =
-                (tdata?['lastMessagePreview'] ?? 'Toque para conversar')
-                    .toString();
-            final ts = tdata?['lastMessageAt'];
-            void openThread() {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => ChurchChatThreadPage(
-                    tenantId: tid,
-                    threadId: doc.id,
-                    title: title,
-                    isDepartment: false,
-                    peerUid: peer.isEmpty ? null : peer,
-                    memberRole: widget.role,
-                    memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                  ),
-                ),
-              );
-            }
-
-            return Material(
-              color: ThemeCleanPremium.cardBackground,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              child: InkWell(
-                onTap: openThread,
-                onLongPress: () => _showThreadActionsSheet(
-                  context: context,
+        return _chatTile(
+          title: rowTitle,
+          subtitle: preview,
+          subtitleMaxLines: 2,
+          timeLabel: _fmtTime(ts),
+          photo: SafeCircleAvatarImage(
+            imageUrl: photoUrl,
+            radius: 26,
+            memCacheSize: memCache,
+            fallbackIcon: Icons.person_rounded,
+            fallbackColor: ThemeCleanPremium.primary,
+            backgroundColor:
+                ThemeCleanPremium.primary.withValues(alpha: 0.12),
+          ),
+          showPresence: true,
+          online: online,
+          isFavorite: prefs.isFavorite(doc.id),
+          isMuted: prefs.isMutedThread(doc.id),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                fullscreenDialog: true,
+                builder: (_) => ChurchChatThreadPage(
                   tenantId: tid,
                   threadId: doc.id,
-                  title: title,
+                  title: fullTitle,
                   isDepartment: false,
-                  peerUid: peer.isEmpty ? null : peer,
-                  prefs: prefs,
-                ),
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    border: Border.all(
-                      color:
-                          ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                    ),
-                    boxShadow: ThemeCleanPremium.softUiCardShadow,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.88),
-                                  child: Text(
-                                    title.isNotEmpty
-                                        ? title[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: -1,
-                                  bottom: -1,
-                                  child: Container(
-                                    width: 13,
-                                    height: 13,
-                                    decoration: BoxDecoration(
-                                      color: online
-                                          ? ThemeCleanPremium.success
-                                          : const Color(0xFF9CA3AF),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: Colors.white, width: 2),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Spacer(),
-                            Text(
-                              _fmtTime(ts),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14.5,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Expanded(
-                          child: Text(
-                            preview,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.25,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                        if (prefs.isFavorite(doc.id) ||
-                            prefs.isMutedThread(doc.id))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Row(
-                              children: [
-                                if (prefs.isFavorite(doc.id))
-                                  Icon(Icons.star_rounded,
-                                      size: 16,
-                                      color: const Color(0xFFF59E0B)),
-                                if (prefs.isMutedThread(doc.id)) ...[
-                                  const SizedBox(width: 4),
-                                  Icon(Icons.notifications_off_rounded,
-                                      size: 15,
-                                      color: ThemeCleanPremium.onSurfaceVariant),
-                                ],
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                  peerUid: peer,
+                  memberRole: widget.role,
+                  memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
                 ),
               ),
             );
           },
+          onLongPress: () => _showThreadActionsSheet(
+            context: context,
+            tenantId: tid,
+            threadId: doc.id,
+            title: fullTitle,
+            isDepartment: false,
+            peerUid: peer,
+            prefs: prefs,
+          ),
         );
       },
     );
@@ -1167,6 +1140,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     bool online = false,
     bool isFavorite = false,
     bool isMuted = false,
+    int subtitleMaxLines = 1,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1223,7 +1197,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                             fontSize: 16,
                             color: ThemeCleanPremium.onSurface,
                           ),
@@ -1231,11 +1205,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         const SizedBox(height: 3),
                         Text(
                           subtitle,
-                          maxLines: 1,
+                          maxLines: subtitleMaxLines,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: ThemeCleanPremium.onSurfaceVariant,
                             fontSize: 13,
+                            height: subtitleMaxLines > 1 ? 1.25 : null,
                           ),
                         ),
                       ],
@@ -1413,43 +1388,60 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    final innerR = BorderRadius.circular(ThemeCleanPremium.radiusMd);
+    final outerR = BorderRadius.circular(ThemeCleanPremium.radiusMd + 1.5);
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: Container(
+        padding: const EdgeInsets.all(1.25),
         decoration: BoxDecoration(
-          color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          border: Border.all(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-          ),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
+          borderRadius: outerR,
+          gradient: churchChatWhatsPremiumLinearGradient,
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF2563EB).withValues(alpha: 0.22),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        child: TextField(
-          controller: widget.controller,
-          onChanged: (_) => widget.onChanged(),
-          style: TextStyle(
-            color: ThemeCleanPremium.onSurface,
-            fontWeight: FontWeight.w500,
-          ),
-          decoration: InputDecoration(
-            hintText: 'Pesquisar conversas',
-            hintStyle: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
-            prefixIcon:
-                Icon(Icons.search_rounded, color: ThemeCleanPremium.primary),
-            suffixIcon: widget.controller.text.isNotEmpty
-                ? IconButton(
-                    tooltip: 'Limpar',
-                    icon: Icon(Icons.clear_rounded,
-                        color: ThemeCleanPremium.onSurfaceVariant),
-                    onPressed: () {
-                      widget.controller.clear();
-                      widget.onChanged();
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: ClipRRect(
+          borderRadius: innerR,
+          child: ColoredBox(
+            color: ThemeCleanPremium.cardBackground,
+            child: TextField(
+              controller: widget.controller,
+              onChanged: (_) => widget.onChanged(),
+              style: TextStyle(
+                color: ThemeCleanPremium.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Pesquisar conversas',
+                hintStyle:
+                    TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFF2563EB),
+                ),
+                suffixIcon: widget.controller.text.isNotEmpty
+                    ? IconButton(
+                        tooltip: 'Limpar',
+                        icon: Icon(
+                          Icons.clear_rounded,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                        onPressed: () {
+                          widget.controller.clear();
+                          widget.onChanged();
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              ),
+            ),
           ),
         ),
       ),
@@ -1465,31 +1457,35 @@ class _PremiumHubTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(1.5),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-        ),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        borderRadius: BorderRadius.circular(17.5),
+        gradient: churchChatWhatsPremiumLinearGradient,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2563EB).withValues(alpha: 0.24),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      child: TabBar(
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: ThemeCleanPremium.cardBackground,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: TabBar(
         controller: controller,
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          gradient: LinearGradient(
-            colors: [
-              ThemeCleanPremium.primary,
-              ThemeCleanPremium.primaryLight,
-            ],
-          ),
+          gradient: churchChatWhatsPremiumLinearGradient,
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-              blurRadius: 10,
+              color: const Color(0xFF2563EB).withValues(alpha: 0.38),
+              blurRadius: 12,
               offset: const Offset(0, 4),
             ),
           ],
@@ -1539,6 +1535,7 @@ class _PremiumHubTabBar extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -1576,41 +1573,57 @@ class _HubScopedSearchBarState extends State<_HubScopedSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    final innerR = BorderRadius.circular(ThemeCleanPremium.radiusMd);
+    final outerR = BorderRadius.circular(ThemeCleanPremium.radiusMd + 1.5);
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
       child: Container(
+        padding: const EdgeInsets.all(1.25),
         decoration: BoxDecoration(
-          color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          border: Border.all(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-          ),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
+          borderRadius: outerR,
+          gradient: churchChatWhatsPremiumLinearGradient,
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF2563EB).withValues(alpha: 0.22),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        child: TextField(
-          controller: widget.controller,
-          style: TextStyle(
-            color: ThemeCleanPremium.onSurface,
-            fontWeight: FontWeight.w500,
-          ),
-          decoration: InputDecoration(
-            hintText: widget.hintText,
-            hintStyle: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
-            prefixIcon: Icon(widget.icon, color: ThemeCleanPremium.primary),
-            suffixIcon: widget.controller.text.isNotEmpty
-                ? IconButton(
-                    tooltip: 'Limpar',
-                    icon: Icon(Icons.clear_rounded,
-                        color: ThemeCleanPremium.onSurfaceVariant),
-                    onPressed: () {
-                      widget.controller.clear();
-                      setState(() {});
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: ClipRRect(
+          borderRadius: innerR,
+          child: ColoredBox(
+            color: ThemeCleanPremium.cardBackground,
+            child: TextField(
+              controller: widget.controller,
+              style: TextStyle(
+                color: ThemeCleanPremium.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: widget.hintText,
+                hintStyle:
+                    TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+                prefixIcon:
+                    Icon(widget.icon, color: const Color(0xFF2563EB)),
+                suffixIcon: widget.controller.text.isNotEmpty
+                    ? IconButton(
+                        tooltip: 'Limpar',
+                        icon: Icon(
+                          Icons.clear_rounded,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                        onPressed: () {
+                          widget.controller.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              ),
+            ),
           ),
         ),
       ),
@@ -2279,16 +2292,14 @@ class _PremiumChatHeader extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ThemeCleanPremium.primary,
-            ThemeCleanPremium.primary.withValues(alpha: 0.92),
-            ThemeCleanPremium.primaryLight,
-          ],
-        ),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        gradient: churchChatWhatsPremiumLinearGradient,
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: SafeArea(
         bottom: false,
@@ -2331,11 +2342,21 @@ class _PremiumChatHeader extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Abas: conversas · todos os membros · grupos por departamento',
+                          'Super Premium · conversas, membros e grupos',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.9),
+                            color: Colors.white.withValues(alpha: 0.95),
                             fontSize: 12.5,
                             height: 1.35,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Estilo WhatsApp — mensagens, fotos e vídeos no thread',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontSize: 11.5,
+                            height: 1.3,
                             fontWeight: FontWeight.w500,
                           ),
                         ),

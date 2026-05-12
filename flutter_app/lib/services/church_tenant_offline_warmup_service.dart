@@ -41,7 +41,7 @@ class ChurchTenantOfflineWarmupService {
 
   Future<void> _runWarmup(String tenantIdRaw) async {
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
 
     String tenantId = tenantIdRaw;
@@ -93,6 +93,14 @@ class ChurchTenantOfflineWarmupService {
       } catch (_) {
         await church.collection('noticias').limit(150).get();
       }
+    });
+
+    await safe('finance_recent', () async {
+      await church
+          .collection('finance')
+          .orderBy('createdAt', descending: true)
+          .limit(500)
+          .get();
     });
 
     await safe('patrimonio', () async {

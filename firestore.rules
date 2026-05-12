@@ -379,6 +379,11 @@ service cloud.firestore {
       match /private/{docId} {
         allow read, write: if false;
       }
+      // Resumo do painel (totais por mês) — escrita só Firebase Admin (Cloud Function); leitura gestão.
+      match /_panel_cache/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if false;
+      }
       match /finance_mp_notifications/{docId} {
         allow read: if isMaster()
           || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
