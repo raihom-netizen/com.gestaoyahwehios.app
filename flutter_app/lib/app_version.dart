@@ -89,7 +89,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1554';
+const String appBuildNumber = '1555';
 
 /// 11.2.295+1554: Deploy produção completo (regras, functions, web, AAB, ZIP iOS, push Codemagic).
 /// 11.2.295+1553: Chat — alertas em primeiro plano por conversa/DM/grupo + global (Firestore
@@ -122,6 +122,8 @@ const String appBuildNumber = '1554';
 /// opcional só após login (Ativar exige leitura); removida biometria automática ao abrir.
 /// 11.2.295+1540: deploy completo — web hosting, regras, functions, AAB Play,
 /// ZIP iOS Codemagic, chat/departamentos e correções recentes.
+/// 11.2.295+1555: deploy completo — regras Firestore chat (lista conversas),
+/// cache lista conversas no hub, login biometria nativo; web + AAB + ZIP iOS.
 
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';

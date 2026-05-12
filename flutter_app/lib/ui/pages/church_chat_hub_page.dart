@@ -51,6 +51,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   List<_DeptEntry> _departments = [];
   Timer? _presenceTimer;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _dmSub;
+  /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
+  QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
@@ -69,6 +71,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       if (mounted) unawaited(_tryConsumePendingChatThread());
     });
     _bootstrap();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChurchChatHubPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _lastGoodChatThreadsSnap = null;
+    }
   }
 
   @override
@@ -181,7 +191,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
-    setState(() => _resolvedTenantId = tid);
+    setState(() {
+      if (_resolvedTenantId != tid) {
+        _lastGoodChatThreadsSnap = null;
+      }
+      _resolvedTenantId = tid;
+    });
     unawaited(_loadChatNotifPrefs());
     await _syncMemberDepartments(tid);
     _presenceTimer =
@@ -840,7 +855,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   .where('participantUids', arrayContains: uid)
                   .snapshots(),
               builder: (context, snap) {
-                if (snap.hasError) {
+                if (snap.hasData) {
+                  _lastGoodChatThreadsSnap = snap.data;
+                }
+                final snapForList =
+                    snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
+                final streamError = snap.hasError ? snap.error : null;
+
+                if (streamError != null && snapForList == null) {
                   return ListView(
                     padding: const EdgeInsets.all(24),
                     children: [
@@ -851,8 +873,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Não foi possível atualizar a lista de conversas. '
-                        'Verifique a ligação e tente de novo.\n${snap.error}',
+                        'Não foi possível carregar a lista de conversas. '
+                        'Verifique a ligação ou peça ao gestor para atualizar as regras do Firebase.\n'
+                        '$streamError',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,
@@ -863,14 +886,50 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   );
                 }
                 if (snap.connectionState == ConnectionState.waiting &&
-                    !snap.hasData) {
+                    snapForList == null) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final dmDocs = snap.data?.docs ?? [];
+                final dmDocs = snapForList?.docs ?? [];
                 final threads = <Widget>[];
                 final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
+
+                if (streamError != null && snapForList != null) {
+                  threads.add(
+                    Material(
+                      color: const Color(0xFFFFF8E1),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.amber.shade900,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Ligação com o servidor instável — a mostrar a última lista de conversas. '
+                                'As conversas só desaparecem se as apagar ou, nos grupos, se um gestor as remover.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.35,
+                                  color: Colors.grey.shade900,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                  threads.add(const SizedBox(height: 10));
+                }
 
                 final deptCandidates = <_DeptEntry>[];
                 for (final d in _departments) {

@@ -141,6 +141,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _quickBiometricReady = false;
   /// App iOS/Android: com biometria + credenciais salvas, o usuário pode exibir e-mail/senha.
   bool _showManualCredentialFields = false;
+  /// Evita disparar varias vezes o prompt nativo na mesma visita a esta tela.
+  bool _autoBiometricSessionAttempted = false;
   String? _errorMessage;
   /// Indicador só no botão «Continuar com Google» durante o diálogo nativo / popup.
   bool _oauthGoogleInFlight = false;
@@ -291,6 +293,40 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _rememberLogin = true);
     }
     await _refreshQuickBiometricState();
+    _scheduleMaybeAutoBiometricLogin();
+  }
+
+  /// Apos carregar prefs: no painel nativo, tenta Face ID/digital automaticamente
+  /// (com atraso para nao competir com reconexao Google silenciosa).
+  void _scheduleMaybeAutoBiometricLogin({
+    Duration delay = const Duration(milliseconds: 1100),
+  }) {
+    if (kIsWeb || !_nativeChurchLogin) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(delay, () {
+        if (!mounted) return;
+        unawaited(_tryAutoBiometricLoginOnce());
+      });
+    });
+  }
+
+  Future<void> _tryAutoBiometricLoginOnce() async {
+    if (kIsWeb || !_nativeChurchLogin) return;
+    if (_autoBiometricSessionAttempted) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+    if (FirebaseAuth.instance.currentUser != null) return;
+    if (!_hasSavedCredentials) return;
+    if (!_painelBiometricCompact) return;
+    if (_showManualCredentialFields) return;
+
+    final bio = await BiometricService().canUseQuickBiometricLogin();
+    if (!mounted) return;
+    if (!bio) return;
+    if (!_painelBiometricCompact || _showManualCredentialFields) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+
+    _autoBiometricSessionAttempted = true;
+    await _onEntrarComBiometria();
   }
 
   Future<void> _persistCredentials() async {
@@ -1103,6 +1139,7 @@ class _LoginPageState extends State<LoginPage> {
       if (_smartStep == _SmartStep.credentials) {
         setState(() {
           _errorMessage = null;
+          _autoBiometricSessionAttempted = false;
           _smartStep =
               _credentialsAsMembro ? _SmartStep.choosePersona : _SmartStep.gestorBranch;
         });
@@ -1359,6 +1396,9 @@ class _LoginPageState extends State<LoginPage> {
               _smartStep = _SmartStep.credentials;
               _errorMessage = null;
             });
+            _scheduleMaybeAutoBiometricLogin(
+              delay: const Duration(milliseconds: 420),
+            );
           },
         ),
         const SizedBox(height: 12),
@@ -1452,6 +1492,9 @@ class _LoginPageState extends State<LoginPage> {
                     _smartStep = _SmartStep.credentials;
                     _errorMessage = null;
                   });
+                  _scheduleMaybeAutoBiometricLogin(
+                    delay: const Duration(milliseconds: 420),
+                  );
                 },
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1722,8 +1765,8 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Toque em Entrar para usar digital ou Face ID. '
-          'Para digitar e-mail e senha, use a opção abaixo.',
+          'Nas proximas aberturas o app pode pedir digital ou Face ID sozinho, '
+          'mais rapido. Use Entrar para pedir agora, ou abaixo para e-mail e senha.',
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade700,

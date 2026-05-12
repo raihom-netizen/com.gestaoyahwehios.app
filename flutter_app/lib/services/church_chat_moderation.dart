@@ -49,8 +49,9 @@ abstract final class ChurchChatModeration {
     return false;
   }
 
-  /// Apagar para **todos**: na DM o autor remove a própria mensagem; moderadores em qualquer tipo;
-  /// em **grupo (departamento)** o membro comum **não** apaga para todos — só moderadores/líder.
+  /// Apagar para **todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras):
+  /// **DM** — qualquer participante pode apagar qualquer mensagem (estilo «limpar conversa»).
+  /// **Grupo** — o autor apaga a própria; moderadores (pastor/gestor/ADM/líder depto) apagam as dos outros.
   static bool canDeleteMessageForEveryone({
     required String senderUid,
     required bool isDepartmentThread,
@@ -60,7 +61,8 @@ abstract final class ChurchChatModeration {
   }) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
-    if (!isDepartmentThread && senderUid == uid) return true;
+    if (!isDepartmentThread) return true;
+    if (senderUid == uid) return true;
     return canDeleteChatMessage(
       memberRole: memberRole,
       memberCpfDigits: memberCpfDigits,

@@ -104,24 +104,42 @@ service cloud.firestore {
     }
     /// Membro cadastrado na igreja (doc por UID ou por CPF 11 dígitos vinculado ao authUid).
     /// Evita bloqueio de gravação para quem está ativo em `membros`, mas sem espelho completo em `users`.
+    /// Inclui `memberDocId` / `linkedCpf` / `cpfDigits` no `users` (doc `membros` muitas vezes com id = CPF).
     function memberLinkedToTenant(tenantId) {
       let byUid = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
       let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
-      let cpf = exists(rootUser)
-        ? (
-            get(rootUser).data.cpf is string
-              ? get(rootUser).data.cpf
-              : (get(rootUser).data.CPF is string ? get(rootUser).data.CPF : '')
-          )
-        : '';
-      let byCpf = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
       return isSignedIn() && (
         exists(byUid)
-        || (cpf.size() == 11 && cpf.matches('^[0-9]{11}$') && exists(byCpf) && (
-          get(byCpf).data.authUid == request.auth.uid
-          || get(byCpf).data.firebaseUid == request.auth.uid
+        || (exists(rootUser) && (
+          memberDocIdLinksAuthToMembro(tenantId, get(rootUser).data)
+          || cpf11MembroDocLinksAuth(tenantId, get(rootUser).data)
         ))
       );
+    }
+    function memberDocIdLinksAuthToMembro(tenantId, d) {
+      let chosen = ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(chosen);
+      return chosen.size() > 0 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
+    }
+    /// CPF 11 dígitos em `users` (cpf / CPF / linkedCpf / cpfDigits) → doc `membros/{cpf}`.
+    function cpf11MembroDocLinksAuth(tenantId, d) {
+      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
+      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
+      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
+      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
+      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
+      let cpf = c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
+        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
+        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
+        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
+        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
+      return cpf.size() == 11 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
     }
     /// Papéis em arrays `roles` (root `users` ou `igrejas/{tenant}/users`) — o app grava listas; [role()] só tratavia MASTER/ADM/GESTOR na lista.
     function muralRolesArrayMatches(roles) {
@@ -786,20 +804,27 @@ service cloud.firestore {
           ? get(p).data.departmentIds
           : [];
       }
+      /// Leitura do doc do thread — usa `resource.data` + [threadId] (sem `get(thread)` em listagens).
+      /// Fallback `dm_` / `dept_` no id quando `type` em falta (dados antigos / merge parcial).
+      /// Importante: em queries `where participantUids arrayContains uid`, se **um** documento
+      /// devolvido falhar `allow read`, o Firestore falha a **lista inteira** (permission-denied).
+      /// Por isso: quem está em `participantUids` pode ler o thread (metadados), mesmo com `type`/id atípicos.
+      function canReadChatThreadData(tenantId, threadId, d) {
+        let inParticipants = d.participantUids is list && request.auth.uid in d.participantUids;
+        let asDm = d.type == 'dm' || threadId.matches('^dm_.+');
+        let asDept = d.type == 'department' || threadId.matches('^dept_.+');
+        return (asDm && inParticipants)
+          || (asDept && (
+            inParticipants
+            || (d.departmentId is string && chatUserDeptIds(tenantId).hasAny([d.departmentId]))
+          ))
+          || inParticipants;
+      }
+
+      /// Mensagens / typing / helpers — leem o doc pai via `get()`.
       function canReadChatThreadDoc(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
-        return exists(path)
-          && (
-            (get(path).data.type == 'dm'
-              && get(path).data.participantUids is list
-              && request.auth.uid in get(path).data.participantUids)
-            || (get(path).data.type == 'department'
-              && get(path).data.departmentId is string
-              && (
-                (get(path).data.participantUids is list && request.auth.uid in get(path).data.participantUids)
-                || chatUserDeptIds(tenantId).hasAny([get(path).data.departmentId])
-              ))
-          );
+        return exists(path) && canReadChatThreadData(tenantId, threadId, get(path).data);
       }
 
       /// Pastores / pastoral auxiliar — moderar remoção de mensagens (alinhado ao app).
@@ -843,9 +868,14 @@ service cloud.firestore {
         return exists(dpath) && departmentLeaderListsMatch(get(dpath).data);
       }
 
-      /// «Apagar para todos» (DELETE): DM — o autor pode apagar a própria mensagem; grupo — só moderadores (pastor/ADM/gestor/líder), não o membro comum sobre as próprias mensagens.
+      /// «Apagar para todos» (DELETE): DM — qualquer participante pode apagar qualquer mensagem (estilo limpar conversa).
+      /// Grupo — o autor apaga a própria; pastor/gestor/ADM (canWriteTenant + pastoral) ou líder do departamento apagam qualquer uma.
       function chatMessageDeleteForEveryoneAllowed(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let t = get(path).data;
+        let participants = t.participantUids is list && request.auth.uid in t.participantUids;
+        let isDm = t.type == 'dm' || threadId.matches('^dm_.+');
+        let isDept = t.type == 'department' || threadId.matches('^dept_.+');
         return isSignedIn() && exists(path)
           && resource.data.keys().hasAll(['senderUid'])
           && resource.data.senderUid is string
@@ -853,14 +883,16 @@ service cloud.firestore {
             isAdminPanel()
             || canWriteTenant(tenantId)
             || chatPastoralModeratorRole()
+            || (isDm && participants)
             || (
-              get(path).data.type == 'department'
-              && get(path).data.departmentId is string
-              && departmentDocListsRequesterAsLeader(tenantId, get(path).data.departmentId)
+              isDept
+              && participants
+              && resource.data.senderUid == request.auth.uid
             )
             || (
-              get(path).data.type == 'dm'
-              && resource.data.senderUid == request.auth.uid
+              isDept
+              && t.departmentId is string
+              && departmentDocListsRequesterAsLeader(tenantId, t.departmentId)
             )
           );
       }
@@ -938,7 +970,8 @@ service cloud.firestore {
       }
 
       match /chat_threads/{threadId} {
-        allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
+        // Lista/query: `resource.data` + threadId (sem `get()` no próprio doc em listagens).
+        allow read: if canAccessTenant(id) && canReadChatThreadData(id, threadId, resource.data);
         allow create: if canAccessTenant(id)
           && (
             (request.resource.data.type == 'dm'
@@ -948,7 +981,7 @@ service cloud.firestore {
               && request.resource.data.departmentId is string
               && chatUserDeptIds(id).hasAny([request.resource.data.departmentId]))
           );
-        allow update: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
+        allow update: if canAccessTenant(id) && canReadChatThreadData(id, threadId, resource.data);
         allow delete: if chatThreadDeleteAllowed(id, threadId);
 
         match /typing/{typingUid} {

@@ -47,8 +47,10 @@ class BiometricService {
       builder: (ctx) => AlertDialog(
         title: const Text('Acesso rapido'),
         content: const Text(
-          'Deseja ativar acesso por digital/face para as proximas entradas? '
-          'Ao tocar em Ativar, confirme com digital ou rosto (igual Controle Total).',
+          'Deseja ativar entrada com Face ID ou impressao digital nas proximas vezes '
+          '(o aparelho mostra o que estiver disponivel)? '
+          'Depois ativado, o login pode abrir o pedido biometrico sozinho; se falhar, '
+          'use e-mail e senha ate entrar de novo. Voce tambem pode mudar isto em Configuracoes.',
         ),
         actions: [
           TextButton(

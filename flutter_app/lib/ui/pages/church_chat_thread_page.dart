@@ -895,7 +895,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 title: const Text('Apagar para todos'),
                 subtitle: Text(
                   widget.isDepartment
-                      ? 'Remove para todos no grupo (só moderadores/líder).'
+                      ? (senderUid == myUid
+                          ? 'Remove para todos neste grupo.'
+                          : 'Remoção global (moderador: pastor, gestor, ADM ou líder do departamento).')
                       : 'Remove para ambos na conversa direta.',
                 ),
                 onTap: () {
@@ -976,7 +978,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Não foi possível apagar. Em grupos, só moderadores ou líder podem apagar para todos.',
+            'Não foi possível apagar. Em grupos: pode apagar para todos só as suas mensagens, '
+            'ou use conta de moderador (pastor/gestor/ADM/líder do departamento) para as dos outros.',
           ),
         ),
       );
