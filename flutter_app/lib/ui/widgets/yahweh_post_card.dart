@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaThumbStoragePath,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
@@ -167,7 +168,7 @@ class YahwehPostCard extends StatelessWidget {
     final gallery = data != null ? yahwehPostGalleryRefs(data) : <String>[];
     final wvClean = sanitizeImageUrl((webHostedVideoUrl ?? '').trim());
     final webEmbedVideo =
-        kIsWeb && wvClean.isNotEmpty && looksLikeHostedVideoFileUrl(wvClean);
+        kIsWeb && wvClean.isNotEmpty && eventNoticiaUrlEligibleForHostedInlinePlayer(wvClean);
 
     return YahwehInstagramHoverCard(
       child: ChurchPublicPremiumFeedCard(

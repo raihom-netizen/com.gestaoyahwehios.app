@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'church_chat_member_prefs.dart';
 import 'fcm_service.dart';
 
 /// Preferências de push do chat da igreja — alinhado a [users/{uid}.pushChat] e FCM `gypush_*_chat`.
@@ -102,7 +103,39 @@ class ChurchChatNotificationPrefs {
     return alertModeSound;
   }
 
-  /// Modo de alerta das conversas (foreground): sound | vibrate | silent.
+  /// Ordem: override por `threadId` → estilo DM ou grupo → modo global da conta.
+  static Future<String> resolveForegroundAlertMode(RemoteMessage msg) async {
+    if (!looksLikeChatNotification(msg)) return alertModeSound;
+    final global = await getChatAlertMode();
+    final tenantId = (msg.data['tenantId'] ?? '').toString().trim();
+    final threadId = (msg.data['threadId'] ?? '').toString().trim();
+    if (tenantId.isEmpty || threadId.isEmpty) return global;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return global;
+
+    var threadType =
+        (msg.data['threadType'] ?? '').toString().trim().toLowerCase();
+    if (threadType.isEmpty) {
+      threadType = threadId.startsWith('dm_') ? 'dm' : 'department';
+    }
+    final isDm = threadType == 'dm';
+
+    try {
+      final prefs = await ChurchChatMemberPrefs.load(tenantId);
+      final ov = prefs.threadNotifOverride(threadId);
+      if (ov != null && _validAlertModes.contains(ov)) return ov;
+      if (isDm) {
+        final dm = prefs.dmNotificationStyle;
+        if (dm != null && _validAlertModes.contains(dm)) return dm;
+      } else {
+        final g = prefs.groupNotificationStyle;
+        if (g != null && _validAlertModes.contains(g)) return g;
+      }
+    } catch (_) {}
+    return global;
+  }
+
   static Future<String> getChatAlertMode() async {
     var mode = alertModeSound;
     final user = FirebaseAuth.instance.currentUser;
@@ -154,7 +187,7 @@ class ChurchChatNotificationPrefs {
   /// Feedback para mensagem de chat em primeiro plano, estilo conversa.
   static Future<void> playForegroundChatAlertIfNeeded(RemoteMessage msg) async {
     if (!looksLikeChatNotification(msg)) return;
-    final mode = await getChatAlertMode();
+    final mode = await resolveForegroundAlertMode(msg);
     if (mode == alertModeSilent) return;
     if (mode == alertModeVibrate) {
       await HapticFeedback.mediumImpact();

@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaPhotoUrls,
         eventNoticiaVideosFromDoc,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
         looksLikeHostedVideoFileUrl,
         noticiaImageRefsPreferDisplayOrder,
         postFeedCarouselAspectRatioForIndex,
@@ -2208,7 +2209,7 @@ class _PostCardState extends State<_PostCard>
       }
       return;
     }
-    final isHosted = looksLikeHostedVideoFileUrl(openUrl) ||
+    final isHosted = eventNoticiaUrlEligibleForHostedInlinePlayer(openUrl) ||
         openUrl.contains('firebasestorage.googleapis.com') ||
         openUrl.contains('.firebasestorage.app');
     if (isHosted) {
@@ -2292,7 +2293,7 @@ class _PostCardState extends State<_PostCard>
         }
         return;
       }
-      final isHosted = looksLikeHostedVideoFileUrl(openUrl) ||
+      final isHosted = eventNoticiaUrlEligibleForHostedInlinePlayer(openUrl) ||
           openUrl.contains('firebasestorage.googleapis.com') ||
           openUrl.contains('.firebasestorage.app');
       if (isHosted) {
@@ -2320,14 +2321,12 @@ class _PostCardState extends State<_PostCard>
         ? ''
         : (openUrl.startsWith('http://') || openUrl.startsWith('https://')
             ? openUrl
-            : (looksLikeHostedVideoFileUrl(openUrl)
+            : (eventNoticiaUrlEligibleForHostedInlinePlayer(openUrl)
                 ? openUrl
                 : 'https://$openUrl'));
     final isHostedFile = normalized.isNotEmpty &&
         !isYoutubeOrVimeo(normalized) &&
-        (looksLikeHostedVideoFileUrl(openUrl) ||
-            normalized.contains('firebasestorage.googleapis.com') ||
-            normalized.contains('.firebasestorage.app'));
+        eventNoticiaUrlEligibleForHostedInlinePlayer(normalized);
 
     /// Web: não embutir `<video>` no feed — só capa + play; download/stream ao toque (dialog/tela cheia).
     if (!kIsWeb && isHostedFile) {

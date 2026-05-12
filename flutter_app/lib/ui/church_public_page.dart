@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaImageStoragePath,
         eventNoticiaPostHasFeedCoverRow,
         eventNoticiaThumbStoragePath,
-        looksLikeHostedVideoFileUrl,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
         postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -5009,7 +5009,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                       if (kIsWeb &&
                           vidFile != null &&
                           vPlay.isNotEmpty &&
-                          looksLikeHostedVideoFileUrl(vPlay)) {
+                          eventNoticiaUrlEligibleForHostedInlinePlayer(vPlay)) {
                         media.add(
                           Padding(
                             padding: const EdgeInsets.only(top: 10),
@@ -5124,7 +5124,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                     } else if (photos.isEmpty && hasVideo && cover.isEmpty) {
                       if (vidFile != null && vidFile.isNotEmpty) {
                         final v0 = sanitizeImageUrl(vidFile);
-                        if (kIsWeb && looksLikeHostedVideoFileUrl(v0)) {
+                        if (kIsWeb && eventNoticiaUrlEligibleForHostedInlinePlayer(v0)) {
                           media.add(
                             Padding(
                               padding: const EdgeInsets.only(top: 10),

@@ -1065,12 +1065,14 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
                 )) {
                   return;
                 }
-                await ChurchChatAlertNotificationService.instance
-                    .showForegroundAlertIfNeeded(
-                  msg,
-                );
+                final showedChatBanner =
+                    await ChurchChatAlertNotificationService.instance
+                        .showForegroundAlertIfNeeded(msg);
                 if (!context.mounted) return;
-                showGestaoForegroundNotificationSnackBar(context, msg);
+                final isChat = ChurchChatNotificationPrefs.looksLikeChatNotification(msg);
+                if (!(isChat && showedChatBanner)) {
+                  showGestaoForegroundNotificationSnackBar(context, msg);
+                }
               }());
             },
           );

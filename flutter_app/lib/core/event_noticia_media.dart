@@ -83,6 +83,27 @@ bool looksLikeHostedVideoFileUrl(String url) {
   return false;
 }
 
+/// Vídeo para player **inline** (painel, mural, site): ficheiro `.mp4`/`.m3u8` **ou**
+/// URL Firebase Storage que não é claramente imagem (evita token sem extensão no path).
+bool eventNoticiaUrlEligibleForHostedInlinePlayer(String url) {
+  final t = url.trim();
+  if (t.isEmpty) return false;
+  final low = t.toLowerCase();
+  if (_isYoutubeVimeo(low)) return false;
+  if (looksLikeHostedVideoFileUrl(t)) return true;
+  if (low.contains('firebasestorage.googleapis.com') ||
+      low.contains('.firebasestorage.app')) {
+    final head = low.split('?').first;
+    if (RegExp(r'\.(jpg|jpeg|png|gif|webp|bmp|svg)(%|$|\?|/)',
+            caseSensitive: false)
+        .hasMatch(head)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 /// Lista de URLs só de fotos (painel feed, galeria, site).
 List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   if (data == null) return [];

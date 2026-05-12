@@ -43,6 +43,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaExternalVideoUrl,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
         looksLikeHostedVideoFileUrl,
         postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
@@ -6146,7 +6147,7 @@ class _PainelDestaqueMediaCarouselState
 
   String? _panelVideoOpenUrl(Map<String, dynamic> d) {
     final hosted = sanitizeImageUrl(eventNoticiaHostedVideoPlayUrl(d) ?? '');
-    if (hosted.isNotEmpty && looksLikeHostedVideoFileUrl(hosted)) {
+    if (hosted.isNotEmpty && eventNoticiaUrlEligibleForHostedInlinePlayer(hosted)) {
       return hosted;
     }
     final ext = eventNoticiaExternalVideoUrl(d);
@@ -6292,26 +6293,23 @@ class _PainelDestaqueMediaCarouselState
               );
             }
             final vTap = vOpen;
-            final hostedMp4 = vTap != null &&
+            final inlineHosted = vTap != null &&
                 vTap.isNotEmpty &&
-                looksLikeHostedVideoFileUrl(vTap);
-            if (hostedMp4) {
+                !_isYoutubeVimeo(vTap) &&
+                eventNoticiaUrlEligibleForHostedInlinePlayer(vTap);
+            if (inlineHosted) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: ColoredBox(
                   color: Colors.black,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: 480,
-                      height: 480 * 9 / 16,
-                      child: ChurchHostedVideoSurface(
-                        videoUrl: sanitizeImageUrl(vTap),
-                        thumbnailUrl:
-                            isValidImageUrl(thumb) ? thumb : null,
-                        autoPlay: false,
-                      ),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: ChurchHostedVideoSurface(
+                      videoUrl: sanitizeImageUrl(vTap),
+                      thumbnailUrl:
+                          isValidImageUrl(thumb) ? thumb : null,
+                      autoPlay: false,
+                      showFullscreenOverlay: true,
                     ),
                   ),
                 ),
@@ -6780,7 +6778,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
         (displayThumbAll != null && displayThumbAll.isNotEmpty);
     final panelVideoUrl = () {
       final h = sanitizeImageUrl(eventNoticiaHostedVideoPlayUrl(data) ?? '');
-      if (h.isNotEmpty && looksLikeHostedVideoFileUrl(h)) return h;
+      if (h.isNotEmpty && eventNoticiaUrlEligibleForHostedInlinePlayer(h)) return h;
       final ext = eventNoticiaExternalVideoUrl(data);
       if (ext != null && ext.isNotEmpty) return ext;
       if (videoUrl.isNotEmpty) return videoUrl;

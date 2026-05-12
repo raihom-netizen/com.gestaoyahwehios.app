@@ -47,6 +47,29 @@ async function sendEachInBatches(messages: admin.messaging.Message[]): Promise<v
   }
 }
 
+/** `pushChat !== false` por uid — leitura em lote (evita N get() sequenciais). */
+async function uidsWithPushChatEnabled(uids: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
+  const step = 10;
+  for (let i = 0; i < unique.length; i += step) {
+    const slice = unique.slice(i, i + step);
+    const refs = slice.map((uid) => db.collection("users").doc(uid));
+    const snaps = await db.getAll(...refs);
+    for (let j = 0; j < snaps.length; j++) {
+      const s = snaps[j];
+      const uid = slice[j];
+      if (!s.exists) {
+        out.add(uid);
+        continue;
+      }
+      const p = s.data()?.pushChat;
+      if (p !== false) out.add(uid);
+    }
+  }
+  return out;
+}
+
 function previewFromMessage(msg: Record<string, unknown>): string {
   const mtype = String(msg.type || "text");
   if (mtype === "text") return String(msg.text || "").trim().slice(0, 140);
@@ -85,17 +108,11 @@ export const onChurchChatMessageCreated = functions
 
     const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
 
+    const pushOk = await uidsWithPushChatEnabled(recipients);
+
     const recipientPushOn: string[] = [];
     for (const uid of recipients) {
-      let pushChat = true;
-      try {
-        const udoc = await db.collection("users").doc(uid).get();
-        const p = udoc.data()?.pushChat;
-        if (p === false) pushChat = false;
-      } catch (_) {
-        pushChat = true;
-      }
-      if (!pushChat) continue;
+      if (!pushOk.has(uid)) continue;
 
       try {
         const prefsSnap = await db
@@ -148,6 +165,8 @@ export const onChurchChatMessageCreated = functions
             tenantId,
             type: "novo_chat",
             threadId,
+            threadType: threadType === "dm" ? "dm" : "department",
+            senderUid,
             click_action: "FLUTTER_NOTIFICATION_CLICK",
             ...(wasMentioned ? { chatMention: "1" } : {}),
           },

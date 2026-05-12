@@ -89,8 +89,19 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1548';
+const String appBuildNumber = '1554';
 
+/// 11.2.295+1554: Deploy produção completo (regras, functions, web, AAB, ZIP iOS, push Codemagic).
+/// 11.2.295+1553: Chat — alertas em primeiro plano por conversa/DM/grupo + global (Firestore
+/// `chat_member_prefs`); página Super Premium com pesquisa; FCM `threadType` na Cloud Function.
+/// 11.2.295+1552: Chat — fotos reais em grupos (lista + bolhas), mapa de fotos partilhado;
+/// push em lote na Function; índice `chat_threads`; primeiro plano sem SnackBar duplicado no chat.
+/// 11.2.295+1551: Painel/mural/site — vídeo Firebase sem extensão no path entra no player inline;
+/// [ChurchHostedVideoSurface] com retries + timeout maior, capa no erro, «Tentar de novo», botão Ampliar;
+/// warmup de token alinhado.
+/// 11.2.295+1550: Web `/atualizar-plano` — slug reservado (evita «Igreja não encontrada»);
+/// gate com Apple na web + `getRedirectResult` após OAuth redirect; LoginPage conclui redirect também para esta rota.
+/// 11.2.295+1549: Login painel igreja — removida faixa «Login expresso» (só Google, Apple e e-mail/senha).
 /// 11.2.295+1548: Painel — cap `finance` 2500; Cloud Function `onChurchFinanceWritePanelSummary`
 /// grava `igrejas/{id}/_panel_cache/finance_summary` (throttle 90s); regras `_panel_cache` leitura gestão.
 /// 11.2.295+1547: Chat Igreja — AppBar do thread com o mesmo gradiente 3 cores do hub/anexos;

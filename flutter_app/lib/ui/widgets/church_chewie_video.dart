@@ -451,12 +451,16 @@ class ChurchHostedVideoSurface extends StatefulWidget {
   /// No teatro vertical use [kChurchVideoTheaterAspect] (9:16) para alinhar com Shorts.
   final double? layoutAspectRatio;
 
+  /// Botão «Ampliar» sobre o player (painel / feed).
+  final bool showFullscreenOverlay;
+
   const ChurchHostedVideoSurface({
     super.key,
     required this.videoUrl,
     this.thumbnailUrl,
     this.autoPlay = true,
     this.layoutAspectRatio,
+    this.showFullscreenOverlay = true,
   });
 
   @override
@@ -465,6 +469,9 @@ class ChurchHostedVideoSurface extends StatefulWidget {
 }
 
 class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
+  static const int _kMaxInitAttempts = 3;
+  static const Duration _kInitTimeout = Duration(seconds: 34);
+
   VideoPlayerController? _vc;
   ChewieController? _chewie;
   bool _loading = true;
@@ -479,63 +486,95 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
       _loading = false;
       return;
     }
-    _initNative();
+    unawaited(_initNative());
   }
 
   Future<void> _initNative() async {
-    VideoPlayerController? c;
-    try {
-      final playUrl = await resolveFirebaseStorageVideoPlayUrl(widget.videoUrl);
+    if (kIsWeb) return;
+    for (var attempt = 1; attempt <= _kMaxInitAttempts; attempt++) {
       if (!mounted) return;
-      if (playUrl.isEmpty || Uri.tryParse(playUrl) == null) {
-        setState(() {
-          _loading = false;
-          _failed = true;
-        });
-        return;
-      }
-      final controller = networkVideoControllerForUrl(playUrl);
-      c = controller;
-      await controller
-          .initialize()
-          .timeout(const Duration(seconds: 22),
-              onTimeout: () => throw TimeoutException('init'));
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      _vc = controller;
-      _chewie = ChewieController(
-        videoPlayerController: controller,
-        autoPlay: widget.autoPlay,
-        looping: false,
-        allowFullScreen: true,
-        allowMuting: true,
-        showControls: true,
-        aspectRatio: controller.value.aspectRatio > 0
-            ? controller.value.aspectRatio
-            : _boxAspect,
-        errorBuilder: (context, message) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Não foi possível reproduzir o vídeo.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+      VideoPlayerController? c;
+      try {
+        final playUrl =
+            await resolveFirebaseStorageVideoPlayUrl(widget.videoUrl);
+        if (!mounted) return;
+        if (playUrl.isEmpty || Uri.tryParse(playUrl) == null) {
+          if (attempt >= _kMaxInitAttempts) {
+            setState(() {
+              _loading = false;
+              _failed = true;
+            });
+          } else {
+            await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
+          }
+          continue;
+        }
+        final controller = networkVideoControllerForUrl(playUrl);
+        c = controller;
+        await controller.initialize().timeout(
+          _kInitTimeout,
+          onTimeout: () => throw TimeoutException('init'),
+        );
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+        _vc = controller;
+        _chewie = ChewieController(
+          videoPlayerController: controller,
+          autoPlay: widget.autoPlay,
+          looping: false,
+          allowFullScreen: true,
+          allowMuting: true,
+          showControls: true,
+          aspectRatio: controller.value.aspectRatio > 0
+              ? controller.value.aspectRatio
+              : _boxAspect,
+          errorBuilder: (context, message) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Não foi possível reproduzir o vídeo.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+              ),
             ),
           ),
-        ),
-      );
-      setState(() => _loading = false);
-    } catch (_) {
-      await c?.dispose();
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _failed = true;
-        });
+        );
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _failed = false;
+          });
+        }
+        return;
+      } catch (_) {
+        await c?.dispose();
+        if (!mounted) return;
+        if (attempt >= _kMaxInitAttempts) {
+          setState(() {
+            _loading = false;
+            _failed = true;
+          });
+          return;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 360 * attempt));
       }
     }
+  }
+
+  Future<void> _retryFromFailure() async {
+    if (kIsWeb) return;
+    _chewie?.dispose();
+    _vc?.dispose();
+    _chewie = null;
+    _vc = null;
+    if (!mounted) return;
+    setState(() {
+      _failed = false;
+      _loading = true;
+    });
+    await _initNative();
   }
 
   @override
@@ -553,7 +592,7 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
         _failed = false;
       });
     }
-    _initNative();
+    unawaited(_initNative());
   }
 
   @override
@@ -580,22 +619,65 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
     }
 
     if (_failed) {
+      final thumb = sanitizeImageUrl(widget.thumbnailUrl);
+      final hasThumb = isValidImageUrl(thumb);
       return AspectRatio(
         aspectRatio: _boxAspect,
         child: ColoredBox(
           color: Colors.black,
-          child: Center(
-            child: TextButton.icon(
-              onPressed: () async {
-                final u = Uri.tryParse(widget.videoUrl);
-                if (u != null && await canLaunchUrl(u)) {
-                  await launchUrl(u, mode: LaunchMode.externalApplication);
-                }
-              },
-              icon: const Icon(Icons.open_in_new_rounded, color: Colors.white70),
-              label: const Text('Abrir vídeo',
-                  style: TextStyle(color: Colors.white70)),
-            ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasThumb)
+                FreshFirebaseStorageImage(
+                  imageUrl: thumb,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  memCacheWidth: 640,
+                  memCacheHeight: 360,
+                  placeholder: Container(color: Colors.grey.shade900),
+                  errorWidget: Container(color: Colors.grey.shade900),
+                )
+              else
+                ColoredBox(color: Colors.grey.shade900),
+              const ColoredBox(color: Color(0x88000000)),
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _retryFromFailure,
+                        icon: const Icon(Icons.refresh_rounded, size: 20),
+                        label: const Text('Tentar de novo'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final u = Uri.tryParse(widget.videoUrl);
+                          if (u != null && await canLaunchUrl(u)) {
+                            await launchUrl(u,
+                                mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: const Icon(Icons.open_in_new_rounded,
+                            color: Colors.white70, size: 20),
+                        label: const Text(
+                          'Abrir vídeo',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -617,8 +699,8 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
                 fit: BoxFit.cover,
                 width: double.infinity,
                 height: double.infinity,
-                memCacheWidth: isPortraitBox ? 360 : 640,
-                memCacheHeight: isPortraitBox ? 640 : 360,
+                memCacheWidth: isPortraitBox ? 360 : 720,
+                memCacheHeight: isPortraitBox ? 720 : 405,
                 placeholder: Container(color: Colors.grey.shade900),
                 errorWidget: Container(color: Colors.grey.shade900),
               )
@@ -641,10 +723,42 @@ class _ChurchHostedVideoSurfaceState extends State<ChurchHostedVideoSurface> {
     final chewie = _chewie;
     final vc = _vc;
     if (chewie != null && vc != null && vc.value.isInitialized) {
+      final ar =
+          vc.value.aspectRatio > 0 ? vc.value.aspectRatio : _boxAspect;
+      final core = Chewie(controller: chewie);
+      if (!widget.showFullscreenOverlay) {
+        return AspectRatio(aspectRatio: ar, child: core);
+      }
       return AspectRatio(
-        aspectRatio:
-            vc.value.aspectRatio > 0 ? vc.value.aspectRatio : _boxAspect,
-        child: Chewie(controller: chewie),
+        aspectRatio: ar,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            core,
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Material(
+                color: Colors.black45,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: IconButton(
+                  tooltip: 'Ampliar',
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  icon: const Icon(Icons.fullscreen_rounded,
+                      color: Colors.white, size: 22),
+                  onPressed: () => openChurchHostedVideoImmersive(
+                    context,
+                    videoUrl: widget.videoUrl,
+                    thumbnailUrl: widget.thumbnailUrl,
+                    title: '',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
 

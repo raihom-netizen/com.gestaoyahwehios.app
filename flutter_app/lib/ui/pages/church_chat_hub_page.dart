@@ -4,13 +4,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
+import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
+import 'package:gestao_yahweh/ui/pages/church_chat_notification_settings_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -212,6 +215,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Future<void> _openChatAlertModeSheet() async {
+    final tid = _resolvedTenantId;
+    if (tid == null) return;
     final current = await ChurchChatNotificationPrefs.getChatAlertMode();
     if (!mounted) return;
     await showModalBottomSheet<void>(
@@ -259,32 +264,78 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
 
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              option(
-                icon: Icons.notifications_active_rounded,
-                title: 'Som + vibrar',
-                subtitle: 'Estilo conversa padrão.',
-                mode: ChurchChatNotificationPrefs.alertModeSound,
-              ),
-              option(
-                icon: Icons.vibration_rounded,
-                title: 'Só vibrar',
-                subtitle: 'Sem som, apenas vibração.',
-                mode: ChurchChatNotificationPrefs.alertModeVibrate,
-              ),
-              option(
-                icon: Icons.notifications_off_rounded,
-                title: 'Silencioso',
-                subtitle: 'Sem som e sem vibração.',
-                mode: ChurchChatNotificationPrefs.alertModeSilent,
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                option(
+                  icon: Icons.notifications_active_rounded,
+                  title: 'Som + vibrar',
+                  subtitle: 'Estilo conversa padrão.',
+                  mode: ChurchChatNotificationPrefs.alertModeSound,
+                ),
+                option(
+                  icon: Icons.vibration_rounded,
+                  title: 'Só vibrar',
+                  subtitle: 'Sem som, apenas vibração.',
+                  mode: ChurchChatNotificationPrefs.alertModeVibrate,
+                ),
+                option(
+                  icon: Icons.notifications_off_rounded,
+                  title: 'Silencioso',
+                  subtitle: 'Sem som e sem vibração.',
+                  mode: ChurchChatNotificationPrefs.alertModeSilent,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(
+                    Icons.auto_awesome_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: const Text(
+                    'Personalização Super Premium',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text(
+                    'DM, grupos e alerta por conversa (com pesquisa).',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChurchChatNotificationSettingsPage(
+                          tenantId: tid,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  String _threadForegroundNotifSubtitle(
+    ChurchChatMemberPrefsModel prefs,
+    String threadId,
+  ) {
+    final ov = prefs.threadNotifOverride(threadId);
+    if (ov == null) {
+      return 'Segue DM/grupo ou o modo global da conta.';
+    }
+    switch (ov) {
+      case ChurchChatNotificationPrefs.alertModeVibrate:
+        return 'Override: só vibrar';
+      case ChurchChatNotificationPrefs.alertModeSilent:
+        return 'Override: silencioso';
+      default:
+        return 'Override: som + vibrar';
+    }
   }
 
   Future<void> _syncMemberDepartments(String tid) async {
@@ -395,21 +446,112 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return t.isNotEmpty ? t : peer;
   }
 
-  /// Fotos dos membros (authUid / firebaseUid) para avatares na lista de DM.
-  static Map<String, String> _peerPhotoByUidFromMembros(
-    QuerySnapshot<Map<String, dynamic>>? memSnap,
-  ) {
-    final map = <String, String>{};
-    for (final m in memSnap?.docs ?? []) {
-      final d = m.data();
-      final au = (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
-      if (au.isEmpty) continue;
-      final url = sanitizeImageUrl(imageUrlFromMap(d));
-      if (isValidImageUrl(url)) {
-        map[au] = url;
-      }
+  /// Avatar de grupo: fotos reais (último remetente + participantes) ou ícone do departamento.
+  Widget _deptGroupLeadingAvatar({
+    required _DeptEntry d,
+    required String myUid,
+    required Map<String, dynamic>? threadData,
+    required Map<String, String> photoByUid,
+  }) {
+    const r = 26.0;
+    final urls = <String>[];
+    void take(String? uid) {
+      final u = (uid ?? '').trim();
+      if (u.isEmpty) return;
+      final z = photoByUid[u];
+      if (z != null && z.isNotEmpty && !urls.contains(z)) urls.add(z);
     }
-    return map;
+
+    take((threadData?['lastSenderUid'] ?? '').toString());
+    final parts = (threadData?['participantUids'] as List?)
+            ?.map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty && e != myUid)
+            .toList() ??
+        <String>[];
+    for (final p in parts) {
+      take(p);
+      if (urls.length >= 3) break;
+    }
+
+    if (urls.isEmpty) {
+      return ChurchChatDepartmentAvatar(
+        deptData: d.deptData,
+        fallbackName: d.name,
+        radius: r,
+      );
+    }
+
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final mem = (r * 2 * dpr).round().clamp(96, 240);
+    if (urls.length == 1) {
+      return SafeCircleAvatarImage(
+        imageUrl: urls.first,
+        radius: r,
+        memCacheSize: mem,
+        fallbackIcon: Icons.groups_rounded,
+        fallbackColor: ThemeCleanPremium.primary,
+        backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+      );
+    }
+
+    final smallR = r * 0.78;
+    final memS = (smallR * 2 * dpr).round().clamp(72, 200);
+    return SizedBox(
+      width: r * 2,
+      height: r * 2,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: SafeCircleAvatarImage(
+              imageUrl: urls[0],
+              radius: smallR,
+              memCacheSize: memS,
+              fallbackIcon: Icons.person_rounded,
+              fallbackColor: ThemeCleanPremium.primary,
+              backgroundColor: Colors.white,
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            child: SafeCircleAvatarImage(
+              imageUrl: urls[1],
+              radius: smallR,
+              memCacheSize: memS,
+              fallbackIcon: Icons.person_rounded,
+              fallbackColor: const Color(0xFF0D9488),
+              backgroundColor: Colors.white,
+            ),
+          ),
+          if (urls.length > 2)
+            Positioned(
+              right: smallR * 0.25,
+              bottom: smallR * 0.2,
+              child: Container(
+                width: smallR * 1.1,
+                height: smallR * 1.1,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: ThemeCleanPremium.primary,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '+${urls.length - 2}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Primeiro nome na lista (estilo WhatsApp).
@@ -530,6 +672,30 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       tenantId: tenantId,
                       threadId: threadId,
                       value: !prefs.isMutedThread(threadId),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.graphic_eq_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: const Text('Alerta desta conversa'),
+                  subtitle: Text(
+                    _threadForegroundNotifSubtitle(prefs, threadId),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (!context.mounted) return;
+                    await showChurchChatThreadForegroundNotifSheet(
+                      context: context,
+                      tenantId: tenantId,
+                      threadId: threadId,
+                      title: title,
                     );
                   },
                 ),
@@ -660,7 +826,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           .limit(600)
           .snapshots(),
       builder: (context, memSnap) {
-        final photoByPeer = _peerPhotoByUidFromMembros(memSnap.data);
+        final photoByPeer = churchChatMemberPhotoUrlByAuthUid(memSnap.data);
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: ChurchChatMemberPrefs.watch(tid),
@@ -769,7 +935,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   threads.add(_sectionHeader(
                       'Favoritos (até ${ChurchChatMemberPrefs.maxFavoriteThreads})'));
                   for (final d in favDepts) {
-                    threads.add(_deptTile(context, tid, uid, d, prefs));
+                    threads.add(_deptTile(context, tid, uid, d, prefs, photoByPeer));
                   }
                   if (favDms.isNotEmpty) {
                     threads.add(_dmConversationListRows(
@@ -780,7 +946,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 if (restDepts.isNotEmpty) {
                   threads.add(_sectionHeader('Grupos (departamentos)'));
                   for (final d in restDepts) {
-                    threads.add(_deptTile(context, tid, uid, d, prefs));
+                    threads.add(_deptTile(context, tid, uid, d, prefs, photoByPeer));
                   }
                 }
 
@@ -977,6 +1143,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String uid,
     _DeptEntry d,
     ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByUid,
   ) {
     final threadId = ChurchChatService.deptThreadId(d.id);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -992,9 +1159,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           timeLabel: _fmtTime(ts),
           isFavorite: prefs.isFavorite(threadId),
           isMuted: prefs.isMutedThread(threadId),
-          photo: ChurchChatDepartmentAvatar(
-            deptData: d.deptData,
-            fallbackName: d.name,
+          photo: _deptGroupLeadingAvatar(
+            d: d,
+            myUid: uid,
+            threadData: data,
+            photoByUid: photoByUid,
           ),
           onTap: () {
             Navigator.of(context).push(

@@ -14,11 +14,8 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 ///
 /// Tela pré-login (super premium):
 ///   - Logo do sistema, gradiente de marca e título «Atualizar plano».
-///   - CTA direto: «Clique aqui para alterar plano».
-///   - Botão grande com autenticação Google — usa o e-mail salvo no
-///     navegador/celular (Google popup/redirect na web; Google silencioso →
-///     Apple → Google interativo no app nativo).
-///   - Link discreto para «Entrar com e-mail e senha» (fallback).
+///   - CTA: Google (popup ou redirect no Safari iOS) e, na web, Apple.
+///   - «Entrar com e-mail e senha» abre [LoginPage] (mesmo fluxo pós-login).
 ///
 /// Quando há sessão Firebase, renderiza diretamente
 /// [RenewPlanPage] em modo `expressMode` (cabeçalho com plano atual +
@@ -45,6 +42,60 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
   void initState() {
     super.initState();
     _authStream = FirebaseAuth.instance.authStateChanges();
+    if (kIsWeb) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _completeWebOAuthRedirectIfNeeded());
+    }
+  }
+
+  /// Safari iOS costuma usar `signInWithRedirect`; ao voltar à URL `/atualizar-plano` é preciso isto.
+  Future<void> _completeWebOAuthRedirectIfNeeded() async {
+    if (!kIsWeb || !mounted) return;
+    try {
+      final result = await FirebaseAuth.instance.getRedirectResult();
+      if (result.user != null && mounted) setState(() => _expressError = null);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final friendly = googleAuthErrorMessagePt(e);
+      setState(() => _expressError =
+          friendly ?? 'Não foi possível concluir o login. Tente de novo.');
+    } catch (_) {}
+  }
+
+  Future<void> _onAppleWebLogin() async {
+    if (_expressInFlight || !kIsWeb) return;
+    setState(() {
+      _expressInFlight = true;
+      _expressError = null;
+    });
+    try {
+      final provider = OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      try {
+        await FirebaseAuth.instance.signInWithPopup(provider);
+      } on FirebaseAuthException catch (e) {
+        final code = e.code.toLowerCase();
+        if (code == 'popup-blocked' ||
+            code == 'internal-error' ||
+            (code.contains('popup') && code.contains('blocked'))) {
+          await FirebaseAuth.instance.signInWithRedirect(provider);
+          return;
+        }
+        final friendly = googleAuthErrorMessagePt(e);
+        if (mounted) {
+          setState(() => _expressError = friendly ??
+              'Apple: ${e.message ?? e.code}. Verifique se o provedor está ativo no Firebase.');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _expressError =
+            'Falha no login com Apple. Tente Google ou e-mail e senha.');
+      }
+    } finally {
+      if (mounted) setState(() => _expressInFlight = false);
+    }
   }
 
   Future<void> _onLoginExpresso() async {
@@ -130,6 +181,7 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
             errorMessage: _expressError,
             prefillEmailHint: widget.prefillEmail,
             onLoginExpresso: _onLoginExpresso,
+            onAppleWebLogin: kIsWeb ? _onAppleWebLogin : null,
             onManualLogin: _openManualLogin,
           );
         }
@@ -161,6 +213,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
   final String? errorMessage;
   final String? prefillEmailHint;
   final VoidCallback onLoginExpresso;
+  final VoidCallback? onAppleWebLogin;
   final VoidCallback onManualLogin;
 
   const _ExpressGateLoginScaffold({
@@ -168,6 +221,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
     required this.errorMessage,
     required this.prefillEmailHint,
     required this.onLoginExpresso,
+    required this.onAppleWebLogin,
     required this.onManualLogin,
   });
 
@@ -195,6 +249,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
                         errorMessage: errorMessage,
                         prefillEmailHint: prefillEmailHint,
                         onLoginExpresso: onLoginExpresso,
+                        onAppleWebLogin: onAppleWebLogin,
                         onManualLogin: onManualLogin,
                       ),
                       const SizedBox(height: 14),
@@ -273,8 +328,10 @@ class _PremiumHeader extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Clique abaixo para alterar seu plano. '
-            'Faça login Google e siga direto para os planos e pagamento.',
+            kIsWeb
+                ? 'Entre com Google, Apple ou e-mail e senha. '
+                    'Em seguida escolha o plano e conclua o pagamento.'
+                : 'Faça login e siga para os planos e pagamento.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.92),
               fontSize: 13.5,
@@ -321,6 +378,7 @@ class _LoginCard extends StatelessWidget {
   final String? errorMessage;
   final String? prefillEmailHint;
   final VoidCallback onLoginExpresso;
+  final VoidCallback? onAppleWebLogin;
   final VoidCallback onManualLogin;
 
   const _LoginCard({
@@ -328,6 +386,7 @@ class _LoginCard extends StatelessWidget {
     required this.errorMessage,
     required this.prefillEmailHint,
     required this.onLoginExpresso,
+    required this.onAppleWebLogin,
     required this.onManualLogin,
   });
 
@@ -359,6 +418,27 @@ class _LoginCard extends StatelessWidget {
             loading: inFlight,
             onTap: onLoginExpresso,
           ),
+          if (onAppleWebLogin != null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: inFlight ? null : onAppleWebLogin,
+                icon: const Icon(Icons.apple, size: 22),
+                label: const Text(
+                  'Continuar com Apple',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF111827),
+                  side: const BorderSide(color: Color(0xFF1F2937), width: 1.2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Text(
             'Após o login, carregamos somente a tela de planos (mensal/anual) '

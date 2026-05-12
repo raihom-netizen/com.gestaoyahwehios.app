@@ -19,7 +19,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaPhotoUrls,
-        looksLikeHostedVideoFileUrl,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
         postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -549,7 +549,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
         legacy.isNotEmpty;
     final playWeb = kIsWeb &&
         hosted.isNotEmpty &&
-        looksLikeHostedVideoFileUrl(hosted);
+        eventNoticiaUrlEligibleForHostedInlinePlayer(hosted);
     final thumb = churchPublicPostThumbUrl(p);
     final cover = eventNoticiaFeedCoverHintUrl(p);
     final displayRef = (thumb != null && thumb.isNotEmpty) ? thumb : cover;
@@ -865,7 +865,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
         legacy.isNotEmpty;
     final playWeb = kIsWeb &&
         hosted.isNotEmpty &&
-        looksLikeHostedVideoFileUrl(hosted);
+        eventNoticiaUrlEligibleForHostedInlinePlayer(hosted);
     final thumb = churchPublicPostThumbUrl(p);
     final cover = eventNoticiaFeedCoverHintUrl(p);
     var displayRef =
@@ -1307,7 +1307,7 @@ class ChurchPublicPostLightbox {
     final hosted =
         sanitizeImageUrl((eventNoticiaHostedVideoPlayUrl(p) ?? '').trim());
     final playWeb =
-        kIsWeb && hosted.isNotEmpty && looksLikeHostedVideoFileUrl(hosted);
+        kIsWeb && hosted.isNotEmpty && eventNoticiaUrlEligibleForHostedInlinePlayer(hosted);
     final poster = sanitizeImageUrl(
         (eventNoticiaDisplayVideoThumbnailUrl(p) ?? '').trim());
 

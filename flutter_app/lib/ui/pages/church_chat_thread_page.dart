@@ -12,9 +12,11 @@ import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
+import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
@@ -1494,6 +1496,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   ),
                 );
+              } else if (v == 'alert_thread') {
+                await showChurchChatThreadForegroundNotifSheet(
+                  context: context,
+                  tenantId: widget.tenantId,
+                  threadId: widget.threadId,
+                  title: widget.title,
+                );
               } else if (v == 'alert_sound' ||
                   v == 'alert_vibrate' ||
                   v == 'alert_silent') {
@@ -1568,6 +1577,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   ),
                 ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'alert_thread',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.graphic_eq_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: const Text('Alerta desta conversa'),
+                  subtitle: Text(
+                    _prefs.threadNotifOverride(widget.threadId) == null
+                        ? 'Segue DM, grupo ou modo global'
+                        : 'Override ativo (som / vibrar / silêncio)',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+              ),
               const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'alert_sound',
@@ -1720,10 +1747,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
             _buildTypingStrip(uid),
             Expanded(
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: ChurchChatService.threadRef(widget.tenantId, widget.threadId)
-                  .snapshots(),
-              builder: (context, thrSnap) {
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('igrejas')
+                    .doc(widget.tenantId)
+                    .collection('membros')
+                    .limit(800)
+                    .snapshots(),
+                builder: (context, memAll) {
+                  final photoByUid =
+                      churchChatMemberPhotoUrlByAuthUid(memAll.data);
+                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: ChurchChatService.threadRef(
+                            widget.tenantId, widget.threadId)
+                        .snapshots(),
+                    builder: (context, thrSnap) {
                 Timestamp? peerSeenAt;
                 if (!widget.isDepartment &&
                     widget.peerUid != null &&
@@ -1833,18 +1871,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             ? ChurchChatSenderPalette
                                 .nameColorForUid(senderUid)
                             : null;
-                        return GestureDetector(
-                          onLongPress: () {
-                            if (ChurchChatService.messageHiddenForMe(m, uid)) {
-                              return;
-                            }
-                            _showMessageActions(messageId, m, senderUid);
-                          },
-                          child: Align(
-                          alignment: mine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
+                        final bubbleCard = Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             constraints: BoxConstraints(
                               maxWidth:
@@ -1976,16 +2003,53 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                 ),
                               ],
                             ),
+                          );
+                        return GestureDetector(
+                          onLongPress: () {
+                            if (ChurchChatService.messageHiddenForMe(m, uid)) {
+                              return;
+                            }
+                            _showMessageActions(messageId, m, senderUid);
+                          },
+                          child: Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: groupIncoming
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      SafeCircleAvatarImage(
+                                        imageUrl: photoByUid[senderUid],
+                                        radius: 19,
+                                        memCacheSize: (38 *
+                                                MediaQuery.devicePixelRatioOf(
+                                                    context))
+                                            .round()
+                                            .clamp(72, 220),
+                                        fallbackIcon: Icons.person_rounded,
+                                        fallbackColor:
+                                            ChurchChatSenderPalette
+                                                .nameColorForUid(senderUid),
+                                        backgroundColor: Colors.white,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Flexible(child: bubbleCard),
+                                    ],
+                                  )
+                                : bubbleCard,
                           ),
-                        ),
                         );
                       },
                     );
                   },
                 );
               },
+            );
+                },
+              ),
             ),
-          ),
           AbsorbPointer(
             absorbing: blockedDm,
             child: SafeArea(

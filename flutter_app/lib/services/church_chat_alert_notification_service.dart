@@ -82,12 +82,13 @@ class ChurchChatAlertNotificationService {
     _initialized = true;
   }
 
-  Future<void> showForegroundAlertIfNeeded(RemoteMessage msg) async {
-    if (!ChurchChatNotificationPrefs.looksLikeChatNotification(msg)) return;
-    if (kIsWeb) return;
+  /// `true` se mostrou notificação local (som/vibrar) — o painel pode evitar SnackBar duplicado.
+  Future<bool> showForegroundAlertIfNeeded(RemoteMessage msg) async {
+    if (!ChurchChatNotificationPrefs.looksLikeChatNotification(msg)) return false;
+    if (kIsWeb) return false;
 
-    final mode = await ChurchChatNotificationPrefs.getChatAlertMode();
-    if (mode == ChurchChatNotificationPrefs.alertModeSilent) return;
+    final mode = await ChurchChatNotificationPrefs.resolveForegroundAlertMode(msg);
+    if (mode == ChurchChatNotificationPrefs.alertModeSilent) return false;
 
     await _ensureInitialized();
 
@@ -141,6 +142,7 @@ class ChurchChatAlertNotificationService {
       ),
       payload: 'chat_foreground',
     );
+    return true;
   }
 }
 

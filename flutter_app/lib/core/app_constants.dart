@@ -103,6 +103,8 @@ class AppConstants {
     'signup',
     'painel',
     'planos',
+    'pagamento',
+    'atualizar-plano',
     's',
     'i',
     'igreja',

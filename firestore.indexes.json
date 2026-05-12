@@ -402,11 +402,11 @@
       ]
     },
     {
-      "collectionGroup": "agenda",
-      "queryScope": "COLLECTION_GROUP",
+      "collectionGroup": "chat_threads",
+      "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "noticiaId", "order": "ASCENDING" },
-        { "fieldPath": "startTime", "order": "ASCENDING" }
+        { "fieldPath": "participantUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
       ]
     }
   ],

@@ -795,7 +795,10 @@ service cloud.firestore {
               && request.auth.uid in get(path).data.participantUids)
             || (get(path).data.type == 'department'
               && get(path).data.departmentId is string
-              && chatUserDeptIds(tenantId).hasAny([get(path).data.departmentId]))
+              && (
+                (get(path).data.participantUids is list && request.auth.uid in get(path).data.participantUids)
+                || chatUserDeptIds(tenantId).hasAny([get(path).data.departmentId])
+              ))
           );
       }
 
@@ -859,6 +862,20 @@ service cloud.firestore {
               get(path).data.type == 'dm'
               && resource.data.senderUid == request.auth.uid
             )
+          );
+      }
+
+      /// Apagar o documento do thread (ex.: grupo de departamento): não é «membro comum»; alinhado ao app.
+      function chatThreadDeleteAllowed(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        return isAdminPanel()
+          || canWriteTenant(tenantId)
+          || chatPastoralModeratorRole()
+          || (
+            exists(path)
+            && get(path).data.type == 'department'
+            && get(path).data.departmentId is string
+            && departmentDocListsRequesterAsLeader(tenantId, get(path).data.departmentId)
           );
       }
 
@@ -932,7 +949,7 @@ service cloud.firestore {
               && chatUserDeptIds(id).hasAny([request.resource.data.departmentId]))
           );
         allow update: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
-        allow delete: if isAdminPanel() || canWriteTenant(id);
+        allow delete: if chatThreadDeleteAllowed(id, threadId);
 
         match /typing/{typingUid} {
           allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
