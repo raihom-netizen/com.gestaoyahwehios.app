@@ -15,14 +15,46 @@ import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show
-        SafeCircleAvatarImage,
-        imageUrlFromMap,
-        isValidImageUrl,
-        sanitizeImageUrl;
+    show SafeCircleAvatarImage, imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
+
+enum _HubConversasFilter { all, unread, favorites }
+
+Timestamp? _chatHubThreadMyLastSeen(Map<String, dynamic> data, String myUid) {
+  final seenMap = data['lastSeenAtByUid'];
+  if (seenMap is! Map) return null;
+  final t = seenMap[myUid];
+  if (t is Timestamp) return t;
+  return null;
+}
+
+bool _chatHubThreadIsUnreadForUser(Map<String, dynamic> data, String myUid) {
+  final lastMsg = data['lastMessageAt'];
+  if (lastMsg is! Timestamp) return false;
+  final mySeen = _chatHubThreadMyLastSeen(data, myUid);
+  if (mySeen == null) return true;
+  return lastMsg.toDate().isAfter(mySeen.toDate());
+}
+
+int _gruposGridCrossAxisCount(double width) {
+  if (width >= 1200) return 4;
+  if (width >= 900) return 3;
+  if (width >= 520) return 2;
+  return 2;
+}
+
+String _chatHubFmtThreadTime(dynamic ts) {
+  if (ts is! Timestamp) return '';
+  final d = ts.toDate();
+  final now = DateTime.now();
+  if (d.year == now.year && d.month == now.month && d.day == now.day) {
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+  return '${d.day}/${d.month}';
+}
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (só vínculos do membro).
 /// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
@@ -46,7 +78,7 @@ class ChurchChatHubPage extends StatefulWidget {
 }
 
 class _ChurchChatHubPageState extends State<ChurchChatHubPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
   Timer? _presenceTimer;
@@ -54,6 +86,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
+  /// Grupo com mensagem mais recente do que a última leitura neste aparelho.
+  bool _unreadGroupMessages = false;
+  late AnimationController _gruposPulseCtrl;
+  _HubConversasFilter _conversasFilter = _HubConversasFilter.all;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
@@ -63,6 +99,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void initState() {
     super.initState();
     _hubTabController = TabController(length: 3, vsync: this);
+    _gruposPulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _hubTabController.addListener(_syncGruposPulse);
     _membersFilterCtrl.addListener(() => setState(() {}));
     _deptFilterCtrl.addListener(() => setState(() {}));
     ChurchPanelNavigationBridge.instance
@@ -85,13 +126,36 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void dispose() {
     ChurchPanelNavigationBridge.instance
         .unregisterChatOpenListener(_onChatPendingFromBridge);
+    _hubTabController.removeListener(_syncGruposPulse);
     _hubTabController.dispose();
+    _gruposPulseCtrl.dispose();
     _searchCtrl.dispose();
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
     _presenceTimer?.cancel();
     _dmSub?.cancel();
     super.dispose();
+  }
+
+  void _syncGruposPulse() {
+    if (!mounted) return;
+    final blink = _unreadGroupMessages && _hubTabController.index != 2;
+    if (blink) {
+      if (!_gruposPulseCtrl.isAnimating) {
+        _gruposPulseCtrl.repeat(reverse: true);
+      }
+    } else {
+      _gruposPulseCtrl.stop();
+      _gruposPulseCtrl.value = 1.0;
+    }
+  }
+
+  static bool _docIsDepartmentThread(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final t = (doc.data()['type'] ?? '').toString();
+    if (t == 'department') return true;
+    return doc.id.startsWith('dept_');
   }
 
   void _onChatPendingFromBridge() {
@@ -212,8 +276,20 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           .collection('chat_threads')
           .where('participantUids', arrayContains: uid)
           .snapshots()
-          .listen((_) {
-        if (mounted) setState(() {});
+          .listen((snap) {
+        if (!mounted) return;
+        var unreadG = false;
+        for (final d in snap.docs) {
+          if (!_docIsDepartmentThread(d)) continue;
+          if (_chatHubThreadIsUnreadForUser(d.data(), uid)) {
+            unreadG = true;
+            break;
+          }
+        }
+        setState(() {
+          _unreadGroupMessages = unreadG;
+        });
+        _syncGruposPulse();
       });
     }
     if (mounted) {
@@ -461,114 +537,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return t.isNotEmpty ? t : peer;
   }
 
-  /// Avatar de grupo: fotos reais (último remetente + participantes) ou ícone do departamento.
-  Widget _deptGroupLeadingAvatar({
-    required _DeptEntry d,
-    required String myUid,
-    required Map<String, dynamic>? threadData,
-    required Map<String, String> photoByUid,
-  }) {
-    const r = 26.0;
-    final urls = <String>[];
-    void take(String? uid) {
-      final u = (uid ?? '').trim();
-      if (u.isEmpty) return;
-      final z = photoByUid[u];
-      if (z != null && z.isNotEmpty && !urls.contains(z)) urls.add(z);
-    }
-
-    take((threadData?['lastSenderUid'] ?? '').toString());
-    final parts = (threadData?['participantUids'] as List?)
-            ?.map((e) => e.toString().trim())
-            .where((e) => e.isNotEmpty && e != myUid)
-            .toList() ??
-        <String>[];
-    for (final p in parts) {
-      take(p);
-      if (urls.length >= 3) break;
-    }
-
-    if (urls.isEmpty) {
-      return ChurchChatDepartmentAvatar(
-        deptData: d.deptData,
-        fallbackName: d.name,
-        radius: r,
-      );
-    }
-
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final mem = (r * 2 * dpr).round().clamp(96, 240);
-    if (urls.length == 1) {
-      return SafeCircleAvatarImage(
-        imageUrl: urls.first,
-        radius: r,
-        memCacheSize: mem,
-        fallbackIcon: Icons.groups_rounded,
-        fallbackColor: ThemeCleanPremium.primary,
-        backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-      );
-    }
-
-    final smallR = r * 0.78;
-    final memS = (smallR * 2 * dpr).round().clamp(72, 200);
-    return SizedBox(
-      width: r * 2,
-      height: r * 2,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: 0,
-            bottom: 0,
-            child: SafeCircleAvatarImage(
-              imageUrl: urls[0],
-              radius: smallR,
-              memCacheSize: memS,
-              fallbackIcon: Icons.person_rounded,
-              fallbackColor: ThemeCleanPremium.primary,
-              backgroundColor: Colors.white,
-            ),
-          ),
-          Positioned(
-            right: 0,
-            top: 0,
-            child: SafeCircleAvatarImage(
-              imageUrl: urls[1],
-              radius: smallR,
-              memCacheSize: memS,
-              fallbackIcon: Icons.person_rounded,
-              fallbackColor: const Color(0xFF0D9488),
-              backgroundColor: Colors.white,
-            ),
-          ),
-          if (urls.length > 2)
-            Positioned(
-              right: smallR * 0.25,
-              bottom: smallR * 0.2,
-              child: Container(
-                width: smallR * 1.1,
-                height: smallR * 1.1,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: ThemeCleanPremium.primary,
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '+${urls.length - 2}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   /// Primeiro nome na lista (estilo WhatsApp).
   static String _firstNameForChatRow(String displayName) {
     final t = displayName.trim();
@@ -748,6 +716,44 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     },
                   ),
                 ],
+                if (!isDepartment) ...[
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_outline_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
+                    title: const Text('Apagar conversa (só para mim)'),
+                    subtitle: const Text(
+                      'Some da lista de conversas. A outra pessoa mantém o histórico no aparelho dela.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+                        tenantId: tenantId,
+                        threadId: threadId,
+                        hide: true,
+                      );
+                      if (!context.mounted) return;
+                      if (!ok) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Limite de conversas ocultas '
+                              '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Conversa removida da sua lista.'),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),
@@ -791,7 +797,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: _PremiumHubTabBar(controller: _hubTabController),
+            child: _PremiumHubTabBar(
+              controller: _hubTabController,
+              gruposOpacity: _gruposPulseCtrl,
+            ),
           ),
           AnimatedBuilder(
             animation: _hubTabController,
@@ -931,22 +940,56 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   threads.add(const SizedBox(height: 10));
                 }
 
-                final deptCandidates = <_DeptEntry>[];
-                for (final d in _departments) {
-                  if (q.isNotEmpty && !d.name.toLowerCase().contains(ql)) {
-                    continue;
-                  }
-                  deptCandidates.add(d);
-                }
-                deptCandidates.sort((a, b) =>
-                    a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+                threads.add(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                    child: Text(
+                      'Só conversas diretas — grupos na aba Grupos.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                );
+                threads.add(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+                    child: SegmentedButton<_HubConversasFilter>(
+                      segments: const [
+                        ButtonSegment(
+                          value: _HubConversasFilter.all,
+                          label: Text('Todas'),
+                          icon: Icon(Icons.chat_rounded, size: 18),
+                        ),
+                        ButtonSegment(
+                          value: _HubConversasFilter.unread,
+                          label: Text('Não lidas'),
+                          icon: Icon(Icons.mark_chat_unread_rounded, size: 18),
+                        ),
+                        ButtonSegment(
+                          value: _HubConversasFilter.favorites,
+                          label: Text('Favoritas'),
+                          icon: Icon(Icons.star_rounded, size: 18),
+                        ),
+                      ],
+                      selected: {_conversasFilter},
+                      onSelectionChanged: (s) {
+                        if (s.isEmpty) return;
+                        setState(() => _conversasFilter = s.first);
+                      },
+                    ),
+                  ),
+                );
 
                 final dmFiltered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
                 for (final doc in dmDocs) {
-                  final data = doc.data();
-                  if ((data['type'] ?? '').toString() == 'department') {
+                  if (_docIsDepartmentThread(doc)) {
                     continue;
                   }
+                  final data = doc.data();
+                  if (prefs.isHiddenDmThread(doc.id)) continue;
                   final peers = (data['participantUids'] as List?)
                           ?.map((e) => e.toString())
                           .where((e) => e.isNotEmpty)
@@ -976,79 +1019,54 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       .compareTo(_dmDisplayTitle(b, uid).toLowerCase());
                 });
 
-                final favDepts = deptCandidates
-                    .where((d) =>
-                        prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
-                    .toList();
-                final restDepts = deptCandidates
-                    .where((d) =>
-                        !prefs.isFavorite(ChurchChatService.deptThreadId(d.id)))
-                    .toList();
-
-                final favDms =
-                    dmFiltered.where((d) => prefs.isFavorite(d.id)).toList();
-                final restDms =
-                    dmFiltered.where((d) => !prefs.isFavorite(d.id)).toList();
-
-                if (favDepts.isNotEmpty || favDms.isNotEmpty) {
-                  threads.add(_sectionHeader(
-                      'Favoritos (até ${ChurchChatMemberPrefs.maxFavoriteThreads})'));
-                  for (final d in favDepts) {
-                    threads.add(_deptTile(context, tid, uid, d, prefs, photoByPeer));
-                  }
-                  if (favDms.isNotEmpty) {
-                    threads.add(_dmConversationListRows(
-                        context, tid, uid, favDms, prefs, photoByPeer));
-                  }
-                }
-
-                if (restDepts.isNotEmpty) {
-                  threads.add(_sectionHeader('Grupos (departamentos)'));
-                  for (final d in restDepts) {
-                    threads.add(_deptTile(context, tid, uid, d, prefs, photoByPeer));
-                  }
-                }
-
-                threads.add(_sectionHeader('Mensagens diretas'));
-                if (restDms.isEmpty) {
-                  if (dmFiltered.isEmpty) {
-                    threads.add(
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 16),
-                        child: Text(
-                          q.isNotEmpty
-                              ? 'Nenhuma conversa corresponde à pesquisa.'
-                              : 'Sem conversas diretas ainda. Use o botão + para escolher um membro.',
-                          style: TextStyle(
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                            height: 1.45,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> sel =
+                    dmFiltered;
+                switch (_conversasFilter) {
+                  case _HubConversasFilter.favorites:
+                    sel = dmFiltered.where((d) => prefs.isFavorite(d.id));
+                    break;
+                  case _HubConversasFilter.unread:
+                    sel = dmFiltered.where(
+                      (d) => _chatHubThreadIsUnreadForUser(d.data(), uid),
                     );
-                  } else {
-                    threads.add(
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        child: Text(
-                          'As conversas diretas favoritas aparecem na secção Favoritos acima.',
-                          style: TextStyle(
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                            height: 1.45,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 13,
-                          ),
+                    break;
+                  case _HubConversasFilter.all:
+                    break;
+                }
+                final displayed = sel.toList();
+
+                if (displayed.isEmpty) {
+                  threads.add(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 24),
+                      child: Text(
+                        q.isNotEmpty
+                            ? 'Nenhuma conversa corresponde à pesquisa.'
+                            : _conversasFilter == _HubConversasFilter.favorites
+                                ? 'Sem favoritas. Toque numa conversa e use «Favoritar».'
+                                : _conversasFilter == _HubConversasFilter.unread
+                                    ? 'Sem mensagens não lidas nas conversas diretas.'
+                                    : 'Sem conversas diretas ainda. Use o botão + ou a aba Membros.',
+                        style: TextStyle(
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                          height: 1.45,
+                          fontWeight: FontWeight.w500,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                    );
-                  }
+                    ),
+                  );
                 } else {
+                  threads.add(_sectionHeader('Mensagens diretas'));
                   threads.add(_dmConversationListRows(
-                      context, tid, uid, restDms, prefs, photoByPeer));
+                    context,
+                    tid,
+                    uid,
+                    displayed,
+                    prefs,
+                    photoByPeer,
+                  ));
                 }
 
                 return ListView(
@@ -1110,20 +1128,104 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       );
     }
 
-    return ListView.builder(
+    final mqW = MediaQuery.sizeOf(context).width;
+    final crossAxis = _gruposGridCrossAxisCount(mqW);
+    return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-      itemCount: filtered.length,
-      itemBuilder: (ctx, i) {
-        final d = filtered[i];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _PremiumDeptGroupCard(
-            entry: d,
-            onOpenDetail: () =>
-                _showDepartmentMembersSheet(context, tid, uid, d),
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    colors: [
+                      ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.grid_view_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Vista em grelha · toque no cartão para abrir o grupo · contagem não lidas / total de mensagens',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        );
-      },
+          SliverLayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.crossAxisExtent;
+            final spacing = 12.0;
+            final tileW = (w - spacing * (crossAxis - 1)) / crossAxis;
+            final aspect = tileW < 200 ? 0.68 : 0.74;
+            return SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxis,
+                mainAxisSpacing: spacing,
+                crossAxisSpacing: spacing,
+                childAspectRatio: aspect,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (ctx, i) {
+                  final d = filtered[i];
+                  final threadId = ChurchChatService.deptThreadId(d.id);
+                  return _DeptGroupPremiumGridCard(
+                    tenantId: tid,
+                    myUid: uid,
+                    entry: d,
+                    threadId: threadId,
+                    onOpenChat: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          fullscreenDialog: true,
+                          builder: (_) => ChurchChatThreadPage(
+                            tenantId: tid,
+                            threadId: threadId,
+                            title: d.name,
+                            isDepartment: true,
+                            departmentId: d.id,
+                            memberRole: widget.role,
+                            memberCpfDigits:
+                                widget.cpf.replaceAll(RegExp(r'\D'), ''),
+                          ),
+                        ),
+                      );
+                    },
+                    onOpenMembers: () =>
+                        _showDepartmentMembersSheet(context, tid, uid, d),
+                  );
+                },
+                childCount: filtered.length,
+              ),
+            );
+          },
+        ),
+      ],
+      ),
     );
   }
 
@@ -1170,11 +1272,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _DepartmentMembersSheet(
+      builder: (ctx) => ChurchDepartmentChatMembersSheet(
         navigatorContext: context,
         tenantId: tid,
         currentUid: uid,
-        entry: dept,
+        departmentId: dept.id,
+        departmentName: dept.name,
+        departmentDocData: dept.deptData,
         role: widget.role,
         cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
       ),
@@ -1193,65 +1297,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           letterSpacing: 0.85,
         ),
       ),
-    );
-  }
-
-  Widget _deptTile(
-    BuildContext context,
-    String tid,
-    String uid,
-    _DeptEntry d,
-    ChurchChatMemberPrefsModel prefs,
-    Map<String, String> photoByUid,
-  ) {
-    final threadId = ChurchChatService.deptThreadId(d.id);
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatService.threadRef(tid, threadId).snapshots(),
-      builder: (context, thr) {
-        final data = thr.data?.data();
-        final preview = (data?['lastMessagePreview'] ?? 'Grupo do departamento')
-            .toString();
-        final ts = data?['lastMessageAt'];
-        return _chatTile(
-          title: d.name,
-          subtitle: preview,
-          timeLabel: _fmtTime(ts),
-          isFavorite: prefs.isFavorite(threadId),
-          isMuted: prefs.isMutedThread(threadId),
-          photo: _deptGroupLeadingAvatar(
-            d: d,
-            myUid: uid,
-            threadData: data,
-            photoByUid: photoByUid,
-          ),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                fullscreenDialog: true,
-                builder: (_) => ChurchChatThreadPage(
-                  tenantId: tid,
-                  threadId: threadId,
-                  title: d.name,
-                  isDepartment: true,
-                  departmentId: d.id,
-                  memberRole: widget.role,
-                  memberCpfDigits:
-                      widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                ),
-              ),
-            );
-          },
-          onLongPress: () => _showThreadActionsSheet(
-            context: context,
-            tenantId: tid,
-            threadId: threadId,
-            title: d.name,
-            isDepartment: true,
-            peerUid: null,
-            prefs: prefs,
-          ),
-        );
-      },
     );
   }
 
@@ -1369,6 +1414,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     bool isFavorite = false,
     bool isMuted = false,
     int subtitleMaxLines = 1,
+    Widget? trailing,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1473,6 +1519,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (trailing != null) trailing,
                     ],
                   ),
                 ],
@@ -1484,15 +1531,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
-  String _fmtTime(dynamic ts) {
-    if (ts is! Timestamp) return '';
-    final d = ts.toDate();
-    final now = DateTime.now();
-    if (d.year == now.year && d.month == now.month && d.day == now.day) {
-      return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-    }
-    return '${d.day}/${d.month}';
-  }
+  String _fmtTime(dynamic ts) => _chatHubFmtThreadTime(ts);
 
   Future<void> _openPickPeer(
       BuildContext context, String tid, String uid) async {
@@ -1679,92 +1718,107 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
 
 class _PremiumHubTabBar extends StatelessWidget {
   final TabController controller;
+  final Animation<double> gruposOpacity;
 
-  const _PremiumHubTabBar({required this.controller});
+  const _PremiumHubTabBar({
+    required this.controller,
+    required this.gruposOpacity,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(1.5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(17.5),
-        gradient: churchChatWhatsPremiumLinearGradient,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2563EB).withValues(alpha: 0.24),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+    return AnimatedBuilder(
+      animation: Listenable.merge([controller, gruposOpacity]),
+      builder: (context, _) {
+        final gPulse = gruposOpacity.value.clamp(0.0, 1.0);
+        return Container(
+          padding: const EdgeInsets.all(1.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(17.5),
+            gradient: churchChatWhatsPremiumLinearGradient,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2563EB).withValues(alpha: 0.24),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: TabBar(
-        controller: controller,
-        dividerColor: Colors.transparent,
-        indicatorSize: TabBarIndicatorSize.tab,
-        indicator: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: churchChatWhatsPremiumLinearGradient,
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2563EB).withValues(alpha: 0.38),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.cardBackground,
+              borderRadius: BorderRadius.circular(16),
             ),
-          ],
-        ),
-        labelColor: Colors.white,
-        unselectedLabelColor: ThemeCleanPremium.onSurfaceVariant,
-        labelStyle: const TextStyle(
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-        tabs: const [
-          Tab(
-            height: 46,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.chat_bubble_rounded, size: 18),
-                SizedBox(width: 6),
-                Text('Conversas'),
+            child: TabBar(
+              controller: controller,
+              dividerColor: Colors.transparent,
+              indicatorSize: TabBarIndicatorSize.tab,
+              indicator: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: churchChatWhatsPremiumLinearGradient,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.38),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              labelColor: Colors.white,
+              unselectedLabelColor: ThemeCleanPremium.onSurfaceVariant,
+              labelStyle: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+              tabs: [
+                const Tab(
+                  height: 46,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.chat_bubble_rounded, size: 18),
+                      SizedBox(width: 6),
+                      Text('Conversas'),
+                    ],
+                  ),
+                ),
+                const Tab(
+                  height: 46,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.people_rounded, size: 18),
+                      SizedBox(width: 6),
+                      Text('Membros'),
+                    ],
+                  ),
+                ),
+                Tab(
+                  height: 46,
+                  child: Opacity(
+                    opacity: controller.index != 2
+                        ? (0.58 + 0.42 * gPulse)
+                        : 1.0,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.groups_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Grupos'),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          Tab(
-            height: 46,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.people_rounded, size: 18),
-                SizedBox(width: 6),
-                Text('Membros'),
-              ],
-            ),
-          ),
-          Tab(
-            height: 46,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.groups_rounded, size: 18),
-                SizedBox(width: 6),
-                Text('Grupos'),
-              ],
-            ),
-          ),
-        ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -2161,340 +2215,301 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   }
 }
 
-class _PremiumDeptGroupCard extends StatelessWidget {
-  final _DeptEntry entry;
-  final VoidCallback onOpenDetail;
-
-  const _PremiumDeptGroupCard({
-    required this.entry,
-    required this.onOpenDetail,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onOpenDetail,
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                ThemeCleanPremium.primary.withValues(alpha: 0.13),
-                ThemeCleanPremium.primaryLight.withValues(alpha: 0.07),
-              ],
-            ),
-            border: Border.all(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
-            ),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                ChurchChatDepartmentAvatar(
-                  deptData: entry.deptData,
-                  fallbackName: entry.name,
-                  radius: 26,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 16,
-                          color: ThemeCleanPremium.onSurface,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Grupo do departamento · ver membros',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 16,
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.75),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DepartmentMembersSheet extends StatelessWidget {
-  final BuildContext navigatorContext;
+class _DeptGroupPremiumGridCard extends StatelessWidget {
   final String tenantId;
-  final String currentUid;
+  final String myUid;
+  final String threadId;
   final _DeptEntry entry;
-  final String role;
-  final String cpfDigits;
+  final VoidCallback onOpenChat;
+  final VoidCallback onOpenMembers;
 
-  const _DepartmentMembersSheet({
-    required this.navigatorContext,
+  const _DeptGroupPremiumGridCard({
     required this.tenantId,
-    required this.currentUid,
+    required this.myUid,
+    required this.threadId,
     required this.entry,
-    required this.role,
-    required this.cpfDigits,
+    required this.onOpenChat,
+    required this.onOpenMembers,
   });
-
-  Future<void> _openGroupChat(BuildContext sheetCtx) async {
-    Navigator.of(sheetCtx).pop();
-    if (!navigatorContext.mounted) return;
-    await Navigator.of(navigatorContext).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tenantId,
-          threadId: ChurchChatService.deptThreadId(entry.id),
-          title: entry.name,
-          isDepartment: true,
-          departmentId: entry.id,
-          memberRole: role,
-          memberCpfDigits: cpfDigits,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openDm(
-      BuildContext sheetCtx, String peerUid, String name) async {
-    Navigator.of(sheetCtx).pop();
-    await ChurchChatService.ensureDmThread(
-      tenantId: tenantId,
-      uidA: currentUid,
-      uidB: peerUid,
-      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
-      titleB: name,
-    );
-    final threadId = ChurchChatService.dmThreadId(currentUid, peerUid);
-    if (!navigatorContext.mounted) return;
-    await Navigator.of(navigatorContext).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tenantId,
-          threadId: threadId,
-          title: name,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: role,
-          memberCpfDigits: cpfDigits,
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.74,
-      minChildSize: 0.45,
-      maxChildSize: 0.94,
-      builder: (ctx, scrollCtrl) {
-        return Container(
-          decoration: BoxDecoration(
-            color: ThemeCleanPremium.surface,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(22)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 22,
-                offset: const Offset(0, -6),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ChurchChatService.threadRef(tenantId, threadId).snapshots(),
+      builder: (context, ts) {
+        final data = ts.data?.data();
+        final unreadFlag = ts.hasData && data != null
+            ? _chatHubThreadIsUnreadForUser(data, myUid)
+            : false;
+        final preview = (data?['lastMessagePreview'] ?? 'Toque para abrir o grupo')
+            .toString()
+            .trim();
+        final safePreview =
+            preview.isEmpty ? 'Toque para abrir o grupo' : preview;
+        final lastMsgAt = data?['lastMessageAt'];
+        final timeLabel = _chatHubFmtThreadTime(lastMsgAt);
+        final mySeen =
+            data != null ? _chatHubThreadMyLastSeen(data, myUid) : null;
+        final lmKey =
+            lastMsgAt is Timestamp ? lastMsgAt.millisecondsSinceEpoch : 0;
+        final seenKey = mySeen?.millisecondsSinceEpoch ?? -1;
+        final participants = data?['participantUids'];
+        final nChatMembers = participants is List ? participants.length : 0;
+
+        return Material(
+          color: Colors.transparent,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  ThemeCleanPremium.primary.withValues(alpha: 0.14),
+                  ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
+                ],
               ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  margin: const EdgeInsets.only(top: 10, bottom: 8),
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: ThemeCleanPremium.onSurfaceVariant
-                        .withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(
+                  alpha: unreadFlag ? 0.35 : 0.2,
                 ),
+                width: unreadFlag ? 1.2 : 1,
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ChurchChatDepartmentAvatar(
-                      deptData: entry.deptData,
-                      fallbackName: entry.name,
-                      radius: 28,
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
+                    onTap: onOpenChat,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            entry.name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 19,
-                              color: ThemeCleanPremium.onSurface,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  ChurchChatDepartmentAvatar(
+                                    deptData: entry.deptData,
+                                    fallbackName: entry.name,
+                                    radius: 24,
+                                  ),
+                                  if (unreadFlag)
+                                    Positioned(
+                                      right: -3,
+                                      top: -3,
+                                      child: Container(
+                                        width: 14,
+                                        height: 14,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEF4444),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      entry.name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14.5,
+                                        height: 1.2,
+                                        color: ThemeCleanPremium.onSurface,
+                                        letterSpacing: -0.25,
+                                      ),
+                                    ),
+                                    if (timeLabel.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Última atividade · $timeLabel',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                    if (nChatMembers > 0) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '$nChatMembers no chat',
+                                        maxLines: 1,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: ThemeCleanPremium.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 8),
                           Text(
-                            'Membros com este departamento na ficha',
+                            safePreview,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 12.5,
+                              fontSize: 12,
                               height: 1.35,
                               fontWeight: FontWeight.w600,
                               color: ThemeCleanPremium.onSurfaceVariant,
                             ),
                           ),
+                          const Spacer(),
+                          FutureBuilder<({int unread, int total})>(
+                            key: ValueKey<String>(
+                              '$threadId|$lmKey|$seenKey',
+                            ),
+                            future: ChurchChatService
+                                .threadMessageUnreadAndTotalCounts(
+                              tenantId: tenantId,
+                              threadId: threadId,
+                              myLastSeenInThread: mySeen,
+                            ),
+                            builder: (context, snap) {
+                              if (snap.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !snap.hasData) {
+                                return Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: ThemeCleanPremium.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'A contar mensagens…',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: ThemeCleanPremium
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
+                              final u = snap.data?.unread ?? 0;
+                              final t = snap.data?.total ?? 0;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: unreadFlag
+                                      ? const Color(0xFFFFF7ED)
+                                      : Colors.white.withValues(alpha: 0.55),
+                                  border: Border.all(
+                                    color: unreadFlag
+                                        ? const Color(0xFFF59E0B)
+                                            .withValues(alpha: 0.55)
+                                        : ThemeCleanPremium.onSurfaceVariant
+                                            .withValues(alpha: 0.12),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.sms_outlined,
+                                      size: 17,
+                                      color: unreadFlag
+                                          ? const Color(0xFFB45309)
+                                          : ThemeCleanPremium.primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '$u / $t',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
+                                        letterSpacing: -0.2,
+                                        color: ThemeCleanPremium.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'não lidas / total',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: FutureBuilder<
-                    List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future: ChurchChatService.fetchActiveDepartmentMembers(
-                    tenantId: tenantId,
-                    departmentId: entry.id,
                   ),
-                  builder: (context, snap) {
-                    if (snap.connectionState != ConnectionState.done) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final docs = snap.data ?? [];
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'Nenhum membro ativo encontrado neste grupo.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                    return ListView.builder(
-                      controller: scrollCtrl,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      itemCount: docs.length,
-                      itemBuilder: (_, i) {
-                        final doc = docs[i];
-                        final d = doc.data();
-                        final auth =
-                            (d['authUid'] ?? d['firebaseUid'] ?? '')
-                                .toString();
-                        final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
-                            .toString()
-                            .trim();
-                        final label =
-                            nome.isEmpty ? (auth.isNotEmpty ? auth : 'Membro') : nome;
-                        final canDm = auth.isNotEmpty &&
-                            auth != currentUid;
-                        return ListTile(
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 4),
-                          leading: CircleAvatar(
-                            backgroundColor: ThemeCleanPremium.primary
-                                .withValues(alpha: 0.15),
-                            foregroundColor: ThemeCleanPremium.primary,
-                            child: Text(
-                              label.isNotEmpty
-                                  ? label[0].toUpperCase()
-                                  : '?',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                          title: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: canDm
-                              ? Text(
-                                  'Mensagem direta',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: ThemeCleanPremium.onSurfaceVariant,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                )
-                              : null,
-                          trailing: canDm
-                              ? IconButton(
-                                  tooltip: 'Mensagem direta',
-                                  icon: Icon(
-                                    Icons.chat_rounded,
-                                    color: ThemeCleanPremium.primary,
-                                  ),
-                                  onPressed: () => _openDm(ctx, auth, label),
-                                )
-                              : null,
-                        );
-                      },
-                    );
-                  },
                 ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + bottom),
-                  child: FilledButton.icon(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                  child: FilledButton.tonalIcon(
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: ThemeCleanPremium.primary,
-                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    onPressed: () => _openGroupChat(ctx),
-                    icon: const Icon(Icons.forum_rounded),
-                    label: const Text(
-                      'Abrir chat do grupo',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    onPressed: onOpenMembers,
+                    icon: Icon(
+                      Icons.groups_rounded,
+                      size: 20,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                    label: Text(
+                      'Ver membros',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },

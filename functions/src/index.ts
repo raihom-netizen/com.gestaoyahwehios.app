@@ -7007,6 +7007,7 @@ export {
   onIgrejaMembroDeleteCleanupStorage,
   onIgrejaNoticiaDeleteCleanupStorage,
   onIgrejaPatrimonioDeleteCleanupStorage,
+  onIgrejaChatMessageDeleteCleanupStorage,
 } from "./storageCleanupOnFirestoreDelete";
 
 export { onNovoAvisoMuralPush, onNovoEventoNoticiaPush } from "./pushNovoConteudo";

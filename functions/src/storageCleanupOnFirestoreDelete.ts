@@ -51,6 +51,16 @@ export const onIgrejaMembroDeleteCleanupStorage = functions
     await deleteIfExists(`${base}_digital.png`);
   });
 
+/** Chat igreja: ao apagar mensagem (ex.: «para todos»), remove ficheiro em `storagePath`. */
+export const onIgrejaChatMessageDeleteCleanupStorage = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{msgId}")
+  .onDelete(async (snap) => {
+    const d = snap.data() as { storagePath?: string } | undefined;
+    const path = String(d?.storagePath || "").trim();
+    if (path) await deleteIfExists(path);
+  });
+
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
 export const onIgrejaNoticiaDeleteCleanupStorage = functions
   .region("us-central1")

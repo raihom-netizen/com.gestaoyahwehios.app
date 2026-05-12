@@ -412,6 +412,16 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "membros",
+      "fieldPath": "updatedAt",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION", "order": "DESCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "finance",
       "fieldPath": "createdAt",
       "indexes": [

@@ -2,8 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_avisos_insights_dashboard.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import '../widgets/instagram_mural.dart';
 
@@ -25,12 +27,45 @@ class MuralPage extends StatefulWidget {
   State<MuralPage> createState() => _MuralPageState();
 }
 
-class _MuralPageState extends State<MuralPage> {
+class _MuralPageState extends State<MuralPage>
+    with SingleTickerProviderStateMixin {
   int _slugRetryKey = 0;
+  late TabController _tab;
+
+  bool get _canModerateAvisosComments {
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_somente_leitura')) {
+      return false;
+    }
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_edicao')) {
+      return true;
+    }
+    final r = widget.role.toLowerCase();
+    return r == 'adm' ||
+        r == 'admin' ||
+        r == 'gestor' ||
+        r == 'master' ||
+        r == 'lider' ||
+        r == 'lider_departamento';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
 
   /// Resolve o tenant com o mesmo ID que as regras Firestore usam para [sameChurch],
   /// depois lê slug / fallback com rede ou cache.
-  Future<({String firestoreTenantId, String churchSlug})> _loadTenantAndSlug() async {
+  Future<({String firestoreTenantId, String churchSlug})>
+      _loadTenantAndSlug() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     final tid =
         await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
@@ -58,6 +93,11 @@ class _MuralPageState extends State<MuralPage> {
   Future<void> _onRefresh() async {
     setState(() => _slugRetryKey++);
   }
+
+  static const _muralTabs = [
+    Tab(text: 'Feed'),
+    Tab(text: 'Painel'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +132,13 @@ class _MuralPageState extends State<MuralPage> {
               backgroundColor: ThemeCleanPremium.primary,
               foregroundColor: Colors.white,
               title: const Text('Mural de Avisos'),
+              bottom: TabBar(
+                controller: _tab,
+                indicatorColor: Colors.white,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                tabs: _muralTabs,
+              ),
             ),
       body: SafeArea(
         child: FutureBuilder<({String firestoreTenantId, String churchSlug})>(
@@ -110,23 +157,55 @@ class _MuralPageState extends State<MuralPage> {
               return const ChurchPanelLoadingBody();
             }
             final data = snap.data!;
-            return RefreshIndicator(
-              onRefresh: _onRefresh,
-              child: SaaSContentViewport(
-                // Largura útil como nos demais módulos do painel (até 1200px), não coluna fixa de feed social.
-                child: ListView(
-                  padding: padding,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    InstagramMural(
-                      tenantId: data.firestoreTenantId,
-                      role: widget.role,
-                      churchSlug: data.churchSlug,
-                      permissions: widget.permissions,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!showAppBar)
+                  Material(
+                    color: Colors.white,
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
+                    surfaceTintColor: Colors.transparent,
+                    shape: Border(
+                      bottom:
+                          BorderSide(color: Colors.grey.shade200, width: 1),
                     ),
-                  ],
+                    child: ChurchPanelPillTabBar(
+                      controller: _tab,
+                      dense: true,
+                      style: ChurchPanelPillTabBarStyle.onLight,
+                      tabs: _muralTabs,
+                    ),
+                  ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tab,
+                    children: [
+                      RefreshIndicator(
+                        onRefresh: _onRefresh,
+                        child: SaaSContentViewport(
+                          child: ListView(
+                            padding: padding,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              InstagramMural(
+                                tenantId: data.firestoreTenantId,
+                                role: widget.role,
+                                churchSlug: data.churchSlug,
+                                permissions: widget.permissions,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      ChurchAvisosInsightsDashboard(
+                        tenantId: data.firestoreTenantId,
+                        canModerateComments: _canModerateAvisosComments,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             );
           },
         ),

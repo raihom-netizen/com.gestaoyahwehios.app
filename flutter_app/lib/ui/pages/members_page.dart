@@ -500,7 +500,6 @@ class _MembersPageState extends State<MembersPage> {
         widget.initialFiltroFaixaEtaria!.isNotEmpty) {
       _filtroFaixaEtaria = widget.initialFiltroFaixaEtaria!;
     }
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
     _limitFuture = _limitService.checkLimit(
       widget.tenantId,
       planIdOverride:
@@ -616,6 +615,7 @@ class _MembersPageState extends State<MembersPage> {
   /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
   Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData(
       {bool forceServer = false}) async {
+    // Evita idToken(true) em cada abertura: força rede e atrasa lista (várias queries já em paralelo).
     if (forceServer) {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
     }

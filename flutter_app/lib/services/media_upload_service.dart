@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 import 'firebase_storage_cleanup_service.dart';
@@ -24,6 +25,10 @@ class MediaUploadService {
     required Uint8List bytes,
     required String contentType,
   }) async {
+    // JPEGs pequenos (thumbs / ícones): evita compressão dupla — upload mais rápido.
+    if (_shouldCompressJpeg(contentType) && bytes.length < 420 * 1024) {
+      return bytes;
+    }
     if (!_shouldCompressJpeg(contentType)) return bytes;
     var prepared = await ImageHelper.compressImage(
       bytes,
@@ -66,6 +71,7 @@ class MediaUploadService {
     /// Remove estes ficheiros no Storage antes do novo upload (substituição).
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
 
     /// Quando true, envia [bytes] sem segunda compressão JPEG em [_prepareBytesForUpload]
     /// (ex.: já passaram por [ImageHelper.compressMemberProfileForUpload]).
@@ -91,6 +97,7 @@ class MediaUploadService {
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
         onProgress: onProgress,
+        onTaskStarted: onUploadTaskCreated,
       );
     }
     try {
@@ -101,6 +108,7 @@ class MediaUploadService {
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
         onProgress: onProgress,
+        onTaskStarted: onUploadTaskCreated,
       );
     } catch (e) {
       if (isLikelyNetworkUploadError(e)) {
@@ -124,6 +132,7 @@ class MediaUploadService {
     int maxAttempts = 3,
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
     bool skipClientPrepare = false,
     bool useOfflineQueue = true,
   }) async {
@@ -135,6 +144,7 @@ class MediaUploadService {
       maxAttempts: maxAttempts,
       deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
       onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
       skipClientPrepare: skipClientPrepare,
       useOfflineQueue: useOfflineQueue,
     );
@@ -153,6 +163,7 @@ class MediaUploadService {
     int maxAttempts = 3,
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
     bool useOfflineQueue = true,
   }) async {
     if (_shouldCompressJpeg(contentType)) {
@@ -169,6 +180,7 @@ class MediaUploadService {
         maxAttempts: maxAttempts,
         deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
         onProgress: onProgress,
+        onUploadTaskCreated: onUploadTaskCreated,
         useOfflineQueue: useOfflineQueue,
       );
     }
@@ -185,6 +197,7 @@ class MediaUploadService {
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
         onProgress: onProgress,
+        onTaskStarted: onUploadTaskCreated,
       );
     }
     try {
@@ -195,6 +208,7 @@ class MediaUploadService {
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
         onProgress: onProgress,
+        onTaskStarted: onUploadTaskCreated,
       );
     } catch (e) {
       if (isLikelyNetworkUploadError(e)) {

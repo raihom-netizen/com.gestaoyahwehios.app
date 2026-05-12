@@ -67,55 +67,50 @@ class ChurchTenantOfflineWarmupService {
       }
     }
 
-    await safe('igreja_doc', () async {
-      await church.get();
-    });
-
-    await safe('membros', () async {
-      await church.collection('membros').limit(400).get();
-    });
-
-    await safe('members_legacy', () async {
-      await church.collection('members').limit(120).get();
-    });
-
-    await safe('avisos', () async {
-      await church.collection('avisos').limit(100).get();
-    });
-
-    await safe('noticias', () async {
-      try {
+    await Future.wait([
+      safe('igreja_doc', () async {
+        await church.get();
+      }),
+      safe('membros', () async {
+        await church.collection('membros').limit(400).get();
+      }),
+      safe('members_legacy', () async {
+        await church.collection('members').limit(120).get();
+      }),
+      safe('avisos', () async {
+        await church.collection('avisos').limit(100).get();
+      }),
+      safe('noticias', () async {
+        try {
+          await church
+              .collection('noticias')
+              .orderBy('startAt', descending: true)
+              .limit(120)
+              .get();
+        } catch (_) {
+          await church.collection('noticias').limit(120).get();
+        }
+      }),
+      safe('finance_recent', () async {
         await church
-            .collection('noticias')
-            .orderBy('startAt', descending: true)
-            .limit(150)
+            .collection('finance')
+            .orderBy('createdAt', descending: true)
+            .limit(250)
             .get();
-      } catch (_) {
-        await church.collection('noticias').limit(150).get();
-      }
-    });
-
-    await safe('finance_recent', () async {
-      await church
-          .collection('finance')
-          .orderBy('createdAt', descending: true)
-          .limit(500)
-          .get();
-    });
-
-    await safe('patrimonio', () async {
-      await church.collection('patrimonio').limit(250).get();
-    });
-
-    await safe('users_tenant', () async {
-      await db
-          .collection('users')
-          .where(Filter.or(
-            Filter('tenantId', isEqualTo: tenantId),
-            Filter('igrejaId', isEqualTo: tenantId),
-          ))
-          .limit(200)
-          .get();
-    });
+      }),
+      safe('patrimonio', () async {
+        await church.collection('patrimonio').limit(250).get();
+      }),
+      safe('users_tenant', () async {
+        await db
+            .collection('users')
+            .where(Filter.or(
+              Filter('tenantId', isEqualTo: tenantId),
+              Filter('igrejaId', isEqualTo: tenantId),
+            ))
+            .limit(200)
+            .get();
+      }),
+    ]);
   }
 }

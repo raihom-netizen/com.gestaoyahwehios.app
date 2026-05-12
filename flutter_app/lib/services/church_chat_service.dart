@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_member_prefs.dart';
+import 'media_upload_service.dart';
 
 /// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
 class ChurchChatService {
@@ -317,6 +318,37 @@ class ChurchChatService {
     return h.map((e) => e.toString()).contains(uid);
   }
 
+  /// Contagem agregada (Firestore `count`) — não lidas = mensagens com `createdAt` depois da última leitura do utilizador no thread.
+  static Future<({int unread, int total})> threadMessageUnreadAndTotalCounts({
+    required String tenantId,
+    required String threadId,
+    Timestamp? myLastSeenInThread,
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || threadId.trim().isEmpty) {
+      return (unread: 0, total: 0);
+    }
+    final col = messagesCol(tid, threadId);
+    try {
+      final totalSnap = await col.count().get();
+      final total = totalSnap.count ?? 0;
+      if (total == 0) {
+        return (unread: 0, total: 0);
+      }
+      if (myLastSeenInThread == null) {
+        return (unread: total, total: total);
+      }
+      final unreadSnap = await col
+          .where('createdAt', isGreaterThan: myLastSeenInThread)
+          .count()
+          .get();
+      final unread = unreadSnap.count ?? 0;
+      return (unread: unread, total: total);
+    } catch (_) {
+      return (unread: 0, total: 0);
+    }
+  }
+
   static Future<void> markThreadLastSeen({
     required String tenantId,
     required String threadId,
@@ -341,12 +373,13 @@ class ChurchChatService {
   }) async {
     final id = deptThreadId(departmentId);
     final ref = threadRef(tenantId, id);
+    final toAdd = participantUids.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
     await ref.set(
       {
         'type': 'department',
         'departmentId': departmentId,
         'title': departmentName,
-        'participantUids': participantUids.toSet().toList(),
+        if (toAdd.isNotEmpty) 'participantUids': FieldValue.arrayUnion(toAdd),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
@@ -598,25 +631,33 @@ class ChurchChatService {
     return true;
   }
 
-  /// Devolve URL pública após upload.
+  /// Upload para `chat_media/` — compressão JPEG/PNG leve (via [MediaUploadService]),
+  /// sem fila offline (envio imediato). [onUploadTaskCreated] permite cancelar o [UploadTask].
   static Future<({String url, String path})> uploadChatBytes({
     required String tenantId,
     required String threadId,
     required List<int> bytes,
     required String fileName,
     required String contentType,
+    void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final path =
         'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
-    final ref = FirebaseStorage.instance.ref().child(path);
-    await ref.putData(
-      Uint8List.fromList(bytes),
-      SettableMetadata(contentType: contentType),
+    final ubytes =
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    final url = await MediaUploadService.uploadBytesWithRetry(
+      storagePath: path,
+      bytes: ubytes,
+      contentType: contentType,
+      useOfflineQueue: false,
+      maxAttempts: 2,
+      onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
     );
-    final url = await ref.getDownloadURL();
     return (url: url, path: path);
   }
 

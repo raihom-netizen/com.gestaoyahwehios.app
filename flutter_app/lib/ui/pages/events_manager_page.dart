@@ -1004,7 +1004,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             Tab(text: 'Feed'),
             Tab(text: 'Galeria'),
             Tab(text: 'Eventos Fixos'),
-            Tab(text: 'Dashboard'),
+            Tab(text: 'Painel'),
           ]
         : const <Widget>[
             Tab(text: 'Feed'),
@@ -2203,8 +2203,6 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 150));
     return widget.noticias
         .orderBy('startAt', descending: true)
         .limit(200)
@@ -9337,8 +9335,6 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await Future.delayed(const Duration(milliseconds: 100));
       QuerySnapshot<Map<String, dynamic>> snap;
       try {
         snap = await widget.noticias
@@ -9409,8 +9405,12 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
               await d.reference.collection('comentarios').count().get();
           comments = countSnap.count ?? 0;
         } catch (_) {}
+        final st = data['startAt'];
+        final startAt = st is Timestamp ? st.toDate() : null;
         list.add(_EventStats(
+            docId: d.id,
             title: title,
+            startAt: startAt,
             rsvp: rsvp,
             likes: likes,
             comments: comments,
@@ -9458,40 +9458,88 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       );
     }
     final padding = ThemeCleanPremium.pagePadding(context);
+    final sumRsvp = _stats.fold<int>(0, (a, s) => a + s.rsvp);
+    final sumLikes = _stats.fold<int>(0, (a, s) => a + s.likes);
+    final sumComments = _stats.fold<int>(0, (a, s) => a + s.comments);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding:
             EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 80),
         children: [
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          _DashboardEventsHeroCard(
+            eventCount: _stats.length,
+            sumRsvp: sumRsvp,
+            sumLikes: sumLikes,
+            sumComments: sumComments,
+          ),
+          const SizedBox(height: ThemeCleanPremium.spaceLg),
           if (_categoryPieSections.isNotEmpty) ...[
             _ChartCard(
-              title: 'Eventos por categoria (amostra dos últimos registros)',
-              icon: Icons.pie_chart_outline_rounded,
+              title: 'Distribuição por categoria',
+              subtitle:
+                  'Amostra dos últimos registos no mural de eventos (até 100).',
+              icon: Icons.pie_chart_rounded,
               color: const Color(0xFF7C3AED),
+              accentGradient: const LinearGradient(
+                colors: [Color(0xFF7C3AED), Color(0xFFA78BFA)],
+              ),
               onTap: null,
-              child: SizedBox(
-                height: 240,
-                child: PieChart(
-                  PieChartData(
-                    sections: _categoryPieSections,
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 44,
-                    startDegreeOffset: -90,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: 220,
+                    child: PieChart(
+                      PieChartData(
+                        sections: _categoryPieSections,
+                        sectionsSpace: 1.5,
+                        centerSpaceRadius: 52,
+                        startDegreeOffset: -90,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (var i = 0; i < _categoryPieSections.length; i++)
+                        Chip(
+                          avatar: CircleAvatar(
+                            backgroundColor: _categoryPieSections[i].color,
+                            radius: 6,
+                          ),
+                          label: Text(
+                            _categoryPieSections[i].title.split('\n').first,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
           ],
           _ChartCard(
-            title: 'Confirmações de presença (RSVP) por evento',
+            title: 'Confirmações (RSVP) por evento',
+            subtitle: 'Barras proporcionais · toque no cartão para listar nomes',
             icon: Icons.check_circle_rounded,
             color: ThemeCleanPremium.success,
+            accentGradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.success,
+                ThemeCleanPremium.success.withValues(alpha: 0.65),
+              ],
+            ),
             onTap: () => _showNamesSheet(context, 'rsvp'),
             child: SizedBox(
-              height: 280,
+              height: 300,
               child: BarChart(
                 _barChartData(_stats, (e) => e.rsvp.toDouble(),
                     ThemeCleanPremium.success),
@@ -9501,29 +9549,73 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
             title: 'Curtidas por evento',
+            subtitle: 'Engajamento no feed · toque para ver quem curtiu',
             icon: Icons.favorite_rounded,
-            color: Colors.red.shade400,
+            color: const Color(0xFFEF4444),
+            accentGradient: const LinearGradient(
+              colors: [Color(0xFFF87171), Color(0xFFEF4444)],
+            ),
             onTap: () => _showNamesSheet(context, 'likes'),
             child: SizedBox(
-              height: 280,
+              height: 300,
               child: BarChart(
                 _barChartData(
-                    _stats, (e) => e.likes.toDouble(), Colors.red.shade400),
+                  _stats,
+                  (e) => e.likes.toDouble(),
+                  const Color(0xFFEF4444),
+                ),
               ),
             ),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
             title: 'Comentários por evento',
+            subtitle: 'Moderadores podem remover comentários inadequados',
             icon: Icons.comment_rounded,
             color: const Color(0xFF0EA5E9),
+            accentGradient: const LinearGradient(
+              colors: [Color(0xFF38BDF8), Color(0xFF0EA5E9)],
+            ),
             onTap: () => _showNamesSheet(context, 'comments'),
             child: SizedBox(
-              height: 280,
+              height: 300,
               child: BarChart(
-                _barChartData(_stats, (e) => e.comments.toDouble(),
-                    const Color(0xFF0EA5E9)),
+                _barChartData(
+                  _stats,
+                  (e) => e.comments.toDouble(),
+                  const Color(0xFF0EA5E9),
+                ),
               ),
+            ),
+          ),
+          const SizedBox(height: ThemeCleanPremium.spaceLg),
+          _ChartCard(
+            title: 'Lista por evento',
+            subtitle:
+                'Resumo e atalhos para RSVP, curtidas e comentários de cada publicação.',
+            icon: Icons.view_list_rounded,
+            color: ThemeCleanPremium.primary,
+            accentGradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.primary,
+                ThemeCleanPremium.primaryLight,
+              ],
+            ),
+            onTap: null,
+            child: Column(
+              children: [
+                for (var i = 0; i < _stats.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: i == _stats.length - 1 ? 0 : 10),
+                    child: _EventDashboardListTile(
+                      index: i,
+                      stats: _stats[i],
+                      dateLabel: _formatEventDate(_stats[i].startAt),
+                      onOpenEngagement: () =>
+                          _openEventEngagementActions(context, i),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
@@ -9532,7 +9624,8 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
     );
   }
 
-  void _showNamesSheet(BuildContext context, String type) {
+  void _showNamesSheet(BuildContext context, String type,
+      {int? initialEventIndex}) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -9540,8 +9633,86 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => _EventNamesSheet(
-          stats: _stats, type: type, canDeleteComments: widget.canWrite),
+            stats: _stats,
+            type: type,
+            canDeleteComments: widget.canWrite,
+            initialEventIndex: initialEventIndex,
+          ),
     );
+  }
+
+  Future<void> _openEventEngagementActions(
+      BuildContext context, int eventIndex) async {
+    if (eventIndex < 0 || eventIndex >= _stats.length) return;
+    final s = _stats[eventIndex];
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                Text(
+                  s.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ListTile(
+                  leading: Icon(Icons.check_circle_rounded,
+                      color: ThemeCleanPremium.success),
+                  title: const Text('Confirmações (RSVP)'),
+                  subtitle: Text('${s.rsvp} pessoas'),
+                  onTap: () => Navigator.pop(ctx, 'rsvp'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.favorite_rounded,
+                      color: Colors.red.shade400),
+                  title: const Text('Curtidas'),
+                  subtitle: Text('${s.likes}'),
+                  onTap: () => Navigator.pop(ctx, 'likes'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.comment_rounded,
+                      color: Color(0xFF0EA5E9)),
+                  title: const Text('Comentários'),
+                  subtitle: Text('${s.comments}'),
+                  onTap: () => Navigator.pop(ctx, 'comments'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (choice == null || !context.mounted) return;
+    _showNamesSheet(context, choice, initialEventIndex: eventIndex);
+  }
+
+  String _formatEventDate(DateTime? d) {
+    if (d == null) return 'Sem data de início';
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
   BarChartData _barChartData(List<_EventStats> stats,
@@ -9560,10 +9731,17 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           barRods: [
             BarChartRodData(
               toY: v,
-              color: color,
-              width: 14,
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  color.withValues(alpha: 0.45),
+                  color,
+                ],
+              ),
+              width: 16,
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(6)),
+                  const BorderRadius.vertical(top: Radius.circular(8)),
             ),
           ],
           showingTooltipIndicators: [0],
@@ -9574,19 +9752,25 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            reservedSize: 36,
+            reservedSize: 42,
             getTitlesWidget: (v, meta) {
               final i = v.toInt();
               if (i >= 0 && i < stats.length) {
                 final t = stats[i].title;
-                final label = t.length > 12 ? '${t.substring(0, 12)}…' : t;
+                final label = t.length > 10 ? '${t.substring(0, 10)}…' : t;
                 return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(label,
-                      style:
-                          TextStyle(fontSize: 9, color: Colors.grey.shade700),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1),
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                  ),
                 );
               }
               return const SizedBox();
@@ -9606,10 +9790,12 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             const AxisTitles(sideTitles: SideTitles(showTitles: false)),
       ),
       gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) =>
-              FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: top > 10 ? (top / 5).clamp(1, 20) : 1,
+        getDrawingHorizontalLine: (_) =>
+            FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+      ),
       borderData: FlBorderData(show: false),
       barTouchData: BarTouchData(
         enabled: true,
@@ -9634,17 +9820,22 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
 }
 
 class _EventStats {
+  final String docId;
   final String title;
+  final DateTime? startAt;
   final int rsvp;
   final int likes;
   final int comments;
   final DocumentReference<Map<String, dynamic>> eventRef;
-  _EventStats(
-      {required this.title,
-      required this.rsvp,
-      required this.likes,
-      required this.comments,
-      required this.eventRef});
+  _EventStats({
+    required this.docId,
+    required this.title,
+    this.startAt,
+    required this.rsvp,
+    required this.likes,
+    required this.comments,
+    required this.eventRef,
+  });
 }
 
 /// Sheet: selecionar evento e ver nomes (RSVP, curtidas) ou lista de comentários com opção de excluir.
@@ -9652,11 +9843,14 @@ class _EventNamesSheet extends StatefulWidget {
   final List<_EventStats> stats;
   final String type;
   final bool canDeleteComments;
+  final int? initialEventIndex;
 
-  const _EventNamesSheet(
-      {required this.stats,
-      required this.type,
-      this.canDeleteComments = false});
+  const _EventNamesSheet({
+    required this.stats,
+    required this.type,
+    this.canDeleteComments = false,
+    this.initialEventIndex,
+  });
 
   @override
   State<_EventNamesSheet> createState() => _EventNamesSheetState();
@@ -9759,6 +9953,10 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.stats.isNotEmpty && widget.initialEventIndex != null) {
+      _selectedIndex = widget.initialEventIndex!
+          .clamp(0, widget.stats.length - 1);
+    }
     if (widget.type != 'comments') _loadNames();
   }
 
@@ -9989,19 +10187,392 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   }
 }
 
+class _DashboardEventsHeroCard extends StatelessWidget {
+  final int eventCount;
+  final int sumRsvp;
+  final int sumLikes;
+  final int sumComments;
+
+  const _DashboardEventsHeroCard({
+    required this.eventCount,
+    required this.sumRsvp,
+    required this.sumLikes,
+    required this.sumComments,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ThemeCleanPremium.primary,
+            ThemeCleanPremium.primaryLight,
+            const Color(0xFF1E3A5F),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.insights_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Painel de engajamento',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Eventos recentes no mural — RSVP, curtidas e comentários',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, c) {
+              final narrow = c.maxWidth < 520;
+              Widget chip({
+                required IconData icon,
+                required String label,
+                required String value,
+              }) {
+                return Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(icon,
+                            color: Colors.white.withValues(alpha: 0.95),
+                            size: 20),
+                        const SizedBox(height: 8),
+                        Text(
+                          value,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 22,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              final row = Row(
+                children: [
+                  chip(
+                    icon: Icons.event_available_rounded,
+                    label: 'No painel',
+                    value: '$eventCount',
+                  ),
+                  const SizedBox(width: 10),
+                  chip(
+                    icon: Icons.how_to_reg_rounded,
+                    label: 'RSVP total',
+                    value: '$sumRsvp',
+                  ),
+                  const SizedBox(width: 10),
+                  chip(
+                    icon: Icons.favorite_rounded,
+                    label: 'Curtidas',
+                    value: '$sumLikes',
+                  ),
+                  const SizedBox(width: 10),
+                  chip(
+                    icon: Icons.forum_rounded,
+                    label: 'Comentários',
+                    value: '$sumComments',
+                  ),
+                ],
+              );
+              if (narrow) {
+                return Column(
+                  children: [
+                    Row(children: [
+                      chip(
+                        icon: Icons.event_available_rounded,
+                        label: 'No painel',
+                        value: '$eventCount',
+                      ),
+                      const SizedBox(width: 10),
+                      chip(
+                        icon: Icons.how_to_reg_rounded,
+                        label: 'RSVP total',
+                        value: '$sumRsvp',
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      chip(
+                        icon: Icons.favorite_rounded,
+                        label: 'Curtidas',
+                        value: '$sumLikes',
+                      ),
+                      const SizedBox(width: 10),
+                      chip(
+                        icon: Icons.forum_rounded,
+                        label: 'Comentários',
+                        value: '$sumComments',
+                      ),
+                    ]),
+                  ],
+                );
+              }
+              return row;
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventDashboardListTile extends StatelessWidget {
+  final int index;
+  final _EventStats stats;
+  final String dateLabel;
+  final VoidCallback onOpenEngagement;
+
+  const _EventDashboardListTile({
+    required this.index,
+    required this.stats,
+    required this.dateLabel,
+    required this.onOpenEngagement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onOpenEngagement,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.white.withValues(alpha: 0.55),
+            border: Border.all(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(
+                      colors: [
+                        ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.12),
+                      ],
+                    ),
+                  ),
+                  child: Text(
+                    '${index + 1}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        stats.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        dateLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _miniMetric(
+                            Icons.how_to_reg_rounded,
+                            'RSVP',
+                            '${stats.rsvp}',
+                            ThemeCleanPremium.success,
+                          ),
+                          _miniMetric(
+                            Icons.favorite_rounded,
+                            'Curtidas',
+                            '${stats.likes}',
+                            const Color(0xFFEF4444),
+                          ),
+                          _miniMetric(
+                            Icons.comment_rounded,
+                            'Coment.',
+                            '${stats.comments}',
+                            const Color(0xFF0EA5E9),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Column(
+                  children: [
+                    Icon(
+                      Icons.touch_app_rounded,
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.75),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Interações',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _miniMetric(
+      IconData icon, String label, String value, Color c) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: c.withValues(alpha: 0.1),
+        border: Border.all(color: c.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: c),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: c,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChartCard extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final IconData icon;
   final Color color;
+  final LinearGradient accentGradient;
   final Widget child;
   final VoidCallback? onTap;
 
-  const _ChartCard(
-      {required this.title,
-      required this.icon,
-      required this.color,
-      required this.child,
-      this.onTap});
+  const _ChartCard({
+    required this.title,
+    this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.accentGradient,
+    required this.child,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -10009,47 +10580,120 @@ class _ChartCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderRadius: BorderRadius.circular(22),
         child: Container(
-          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
           decoration: BoxDecoration(
             color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFF1F5F9)),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              ...ThemeCleanPremium.softUiCardShadow,
+              BoxShadow(
+                color: color.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
+            border: Border.all(
+              color: color.withValues(alpha: 0.14),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(11),
                     decoration: BoxDecoration(
-                        color: color.withOpacity(0.12),
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    child: Icon(icon, color: color, size: 22),
+                      gradient: accentGradient,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Icon(icon, color: Colors.white, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                      child: Text(title,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
                           style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: ThemeCleanPremium.onSurface))),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                        ...() {
+                          final sub = subtitle;
+                          if (sub == null || sub.isEmpty) {
+                            return <Widget>[];
+                          }
+                          return <Widget>[
+                            const SizedBox(height: 4),
+                            Text(
+                              sub,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                              ),
+                            ),
+                          ];
+                        }(),
+                      ],
+                    ),
+                  ),
                   if (onTap != null)
-                    Icon(Icons.visibility_rounded,
-                        size: 18, color: Colors.grey.shade500),
+                    Icon(
+                      Icons.open_in_new_rounded,
+                      size: 20,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
                 ],
               ),
-              if (onTap != null)
-                Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text('Toque para ver nomes',
+              if (onTap != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.visibility_rounded,
+                        size: 16,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Toque para explorar listas',
                         style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600))),
-              const SizedBox(height: 16),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
               child,
             ],
           ),

@@ -71,7 +71,10 @@ service cloud.firestore {
         r == 'lider' || r == 'LIDER' || r == 'Lider' ||
         r == 'líder' || r == 'Líder' || r == 'LÍDER' ||
         r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
-        r == 'lider_depto' || r == 'LIDER_DEPTO'
+        r == 'lider_depto' || r == 'LIDER_DEPTO' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'Líder de grupo' || r == 'líder de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO'
       );
     }
     function isPastorAuxiliarRole() {
@@ -155,6 +158,9 @@ service cloud.firestore {
         'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
         'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
         'Líder de Departamento', 'líder de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'Líder de grupo', 'líder de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO',
         'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
         'evangelista', 'EVANGELISTA', 'Evangelista',
         'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
@@ -166,6 +172,26 @@ service cloud.firestore {
       let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
       return (exists(rootU) && muralRolesArrayMatches(get(rootU).data.roles))
         || (exists(tenantU) && muralRolesArrayMatches(get(tenantU).data.roles));
+    }
+    /// Igual ao critério de líder no app, mas lendo só `roles[]` (quem não tem `role` singular preenchido).
+    function deptLeaderRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'lider', 'LIDER', 'Lider', 'líder', 'Líder', 'LÍDER',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'Líder de Departamento', 'líder de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'Líder de grupo', 'líder de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO'
+      ]);
+    }
+    function deptLeaderFromRolesArrays(tenantId) {
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return (exists(rootU) && get(rootU).data.roles is list
+          && deptLeaderRolesArrayMatches(get(rootU).data.roles))
+        || (exists(tenantU) && get(tenantU).data.roles is list
+          && deptLeaderRolesArrayMatches(get(tenantU).data.roles));
     }
     /// Lançamento em `finance` cujo `memberDocId` aponta para o doc em `membros` do usuário logado (authUid).
     function financeDocReadBySubjectMember(tenantId) {
@@ -237,6 +263,9 @@ service cloud.firestore {
         r == 'líder' || r == 'LÍDER' || r == 'Líder' ||
         r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
         r == 'lider_depto' || r == 'LIDER_DEPTO' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'Líder de grupo' || r == 'líder de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
         r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
         r == 'evangelista' || r == 'EVANGELISTA' || r == 'Evangelista' ||
         r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
@@ -255,6 +284,9 @@ service cloud.firestore {
         'lider', 'LIDER', 'Lider', 'líder', 'LÍDER', 'Líder',
         'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
         'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'Líder de grupo', 'líder de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO',
         'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
         'evangelista', 'EVANGELISTA', 'Evangelista',
         'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
@@ -369,6 +401,8 @@ service cloud.firestore {
               || canWriteTenant(id)
               || (canAccessTenant(id) && isPastoralOrSecretariatRole())
               || (canAccessTenant(id) && isPastorAuxiliarRole())
+              || (canAccessTenant(id) && isDepartmentLeaderRole())
+              || (canAccessTenant(id) && deptLeaderFromRolesArrays(id))
               || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
               || (canAccessTenant(id) && resource.data.authUid == request.auth.uid)
               || (canAccessTenant(id) && memberId == request.auth.uid)

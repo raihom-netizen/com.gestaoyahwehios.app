@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
@@ -17,6 +18,8 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
@@ -817,6 +820,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   ) {
     final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (ChurchChatService.messageHiddenForMe(m, myUid)) return;
+    final mine = senderUid == myUid && myUid.isNotEmpty;
 
     final canEveryone = ChurchChatModeration.canDeleteMessageForEveryone(
       senderUid: senderUid,
@@ -876,35 +880,53 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 _showEmojiReactionPicker(messageId, m);
               },
             ),
-            ListTile(
-              leading: Icon(Icons.visibility_off_outlined,
-                  color: ThemeCleanPremium.primary),
-              title: const Text('Apagar para mim'),
-              subtitle: const Text(
-                'Some só na sua vista — os outros não são afetados.',
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                unawaited(_confirmHideMessageForMe(messageId));
-              },
-            ),
-            if (canEveryone)
+            if (mine)
               ListTile(
-                leading: Icon(Icons.delete_forever_rounded,
-                    color: ThemeCleanPremium.error),
-                title: const Text('Apagar para todos'),
-                subtitle: Text(
-                  widget.isDepartment
-                      ? (senderUid == myUid
-                          ? 'Remove para todos neste grupo.'
-                          : 'Remoção global (moderador: pastor, gestor, ADM ou líder do departamento).')
-                      : 'Remove para ambos na conversa direta.',
+                leading: Icon(Icons.help_outline_rounded,
+                    color: ThemeCleanPremium.primary),
+                title: const Text('Remover ou ocultar…'),
+                subtitle: const Text(
+                  'Cancelar, apagar só para si ou para todos nesta conversa.',
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  unawaited(_confirmDeleteForEveryone(messageId));
+                  unawaited(_showSenderRemovalChoice(
+                    messageId: messageId,
+                    canDeleteForEveryone: canEveryone,
+                  ));
+                },
+              )
+            else ...[
+              ListTile(
+                leading: Icon(Icons.visibility_off_outlined,
+                    color: ThemeCleanPremium.primary),
+                title: const Text('Apagar para mim'),
+                subtitle: const Text(
+                  'Some só na sua vista — os outros não são afetados.',
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  unawaited(_confirmHideMessageForMe(messageId));
                 },
               ),
+              if (canEveryone)
+                ListTile(
+                  leading: Icon(Icons.delete_forever_rounded,
+                      color: ThemeCleanPremium.error),
+                  title: const Text('Apagar para todos'),
+                  subtitle: Text(
+                    widget.isDepartment
+                        ? (senderUid == myUid
+                            ? 'Remove para todos neste grupo.'
+                            : 'Remoção global (moderador: pastor, gestor, ADM ou líder do departamento).')
+                        : 'Remove para ambos na conversa direta.',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(_confirmDeleteForEveryone(messageId));
+                  },
+                ),
+            ],
           ],
         ),
       ),
@@ -983,6 +1005,73 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ),
         ),
       );
+    }
+  }
+
+  /// Mensagem própria: um diálogo com Cancelar / para mim / para todos (alinhado ao pedido de UX).
+  Future<void> _showSenderRemovalChoice({
+    required String messageId,
+    required bool canDeleteForEveryone,
+  }) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remover mensagem'),
+        content: const Text(
+          'Escolha o que deseja fazer com a sua mensagem nesta conversa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'me'),
+            child: const Text('Apagar para mim'),
+          ),
+          if (canDeleteForEveryone)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'all'),
+              style: TextButton.styleFrom(foregroundColor: ThemeCleanPremium.error),
+              child: const Text('Apagar para todos'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'me') {
+      final done = await ChurchChatService.hideMessageForMe(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        messageId: messageId,
+      );
+      if (!mounted) return;
+      if (!done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível atualizar a mensagem.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (choice == 'all') {
+      final done = await ChurchChatService.deleteMessage(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        messageId: messageId,
+      );
+      if (!mounted) return;
+      if (!done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível apagar. Em grupos: pode apagar para todos só as suas mensagens, '
+              'ou use conta de moderador (pastor/gestor/ADM/líder do departamento) para as dos outros.',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -1231,13 +1320,62 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     final replyPayload = _replyDraft?.toReplyPayload();
     setState(() => _sending = true);
+    BuildContext? dialogCtx;
+    final progressVN = ValueNotifier<double>(0);
+    UploadTask? uploadTask;
     try {
+      if (mounted) {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dctx) {
+            dialogCtx = dctx;
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                title: const Text('A enviar…'),
+                content: ValueListenableBuilder<double>(
+                  valueListenable: progressVN,
+                  builder: (_, v, __) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LinearProgressIndicator(
+                        value: v > 0 && v < 1 ? v : null,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Foto, vídeo ou ficheiro para a conversa.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      uploadTask?.cancel();
+                      Navigator.of(dctx).pop();
+                    },
+                    child: const Text('Cancelar'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      }
       final up = await ChurchChatService.uploadChatBytes(
         tenantId: widget.tenantId,
         threadId: widget.threadId,
         bytes: bytes,
         fileName: name,
         contentType: mime,
+        onProgress: (p) => progressVN.value = p,
+        onUploadTaskCreated: (t) => uploadTask = t,
       );
       final ok = await ChurchChatService.sendMediaMessage(
         tenantId: widget.tenantId,
@@ -1257,7 +1395,34 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           const SnackBar(content: Text('Envio bloqueado para este contacto.')),
         );
       }
+    } on FirebaseException catch (e) {
+      if (e.code == 'canceled') {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Envio cancelado.')),
+          );
+        }
+      } else if (mounted) {
+        final msg = (e.message ?? '').trim();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              msg.isNotEmpty ? msg : 'Falha no envio (${e.code}).',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha no envio: $e')),
+        );
+      }
     } finally {
+      if (dialogCtx != null && dialogCtx!.mounted) {
+        Navigator.of(dialogCtx!).pop();
+      }
+      progressVN.dispose();
       if (mounted) setState(() => _sending = false);
     }
   }
@@ -1473,6 +1638,49 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   threadId: widget.threadId,
                   value: !_prefs.isMutedThread(widget.threadId),
                 );
+              } else if (v == 'hide_dm') {
+                final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+                  tenantId: widget.tenantId,
+                  threadId: widget.threadId,
+                  hide: true,
+                );
+                if (!context.mounted) return;
+                if (!ok) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Limite de conversas ocultas '
+                        '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+                      ),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Conversa removida da sua lista.'),
+                    ),
+                  );
+                  Navigator.of(context).pop();
+                }
+              } else if (v == 'dept_members' &&
+                  widget.isDepartment &&
+                  (widget.departmentId ?? '').isNotEmpty) {
+                if (!context.mounted) return;
+                await showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => ChurchDepartmentChatMembersSheet(
+                    navigatorContext: context,
+                    tenantId: widget.tenantId,
+                    currentUid: uid,
+                    departmentId: widget.departmentId!,
+                    departmentName: widget.title,
+                    departmentDocData: _departmentData,
+                    role: widget.memberRole,
+                    cpfDigits: widget.memberCpfDigits,
+                  ),
+                );
               } else if (v == 'block' &&
                   widget.peerUid != null &&
                   widget.peerUid!.isNotEmpty) {
@@ -1564,6 +1772,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   ),
                 ),
               ),
+              if (!widget.isDepartment)
+                PopupMenuItem(
+                  value: 'hide_dm',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Icons.delete_outline_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
+                    title: const Text('Apagar conversa (só para mim)'),
+                    subtitle: const Text(
+                      'Some da lista de conversas.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+              if (widget.isDepartment &&
+                  (widget.departmentId ?? '').isNotEmpty)
+                PopupMenuItem(
+                  value: 'dept_members',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Icons.groups_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                    title: const Text('Membros do grupo'),
+                    subtitle: const Text(
+                      'Online/offline e mensagem direta',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
               if (!widget.isDepartment &&
                   widget.peerUid != null &&
                   widget.peerUid!.isNotEmpty)
@@ -1641,13 +1882,46 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ],
         title: Row(
           children: [
-            CircleAvatar(
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              child: Text(
-                widget.title.isNotEmpty ? widget.title[0].toUpperCase() : '?',
-                style: const TextStyle(fontWeight: FontWeight.w800),
+            if (widget.isDepartment)
+              ChurchChatDepartmentAvatar(
+                deptData: _departmentData,
+                fallbackName: widget.title,
+                radius: 19,
+              )
+            else if (widget.peerUid != null &&
+                widget.peerUid!.isNotEmpty)
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('igrejas')
+                    .doc(widget.tenantId)
+                    .collection('membros')
+                    .limit(500)
+                    .snapshots(),
+                builder: (context, ms) {
+                  final map = churchChatMemberPhotoUrlByAuthUid(ms.data);
+                  final url = map[widget.peerUid!] ?? '';
+                  final dpr = MediaQuery.devicePixelRatioOf(context);
+                  final mem = (38 * dpr).round().clamp(72, 200);
+                  return SafeCircleAvatarImage(
+                    imageUrl: url,
+                    radius: 19,
+                    memCacheSize: mem,
+                    fallbackIcon: Icons.person_rounded,
+                    fallbackColor: Colors.white,
+                    backgroundColor: Colors.white24,
+                  );
+                },
+              )
+            else
+              CircleAvatar(
+                backgroundColor: Colors.white.withValues(alpha: 0.2),
+                child: Text(
+                  widget.title.isNotEmpty
+                      ? widget.title[0].toUpperCase()
+                      : '?',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
-            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -1662,7 +1936,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       fontSize: 17,
                     ),
                   ),
-                  if (widget.peerUid != null)
+                  if (widget.isDepartment)
+                    Text(
+                      'Grupo · ⋮ Membros para ver quem está online',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.88),
+                      ),
+                    )
+                  else if (widget.peerUid != null &&
+                      widget.peerUid!.isNotEmpty)
                     StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                       stream: FirebaseFirestore.instance
                           .collection('igrejas')

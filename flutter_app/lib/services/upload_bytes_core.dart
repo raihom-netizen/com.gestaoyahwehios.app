@@ -14,6 +14,7 @@ Future<String> uploadStoragePutDataWithRetry({
   String cacheControl = 'public, max-age=31536000',
   int maxAttempts = 3,
   void Function(double progress)? onProgress,
+  void Function(UploadTask task)? onTaskStarted,
 }) async {
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -23,6 +24,7 @@ Future<String> uploadStoragePutDataWithRetry({
         bytes,
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
       );
+      onTaskStarted?.call(task);
       StreamSubscription<TaskSnapshot>? sub;
       if (onProgress != null) {
         sub = task.snapshotEvents.listen((snapshot) {
@@ -41,9 +43,11 @@ Future<String> uploadStoragePutDataWithRetry({
       }
     } catch (e) {
       lastError = e;
+      final isCanceled = e is FirebaseException && e.code == 'canceled';
+      if (isCanceled) break;
       if (attempt >= maxAttempts) break;
       await Future.delayed(
-          Duration(milliseconds: 400 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 180 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');
@@ -57,6 +61,7 @@ Future<String> uploadStoragePutFileWithRetry({
   String cacheControl = 'public, max-age=31536000',
   int maxAttempts = 3,
   void Function(double progress)? onProgress,
+  void Function(UploadTask task)? onTaskStarted,
 }) async {
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -66,6 +71,7 @@ Future<String> uploadStoragePutFileWithRetry({
         file,
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
       );
+      onTaskStarted?.call(task);
       StreamSubscription<TaskSnapshot>? sub;
       if (onProgress != null) {
         sub = task.snapshotEvents.listen((snapshot) {
@@ -83,9 +89,11 @@ Future<String> uploadStoragePutFileWithRetry({
       }
     } catch (e) {
       lastError = e;
+      final isCanceled = e is FirebaseException && e.code == 'canceled';
+      if (isCanceled) break;
       if (attempt >= maxAttempts) break;
       await Future.delayed(
-          Duration(milliseconds: 400 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 180 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');

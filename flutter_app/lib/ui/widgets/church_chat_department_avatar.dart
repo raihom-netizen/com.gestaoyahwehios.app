@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/core/church_department_fa_icons.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show SafeCircleAvatarImage, imageUrlFromMap, isValidImageUrl, sanitizeImageUrl;
 
 /// Avatar circular com gradiente + ícone FA — mesmo conceito dos cards em `DepartmentsPage`.
 class ChurchChatDepartmentAvatar extends StatelessWidget {
@@ -18,6 +20,22 @@ class ChurchChatDepartmentAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (deptData != null) {
+      final rawUrl = imageUrlFromMap(deptData!);
+      final cleaned = sanitizeImageUrl(rawUrl);
+      if (isValidImageUrl(cleaned)) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final mem = (radius * 2 * dpr).round().clamp(96, 240);
+        return SafeCircleAvatarImage(
+          imageUrl: cleaned,
+          radius: radius,
+          memCacheSize: mem,
+          fallbackIcon: Icons.groups_rounded,
+          fallbackColor: Colors.white,
+          backgroundColor: Colors.white24,
+        );
+      }
+    }
     final raw = deptData != null
         ? ChurchDepartmentVisualMapper.rawIconStringFromDoc(deptData!)
         : '';

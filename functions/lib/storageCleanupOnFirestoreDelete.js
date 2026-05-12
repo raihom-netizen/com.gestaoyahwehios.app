@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = void 0;
+exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = void 0;
 /**
  * Remove objetos do Storage quando o documento Firestore correspondente é apagado.
  * Complementa o cliente (ex.: deleteMemberRelatedFiles): reforço no servidor.
@@ -86,6 +86,16 @@ exports.onIgrejaMembroDeleteCleanupStorage = functions
     }
     await deleteIfExists(`${base}_assinatura.png`);
     await deleteIfExists(`${base}_digital.png`);
+});
+/** Chat igreja: ao apagar mensagem (ex.: «para todos»), remove ficheiro em `storagePath`. */
+exports.onIgrejaChatMessageDeleteCleanupStorage = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{msgId}")
+    .onDelete(async (snap) => {
+    const d = snap.data();
+    const path = String(d?.storagePath || "").trim();
+    if (path)
+        await deleteIfExists(path);
 });
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
 exports.onIgrejaNoticiaDeleteCleanupStorage = functions

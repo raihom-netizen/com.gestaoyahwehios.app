@@ -29,6 +29,9 @@ class ChurchChatMemberPrefsModel {
   /// `threadId` → `sound` | `vibrate` | `silent` (sobrepõe DM/grupo/global).
   final Map<String, String> threadNotifModes;
 
+  /// DM oculta da lista «Conversas» (só para este utilizador; não apaga o thread).
+  final List<String> hiddenDmThreadIds;
+
   const ChurchChatMemberPrefsModel({
     this.favoriteThreadIds = const [],
     this.mutedThreadIds = const [],
@@ -36,12 +39,15 @@ class ChurchChatMemberPrefsModel {
     this.dmNotificationStyle,
     this.groupNotificationStyle,
     this.threadNotifModes = const {},
+    this.hiddenDmThreadIds = const [],
   });
 
   bool isFavorite(String threadId) => favoriteThreadIds.contains(threadId);
   bool isMutedThread(String threadId) => mutedThreadIds.contains(threadId);
   bool isBlockedPeer(String peerUid) =>
       peerUid.isNotEmpty && blockedPeerUids.contains(peerUid);
+  bool isHiddenDmThread(String threadId) =>
+      threadId.isNotEmpty && hiddenDmThreadIds.contains(threadId);
 
   String? threadNotifOverride(String threadId) => threadNotifModes[threadId];
 }
@@ -54,6 +60,9 @@ class ChurchChatMemberPrefs {
 
   /// Máximo de conversas com alerta personalizado (mapa `threadNotifModes`).
   static const int maxThreadNotifOverrides = 30;
+
+  /// Máximo de DMs ocultas na lista (evita documento gigante).
+  static const int maxHiddenDmThreads = 80;
 
   static DocumentReference<Map<String, dynamic>> docRef(
     String tenantId,
@@ -85,6 +94,7 @@ class ChurchChatMemberPrefs {
       dmNotificationStyle: _optionalAlertMode(d?['dmNotificationStyle']),
       groupNotificationStyle: _optionalAlertMode(d?['groupNotificationStyle']),
       threadNotifModes: _threadNotifMap(d?['threadNotifModes']),
+      hiddenDmThreadIds: _stringList(d?['hiddenDmThreadIds']),
     );
   }
 
@@ -176,6 +186,35 @@ class ChurchChatMemberPrefs {
       },
       SetOptions(merge: true),
     );
+  }
+
+  /// Oculta ou repõe uma conversa direta na lista (não apaga mensagens nem o thread).
+  static Future<bool> setHiddenDmThread({
+    required String tenantId,
+    required String threadId,
+    required bool hide,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final tid = threadId.trim();
+    if (tid.isEmpty) return false;
+    if (!tid.startsWith('dm_')) return false;
+    if (hide) {
+      final cur = await load(tenantId);
+      final ids = cur.hiddenDmThreadIds.toSet();
+      if (!ids.contains(tid) && ids.length >= maxHiddenDmThreads) {
+        return false;
+      }
+    }
+    await docRef(tenantId, uid).set(
+      {
+        'hiddenDmThreadIds': hide
+            ? FieldValue.arrayUnion([tid])
+            : FieldValue.arrayRemove([tid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
   }
 
   static Future<void> setDmNotificationStyle({
