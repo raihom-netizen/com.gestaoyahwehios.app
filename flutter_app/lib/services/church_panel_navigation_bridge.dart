@@ -16,6 +16,14 @@ const int kChurchShellIndexChurchLetters = 14;
 /// Índice do item "Chat - Igreja" em [IgrejaCleanShell].
 const int kChurchShellIndexChat = 24;
 
+/// Pedido de abrir uma conversa concreta (ex.: toque num push de chat com [threadId]).
+class PendingChatThreadOpen {
+  final String threadId;
+  final String? tenantId;
+
+  const PendingChatThreadOpen({required this.threadId, this.tenantId});
+}
+
 /// Encaminha toques em notificações push (FCM) para o módulo certo do painel da igreja.
 class ChurchPanelNavigationBridge {
   ChurchPanelNavigationBridge._();
@@ -23,6 +31,50 @@ class ChurchPanelNavigationBridge {
 
   int? _pendingShellIndex;
   void Function(int index)? _onNavigate;
+
+  PendingChatThreadOpen? _pendingChatOpen;
+  final List<void Function()> _chatOpenListeners = <void Function()>[];
+
+  /// Abre o módulo Chat e deixa [threadId] pendente para [ChurchChatHubPage] consumir.
+  void requestNavigateToChatThread({
+    required String threadId,
+    String? tenantId,
+  }) {
+    final tid = threadId.trim();
+    if (tid.isEmpty) return;
+    final tRaw = tenantId?.trim() ?? '';
+    _pendingChatOpen = PendingChatThreadOpen(
+      threadId: tid,
+      tenantId: tRaw.isEmpty ? null : tRaw,
+    );
+    requestNavigateToShellIndex(kChurchShellIndexChat);
+    _notifyChatOpenListeners();
+  }
+
+  PendingChatThreadOpen? consumePendingChatThreadOpen() {
+    final p = _pendingChatOpen;
+    _pendingChatOpen = null;
+    return p;
+  }
+
+  /// Só lê — útil se quiser saber se há conversa pendente sem consumir.
+  PendingChatThreadOpen? peekPendingChatThreadOpen() => _pendingChatOpen;
+
+  void registerChatOpenListener(void Function() onPending) {
+    if (!_chatOpenListeners.contains(onPending)) {
+      _chatOpenListeners.add(onPending);
+    }
+  }
+
+  void unregisterChatOpenListener(void Function() onPending) {
+    _chatOpenListeners.remove(onPending);
+  }
+
+  void _notifyChatOpenListeners() {
+    for (final cb in List<void Function()>.from(_chatOpenListeners)) {
+      cb();
+    }
+  }
 
   void registerShellNavigator(void Function(int index) onNavigate) {
     _onNavigate = onNavigate;

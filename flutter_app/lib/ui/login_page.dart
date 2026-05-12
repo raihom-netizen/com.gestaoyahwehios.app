@@ -40,6 +40,63 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+// ── Pós-OAuth: evitar signOut agressivo (sensação de «login em loop») ─────────
+
+/// Só limpar sessão Firebase para erros em que faz sentido «recomeçar» o login.
+bool _firebaseAuthErrorShouldClearSession(FirebaseAuthException e) {
+  final c = e.code.toLowerCase();
+  if (c.contains('network-request-failed')) return false;
+  if (c.contains('network')) return false;
+  if (c.contains('too-many-requests')) return false;
+  if (c.contains('cancelled') || c.contains('canceled')) return false;
+  if (c.contains('popup-closed') || c.contains('popup_closed')) return false;
+  if (c.contains('internal-error')) return false;
+  if (c.contains('web-storage-unsupported') || c.contains('storage-unsupported')) {
+    return false;
+  }
+  return true;
+}
+
+Future<void> _signOutFirebaseIfLoggedIn() async {
+  if (FirebaseAuth.instance.currentUser != null) {
+    await FirebaseAuth.instance.signOut();
+  }
+}
+
+/// Mensagens PT para Cloud Functions após Google/Apple (sem deslogar).
+String _loginFirebaseFunctionsUserMessage(
+  FirebaseFunctionsException e, {
+  required bool membro,
+}) {
+  final code = (e.code).toLowerCase();
+  if (code.contains('not-found')) {
+    return membro
+        ? 'Não encontramos cadastro de membro ou gestor com este Google/Apple. '
+            'Confira se o e-mail na igreja é o mesmo da conta usada. '
+            'Pode tentar de novo ou usar e-mail e senha — não é obrigatório sair da conta.'
+        : 'Não encontramos uma igreja vinculada a esta conta. '
+            'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta. '
+            'Pode tentar de novo com o mesmo Google se já for o e-mail certo.';
+  }
+  if (code.contains('deadline') ||
+      code.contains('deadline-exceeded') ||
+      code.contains('cancelled')) {
+    return 'O servidor demorou a responder. Verifique a internet e toque de novo em entrar — '
+        'a sessão Google/Apple pode já estar válida; não precisa voltar ao início.';
+  }
+  if (code.contains('unavailable') ||
+      code.contains('resource-exhausted') ||
+      code.contains('aborted')) {
+    return 'Serviço temporariamente indisponível. Aguarde um minuto e tente de novo.';
+  }
+  if (code.contains('permission-denied')) {
+    return 'Sem permissão para esta operação. Use e-mail e senha ou contacte o suporte.';
+  }
+  final m = (e.message ?? '').trim();
+  if (m.isNotEmpty) return m;
+  return e.code;
+}
+
 enum _SmartStep { choosePersona, gestorBranch, credentials }
 
 class LoginPage extends StatefulWidget {
@@ -333,12 +390,15 @@ class _LoginPageState extends State<LoginPage> {
     if (FirebaseAuth.instance.currentUser != null) return;
     final last = await LoginPreferences.getLastOAuthProvider();
     if (last != 'google') return;
+    // Evita corrida com login biométrico+e-mail (mesmo frame / poucos ms).
+    if (_quickBiometricReady) return;
     if (!mounted) return;
     try {
-      final result =
-          await ExpressLoginService.tryExpressLogin(allowFallbackToGoogleUi: false);
+      // Só Google silencioso — nunca Apple/Google UI aqui (evita vários pedidos
+      // de autenticação ao abrir a tela para quem já usava Google).
+      final cred = await ExpressLoginService.tryGoogleSilentOnly();
       if (!mounted) return;
-      if (!result.success || FirebaseAuth.instance.currentUser == null) return;
+      if (cred == null || cred.user == null) return;
       setState(() => _sessionFinalizing = true);
       try {
         await _afterGoogleSignInSuccess();
@@ -462,7 +522,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!isAdminRoute) {
       final versionOk = await _ensureLatestVersion();
       if (!versionOk) {
-        await FirebaseAuth.instance.signOut();
+        await _signOutFirebaseIfLoggedIn();
         return false;
       }
     }
@@ -542,8 +602,10 @@ class _LoginPageState extends State<LoginPage> {
       _errorMessage = null;
     });
     try {
+      final lastOauth = await LoginPreferences.getLastOAuthProvider();
       final result = await ExpressLoginService.tryExpressLogin(
         skipSilentPhase: true,
+        skipApplePhase: lastOauth == 'google' || lastOauth == 'email',
         onBeforeNativeOAuthUi: () {
           if (!mounted) return;
           setState(() => _expressLoginInFlight = false);
@@ -577,27 +639,21 @@ class _LoginPageState extends State<LoginPage> {
       }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
+      if (_firebaseAuthErrorShouldClearSession(e)) {
+        await _signOutFirebaseIfLoggedIn();
+      }
       if (!mounted) return;
       _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      final code = (e.code).toLowerCase();
-      final msg = code.contains('not-found')
-          ? (_credentialsAsMembro
-              ? 'Não encontramos cadastro de membro ou gestor com este Google/Apple. '
-                  'Confira se o e-mail na igreja é o mesmo da conta usada.'
-              : 'Não encontramos uma igreja vinculada a esta conta. '
-                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
-          : (e.message ?? e.code);
+      final msg = _loginFirebaseFunctionsUserMessage(e, membro: _credentialsAsMembro);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } catch (e) {
       if (!mounted) return;
-      const msg = 'Falha no login expresso. Tente de novo ou use e-mail e senha.';
+      const msg =
+          'Falha no login expresso. Verifique a internet e tente de novo, ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
@@ -666,33 +722,23 @@ class _LoginPageState extends State<LoginPage> {
       await _afterGoogleSignInSuccess();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
+      if (_firebaseAuthErrorShouldClearSession(e)) {
+        await _signOutFirebaseIfLoggedIn();
+      }
       if (!mounted) return;
       _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      final code = (e.code).toLowerCase();
-      final msg = code.contains('not-found')
-          ? (_credentialsAsMembro
-              ? 'Não encontramos cadastro de membro ou gestor com este Google. '
-                  'Confira se o e-mail na igreja é o mesmo da conta Google. '
-                  'Se você é gestor e quer cadastrar uma igreja nova, volte e escolha a opção correspondente.'
-              : 'Não encontramos uma igreja vinculada a este Google. '
-                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
-          : (e.message ?? e.code);
+      final msg = _loginFirebaseFunctionsUserMessage(e, membro: _credentialsAsMembro);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
       setState(() => _errorMessage = 'Falha ao concluir login Google.');
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-            'Falha ao concluir login Google. Tente de novo ou use e-mail e senha.'),
+            'Falha ao concluir login Google. Verifique a internet e tente de novo ou use e-mail e senha.'),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -785,22 +831,14 @@ class _LoginPageState extends State<LoginPage> {
       }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
+      if (_firebaseAuthErrorShouldClearSession(e)) {
+        await _signOutFirebaseIfLoggedIn();
+      }
       if (!mounted) return;
       _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      final code = (e.code).toLowerCase();
-      final msg = code.contains('not-found')
-          ? (_credentialsAsMembro
-              ? 'Não encontramos cadastro de membro ou gestor com este Google. '
-                  'Confira se o e-mail na igreja é o mesmo da conta Google. '
-                  'Se você é gestor e quer cadastrar uma igreja nova, volte e escolha a opção correspondente.'
-              : 'Não encontramos uma igreja vinculada a este Google. '
-                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
-          : (e.message ?? e.code);
+      final msg = _loginFirebaseFunctionsUserMessage(e, membro: _credentialsAsMembro);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
@@ -816,8 +854,6 @@ class _LoginPageState extends State<LoginPage> {
       if (isGoogleSignInUserCancellation(e)) {
         return;
       }
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
       final isDevErr = isGoogleSignInAndroidConfigError(e);
       final msg = isDevErr
           ? 'Login Google indisponível neste aparelho (assinatura do app). '
@@ -829,9 +865,7 @@ class _LoginPageState extends State<LoginPage> {
           ThemeCleanPremium.feedbackSnackBar('$msg\n(${e.code})'));
     } catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      final msg = 'Falha no login com Google. Tente de novo ou use e-mail e senha.';
+      final msg = 'Falha no login com Google. Verifique a internet e tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));
@@ -887,22 +921,14 @@ class _LoginPageState extends State<LoginPage> {
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
+      if (_firebaseAuthErrorShouldClearSession(e)) {
+        await _signOutFirebaseIfLoggedIn();
+      }
       if (!mounted) return;
       _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      final code = (e.code).toLowerCase();
-      final msg = code.contains('not-found')
-          ? (_credentialsAsMembro
-              ? 'Não encontramos cadastro de membro ou gestor com esta Apple ID. '
-                  'Confira se o e-mail na igreja é o mesmo da conta Apple. '
-                  'Se você é gestor e quer cadastrar uma igreja nova, volte e escolha a opção correspondente.'
-              : 'Não encontramos uma igreja vinculada a esta Apple ID. '
-                  'Use e-mail e senha de gestor ou cadastre sua igreja na opção correta.')
-          : (e.message ?? e.code);
+      final msg = _loginFirebaseFunctionsUserMessage(e, membro: _credentialsAsMembro);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
@@ -910,9 +936,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       final low = e.toString().toLowerCase();
       if (low.contains('cancel')) return;
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      const msg = 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
+      const msg = 'Falha no login com Apple. Verifique a internet e tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar('$msg\n$e'));

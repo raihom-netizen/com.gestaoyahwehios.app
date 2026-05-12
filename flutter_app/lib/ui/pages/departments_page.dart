@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         imageUrlFromMap;
@@ -3981,7 +3982,10 @@ class _VerMembrosSheetState extends State<_VerMembrosSheet> {
   @override
   void initState() {
     super.initState();
-    _list = List.from(widget.members);
+    _list = List.from(widget.members)
+      ..sort(
+        (a, b) => _memberName(a).toLowerCase().compareTo(_memberName(b).toLowerCase()),
+      );
   }
 
   String _memberName(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -4164,11 +4168,33 @@ class _VincularMembrosSheet extends StatefulWidget {
 
 class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
   late Set<String> _selected;
+  late List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedMembers;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  /// '' = todos; [genderCategoryFromMemberData] `M` ou `F`.
+  String _sexFilter = '';
+
+  /// `todos` ou presets de faixa/perfil (exige idade quando aplicável).
+  String _presetFilter = 'todos';
 
   @override
   void initState() {
     super.initState();
     _selected = Set<String>.from(widget.selecionados);
+    _sortedMembers = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      widget.members,
+    )..sort(
+        (a, b) => _memberName(a)
+            .toLowerCase()
+            .compareTo(_memberName(b).toLowerCase()),
+      );
+    _searchCtrl.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   String _memberName(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -4181,8 +4207,54 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
   String _memberCpfDigits(Map<String, dynamic> d) =>
       (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
 
+  bool _memberMatchesFilters(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      final name = _memberName(doc).toLowerCase();
+      if (!name.contains(q)) return false;
+    }
+
+    final gender = genderCategoryFromMemberData(d);
+    if (_sexFilter.isNotEmpty && gender != _sexFilter) return false;
+
+    final age = ageFromMemberData(d);
+    switch (_presetFilter) {
+      case 'todos':
+        return true;
+      case 'homem':
+        if (gender != 'M') return false;
+        if (age == null) return false;
+        return age >= 18 && age < 60;
+      case 'menino':
+        if (gender != 'M') return false;
+        if (age == null) return false;
+        return age < 18;
+      case 'menina':
+        if (gender != 'F') return false;
+        if (age == null) return false;
+        return age < 18;
+      case 'mulher':
+        if (gender != 'F') return false;
+        if (age == null) return false;
+        return age >= 18 && age < 60;
+      case 'idoso':
+        if (age == null) return false;
+        return age >= 60;
+      case 'crianca':
+        if (age == null) return false;
+        return age < 13;
+      default:
+        return true;
+    }
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _visibleMembers =>
+      _sortedMembers.where(_memberMatchesFilters).toList();
+
   @override
   Widget build(BuildContext context) {
+    final visible = _visibleMembers;
     return DraggableScrollableSheet(
       initialChildSize: 0.6,
       maxChildSize: 0.95,
@@ -4216,13 +4288,185 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
               '${widget.deptName} — marque os membros que fazem parte para escalas e reuniões.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _searchCtrl,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Buscar por nome…',
+                prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                suffixIcon: _searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Limpar',
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: ThemeCleanPremium.primary,
+                    width: 1.4,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Sexo',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: Colors.grey.shade700,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Todos'),
+                    selected: _sexFilter.isEmpty,
+                    onSelected: (v) {
+                      if (v) setState(() => _sexFilter = '');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Masculino'),
+                    selected: _sexFilter == 'M',
+                    onSelected: (v) {
+                      if (v) setState(() => _sexFilter = 'M');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Feminino'),
+                    selected: _sexFilter == 'F',
+                    onSelected: (v) {
+                      if (v) setState(() => _sexFilter = 'F');
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Idade / perfil',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: Colors.grey.shade700,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Todos'),
+                    selected: _presetFilter == 'todos',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'todos');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Criança'),
+                    selected: _presetFilter == 'crianca',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'crianca');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Menino'),
+                    selected: _presetFilter == 'menino',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'menino');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Menina'),
+                    selected: _presetFilter == 'menina',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'menina');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Homem'),
+                    selected: _presetFilter == 'homem',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'homem');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Mulher'),
+                    selected: _presetFilter == 'mulher',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'mulher');
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Idoso'),
+                    selected: _presetFilter == 'idoso',
+                    onSelected: (v) {
+                      if (v) setState(() => _presetFilter = 'idoso');
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Ordem alfabética · ${visible.length} de ${_sortedMembers.length} na lista'
+              '${_presetFilter != 'todos' ? ' · idade: usa a data de nascimento da ficha' : ''}'
+              '${_sexFilter.isNotEmpty ? ' · sexo: quem sem sexo na ficha não aparece' : ''}',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
             Expanded(
-              child: ListView.builder(
-                controller: scrollController,
-                itemCount: widget.members.length,
-                itemBuilder: (context, i) {
-                  final doc = widget.members[i];
+              child: visible.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'Nenhum membro corresponde aos filtros. Ajuste a busca ou use «Todos».',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: visible.length,
+                      itemBuilder: (context, i) {
+                  final doc = visible[i];
                   final id = doc.id;
                   final nome = _memberName(doc);
                   final checked = _selected.contains(id);

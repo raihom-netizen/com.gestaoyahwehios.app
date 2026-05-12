@@ -119,6 +119,10 @@ String? googleAuthErrorMessagePt(FirebaseAuthException e) {
     return 'O navegador bloqueou armazenamento necessário para o login. '
         'Saia do modo anónimo ou permita cookies e armazenamento para este site.';
   }
+  if (code.contains('internal-error')) {
+    return 'Erro interno ao concluir o login Google (comum com pop-up bloqueado ou Safari). '
+        'Tente de novo ou use e-mail e senha.';
+  }
   if (code.contains('network-request-failed') ||
       raw.contains('network')) {
     return 'Sem ligação estável. Verifique a internet e tente de novo.';

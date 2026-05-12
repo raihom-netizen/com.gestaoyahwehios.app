@@ -14,18 +14,25 @@ function parseStringArray(raw: unknown): string[] {
   return out;
 }
 
-async function collectFcmTokensForUids(uids: string[]): Promise<string[]> {
-  const out = new Set<string>();
+/** Tokens FCM com uid (para corpo personalizado «mencionou-o»). */
+async function collectFcmTokenPairsForUids(
+  uids: string[]
+): Promise<Array<{ uid: string; token: string }>> {
+  const pairs: Array<{ uid: string; token: string }> = [];
   for (const raw of uids) {
     const uid = String(raw || "").trim();
     if (uid.length < 8) continue;
-    const tokSnap = await db.collection("users").doc(uid).collection("fcmTokens").get();
-    for (const t of tokSnap.docs) {
-      const token = String((t.data() || {}).token || "").trim();
-      if (token) out.add(token);
+    try {
+      const tokSnap = await db.collection("users").doc(uid).collection("fcmTokens").get();
+      for (const t of tokSnap.docs) {
+        const token = String((t.data() || {}).token || "").trim();
+        if (token) pairs.push({ uid, token });
+      }
+    } catch (_) {
+      // continuar outros uids
     }
   }
-  return [...out];
+  return pairs;
 }
 
 async function sendEachInBatches(messages: admin.messaging.Message[]): Promise<void> {
@@ -50,7 +57,7 @@ function previewFromMessage(msg: Record<string, unknown>): string {
   return "Nova mensagem";
 }
 
-/** Push aos outros participantes do thread — respeita [users.pushChat]. */
+/** Push aos outros participantes do thread — respeita [users.pushChat]. Mencões em grupo: corpo dedicado. */
 export const onChurchChatMessageCreated = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{messageId}")
@@ -75,6 +82,8 @@ export const onChurchChatMessageCreated = functions
 
     const titlesByUid = (thread.titlesByUid || {}) as Record<string, string>;
     const senderName = String(titlesByUid[senderUid] || "").trim() || "Alguém";
+
+    const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
 
     const recipientPushOn: string[] = [];
     for (const uid of recipients) {
@@ -108,8 +117,8 @@ export const onChurchChatMessageCreated = functions
     }
     if (!recipientPushOn.length) return null;
 
-    const tokens = await collectFcmTokensForUids(recipientPushOn);
-    if (!tokens.length) return null;
+    const pairs = await collectFcmTokenPairsForUids(recipientPushOn);
+    if (!pairs.length) return null;
 
     const threadType = String(thread.type || "");
     let title = String(thread.title || "").trim() || "Conversas";
@@ -118,25 +127,34 @@ export const onChurchChatMessageCreated = functions
     }
 
     const preview = previewFromMessage(msg as Record<string, unknown>);
-    const body =
-      threadType === "department"
-        ? `${senderName}: ${preview || "Nova mensagem"}`
-        : preview || "Nova mensagem";
 
-    const messages: admin.messaging.Message[] = tokens.map((token) =>
-      buildGyTokenMessage({
-        token,
-        title,
-        body: body.slice(0, 200),
-        data: {
-          tenantId,
-          type: "novo_chat",
-          threadId,
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
-        module: "chat",
-      })
-    );
+    const messages: admin.messaging.Message[] = [];
+    for (const { uid, token } of pairs) {
+      const wasMentioned =
+        threadType === "department" && mentionedSet.has(uid) && uid !== senderUid;
+      const body =
+        threadType === "department"
+          ? wasMentioned
+            ? `${senderName} mencionou-o: ${preview || "Nova mensagem"}`.slice(0, 200)
+            : `${senderName}: ${preview || "Nova mensagem"}`.slice(0, 200)
+          : (preview || "Nova mensagem").slice(0, 200);
+
+      messages.push(
+        buildGyTokenMessage({
+          token,
+          title,
+          body,
+          data: {
+            tenantId,
+            type: "novo_chat",
+            threadId,
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+            ...(wasMentioned ? { chatMention: "1" } : {}),
+          },
+          module: "chat",
+        })
+      );
+    }
 
     await sendEachInBatches(messages);
     return null;

@@ -37,6 +37,7 @@ void showGestaoForegroundNotificationSnackBar(
   if (!context.mounted) return;
   final title = (msg.notification?.title ?? '').trim();
   final body = (msg.notification?.body ?? '').trim();
+  final isChatMention = (msg.data['chatMention'] ?? '').toString() == '1';
   final text = title.isNotEmpty
       ? '$title${body.isNotEmpty ? '\n$body' : ''}'
       : (body.isNotEmpty ? body : 'Nova notificação');
@@ -74,7 +75,7 @@ void showGestaoForegroundNotificationSnackBar(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Gestão YAHWEH',
+                  isChatMention ? 'Menção no chat' : 'Gestão YAHWEH',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,

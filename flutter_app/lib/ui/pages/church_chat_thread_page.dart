@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart';
@@ -14,6 +15,10 @@ import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -136,6 +141,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   DateTime? _lastLimitBump;
   Timer? _typingDebounce;
   Timer? _typingIdleTimer;
+
+  /// Uids mencionados nesta composição (picker @) — enviados em [mentionedUids] no texto.
+  final Set<String> _mentionedUidsPending = <String>{};
 
   @override
   void initState() {
@@ -263,8 +271,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _typingDebounce?.cancel();
     _typingDebounce = Timer(const Duration(milliseconds: 420), () {
-      final label =
-          FirebaseAuth.instance.currentUser?.displayName?.trim();
+      final label = ChurchChatService.senderDisplayNameForNewMessage();
       unawaited(
         ChurchChatService.setTypingActive(
           tenantId: widget.tenantId,
@@ -417,19 +424,79 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   static String _messageHaystack(Map<String, dynamic> m) {
+    final sb = StringBuffer();
+    final sn = (m['senderDisplayName'] ?? '').toString().trim();
+    if (sn.isNotEmpty) sb.write('${sn.toLowerCase()} ');
+    final prefix = sb.toString();
     final type = (m['type'] ?? 'text').toString();
     if (type == 'text') {
-      return (m['text'] ?? '').toString().toLowerCase();
+      return prefix + (m['text'] ?? '').toString().toLowerCase();
     }
-    if (type == 'image') return 'imagem foto imagem';
-    if (type == 'video') return 'vídeo video';
-    if (type == 'audio') return 'áudio audio';
+    if (type == 'image') return prefix + 'imagem foto imagem';
+    if (type == 'video') return prefix + 'vídeo video';
+    if (type == 'audio') return prefix + 'áudio audio';
     if (type == 'document') {
-      return 'documento pdf word excel ficheiro arquivo '
-          '${(m['fileName'] ?? '').toString().toLowerCase()}';
+      return prefix +
+          'documento pdf word excel ficheiro arquivo '
+              '${(m['fileName'] ?? '').toString().toLowerCase()}';
     }
-    if (type == 'sticker') return 'figurinha sticker emoji';
-    return type.toLowerCase();
+    if (type == 'sticker') return prefix + 'figurinha sticker emoji';
+    return prefix + type.toLowerCase();
+  }
+
+  String _senderDisplayForMessage(
+    String senderUid,
+    Map<String, String> titlesByUid,
+    Map<String, dynamic> m,
+  ) {
+    final fromMsg = (m['senderDisplayName'] ?? '').toString().trim();
+    if (fromMsg.isNotEmpty) return fromMsg;
+    final fromThread = titlesByUid[senderUid]?.trim();
+    if (fromThread != null && fromThread.isNotEmpty) return fromThread;
+    if (senderUid.length >= 4) {
+      return 'Membro ···${senderUid.substring(senderUid.length - 4)}';
+    }
+    return 'Membro';
+  }
+
+  Widget _buildReactionsStrip(
+    Map<String, dynamic> m,
+    String myUid,
+    bool mine,
+  ) {
+    final r = m['reactionsByUid'];
+    if (r is! Map || r.isEmpty) return const SizedBox.shrink();
+    final chips = <Widget>[];
+    r.forEach((k, v) {
+      final uid = k.toString();
+      final em = v.toString();
+      if (em.isEmpty) return;
+      chips.add(
+        Padding(
+          padding: const EdgeInsets.only(right: 6, top: 4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: uid == myUid
+                    ? ThemeCleanPremium.primary.withValues(alpha: 0.4)
+                    : ThemeCleanPremium.primary.withValues(alpha: 0.06),
+              ),
+            ),
+            child: Text(em, style: const TextStyle(fontSize: 14)),
+          ),
+        ),
+      );
+    });
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Wrap(
+        alignment: mine ? WrapAlignment.end : WrapAlignment.start,
+        children: chips,
+      ),
+    );
   }
 
   Future<void> _sendText() async {
@@ -449,6 +516,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         threadId: widget.threadId,
         text: t,
         replyTo: replyPayload,
+        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+        mentionedUids: _mentionedUidsPending.isEmpty
+            ? null
+            : _mentionedUidsPending.toList(),
       );
       if (!ok) {
         if (mounted) {
@@ -463,7 +534,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         return;
       }
       _ctrl.clear();
-      if (mounted) setState(() => _replyDraft = null);
+      if (mounted) {
+        setState(() {
+          _replyDraft = null;
+          _mentionedUidsPending.clear();
+        });
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -517,6 +593,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
         stickerSource: pick.stickerSource,
         replyTo: replyPayload,
+        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
       );
       if (!ok) {
         if (mounted) {
@@ -542,6 +619,193 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  void _showEmojiReactionPicker(String messageId, Map<String, dynamic> m) {
+    const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥'];
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: ThemeCleanPremium.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Escolha uma reação',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final e in emojis)
+                    Material(
+                      color: ThemeCleanPremium.cardBackground,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          final rx = m['reactionsByUid'];
+                          String? next = e;
+                          if (rx is Map && rx[myUid]?.toString() == e) {
+                            next = null;
+                          }
+                          final ok =
+                              await ChurchChatService.setMyReactionOnMessage(
+                            tenantId: widget.tenantId,
+                            threadId: widget.threadId,
+                            messageId: messageId,
+                            emoji: next,
+                          );
+                          if (!mounted) return;
+                          if (!ok) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Não foi possível guardar a reação.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(e, style: const TextStyle(fontSize: 28)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDeptMentionPicker() async {
+    final deptId = widget.departmentId?.trim() ?? '';
+    if (!widget.isDepartment || deptId.isEmpty) return;
+    final docs = await ChurchChatService.fetchActiveDepartmentMembers(
+      tenantId: widget.tenantId,
+      departmentId: deptId,
+    );
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: ThemeCleanPremium.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.92,
+          builder: (context, scrollCtrl) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.alternate_email_rounded,
+                          color: ThemeCleanPremium.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Mencionar membro',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollCtrl,
+                    itemCount: docs.length,
+                    itemBuilder: (_, i) {
+                      final d = docs[i].data();
+                      final name = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
+                          .toString()
+                          .trim();
+                      final pickName = name.isEmpty ? 'Membro' : name;
+                      final authUid =
+                          (d['authUid'] ?? '').toString().trim();
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: ThemeCleanPremium.primary
+                              .withValues(alpha: 0.15),
+                          child: Text(
+                            pickName.isNotEmpty
+                                ? pickName[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                        ),
+                        title: Text(pickName),
+                        subtitle: authUid.isEmpty
+                            ? null
+                            : Text(
+                                authUid,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          if (authUid.isNotEmpty) {
+                            setState(() {
+                              _mentionedUidsPending.add(authUid);
+                            });
+                          }
+                          final insert = '@$pickName ';
+                          final t = _ctrl.text;
+                          final s = _ctrl.selection;
+                          final start =
+                              s.start >= 0 ? s.start : t.length;
+                          final end = s.end >= 0 ? s.end : t.length;
+                          final newText =
+                              t.replaceRange(start, end, insert);
+                          _ctrl.value = TextEditingValue(
+                            text: newText,
+                            selection: TextSelection.collapsed(
+                              offset: start + insert.length,
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showMessageActions(
@@ -580,6 +844,34 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 setState(() {
                   _replyDraft = _ReplyDraft.fromMessageDoc(messageId, m);
                 });
+              },
+            ),
+            if ((m['type'] ?? 'text').toString() == 'text')
+              ListTile(
+                leading: Icon(Icons.copy_rounded,
+                    color: ThemeCleanPremium.primary),
+                title: const Text('Copiar texto'),
+                onTap: () async {
+                  final tx = (m['text'] ?? '').toString();
+                  Navigator.pop(ctx);
+                  if (tx.isEmpty) return;
+                  await Clipboard.setData(ClipboardData(text: tx));
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Copiado para a área de transferência.'),
+                    ),
+                  );
+                },
+              ),
+            ListTile(
+              leading: Icon(Icons.emoji_emotions_outlined,
+                  color: ThemeCleanPremium.primary),
+              title: const Text('Reagir'),
+              subtitle: const Text('Emoji nesta mensagem.'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEmojiReactionPicker(messageId, m);
               },
             ),
             ListTile(
@@ -903,6 +1195,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         kind: kind,
         fileName: kind == 'document' ? name : null,
         replyTo: replyPayload,
+        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
       );
       if (ok && mounted) {
         setState(() => _replyDraft = null);
@@ -1402,6 +1695,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     if (v is Timestamp) peerSeenAt = v;
                   }
                 }
+                final threadMap = thrSnap.data?.data();
+                final titlesByUid = <String, String>{};
+                if (threadMap != null) {
+                  final tm = threadMap['titlesByUid'];
+                  if (tm is Map) {
+                    for (final e in tm.entries) {
+                      titlesByUid[e.key.toString()] = e.value.toString();
+                    }
+                  }
+                }
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: ChurchChatService.messagesCol(
                           widget.tenantId, widget.threadId)
@@ -1464,6 +1767,33 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         final messageId = docs[i].id;
                         final senderUid =
                             (m['senderUid'] ?? '').toString();
+                        final senderLabel = _senderDisplayForMessage(
+                          senderUid,
+                          titlesByUid,
+                          m,
+                        );
+                        final groupIncoming =
+                            widget.isDepartment && !mine;
+                        final bubbleBg = mine
+                            ? ThemeCleanPremium.primary
+                                .withValues(alpha: 0.16)
+                            : (groupIncoming
+                                ? ChurchChatSenderPalette
+                                    .bubbleBackgroundForUid(senderUid)
+                                : ThemeCleanPremium.cardBackground);
+                        final bubbleBorder = mine
+                            ? ThemeCleanPremium.primary
+                                .withValues(alpha: 0.06)
+                            : (groupIncoming
+                                ? ChurchChatSenderPalette
+                                    .bubbleBorderForUid(senderUid)
+                                : ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.06));
+                        final quoteAccent = (!mine &&
+                                widget.isDepartment)
+                            ? ChurchChatSenderPalette
+                                .nameColorForUid(senderUid)
+                            : null;
                         return GestureDetector(
                           onLongPress: () {
                             if (ChurchChatService.messageHiddenForMe(m, uid)) {
@@ -1484,10 +1814,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
-                              color: mine
-                                  ? ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.16)
-                                  : ThemeCleanPremium.cardBackground,
+                              color: bubbleBg,
                               borderRadius: BorderRadius.only(
                                 topLeft: const Radius.circular(10),
                                 topRight: const Radius.circular(10),
@@ -1495,8 +1822,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                 bottomRight: Radius.circular(mine ? 2 : 10),
                               ),
                               border: Border.all(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.06),
+                                color: bubbleBorder,
                               ),
                               boxShadow: ThemeCleanPremium.softUiCardShadow,
                             ),
@@ -1506,7 +1832,42 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   : CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                _MessageBody(type: type, data: m, mine: mine),
+                                if (widget.isDepartment &&
+                                    !mine &&
+                                    senderLabel.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: Text(
+                                      senderLabel,
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: ChurchChatSenderPalette
+                                            .nameColorForUid(senderUid),
+                                      ),
+                                    ),
+                                  ),
+                                if (widget.isDepartment && mine)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: Text(
+                                      'Tu',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: ThemeCleanPremium.onSurface
+                                            .withValues(alpha: 0.48),
+                                      ),
+                                    ),
+                                  ),
+                                _MessageBody(
+                                  messageId: messageId,
+                                  type: type,
+                                  data: m,
+                                  mine: mine,
+                                  replyQuoteAccent: quoteAccent,
+                                ),
+                                _buildReactionsStrip(m, uid, mine),
                                 Padding(
                                   padding: const EdgeInsets.only(top: 5),
                                   child: Row(
@@ -1640,6 +2001,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         color: ThemeCleanPremium.onSurfaceVariant),
                     tooltip: 'Anexos (foto, vídeo, PDF, áudio…)',
                   ),
+                  if (widget.isDepartment &&
+                      (widget.departmentId?.trim().isNotEmpty ?? false))
+                    IconButton(
+                      onPressed: (_sending || _voiceRecording)
+                          ? null
+                          : () => unawaited(_openDeptMentionPicker()),
+                      icon: Icon(
+                        Icons.alternate_email_rounded,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                      tooltip: 'Mencionar membro (@)',
+                    ),
                   if (!kIsWeb)
                     IconButton(
                       onPressed: _sending ? null : _toggleVoiceRecordSend,
@@ -1763,14 +2136,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 }
 
 class _MessageBody extends StatelessWidget {
+  final String messageId;
   final String type;
   final Map<String, dynamic> data;
   final bool mine;
+  final Color? replyQuoteAccent;
 
   const _MessageBody({
+    required this.messageId,
     required this.type,
     required this.data,
     required this.mine,
+    this.replyQuoteAccent,
   });
 
   Widget _replyQuote(BuildContext context) {
@@ -1778,6 +2155,7 @@ class _MessageBody extends StatelessWidget {
     if (rt is! Map) return const SizedBox.shrink();
     final preview = (rt['preview'] ?? '').toString();
     if (preview.isEmpty) return const SizedBox.shrink();
+    final accent = replyQuoteAccent ?? ThemeCleanPremium.primary;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -1790,7 +2168,7 @@ class _MessageBody extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           border: Border(
             left: BorderSide(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+              color: accent.withValues(alpha: 0.85),
               width: 3,
             ),
           ),
@@ -1893,10 +2271,58 @@ class _MessageBody extends StatelessWidget {
           quote,
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: SafeNetworkImage(
-              imageUrl: url,
-              fit: BoxFit.cover,
+            child: SizedBox(
               height: 220,
+              width: double.infinity,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  GestureDetector(
+                    onTap: () => churchChatOpenImageZoom(context, url),
+                    child: SafeNetworkImage(
+                      imageUrl: url,
+                      fit: BoxFit.cover,
+                      height: 220,
+                      width: double.infinity,
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Material(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Ampliar',
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.zoom_in_rounded,
+                                color: Colors.white, size: 20),
+                            onPressed: () =>
+                                churchChatOpenImageZoom(context, url),
+                          ),
+                          IconButton(
+                            tooltip: 'Guardar',
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.download_rounded,
+                                color: Colors.white, size: 20),
+                            onPressed: () =>
+                                churchChatSaveImageUrl(context, url),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1909,29 +2335,58 @@ class _MessageBody extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           quote,
-          InkWell(
-            onTap: () async {
-              final u = Uri.parse(url);
-              if (await canLaunchUrl(u)) {
-                await launchUrl(u, mode: LaunchMode.externalApplication);
-              }
-            },
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.play_circle_fill_rounded,
-                    color: Color(0xFF128C7E), size: 36),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    kIsWeb ? 'Abrir vídeo' : 'Toque para abrir o vídeo',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF075E54),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: ColoredBox(
+              color: Colors.black,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: ChurchHostedVideoSurface(
+                      videoUrl: url,
+                      autoPlay: false,
+                      layoutAspectRatio: 16 / 9,
                     ),
                   ),
-                ),
-              ],
+                  Material(
+                    color: Colors.black87,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          tooltip: 'Teatro / ecrã inteiro',
+                          icon: const Icon(
+                            Icons.fullscreen_rounded,
+                            color: Colors.white70,
+                          ),
+                          onPressed: () {
+                            showChurchHostedVideoTheater(
+                              context,
+                              videoUrl: url,
+                              title: 'Vídeo',
+                            );
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'Descarregar / partilhar',
+                          icon: const Icon(
+                            Icons.download_rounded,
+                            color: Colors.white70,
+                          ),
+                          onPressed: () => churchChatShareDownloadVideo(
+                            context,
+                            url,
+                            fileName:
+                                (data['fileName'] ?? '').toString(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -1983,6 +2438,23 @@ class _MessageBody extends StatelessWidget {
         ],
       );
     }
+    if (type == 'audio') {
+      final sp = (data['storagePath'] ?? '').toString().trim();
+      return Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          quote,
+          ChurchChatInlineAudioPlayer(
+            mediaUrl: url,
+            storagePath: sp.isEmpty ? null : sp,
+            messageId: messageId,
+            mine: mine,
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment:
           mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -2002,7 +2474,7 @@ class _MessageBody extends StatelessWidget {
               const Icon(Icons.audiotrack_rounded, color: Color(0xFF128C7E)),
               const SizedBox(width: 8),
               Text(
-                kIsWeb ? 'Abrir áudio' : 'Ouvir áudio',
+                kIsWeb ? 'Abrir ficheiro' : 'Abrir ficheiro',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ],

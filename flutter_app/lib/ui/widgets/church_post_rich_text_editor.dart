@@ -276,6 +276,7 @@ class _ChurchPostRichTextEditorState extends State<ChurchPostRichTextEditor> {
                           padding: EdgeInsets.fromLTRB(12, 10, 12, 14),
                           // OBRIGATÓRIO false aqui quando o pai é scrollável — não alterar.
                           scrollable: false,
+                          minHeight: 200,
                           autoFocus: false,
                         ),
                       ),

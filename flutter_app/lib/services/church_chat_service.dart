@@ -112,6 +112,125 @@ class ChurchChatService {
     };
   }
 
+  /// Nome mostrado no grupo/DM (gravado em mensagens novas).
+  static String senderDisplayNameForNewMessage() {
+    final u = FirebaseAuth.instance.currentUser;
+    final n = u?.displayName?.trim();
+    if (n != null && n.isNotEmpty) {
+      return n.length > 100 ? n.substring(0, 100) : n;
+    }
+    final e = u?.email?.trim();
+    if (e != null && e.contains('@')) {
+      final p = e.split('@').first.trim();
+      if (p.isNotEmpty) {
+        return p.length > 100 ? p.substring(0, 100) : p;
+      }
+    }
+    return 'Membro';
+  }
+
+  /// Membros ativos do departamento (menções, listas).
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      fetchActiveDepartmentMembers({
+    required String tenantId,
+    required String departmentId,
+  }) async {
+    final deptId = departmentId.trim();
+    if (deptId.isEmpty) return [];
+
+    bool isActive(Map<String, dynamic> d) {
+      final st = (d['STATUS'] ?? d['status'] ?? '').toString().toLowerCase();
+      return st == 'ativo';
+    }
+
+    int nameCmp(QueryDocumentSnapshot<Map<String, dynamic>> a,
+        QueryDocumentSnapshot<Map<String, dynamic>> b) {
+      final na = (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '')
+          .toString()
+          .toLowerCase();
+      final nb = (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '')
+          .toString()
+          .toLowerCase();
+      return na.compareTo(nb);
+    }
+
+    try {
+      final q = await _db
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('membros')
+          .where('departamentosIds', arrayContains: deptId)
+          .limit(400)
+          .get();
+      final out = q.docs.where((doc) => isActive(doc.data())).toList();
+      out.sort(nameCmp);
+      return out;
+    } catch (_) {
+      final all = await _db
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('membros')
+          .limit(600)
+          .get();
+      final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (final doc in all.docs) {
+        final data = doc.data();
+        if (!isActive(data)) continue;
+        final ids = data['departamentosIds'];
+        if (ids is! List) continue;
+        var hit = false;
+        for (final x in ids) {
+          if (x.toString() == deptId) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) continue;
+        out.add(doc);
+      }
+      out.sort(nameCmp);
+      return out;
+    }
+  }
+
+  /// Reação do utilizador atual (`emoji` vazio remove).
+  static Future<bool> setMyReactionOnMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    String? emoji,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return false;
+    var e = emoji?.trim() ?? '';
+    if (e.length > 8) e = e.substring(0, 8);
+    final ref = messagesCol(tenantId, threadId).doc(messageId);
+    try {
+      await _db.runTransaction((tx) async {
+        final snap = await tx.get(ref);
+        if (!snap.exists) return;
+        final raw = snap.data()?['reactionsByUid'];
+        final cur = <String, String>{};
+        if (raw is Map) {
+          for (final en in raw.entries) {
+            final k = en.key.toString();
+            final v = en.value?.toString() ?? '';
+            if (k.isNotEmpty && v.isNotEmpty) cur[k] = v;
+          }
+        }
+        if (e.isEmpty) {
+          cur.remove(uid);
+        } else {
+          cur[uid] = e;
+        }
+        tx.update(ref, {'reactionsByUid': cur});
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Sincroniza departamentos do membro para as regras Firestore (`users_profile_chat`).
   static Future<void> syncUserChatProfile({
     required String tenantId,
@@ -260,6 +379,8 @@ class ChurchChatService {
     required String threadId,
     required String text,
     Map<String, dynamic>? replyTo,
+    String? senderDisplayName,
+    List<String>? mentionedUids,
   }) async {
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
@@ -272,6 +393,13 @@ class ChurchChatService {
         Timestamp.fromDate(DateTime.now().add(textRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
     final nr = normalizeReplyTo(replyTo);
+    final label = (senderDisplayName ?? '').trim();
+    final mentions = (mentionedUids ?? const <String>[])
+        .map((e) => e.trim())
+        .where((e) => e.length > 4)
+        .toSet()
+        .take(24)
+        .toList();
     await msgRef.set({
       'senderUid': uid,
       'type': 'text',
@@ -279,6 +407,10 @@ class ChurchChatService {
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,
+      if (label.isNotEmpty)
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
+      if (mentions.isNotEmpty) 'mentionedUids': mentions,
     });
     await threadRef(tenantId, threadId).set(
       {
@@ -301,6 +433,7 @@ class ChurchChatService {
     required String kind,
     String? fileName,
     Map<String, dynamic>? replyTo,
+    String? senderDisplayName,
   }) async {
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
@@ -317,6 +450,7 @@ class ChurchChatService {
       fileName: fileName,
     );
     final nr = normalizeReplyTo(replyTo);
+    final label = (senderDisplayName ?? '').trim();
     await msgRef.set({
       'senderUid': uid,
       'type': kind,
@@ -327,6 +461,9 @@ class ChurchChatService {
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,
+      if (label.isNotEmpty)
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
     });
     await threadRef(tenantId, threadId).set(
       {
@@ -348,6 +485,7 @@ class ChurchChatService {
     String? storagePath,
     String stickerSource = 'upload',
     Map<String, dynamic>? replyTo,
+    String? senderDisplayName,
   }) async {
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
@@ -365,6 +503,7 @@ class ChurchChatService {
     );
     final nr = normalizeReplyTo(replyTo);
     final sp = storagePath?.trim() ?? '';
+    final label = (senderDisplayName ?? '').trim();
     await msgRef.set({
       'senderUid': uid,
       'type': 'sticker',
@@ -374,6 +513,9 @@ class ChurchChatService {
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,
+      if (label.isNotEmpty)
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
     });
     await threadRef(tenantId, threadId).set(
       {

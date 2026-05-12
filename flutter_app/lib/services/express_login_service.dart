@@ -11,7 +11,8 @@ import 'gestor_oauth_onboarding_service.dart';
 ///   1. Tenta `Google.signInSilently()` — usa a sessão já guardada do
 ///      Google Play Services / iCloud sem abrir UI.
 ///   2. Em iPhone/iPad, se silencioso falhar, tenta «Entrar com a Apple»
-///      (compatível com a Diretriz 4.8 da App Store).
+///      (compatível com a Diretriz 4.8 da App Store), salvo [skipApplePhase]
+///      (ex.: último login guardado foi Google — vai direto ao passo 3).
 ///   3. Como último recurso abre o seletor Google nativo (com UI).
 ///
 /// Em qualquer falha (rede / cancelamento / token vazio) retorna `null` —
@@ -33,6 +34,10 @@ class ExpressLoginService {
     /// Quando `true`, não volta a chamar `signInSilently` (já executado na 1.ª fase
     /// sem overlay — evita spinner na faixa antes da UI nativa).
     bool skipSilentPhase = false,
+    /// Quando `true`, não abre Sign in with Apple no iOS entre o silencioso e o
+    /// Google com UI (ex.: último login bem-sucedido foi Google — evita Face ID
+    /// + sheet Apple antes do seletor Google).
+    bool skipApplePhase = false,
   }) async {
     if (kIsWeb) {
       return const ExpressLoginResult._(
@@ -58,7 +63,7 @@ class ExpressLoginService {
       }
     }
 
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
+    if (!skipApplePhase && defaultTargetPlatform == TargetPlatform.iOS) {
       onBeforeNativeOAuthUi?.call();
       try {
         final apple =

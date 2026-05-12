@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -78,8 +79,10 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
         if (!mounted) return;
         if (silentCred != null && silentCred.user != null) return;
         setState(() => _expressInFlight = true);
+        final lastOauth = await LoginPreferences.getLastOAuthProvider();
         final res = await ExpressLoginService.tryExpressLogin(
           skipSilentPhase: true,
+          skipApplePhase: lastOauth == 'google' || lastOauth == 'email',
           onBeforeNativeOAuthUi: () {
             if (!mounted) return;
             setState(() => _expressInFlight = false);

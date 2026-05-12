@@ -870,6 +870,15 @@ service cloud.firestore {
           );
       }
 
+      /// Reações: só o mapa `reactionsByUid` pode mudar (merge transacional no cliente).
+      function chatMessageReactionsByUidOnly(tenantId, threadId) {
+        return canAccessTenant(tenantId)
+          && canReadChatThreadDoc(tenantId, threadId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reactionsByUid'])
+          && request.resource.data.reactionsByUid is map
+          && request.resource.data.reactionsByUid.size() <= 48;
+      }
+
       match /users_profile_chat/{uid} {
         allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
         allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
@@ -937,6 +946,16 @@ service cloud.firestore {
           allow create: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
             && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])
+            && (!('senderDisplayName' in request.resource.data) || (
+              request.resource.data.senderDisplayName is string
+              && request.resource.data.senderDisplayName.size() > 0
+              && request.resource.data.senderDisplayName.size() <= 100
+            ))
+            && !('reactionsByUid' in request.resource.data)
+            && (!('mentionedUids' in request.resource.data) || (
+              request.resource.data.mentionedUids is list
+              && request.resource.data.mentionedUids.size() <= 24
+            ))
             && (!('replyTo' in request.resource.data) || (
               request.resource.data.replyTo is map
               && request.resource.data.replyTo.keys().hasOnly(['messageId', 'senderUid', 'preview', 'type'])
@@ -947,7 +966,8 @@ service cloud.firestore {
               && request.resource.data.replyTo.messageId.size() > 0
               && request.resource.data.replyTo.preview.size() <= 240
             ));
-          allow update: if chatMessageHideForMeOnly(id, threadId);
+          allow update: if chatMessageHideForMeOnly(id, threadId)
+            || chatMessageReactionsByUidOnly(id, threadId);
           allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
             && chatMessageDeleteForEveryoneAllowed(id, threadId);
         }

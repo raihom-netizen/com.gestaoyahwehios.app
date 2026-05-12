@@ -1865,7 +1865,6 @@ class _PostCardState extends State<_PostCard>
               key: ValueKey(
                   '${widget.doc.id}_${churchPostRichContentSig(data)}'),
               data: data,
-              maxHeight: 400,
             ),
           ),
 

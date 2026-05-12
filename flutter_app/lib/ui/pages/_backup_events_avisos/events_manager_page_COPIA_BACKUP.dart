@@ -1,3 +1,7 @@
+// CÓPIA INALTERÁVEL do módulo eventos/avisos (antes da correção da tela cinzenta).
+// Pasta excluída do `dart analyze` — não importar; usar só como referência.
+// Ficheiro activo: `lib/ui/pages/events_manager_page.dart`
+//
 import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math';
@@ -1830,6 +1834,7 @@ class _EventGalleryDetailPage extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 14),
               child: ChurchPostRichTextViewer(
                 data: Map<String, dynamic>.from(data),
+                maxHeight: 420,
               ),
             ),
           if (photos.isNotEmpty) ...[
@@ -4013,6 +4018,7 @@ class _EventoPostState extends State<_EventoPost>
             key: ValueKey(
                 '${widget.doc.id}_${churchPostRichContentSig(Map<String, dynamic>.from(data))}'),
             data: Map<String, dynamic>.from(data),
+            maxHeight: kIsWeb ? 380 : 440,
           ),
         ),
         // Convite, site público e mapa

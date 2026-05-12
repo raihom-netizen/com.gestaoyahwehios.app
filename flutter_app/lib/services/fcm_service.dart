@@ -203,6 +203,20 @@ class FcmService {
   void _routeEscalaNotificationIfAny(RemoteMessage message) {
     final raw = message.data['type'];
     final type = raw is String ? raw : raw?.toString();
+    final t = (type ?? '').trim();
+
+    if (t == 'novo_chat' || t == 'chat_message' || t == 'church_chat') {
+      final threadId = (message.data['threadId'] ?? '').toString().trim();
+      if (threadId.isNotEmpty) {
+        final tenantRaw = (message.data['tenantId'] ?? '').toString().trim();
+        ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
+          threadId: threadId,
+          tenantId: tenantRaw.isEmpty ? null : tenantRaw,
+        );
+        return;
+      }
+    }
+
     final idx = ChurchPanelNavigationBridge.shellIndexForNotificationType(type);
     if (idx != null) {
       ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(idx);
