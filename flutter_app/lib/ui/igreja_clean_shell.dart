@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
-import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
@@ -182,17 +181,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   Future<void> _openUpgradePlans() async {
     if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
       final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
-      final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-          .replace(queryParameters: {
-        'from': 'ios_app',
-        'utm_source': 'app_ios',
-        'utm_medium': 'church_shell',
-        if (email.isNotEmpty) 'email': email,
-      });
+      final uri = IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+        utmMedium: 'church_shell',
+        email: email.isEmpty ? null : email,
+      );
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         _showPanelSnack(
-          'Não foi possível abrir o navegador. Acesse /atualizar-plano manualmente.',
+          'Não foi possível abrir o navegador. Acesse /igreja/login no site manualmente.',
           isError: true,
         );
       }

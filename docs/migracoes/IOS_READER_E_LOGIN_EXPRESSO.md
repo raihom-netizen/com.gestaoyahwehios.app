@@ -1,15 +1,18 @@
 # Migração — iOS App Store (Reader/Multiplatform) + Login Expresso + Atualizar Plano Web
 
 > Caderno técnico do que foi implementado no **Gestão YAHWEH** em
-> maio/2026 (build `11.2.295+1512`) para:
+> maio/2026 (baseline build `11.2.295+1512`; URL iOS **login-first**
+> `11.2.295+1558`) para:
 >
 > 1. **Homologar na App Store** sem rejeição por pagamento (Guidelines
 >    3.1.1, 3.1.3(b), 3.2.1(viii), 4.8 e Privacy Manifest).
 > 2. **Replicar o «Login Expresso»** do Controle Total (Google
 >    silencioso → Apple iOS → Google UI).
-> 3. **Fluxo express «Atualizar plano»** — rota web pública que pede
->    login simples, mostra plano atual + vencimento e leva direto ao
->    checkout Mercado Pago, sem passar pelo painel.
+> 3. **Fluxo express «Atualizar plano»** — na web: primeiro **login do
+>    painel** (mesma UI Super Premium que `/igreja/login`), depois planos
+>    + PIX/cartão **na mesma página** (checkout Mercado Pago embebido em
+>    iframe; copy explícita: sem levar o utilizador ao *site* do MP noutro
+>    separador).
 >
 > Este ficheiro é o **mapa** para aplicar a mesma lógica em outros
 > projetos (Controle Total, Moova Super Premium, etc.).
@@ -35,12 +38,15 @@ e o competidor «enuves»):
 1. **Em iOS native**, NUNCA expor preços, checkout ou link direto para
    pagamento dentro do app. Tela `IosPaymentUnavailableView` mostra
    apenas nome + capacidade + recursos dos planos.
-2. **Único botão** «Atualizar plano no site» abre Safari na URL pública
-   `/atualizar-plano` com `from=ios_app&email=...`.
-3. **Rota web `/atualizar-plano`** (`ExpressRenewGatePage`): header
-   «Super Premium», botão **Login Expresso** (Google popup/redirect),
-   header com plano atual + vencimento, lista de planos, ciclo,
-   checkout Mercado Pago — tudo na web, fora do binário iOS.
+2. **Único fluxo Safari** a partir do iPhone: abrir o **login web do
+   produto** (no YAHWEH: `/igreja/login`) com query `after` apontando para
+   `/atualizar-plano?from=ios_app` e `from=ios_app`, mais `email` quando
+   existir. Assim o utilizador autentica **antes** dos planos (claims /
+   `igrejaId` corretos). Implementação: `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri`
+   e `openUpgradePlansExternally`.
+3. **Rota web `/atualizar-plano`** (`ExpressRenewGatePage`): após login,
+   header com plano atual + vencimento, lista de planos, ciclo, checkout
+   MP embebido (`MpCheckoutEmbed`) — tudo na web, fora do binário iOS.
 4. **Webhook Mercado Pago + Cloud Function** atualiza Firestore;
    `RenewPlanPage` ouve via snapshot listener e libera o plano sem
    reabrir o app.
@@ -88,25 +94,51 @@ No iOS native em modo Reader (`IosPaymentsGate.shouldHidePayments == true`):
 - **Nenhum CTA de upgrade** deve abrir `RenewPlanPage()` diretamente.
 - Todos os CTAs («Atualizar plano», «Ver planos», «Ativar plano», ações em
   `SnackBar`, diálogos de limite e banners de trial/licença) devem abrir
-  **Safari externo** em `/atualizar-plano` com `email` quando disponível.
+  **Safari externo** no **login web** com destino pós-login na rota expressa
+  de plano (no YAHWEH: `/igreja/login?after=/atualizar-plano?from=ios_app&from=ios_app&email=...`).
+  **Não** usar só `/atualizar-plano` como primeira página — evita erro
+  `igrejaId ausente` antes da sessão.
 
-Implementação padrão (helper central no gate):
+Implementação padrão (helper central no gate — YAHWEH `11.2.295+1558`):
 
 ```dart
+static Uri churchWebLoginThenAtualizarPlanoUri({
+  String utmMedium = 'manage_subscription',
+  String? email,
+}) {
+  final base = AppConstants.publicWebBaseUrl.trim();
+  final root =
+      base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+  return Uri.parse('$root/igreja/login').replace(
+    queryParameters: <String, String>{
+      'after': '/atualizar-plano?from=ios_app',
+      'from': 'ios_app',
+      'utm_source': 'app_ios',
+      'utm_medium': utmMedium,
+      if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+    },
+  );
+}
+
 static Future<bool> openUpgradePlansExternally({
   String source = 'ios_app',
 }) async {
   final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
-  final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-      .replace(queryParameters: {
-    'from': 'ios_app',
-    'utm_source': 'app_ios',
-    'utm_medium': source,
-    if (email.isNotEmpty) 'email': email,
-  });
+  final uri = churchWebLoginThenAtualizarPlanoUri(
+    utmMedium: source,
+    email: email.isEmpty ? null : email,
+  );
   return launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 ```
+
+No `main.dart`, a rota **`/igreja/login`** deve ler `after` (whitelist:
+`/painel`, `/atualizar-plano`, `/planos`) e passar a string completa a
+`LoginPage(afterLoginRoute: …)`. Com `from=ios_app` e sem `after`, o destino
+padrão pode ser `/atualizar-plano?from=ios_app`.
+
+Na **LoginPage** (web), o fluxo `signInWithRedirect` do Google deve tratar
+`afterLoginRoute` **com query** (comparar só o path para `/atualizar-plano`).
 
 Uso padrão em qualquer botão:
 
@@ -156,18 +188,17 @@ Tela «Atualizar plano» — substitui o checkout em iOS. Mostra:
 - Construtor aceita `embedded: true` para uso dentro de `AppShell` /
   shell de navegação (omite `AppBar` própria).
 
-URL externa montada com:
+URL externa (Safari a partir do iPhone) — **login primeiro**:
 
 ```dart
-final params = <String, String>{
-  'from': 'ios_app',
-  'utm_source': 'app_ios',
-  'utm_medium': 'manage_subscription',
-  if (email.isNotEmpty) 'email': email,
-};
-return Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-    .replace(queryParameters: params);
+return IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+  utmMedium: 'manage_subscription',
+  email: email.isEmpty ? null : email,
+);
 ```
+
+(Equivalente no Controle Total / Moova: path de login web do produto + query
+`after` whitelistada para a rota expressa de plano + `from=ios_app`.)
 
 ### 2.3 `lib/main.dart`
 
@@ -216,17 +247,35 @@ if (IosPaymentsGate.isIosNative) {
 }
 ```
 
-E no switch principal, registrar a nova rota web:
+E no switch principal, registre a rota web de **login** com destino pós-login
+seguro e a rota expressa:
 
 ```dart
-case '/atualizar-plano': {
+case '/igreja/login': {
   final em = uri.queryParameters['email']?.trim();
-  pagina = ExpressRenewGatePage(
+  final afterLogin = _resolveIgrejaLoginAfterRoute(uri); // whitelist + from=ios_app
+  pagina = LoginPage(
+    title: 'Entrar — Painel da Igreja',
+    afterLoginRoute: afterLogin,
+    showFleetBranding: false,
+    backRoute: '/',
     prefillEmail: (em != null && em.isNotEmpty) ? em : null,
   );
   break;
 }
+case '/atualizar-plano': {
+  final em = uri.queryParameters['email']?.trim();
+  final fromIos = uri.queryParameters['from']?.toLowerCase() == 'ios_app';
+  pagina = ExpressRenewGatePage(
+    prefillEmail: (em != null && em.isNotEmpty) ? em : null,
+    openedFromIosApp: fromIos,
+  );
+  break;
+}
 ```
+
+(`_resolveIgrejaLoginAfterRoute` no YAHWEH valida `after` e injeta `from=ios_app`
+em `/atualizar-plano` quando aplicável — ver `main.dart`.)
 
 ### 2.4 `lib/ui/pages/plans/renew_plan_page.dart`
 
@@ -280,10 +329,16 @@ Comportamento:
     botão grande gradient «Login Expresso» → `signInWithPopup`
     (Google) com fallback `signInWithRedirect` (Safari/iOS); link
     discreto «Entrar com e-mail e senha» que empilha a `LoginPage`
-    tradicional com `afterLoginRoute: /atualizar-plano`.
-  - **Footer**: «Conexão segura · Pagamento via Mercado Pago».
+    tradicional com `afterLoginRoute: '/atualizar-plano?from=ios_app'`
+    quando o fluxo vem do iOS (`openedFromIosApp`).
+  - **Footer**: «Conexão segura · Pagamento via Mercado Pago» (no modo expresso
+    com iframe, o texto de apoio explica checkout **nesta página** / embebido).
 
 Aceita `?email=...` da URL para pré-preencher.
+
+**Login manual** empilhado a partir do gate: `afterLoginRoute` deve ser
+`/atualizar-plano?from=ios_app` quando `openedFromIosApp`, para manter o contexto
+Reader nas mensagens e no fluxo.
 
 ### 2.6 Pontos de UI ajustados (label condicional + gating)
 
@@ -302,7 +357,7 @@ Em todos os pontos abaixo, o **botão continua existindo** e abre o
 | `lib/ui/pages/subscription_expired_page.dart` | «Renovar Licença / Pagar Agora» | «Atualizar plano» |
 | `lib/ui/pages/completar_cadastro_membro_page.dart` | «Ver planos» | «Atualizar plano» |
 | `lib/ui/pages/public_member_signup_page.dart` | «Ver planos» | «Atualizar plano» |
-| `lib/ui/login_page.dart` `_buildPlanosResumoCard` | preços por plano + «Ver página completa de planos» → `/planos` | preços OCULTOS + «Atualizar plano no site» → Safari externo |
+| `lib/ui/login_page.dart` `_buildPlanosResumoCard` | preços por plano + «Ver página completa de planos» → `/planos` | preços OCULTOS + «Atualizar plano no site» → Safari no **login web** (`/igreja/login?after=…`) via helper do gate |
 
 Padrão de import e uso:
 
@@ -682,7 +737,9 @@ iOS 14.0+ é o mínimo aceito pela App Store em 2026.
 
 ### Express Renew (rota web `/atualizar-plano`)
 
-- [ ] Abre direto pela URL com header «Super Premium».
+- [ ] A partir do **iPhone**, o primeiro URL é o **login web** (`/igreja/login?…`)
+      com `after` → `/atualizar-plano?from=ios_app` (não só `/atualizar-plano`).
+- [ ] Abre direto pela URL de login ou, se já logado, fluxo expresso com header «Super Premium».
 - [ ] `?email=...` mostra badge "Vamos entrar com `<email>`".
 - [ ] Botão Login Expresso abre popup Google; em Safari (popup
       bloqueado) cai para `signInWithRedirect` automaticamente.
@@ -690,7 +747,7 @@ iOS 14.0+ é o mínimo aceito pela App Store em 2026.
       plano atual + vencimento.
 - [ ] Após pagamento → `_buildExpressDoneView` (não redireciona).
 - [ ] Link "Entrar com e-mail e senha" abre `LoginPage` que volta
-      para `/atualizar-plano` ao logar.
+      para `/atualizar-plano?from=ios_app` ao logar (fluxo iOS).
 
 ### iOS — pasta `ios/` e Apple Developer
 
@@ -712,7 +769,7 @@ iOS 14.0+ é o mínimo aceito pela App Store em 2026.
 
 | Projeto | iOS Reader+Hardening+Express | Login Expresso |
 |---|---|---|
-| **Gestão YAHWEH** (origem) | ✅ Implementado (`11.2.295+1512`) | ✅ Implementado (portado do Controle Total) |
+| **Gestão YAHWEH** (origem) | ✅ `11.2.295+1512` + URL login-first **`11.2.295+1558`** | ✅ Implementado (portado do Controle Total) |
 | **Controle Total** (`C:\Controletotalapp_Independente`) | ⏳ Aplicar | ✅ **Já é a fonte** — não mexer |
 | **Moova Super Premium** (`C:\moova_super_premium`) | ⏳ Aplicar | ⏳ Aplicar |
 
@@ -721,8 +778,10 @@ iOS 14.0+ é o mínimo aceito pela App Store em 2026.
 - **Trocar imports** `gestao_yahweh` → pacote real do projeto
   alvo (`controletotalapp` / `moova_super_premium`).
 - **`AppConstants.publicWebBaseUrl`** — substituir pela URL do site
-  público correspondente. **Confirmar** que no site público existe (ou
-  vai ser criada) a rota `/atualizar-plano` que recebe `?from=ios_app`.
+  público correspondente. Confirmar rotas web: **login do painel**
+  (ex.: `/igreja/login` no YAHWEH) com query `after` whitelistada, e rota
+  **`/atualizar-plano`** para o express renew. No iOS, o primeiro URL deve
+  ser o **login**, não só `/atualizar-plano`.
 - **`planosOficiais` / `PlanPriceService`** — cada app tem o próprio
   catálogo de planos. Reutilizar a lista local; o widget só lê.
 - **`ThemeCleanPremium`** — usar o tema equivalente do projeto alvo.
@@ -795,7 +854,7 @@ flutter_app/lib/ui/pages/plans/express_renew_gate_page.dart
 ### Dart modificados (label condicional / gating / express)
 
 ```
-flutter_app/lib/main.dart                                       # gate `/`, `/planos`, `/pagamento`, rota `/atualizar-plano`
+flutter_app/lib/main.dart                                       # gate `/`, `/planos`, `/pagamento`, rotas `/igreja/login` + `/atualizar-plano`
 flutter_app/lib/app_version.dart                                # bump
 flutter_app/pubspec.yaml                                        # firebase_remote_config + bump
 flutter_app/web/version.json                                    # bump

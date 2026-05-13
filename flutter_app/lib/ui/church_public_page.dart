@@ -2374,8 +2374,10 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                           logChurchPublic(
                                               'footer_adquirir_sistema');
                                           if (IosPaymentsGate.isIosNative) {
-                                            final url = Uri.parse(
-                                                '${AppConstants.publicWebBaseUrl}/atualizar-plano?from=ios_app');
+                                            final url =
+                                                IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+                                              utmMedium: 'church_public_footer',
+                                            );
                                             unawaited(launchUrl(url,
                                                 mode: LaunchMode
                                                     .externalApplication));
@@ -5296,8 +5298,10 @@ class _ChurchTenantFallback extends StatelessWidget {
               onAdquirirSistema: () {
                 logChurchPublicLocal('footer_adquirir_sistema');
                 if (IosPaymentsGate.isIosNative) {
-                  final url = Uri.parse(
-                      '${AppConstants.publicWebBaseUrl}/atualizar-plano?from=ios_app');
+                  final url =
+                      IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+                    utmMedium: 'church_public_footer',
+                  );
                   unawaited(launchUrl(url,
                       mode: LaunchMode.externalApplication));
                   return;

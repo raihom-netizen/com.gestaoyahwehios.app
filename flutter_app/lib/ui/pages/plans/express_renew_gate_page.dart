@@ -161,12 +161,15 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
   }
 
   void _openManualLogin() {
+    final renewTarget = widget.openedFromIosApp
+        ? '/atualizar-plano?from=ios_app'
+        : '/atualizar-plano';
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => LoginPage(
           title: 'Entrar — Atualizar plano',
-          afterLoginRoute: '/atualizar-plano',
-          backRoute: '/atualizar-plano',
+          afterLoginRoute: renewTarget,
+          backRoute: renewTarget,
           prefillEmail: widget.prefillEmail,
         ),
       ),

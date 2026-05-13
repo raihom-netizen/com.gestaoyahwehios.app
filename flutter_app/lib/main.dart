@@ -74,6 +74,53 @@ bool _crashlyticsFlutterErrorLikelyBenignNetwork(FlutterErrorDetails details) {
   return false;
 }
 
+const _kAllowedChurchPostLoginPaths = {
+  '/painel',
+  '/atualizar-plano',
+  '/planos',
+};
+
+String _sanitizeChurchPostLoginRoute(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return '/painel';
+  final Uri? u = s.startsWith('http://') || s.startsWith('https://')
+      ? Uri.tryParse(s)
+      : Uri.tryParse(
+          'https://placeholder.invalid${s.startsWith('/') ? s : '/$s'}',
+        );
+  if (u == null) return '/painel';
+  var p = u.path.isEmpty ? '/' : u.path;
+  if (!p.startsWith('/')) p = '/$p';
+  if (!_kAllowedChurchPostLoginPaths.contains(p)) return '/painel';
+  if (u.hasQuery && u.query.isNotEmpty) return '$p?${u.query}';
+  return p;
+}
+
+/// Query `after` em `/igreja/login` (whitelist). Fluxo iOS (`from=ios_app`)
+/// garante `from=ios_app` em `/atualizar-plano` para o gate expresso.
+String _resolveIgrejaLoginAfterRoute(Uri loginUri) {
+  final fromIosApp =
+      loginUri.queryParameters['from']?.toLowerCase() == 'ios_app';
+  final afterRaw = loginUri.queryParameters['after']?.trim();
+  if (afterRaw != null && afterRaw.isNotEmpty) {
+    var target = _sanitizeChurchPostLoginRoute(afterRaw);
+    if (fromIosApp) {
+      final pathOnly = target.split('?').first;
+      if (pathOnly == '/atualizar-plano') {
+        final hasIosFrom = target.contains('from=ios_app');
+        if (!hasIosFrom) {
+          target = target.contains('?')
+              ? '$target&from=ios_app'
+              : '$target?from=ios_app';
+        }
+      }
+    }
+    return target;
+  }
+  if (fromIosApp) return '/atualizar-plano?from=ios_app';
+  return '/painel';
+}
+
 /// Salva a rota atual para, ao reabrir o app pelo ícone, abrir onde parou (evita tela preta).
 class _LastRouteObserver extends NavigatorObserver {
   static const _key = 'last_route';
@@ -95,7 +142,7 @@ class _LastRouteObserver extends NavigatorObserver {
     if (name == null || name.isEmpty) return;
     // Evita gravar rotas de login/entrada para não criar loops ao reabrir o app.
     if (name == '/' || name.startsWith('/login')) return;
-    if (name == '/login_admin' || name == '/igreja/login') return;
+    if (name == '/login_admin' || name.startsWith('/igreja/login')) return;
     // Focamos em estabilidade do painel principal.
     final isPainel = name == '/painel' ||
         name == '/admin' ||
@@ -868,9 +915,10 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 }
                 case '/igreja/login': {
                   final em = uri.queryParameters['email']?.trim();
+                  final afterLogin = _resolveIgrejaLoginAfterRoute(uri);
                   pagina = LoginPage(
                     title: 'Entrar — Painel da Igreja',
-                    afterLoginRoute: '/painel',
+                    afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
                     prefillEmail:

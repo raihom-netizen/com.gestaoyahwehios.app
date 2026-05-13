@@ -96,19 +96,40 @@ class IosPaymentsGate {
     }
   }
 
-  /// Em iOS Reader/SaaS: abre rota web dedicada de alteração de plano.
-  /// Inclui e-mail atual (quando disponível) para login expresso.
+  /// URL do site: login do painel da igreja (mesma UI «Super Premium») e,
+  /// após autenticar, redireciona para `/atualizar-plano` com `from=ios_app`.
+  ///
+  /// Assim o Safari abre primeiro o ecrã de login com Google / Apple / e-mail,
+  /// com `igrejaId` resolvido nas claims antes do checkout.
+  static Uri churchWebLoginThenAtualizarPlanoUri({
+    String utmMedium = 'manage_subscription',
+    String? email,
+  }) {
+    final base = AppConstants.publicWebBaseUrl.trim();
+    final root =
+        base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    return Uri.parse('$root/igreja/login').replace(
+      queryParameters: <String, String>{
+        'after': '/atualizar-plano?from=ios_app',
+        'from': 'ios_app',
+        'utm_source': 'app_ios',
+        'utm_medium': utmMedium,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+      },
+    );
+  }
+
+  /// Em iOS Reader/SaaS: abre o site no **login da igreja**; depois do login
+  /// segue para alteração de plano (PIX/cartão na própria página web).
+  /// Inclui e-mail atual (quando disponível) para pré-preencher o login.
   static Future<bool> openUpgradePlansExternally({
     String source = 'ios_app',
   }) async {
     final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
-    final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-        .replace(queryParameters: {
-      'from': 'ios_app',
-      'utm_source': 'app_ios',
-      'utm_medium': source,
-      if (email.isNotEmpty) 'email': email,
-    });
+    final uri = churchWebLoginThenAtualizarPlanoUri(
+      utmMedium: source,
+      email: email.isEmpty ? null : email,
+    );
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }

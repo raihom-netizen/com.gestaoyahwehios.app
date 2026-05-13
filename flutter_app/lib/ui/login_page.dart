@@ -96,6 +96,12 @@ String _loginFirebaseFunctionsUserMessage(
   return e.code;
 }
 
+/// Rotas pós-login web que partilham fluxo Google redirect ([LoginPage] igreja).
+bool loginAfterTargetsPainelOrAtualizarPlano(String route) {
+  final path = route.split('?').first;
+  return path == '/painel' || path == '/atualizar-plano';
+}
+
 enum _SmartStep { choosePersona, gestorBranch, credentials }
 
 class LoginPage extends StatefulWidget {
@@ -167,7 +173,8 @@ class _LoginPageState extends State<LoginPage> {
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
     if (widget.afterLoginRoute == '/admin') return 'master';
-    if (widget.afterLoginRoute == '/painel') return 'igreja';
+    final path = widget.afterLoginRoute.split('?').first;
+    if (path == '/painel' || path == '/atualizar-plano') return 'igreja';
     return 'default';
   }
 
@@ -194,8 +201,7 @@ class _LoginPageState extends State<LoginPage> {
     _senhaController.addListener(_clearError);
     _loadSavedCredentials();
     if (kIsWeb &&
-        (widget.afterLoginRoute == '/painel' ||
-            widget.afterLoginRoute == '/atualizar-plano') &&
+        loginAfterTargetsPainelOrAtualizarPlano(widget.afterLoginRoute) &&
         !_isMasterAdminLogin) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _completeGoogleRedirectIfNeeded());
@@ -661,8 +667,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _completeGoogleRedirectIfNeeded() async {
     if (!kIsWeb || !mounted) return;
     if (_isMasterAdminLogin) return;
-    if (widget.afterLoginRoute != '/painel' &&
-        widget.afterLoginRoute != '/atualizar-plano') {
+    if (!loginAfterTargetsPainelOrAtualizarPlano(widget.afterLoginRoute)) {
       return;
     }
     try {
@@ -2186,27 +2191,24 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {}
   }
 
-  /// Abre Safari na rota expressa de atualização de plano
-  /// (`gestaoyahweh.com.br/atualizar-plano`).
+  /// Abre Safari no **login web da igreja**; após autenticar segue para
+  /// atualização de plano (PIX/cartão na mesma página).
   ///
-  /// Usado pelo card pré-login em iOS native (Apple Guideline 3.1.1) — aqui
-  /// não há sessão, então não há e-mail conhecido; o site pede login só pra
-  /// identificar a igreja/plano antes do checkout Mercado Pago.
+  /// Usado pelo card pré-login em iOS native (Apple Guideline 3.1.1).
   Future<void> _openExternalUpgradePlanFromLogin() async {
-    final params = <String, String>{
-      'from': 'ios_app',
-      'utm_source': 'app_ios',
-      'utm_medium': 'login_planos',
-    };
-    final uri = Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-        .replace(queryParameters: params);
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    final uri = IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+      utmMedium: 'login_planos',
+      email: email.isEmpty ? null : email,
+    );
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-                'Não foi possível abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login manualmente.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -2214,9 +2216,10 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-                'Não foi possível abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login manualmente.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );

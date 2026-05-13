@@ -15,8 +15,10 @@ Pasta com material para **replicar** features deste projeto
    - `IosPaymentUnavailableView` (sem preços, CTA topo + rodapé).
    - Helper central `openUpgradePlansExternally(...)` para iOS.
    - Gate `onGenerateRoute` para `/`, `/planos`, `/pagamento` em iOS native.
-   - Em iOS native, todos os CTAs de upgrade abrem Safari externo
-     (`/atualizar-plano?from=ios_app&email=...`), sem push direto para checkout.
+   - Em iOS native, todos os CTAs de upgrade abrem Safari externo no **login web**
+     do painel (`/igreja/login?after=/atualizar-plano?from=ios_app&from=ios_app&email=…`),
+     não direto em `/atualizar-plano` — evita sessão sem claims (`igrejaId`). Ver
+     `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri` no código-fonte.
    - Doações + checkout MP em iOS abrem Safari externo (não WebView).
    - Labels condicionais «Atualizar plano» (não «Pagar/Comprar/Assinar»).
 2. **Express Renew** — rota web pública `/atualizar-plano`
@@ -34,11 +36,12 @@ Pasta com material para **replicar** features deste projeto
 
 - `C:\Controletotalapp_Independente` — falta **iOS Hardening completo**
   (Login Expresso já é a fonte original).
-- `C:\moova_super_premium` — falta **iOS Hardening + Login Expresso +
+- `C:\moova_super_premium` (**Moovaup** / Moova Super Premium) — falta **iOS Hardening + Login Expresso +
   Express Renew**.
 
 ## Origem
 
-Implementado em **Gestão YAHWEH `11.2.295+1512`** (maio/2026).
+Implementado em **Gestão YAHWEH** (maio/2026): baseline **`11.2.295+1512`**;
+URL iOS login-first **`11.2.295+1558`** (ver caderno §0 / §2); build publicado **`11.2.295+1559`**.
 Referência principal:
 [`IOS_READER_E_LOGIN_EXPRESSO.md`](./IOS_READER_E_LOGIN_EXPRESSO.md).

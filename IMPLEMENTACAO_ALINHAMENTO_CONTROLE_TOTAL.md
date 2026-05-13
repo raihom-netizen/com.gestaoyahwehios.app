@@ -30,6 +30,27 @@ Toda a lógica nova deve usar **`tenantId`** e as coleções acima, **não** cop
 
 ---
 
+## iOS Reader — URL «Alterar plano» para App Store (ref. maio/2026)
+
+Para **aprovação no iPhone** e fluxo estável no Safari, o binário iOS **não** deve
+abrir só `…/atualizar-plano` (utilizador pode chegar sem sessão/claims e ver erro
+tipo `igrejaId ausente`). O padrão replicável para **Controle Total** e **Moova**
+está em `docs/migracoes/IOS_READER_E_LOGIN_EXPRESSO.md` (§0 e §2).
+
+No Gestão YAHWEH (build **11.2.295+1558** em diante):
+
+| Conceito | Onde |
+|----------|------|
+| Safari abre **login web** do painel (`/igreja/login`) com `after=/atualizar-plano?from=ios_app` | `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri` + `openUpgradePlansExternally` |
+| `main.dart` resolve `after` com whitelist e `LoginPage(afterLoginRoute: …)` | rota `/igreja/login` |
+| Login Google (redirect web) aceita `afterLoginRoute` com query | `login_page.dart` — `loginAfterTargetsPainelOrAtualizarPlano` |
+| Modo expresso: copy «PIX/cartão nesta página», checkout embebido | `renew_plan_page.dart` + `MpCheckoutEmbed.footerHint` |
+
+Ao portar financeiro ou outras fases para o Controle Total, **não** substituir este
+fluxo iOS por URL direta em `/atualizar-plano` sem o passo de login web equivalente.
+
+---
+
 ## Fase 1 — Lançamento inteligente (texto + PDF + pré-visualização)
 
 **Referência Controle Total**

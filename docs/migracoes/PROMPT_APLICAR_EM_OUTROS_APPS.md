@@ -19,7 +19,8 @@
 
 ```
 Aplique no Controle Total App o mesmo iOS App Store Hardening que foi
-implementado no Gestão YAHWEH (build 11.2.295+1512).
+implementado no Gestão YAHWEH (baseline `11.2.295+1512`, URL Safari
+login-first `11.2.295+1558`).
 
 Caderno técnico (LEIA antes de mexer):
 C:\gestao_yahweh_premium_final\docs\migracoes\IOS_READER_E_LOGIN_EXPRESSO.md
@@ -35,9 +36,12 @@ PARTE 1 — Reader/Multiplatform (Guideline 3.1.1 / 3.1.3(b))
 3. Crie `lib/ui/widgets/ios_payment_unavailable_view.dart` SEM PREÇOS
    nem toggle Mensal/Anual: apenas nome dos planos, capacidade,
    recursos. CTA «Atualizar plano no site» NO TOPO **e** NO RODAPÉ
-   (mesmo botão que abre Safari na URL pública). Substituir
-   `gestaoyahweh.com.br/atualizar-plano` pelo equivalente do Controle
-   Total (verifique em `AppConstants` ou similar).
+   (mesmo botão que abre Safari na URL pública). A URL deve ser o **login web**
+   do painel com `after` whitelistado para `/atualizar-plano?from=ios_app`
+   (no YAHWEH: `churchWebLoginThenAtualizarPlanoUri` / `openUpgradePlansExternally`).
+   No Controle Total / Moova, use o path equivalente de login + query `after`,
+   **não** abrir só `/atualizar-plano` como primeira página (evita `igrejaId` /
+   claims ausentes).
 4. Inicialize `IosPaymentsGate.initialize()` em `main.dart` antes do
    `runApp`, não-bloqueante.
 5. Na página de planos / renovação, no início do `build`, retorne
@@ -49,7 +53,7 @@ PARTE 1 — Reader/Multiplatform (Guideline 3.1.1 / 3.1.3(b))
    `/pagamento` (todos viram `LoginPage` ou
    `IosPaymentUnavailableView` em iOS). Veja seção 2.3 do caderno.
 
-PARTE 2 — Express Renew (rota web `/atualizar-plano`)
+PARTE 2 — Express Renew (rota web `/atualizar-plano` + login web antes no iOS)
 
 7. Crie `lib/ui/pages/plans/express_renew_gate_page.dart`:
    - StreamBuilder<User?> em authStateChanges.
@@ -60,16 +64,19 @@ PARTE 2 — Express Renew (rota web `/atualizar-plano`)
      web (com fallback signInWithRedirect em Safari/iOS).
    - Aceita `?email=...` para badge "Vamos entrar com <email>".
    - Link discreto «Entrar com e-mail e senha» empilha LoginPage
-     tradicional com afterLoginRoute=/atualizar-plano.
+     tradicional com `afterLoginRoute=/atualizar-plano` ou, se fluxo iOS,
+     `/atualizar-plano?from=ios_app` (manter `openedFromIosApp`).
 8. Em `RenewPlanPage`, adicione prop `expressMode: bool` (default
    false). Em expressMode:
    - Header dedicado com plano atual + vencimento + email do user.
    - Hide do botão demo, AppBar customizada.
    - Após pagamento, mostrar tela de confirmação dedicada (sem
      redirecionar).
-9. No `main.dart` `onGenerateRoute`, registre rota
-   `/atualizar-plano` → `ExpressRenewGatePage(prefillEmail:
-   uri.queryParameters['email'])`.
+9. No `main.dart` `onGenerateRoute`, registre:
+   - rota **login web** (ex.: `/igreja/login`) → `LoginPage` com `afterLoginRoute`
+     vindo da query `after` (whitelist) e default seguro;
+   - rota `/atualizar-plano` → `ExpressRenewGatePage(prefillEmail: …,
+     openedFromIosApp: uri.queryParameters['from'] == 'ios_app')`.
 
 PARTE 3 — Labels e textos condicionais
 
@@ -78,8 +85,10 @@ PARTE 3 — Labels e textos condicionais
     «Vincule o pagamento» nos fluxos de gestor e:
     - troque o LABEL para «Atualizar plano» / «atualize seu plano no
       site» quando `IosPaymentsGate.shouldHidePayments` for `true`;
-    - no iOS native, faça todos esses CTAs abrirem Safari externo em
-      `/atualizar-plano` (não deixar `Navigator.push(RenewPlanPage())`
+    - no iOS native, faça todos esses CTAs abrirem Safari externo no
+      **login web** com destino pós-login `/atualizar-plano?from=ios_app`
+      (helper `openUpgradePlansExternally` / `churchWebLoginThenAtualizarPlanoUri`
+      no YAHWEH — replicar no Controle Total; não deixar `Navigator.push(RenewPlanPage())`
       nesses pontos).
     - implemente um helper central no gate (ex.:
       `IosPaymentsGate.openUpgradePlansExternally(source: ...)`) e
@@ -87,8 +96,9 @@ PARTE 3 — Labels e textos condicionais
 11. Em `login_page.dart` ou equivalente, no card de planos pré-login:
     em iOS native (`IosPaymentsGate.isIosNative`), esconder coluna de
     preço e trocar «Ver página completa de planos» por «Atualizar
-    plano no site» que abre Safari direto em
-    `${publicWebBaseUrl}/atualizar-plano?from=ios_app`.
+    plano no site» que abre Safari no URL de **login web** com `after`
+    para `/atualizar-plano?from=ios_app` (mesmo helper do gate; não usar
+    só `/atualizar-plano` como primeira página).
 
 PARTE 4 — Doações (se houver) — Guideline 3.2.1(viii)
 
@@ -146,8 +156,8 @@ Antes de começar:
 - Confirme tema/cor primária (equivalente a ThemeCleanPremium).
 - Identifique catálogo de planos local (planosOficiais ou nome
   análogo).
-- Confirme URL pública (em AppConstants ou variável equivalente) e
-  garanta que vai existir a rota `/atualizar-plano` no site.
+- Confirme URL pública (em AppConstants ou variável equivalente) e que existam
+  a rota de **login web** (com `after` whitelistado) e `/atualizar-plano` no site.
 - Confirme onde está o LoginPage mobile e o método pós-Google a
   reutilizar.
 - Identifique TODAS as chamadas a `MercadoPagoCheckoutFullscreen` /
@@ -176,7 +186,7 @@ Sem isso, o build falha com erro de entitlement.
 
 ```
 Aplique no Moova Super Premium TRÊS mudanças que foram implementadas
-no Gestão YAHWEH (build 11.2.295+1512):
+no Gestão YAHWEH (baseline `11.2.295+1512`, URL Safari login-first `11.2.295+1558`):
 
 (1) iOS App Store Hardening (Reader/Multiplatform/Privacy Manifest).
 (2) Faixa flutuante «Login expresso» (Google silencioso → Apple iOS
@@ -197,8 +207,10 @@ PARTE 1 — iOS Reader / Multiplatform (Guideline 3.1.1 / 3.1.3(b))
 3. Crie `lib/ui/widgets/ios_payment_unavailable_view.dart` ADAPTADO
    ao tema/planos do Moova: SEM preços, SEM toggle Mensal/Anual.
    Apenas nome do plano, capacidade, recursos. CTA «Atualizar plano
-   no site» NO TOPO e NO RODAPÉ. Substituir a URL
-   `gestaoyahweh.com.br/atualizar-plano` pela URL pública do Moova.
+   no site» NO TOPO e NO RODAPÉ. URL = **login web** do Moova com `after`
+   para `/atualizar-plano?from=ios_app` (não só `/atualizar-plano` como
+   primeira página). Substituir paths pelo equivalente do Moova
+   (`AppConstants` ou similar).
 4. Inicialize `IosPaymentsGate.initialize()` em `main.dart` antes do
    `runApp`.
 5. Na página de planos/checkout do Moova, no início do `build`,
@@ -214,16 +226,16 @@ PARTE 1 — iOS Reader / Multiplatform (Guideline 3.1.1 / 3.1.3(b))
    - troque o LABEL para «Atualizar plano» quando
      `IosPaymentsGate.shouldHidePayments` for `true`;
    - no iOS native, todos os CTAs de upgrade devem abrir Safari externo
-     em `/atualizar-plano` (não deixar push direto para página de
-     cobrança/planos nesses pontos).
+     no **login web** com `after` → plano expresso (`/atualizar-plano?from=ios_app`),
+     não push direto para página de cobrança/planos nesses pontos.
    - implemente helper central no gate (ex.:
      `IosPaymentsGate.openUpgradePlansExternally(source: ...)`) e use em
      todos os pontos.
    Liste antes os pontos detectados.
 8. Em login pública / landing do Moova, em iOS native esconder
    preços (se houver bloco resumo) e trocar botão «Ver planos» por
-   «Atualizar plano no site» que abre Safari em
-   `${publicWebBaseUrl}/atualizar-plano?from=ios_app`.
+   «Atualizar plano no site» que abre Safari no **login web** com `after`
+   para `/atualizar-plano?from=ios_app`.
 
 ═══════════════════════════════════════════════════════════════
 PARTE 2 — Doações (se Moova tiver) — Guideline 3.2.1(viii)
@@ -280,7 +292,7 @@ PARTE 3 — Login Expresso
     do projeto.
 
 ═══════════════════════════════════════════════════════════════
-PARTE 4 — Express Renew (rota web `/atualizar-plano`)
+PARTE 4 — Express Renew (`/atualizar-plano`) + login web no `main.dart`
 ═══════════════════════════════════════════════════════════════
 
 14. Crie `lib/ui/pages/plans/express_renew_gate_page.dart`:
@@ -293,16 +305,18 @@ PARTE 4 — Express Renew (rota web `/atualizar-plano`)
       fallback `signInWithRedirect` em Safari iOS.
     - Aceita `?email=...` para badge "Vamos entrar com <email>".
     - Link discreto «Entrar com e-mail e senha» empilha LoginPage
-      tradicional com afterLoginRoute=/atualizar-plano.
+      tradicional com `afterLoginRoute=/atualizar-plano` ou
+      `/atualizar-plano?from=ios_app` (fluxo iOS).
 15. Em `RenewPlanPage` (página de planos/checkout do Moova),
     adicione prop `expressMode: bool` (default false). Em
     expressMode:
     - Header dedicado com plano atual + vencimento + email user.
     - Hide do botão demo, AppBar customizada.
     - Após pagamento, mostrar tela final dedicada (não redireciona).
-16. No `main.dart` `onGenerateRoute`, registre rota
+16. No `main.dart` `onGenerateRoute`, registre rota **login web** (com `after`
+    whitelistado) e rota
     `/atualizar-plano` → `ExpressRenewGatePage(prefillEmail:
-    uri.queryParameters['email'])`.
+    uri.queryParameters['email'], openedFromIosApp: uri.queryParameters['from'] == 'ios_app')`.
 
 ═══════════════════════════════════════════════════════════════
 PARTE 5 — Configurações iOS (`ios/`)
@@ -346,8 +360,8 @@ Antes de mexer:
 - Identifique catálogo de planos local (`planosOficiais` ou nome
   análogo) e confirme se existe um `PlanPriceService`.
 - Identifique a URL pública do site Moova (em `AppConstants` ou
-  variável equivalente). Confirme com o usuário se a rota
-  `/atualizar-plano` vai ser criada no site Moova.
+  variável equivalente). Confirmar rotas **login web** + `/atualizar-plano`
+  no site Moova (Moovaup).
 - Confirme se Moova já tem `GestorOAuthOnboardingService` para Apple
   Sign-In; se não, copiar/criar helper local com
   `signInWithAppleIfAvailable`.

@@ -89,8 +89,12 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1557';
+const String appBuildNumber = '1559';
 
+/// 11.2.295+1559: deploy completo — web hosting, regras, functions, AAB Play,
+/// ZIP iOS Codemagic (push); docs migração iOS Reader Controle Total/Moovaup.
+/// 11.2.295+1558: iOS Reader — «Alterar plano» abre `/igreja/login` (login Super Premium)
+/// e só depois `/atualizar-plano?from=ios_app`; copy renew/MP embebido «sem site MP».
 /// 11.2.295+1557: deploy completo — web, regras, functions, AAB Play, ZIP iOS Codemagic;
 /// chat hub stream resiliente + upload mídia; `/atualizar-plano` gate claims; fluxo pagamento iOS.
 /// 11.2.295+1556: deploy completo — web hosting, regras/índices, functions, AAB Play,

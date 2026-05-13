@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/app_constants.dart';
+import '../../services/ios_payments_gate.dart';
 import '../../data/planos_oficiais.dart';
 import '../theme_clean_premium.dart';
 import 'app_shell.dart';
@@ -14,9 +14,9 @@ import 'app_shell.dart';
 ///   1. Mostrar **somente informacoes** dos planos (nome, capacidade,
 ///      recursos). Sem precos, sem ciclo de cobranca, sem qualquer CTA
 ///      de compra dentro do binario iOS.
-///   2. Botao «Atualizar plano no site» (no topo e no rodape) abre Safari
-///      em `gestaoyahweh.com.br/atualizar-plano`, onde o utilizador faz
-///      login e completa a compra (PIX/Cartao) via Mercado Pago.
+///   2. Botao «Atualizar plano no site» abre Safari em `/igreja/login` (login
+///      Super Premium) e, após autenticar, segue para planos e checkout na
+///      própria página web (sem abrir o site do Mercado Pago).
 ///   3. Webhook MP atualiza o status no Firestore — o app detecta via
 ///      snapshot listener e libera o plano automaticamente.
 ///
@@ -51,24 +51,15 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
     });
   }
 
-  /// URL externa do site publico — abre direto o «modo expresso»
-  /// (`/atualizar-plano`): site pede login (so pra identificar a igreja),
-  /// mostra plano atual + vencimento, lista de planos e leva ao checkout
-  /// Mercado Pago sem passar pelo painel.
-  ///
-  /// Inclui `email` quando o usuario esta autenticado, para o site
-  /// pre-preencher o login e amarrar o pagamento ao tenant correto.
+  /// URL externa — abre o **login web da igreja**; depois do login segue para
+  /// `/atualizar-plano` com `from=ios_app` (planos + checkout embebido).
   Uri _buildExternalUrl() {
     final user = FirebaseAuth.instance.currentUser;
     final email = (user?.email ?? '').trim();
-    final params = <String, String>{
-      'from': 'ios_app',
-      'utm_source': 'app_ios',
-      'utm_medium': 'manage_subscription',
-      if (email.isNotEmpty) 'email': email,
-    };
-    return Uri.parse('${AppConstants.publicWebBaseUrl}/atualizar-plano')
-        .replace(queryParameters: params);
+    return IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
+      utmMedium: 'manage_subscription',
+      email: email.isEmpty ? null : email,
+    );
   }
 
   Future<void> _openExternalPlans() async {
@@ -81,7 +72,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse o site e entre em /igreja/login manualmente.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -91,7 +82,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse o site e entre em /igreja/login manualmente.'),
             behavior: SnackBarBehavior.floating,
           ),
         );

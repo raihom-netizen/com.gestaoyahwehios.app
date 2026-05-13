@@ -828,10 +828,15 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(16),
-                            child: MpCheckoutEmbed(
+                            child:                             MpCheckoutEmbed(
                               checkoutUrl: _checkoutSession!.initPoint,
                               returnUrlHint: _checkoutSession!.backUrl,
                               onLikelyFinished: _onCheckoutLikelyFinished,
+                              footerHint: widget.expressMode
+                                  ? 'PIX ou cartão nesta página — padrão Super Premium e mais rápido. '
+                                      'Não o leva para o site do Mercado Pago: o checkout abre aqui embebido; '
+                                      'o processamento continua seguro com o Mercado Pago em segundo plano.'
+                                  : null,
                             ),
                           ),
                         ),
@@ -864,7 +869,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                   const SizedBox(height: 6),
                   Text(
                     widget.expressMode
-                        ? 'Todos os módulos inclusos — selecione plano e ciclo abaixo. O pagamento é feito pelo Mercado Pago.'
+                        ? 'Todos os módulos inclusos — selecione plano e ciclo abaixo. '
+                            'PIX ou cartão na mesma página, padrão Super Premium e mais rápido: '
+                            'sem ir para o site do Mercado Pago — o checkout abre aqui embebido; '
+                            'o processamento continua seguro com o Mercado Pago em segundo plano.'
                         : 'Todos os módulos inclusos. O que muda é a escala de uso.',
                     style:
                         TextStyle(fontSize: 14, color: Colors.grey.shade700),
