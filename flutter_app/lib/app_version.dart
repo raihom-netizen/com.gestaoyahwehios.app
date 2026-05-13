@@ -89,8 +89,10 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1556';
+const String appBuildNumber = '1557';
 
+/// 11.2.295+1557: deploy completo — web, regras, functions, AAB Play, ZIP iOS Codemagic;
+/// chat hub stream resiliente + upload mídia; `/atualizar-plano` gate claims; fluxo pagamento iOS.
 /// 11.2.295+1556: deploy completo — web hosting, regras/índices, functions, AAB Play,
 /// ZIP iOS (Codemagic), chat (envio/cancelar mídia, remoção remetente, cleanup Storage).
 /// 11.2.295+1555: deploy completo — regras Firestore chat (lista conversas),

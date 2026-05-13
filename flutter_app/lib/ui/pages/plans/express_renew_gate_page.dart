@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -27,7 +29,14 @@ class ExpressRenewGatePage extends StatefulWidget {
   /// E-mail enviado pelo app iOS (`?email=`) para pré-preenchimento do login.
   final String? prefillEmail;
 
-  const ExpressRenewGatePage({super.key, this.prefillEmail});
+  /// `true` quando `?from=ios_app` — mensagens alinhadas ao fluxo Reader no iPhone.
+  final bool openedFromIosApp;
+
+  const ExpressRenewGatePage({
+    super.key,
+    this.prefillEmail,
+    this.openedFromIosApp = false,
+  });
 
   @override
   State<ExpressRenewGatePage> createState() => _ExpressRenewGatePageState();
@@ -180,19 +189,262 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
             inFlight: _expressInFlight,
             errorMessage: _expressError,
             prefillEmailHint: widget.prefillEmail,
+            openedFromIosApp: widget.openedFromIosApp,
             onLoginExpresso: _onLoginExpresso,
             onAppleWebLogin: kIsWeb ? _onAppleWebLogin : null,
             onManualLogin: _openManualLogin,
           );
         }
-        return const RenewPlanPage(expressMode: true);
+        return _TenantClaimGate(
+          key: ValueKey<String>(user.uid),
+          user: user,
+          openedFromIosApp: widget.openedFromIosApp,
+          child: const RenewPlanPage(expressMode: true),
+        );
       },
     );
   }
 }
 
+/// Só libera [RenewPlanPage] quando o token tiver `igrejaId` / `tenantId`
+/// (evita «igrejaId ausente» no Mercado Pago com sessão errada ou claims atrasadas).
+class _TenantClaimGate extends StatefulWidget {
+  final User user;
+  final bool openedFromIosApp;
+  final Widget child;
+
+  const _TenantClaimGate({
+    super.key,
+    required this.user,
+    required this.openedFromIosApp,
+    required this.child,
+  });
+
+  @override
+  State<_TenantClaimGate> createState() => _TenantClaimGateState();
+}
+
+class _TenantClaimGateState extends State<_TenantClaimGate> {
+  bool _checking = true;
+  bool _hasTenantClaim = false;
+  StreamSubscription<User?>? _tokenSub;
+  bool _verifyBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_verifyClaims());
+    _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((u) {
+      if (u?.uid == widget.user.uid && !_hasTenantClaim && mounted) {
+        unawaited(_verifyClaims());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tokenSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _verifyClaims() async {
+    if (_verifyBusy) return;
+    _verifyBusy = true;
+    if (!mounted) {
+      _verifyBusy = false;
+      return;
+    }
+    setState(() {
+      _checking = true;
+    });
+    try {
+      for (var i = 0; i < 12; i++) {
+        if (!mounted) return;
+        final tr = await widget.user.getIdTokenResult(i > 0);
+        final id = (tr.claims?['igrejaId'] ?? tr.claims?['tenantId'] ?? '')
+            .toString()
+            .trim();
+        if (id.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _hasTenantClaim = true;
+              _checking = false;
+            });
+          }
+          return;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 220 + 90 * i));
+      }
+      if (mounted) {
+        setState(() {
+          _hasTenantClaim = false;
+          _checking = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _hasTenantClaim = false;
+          _checking = false;
+        });
+      }
+    } finally {
+      _verifyBusy = false;
+    }
+  }
+
+  Future<void> _signOutAndBackToLogin() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checking) {
+      return const _LoadingScaffold(
+        subtitle: 'A validar o acesso da igreja…',
+      );
+    }
+    if (!_hasTenantClaim) {
+      return _NoTenantClaimScaffold(
+        openedFromIosApp: widget.openedFromIosApp,
+        userEmail: (widget.user.email ?? '').trim(),
+        onRetry: () => unawaited(_verifyClaims()),
+        onSignOut: _signOutAndBackToLogin,
+      );
+    }
+    return widget.child;
+  }
+}
+
+class _NoTenantClaimScaffold extends StatelessWidget {
+  final bool openedFromIosApp;
+  final String userEmail;
+  final VoidCallback onRetry;
+  final Future<void> Function() onSignOut;
+
+  const _NoTenantClaimScaffold({
+    required this.openedFromIosApp,
+    required this.userEmail,
+    required this.onRetry,
+    required this.onSignOut,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
+      appBar: AppBar(
+        title: const Text('Atualizar plano'),
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  Icon(Icons.domain_rounded,
+                      size: 56, color: ThemeCleanPremium.primary.withValues(alpha: 0.85)),
+                  const SizedBox(height: 16),
+                  Text(
+                    openedFromIosApp
+                        ? 'Conta sem vínculo ao painel da igreja'
+                        : 'Conta sem vínculo com uma igreja',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    openedFromIosApp
+                        ? 'Para alterar o plano e pagar pelo site, use o login de '
+                            'gestor da sua igreja (Google, Apple ou e-mail e senha '
+                            'cadastrados no Gestão YAHWEH). Contas de membro não '
+                            'incluem permissão de cobrança.'
+                        : 'Para renovar ou alterar o plano, entre com uma conta de '
+                            'gestor vinculada à igreja no Gestão YAHWEH.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  if (userEmail.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_outline_rounded,
+                              color: ThemeCleanPremium.primary),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              userEmail,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  FilledButton.icon(
+                    onPressed: () => unawaited(onSignOut()),
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Sair e entrar com outra conta'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ThemeCleanPremium.primary,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Já atualizei o acesso — verificar de novo'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LoadingScaffold extends StatelessWidget {
-  const _LoadingScaffold();
+  final String? subtitle;
+
+  const _LoadingScaffold({this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +455,30 @@ class _LoadingScaffold extends StatelessWidget {
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
       ),
-      body: const Center(child: CircularProgressIndicator()),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Text(
+                  subtitle!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -212,6 +487,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
   final bool inFlight;
   final String? errorMessage;
   final String? prefillEmailHint;
+  final bool openedFromIosApp;
   final VoidCallback onLoginExpresso;
   final VoidCallback? onAppleWebLogin;
   final VoidCallback onManualLogin;
@@ -220,6 +496,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
     required this.inFlight,
     required this.errorMessage,
     required this.prefillEmailHint,
+    this.openedFromIosApp = false,
     required this.onLoginExpresso,
     required this.onAppleWebLogin,
     required this.onManualLogin,
@@ -242,6 +519,41 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (openedFromIosApp) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.phone_iphone_rounded,
+                                  color: YahwehDesignSystem.brandPrimary,
+                                  size: 22),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Abriu pelo app no iPhone. Entre com o login de '
+                                  'gestor da igreja; em seguida escolha o plano e pague '
+                                  '(PIX ou cartão).',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                       _PremiumHeader(isWide: isWide),
                       const SizedBox(height: 18),
                       _LoginCard(

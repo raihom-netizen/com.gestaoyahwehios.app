@@ -82,7 +82,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
   Timer? _presenceTimer;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _dmSub;
+  /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
@@ -119,6 +120,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _lastGoodChatThreadsSnap = null;
+      _chatThreadsStream = null;
+      unawaited(_bootstrap());
     }
   }
 
@@ -133,7 +136,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
     _presenceTimer?.cancel();
-    _dmSub?.cancel();
     super.dispose();
   }
 
@@ -156,6 +158,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final t = (doc.data()['type'] ?? '').toString();
     if (t == 'department') return true;
     return doc.id.startsWith('dept_');
+  }
+
+  static bool _computeUnreadGroupThreads(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String uid,
+  ) {
+    for (final d in docs) {
+      if (!_docIsDepartmentThread(d)) continue;
+      if (_chatHubThreadIsUnreadForUser(d.data(), uid)) return true;
+    }
+    return false;
   }
 
   void _onChatPendingFromBridge() {
@@ -255,11 +268,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
     setState(() {
       if (_resolvedTenantId != tid) {
         _lastGoodChatThreadsSnap = null;
       }
       _resolvedTenantId = tid;
+      final u = FirebaseAuth.instance.currentUser?.uid;
+      _chatThreadsStream = (u != null && u.isNotEmpty)
+          ? ChurchChatService.chatThreadsSnapshotsForUser(tid, u)
+          : null;
     });
     unawaited(_loadChatNotifPrefs());
     await _syncMemberDepartments(tid);
@@ -268,30 +287,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       ChurchChatService.touchPresence(tid);
     });
     ChurchChatService.touchPresence(tid);
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      _dmSub = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('chat_threads')
-          .where('participantUids', arrayContains: uid)
-          .snapshots()
-          .listen((snap) {
-        if (!mounted) return;
-        var unreadG = false;
-        for (final d in snap.docs) {
-          if (!_docIsDepartmentThread(d)) continue;
-          if (_chatHubThreadIsUnreadForUser(d.data(), uid)) {
-            unreadG = true;
-            break;
-          }
-        }
-        setState(() {
-          _unreadGroupMessages = unreadG;
-        });
-        _syncGruposPulse();
-      });
-    }
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
@@ -842,6 +837,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Widget _buildConversasTab(BuildContext context, String tid, String uid) {
+    final threadStream = _chatThreadsStream;
+    if (threadStream == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('igrejas')
@@ -857,12 +856,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           builder: (context, prefSnap) {
             final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('igrejas')
-                  .doc(tid)
-                  .collection('chat_threads')
-                  .where('participantUids', arrayContains: uid)
-                  .snapshots(),
+              stream: threadStream,
               builder: (context, snap) {
                 if (snap.hasData) {
                   _lastGoodChatThreadsSnap = snap.data;
@@ -870,6 +864,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 final snapForList =
                     snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
                 final streamError = snap.hasError ? snap.error : null;
+
+                final dmDocs = snapForList?.docs ?? [];
+                final unreadG = _computeUnreadGroupThreads(dmDocs, uid);
+                if (unreadG != _unreadGroupMessages) {
+                  Future.microtask(() {
+                    if (mounted && unreadG != _unreadGroupMessages) {
+                      setState(() => _unreadGroupMessages = unreadG);
+                      _syncGruposPulse();
+                    }
+                  });
+                }
 
                 if (streamError != null && snapForList == null) {
                   return ListView(
@@ -899,7 +904,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final dmDocs = snapForList?.docs ?? [];
                 final threads = <Widget>[];
                 final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
@@ -922,8 +926,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Ligação com o servidor instável — a mostrar a última lista de conversas. '
-                                'As conversas só desaparecem se as apagar ou, nos grupos, se um gestor as remover.',
+                                'Não foi possível sincronizar agora — está a ver a última lista '
+                                'recebida. A ligação restabelece-se sozinha; puxe para atualizar ou '
+                                'abra o chat de novo. As conversas só somem se as apagar ou, nos grupos, '
+                                'se um gestor as remover.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   height: 1.35,

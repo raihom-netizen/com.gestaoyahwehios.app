@@ -2115,7 +2115,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       controller: _scroll,
                       reverse: true,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 12),
+                          horizontal: 8, vertical: 10),
                       itemCount: docs.length,
                       itemBuilder: (_, i) {
                         final m = docs[i].data();
@@ -2160,57 +2160,57 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                 .nameColorForUid(senderUid)
                             : null;
                         final bubbleCard = Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            constraints: BoxConstraints(
-                              maxWidth:
-                                  MediaQuery.sizeOf(context).width * 0.82,
-                            ),
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 6),
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
+                                horizontal: 14, vertical: 10),
                             decoration: mine
                                 ? BoxDecoration(
                                     gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
                                       colors: [
+                                        ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.08),
                                         const Color(0xFFB9E7D9),
                                         ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.24),
+                                            .withValues(alpha: 0.22),
                                       ],
                                     ),
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(14),
-                                      topRight: const Radius.circular(14),
-                                      bottomLeft: const Radius.circular(14),
-                                      bottomRight: const Radius.circular(4),
-                                    ),
-                                    border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.14),
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border(
+                                      left: BorderSide(
                                         color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.2),
-                                        blurRadius: 14,
-                                        offset: const Offset(0, 5),
+                                            .withValues(alpha: 0.35),
+                                        width: 3,
                                       ),
-                                    ],
+                                      top: BorderSide(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.1),
+                                      ),
+                                      right: BorderSide(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.1),
+                                      ),
+                                      bottom: BorderSide(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.1),
+                                      ),
+                                    ),
                                   )
                                 : BoxDecoration(
                                     color: bubbleBg,
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(14),
-                                      topRight: const Radius.circular(14),
-                                      bottomLeft: Radius.circular(mine ? 14 : 4),
-                                      bottomRight:
-                                          Radius.circular(mine ? 4 : 14),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border(
+                                      left: BorderSide(
+                                        color: bubbleBorder
+                                            .withValues(alpha: 0.9),
+                                        width: 3,
+                                      ),
+                                      top: BorderSide(color: bubbleBorder),
+                                      right: BorderSide(color: bubbleBorder),
+                                      bottom: BorderSide(color: bubbleBorder),
                                     ),
-                                    border: Border.all(
-                                      color: bubbleBorder,
-                                    ),
-                                    boxShadow:
-                                        ThemeCleanPremium.softUiCardShadow,
                                   ),
                             child: Column(
                               crossAxisAlignment: mine
@@ -2299,14 +2299,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             }
                             _showMessageActions(messageId, m, senderUid);
                           },
-                          child: Align(
-                            alignment: mine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
+                          child: SizedBox(
+                            width: double.infinity,
                             child: groupIncoming
                                 ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       SafeCircleAvatarImage(
                                         imageUrl: photoByUid[senderUid],
@@ -2322,8 +2320,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                                 .nameColorForUid(senderUid),
                                         backgroundColor: Colors.white,
                                       ),
-                                      const SizedBox(width: 6),
-                                      Flexible(child: bubbleCard),
+                                      const SizedBox(width: 8),
+                                      Expanded(child: bubbleCard),
                                     ],
                                   )
                                 : bubbleCard,

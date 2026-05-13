@@ -39,7 +39,6 @@ import 'ui/landing_page.dart';
 import 'ui/signup_page.dart';
 import 'ui/pages/signup_completar_gestor_page.dart';
 import 'ui/pages/plans/express_renew_gate_page.dart';
-import 'ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
@@ -883,16 +882,20 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   pagina = const LandingPage();
                   break;
                 case '/pagamento':
-                  pagina = const RenewPlanPage();
+                  // Mesmo gate que `/atualizar-plano`: exige login com claims da igreja.
+                  pagina = const ExpressRenewGatePage();
                   break;
                 case '/atualizar-plano': {
                   // Fluxo «Atualizar plano expresso» — vindo do app iOS via
                   // Safari (IosPaymentUnavailableView). Só pede login para
                   // identificar a igreja e leva direto ao checkout MP.
                   final em = uri.queryParameters['email']?.trim();
+                  final fromIos = uri.queryParameters['from']?.toLowerCase() ==
+                      'ios_app';
                   pagina = ExpressRenewGatePage(
                     prefillEmail:
                         (em != null && em.isNotEmpty) ? em : null,
+                    openedFromIosApp: fromIos,
                   );
                   break;
                 }

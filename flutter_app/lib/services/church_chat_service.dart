@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -51,6 +52,79 @@ class ChurchChatService {
   static CollectionReference<Map<String, dynamic>> typingCol(
       String tenantId, String threadId) {
     return threadRef(tenantId, threadId).collection('typing');
+  }
+
+  /// Threads em que o utilizador participa — ordenadas por atividade.
+  /// Usa o índice composto em `firestore.indexes.json` (`participantUids` + `lastMessageAt`).
+  static Query<Map<String, dynamic>> chatThreadsQueryForUser(
+    String tenantId,
+    String uid,
+  ) {
+    return _db
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection('chat_threads')
+        .where('participantUids', arrayContains: uid)
+        .orderBy('lastMessageAt', descending: true)
+        .limit(220);
+  }
+
+  /// Stream de conversas com **reconexão** após falhas transitórias (rede / troca de app),
+  /// para o hub não ficar preso em `hasError` nem mostrar «instabilidade» por cada rutura breve.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> chatThreadsSnapshotsForUser(
+    String tenantId,
+    String uid,
+  ) {
+    late StreamController<QuerySnapshot<Map<String, dynamic>>> controller;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    var wireAttempts = 0;
+    var wiring = false;
+
+    Future<void> wire() async {
+      if (wiring) return;
+      wiring = true;
+      try {
+        await sub?.cancel();
+        sub = null;
+        if (controller.isClosed) return;
+        sub = chatThreadsQueryForUser(tenantId, uid).snapshots().listen(
+          (event) {
+            wireAttempts = 0;
+            if (!controller.isClosed) controller.add(event);
+          },
+          onError: (Object error, StackTrace stack) {
+            wireAttempts++;
+            if (controller.isClosed) return;
+            if (wireAttempts > 14) {
+              controller.addError(error, stack);
+              return;
+            }
+            sub?.cancel();
+            sub = null;
+            final delayMs = 260 + 110 * wireAttempts.clamp(1, 12);
+            Future<void>.delayed(Duration(milliseconds: delayMs)).then((_) {
+              if (controller.isClosed) return;
+              unawaited(wire());
+            });
+          },
+          cancelOnError: false,
+        );
+      } finally {
+        wiring = false;
+      }
+    }
+
+    controller = StreamController<QuerySnapshot<Map<String, dynamic>>>(
+      onListen: () {
+        wireAttempts = 0;
+        unawaited(wire());
+      },
+      onCancel: () {
+        sub?.cancel();
+        sub = null;
+      },
+    );
+    return controller.stream;
   }
 
   /// Indicador «a digitar…» — um doc por utilizador (`typing/{uid}`).
@@ -649,12 +723,16 @@ class ChurchChatService {
         'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
     final ubytes =
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    final ct = contentType.toLowerCase();
+    final chatJpegFast =
+        ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
     final url = await MediaUploadService.uploadBytesWithRetry(
       storagePath: path,
       bytes: ubytes,
       contentType: contentType,
       useOfflineQueue: false,
-      maxAttempts: 2,
+      maxAttempts: 4,
+      chatJpegFast: chatJpegFast,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
     );

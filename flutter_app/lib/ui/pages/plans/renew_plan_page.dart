@@ -60,6 +60,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   final _billing = BillingService();
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _churchBillingSub;
+  StreamSubscription<User?>? _idTokenRefreshSub;
   bool _paymentApprovedRedirected = false;
 
   /// Modo expresso — última versão do doc da igreja (para mostrar plano
@@ -280,15 +281,30 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }, onError: (_) {});
   }
 
+  /// Claims podem chegar segundos após o login — reabre o listener do doc da igreja.
+  Future<void> _retryPaymentWatcherIfNeeded() async {
+    if (!widget.expressMode) return;
+    if (_churchBillingSub != null) return;
+    await _startPaymentStatusWatcher();
+  }
+
   @override
   void initState() {
     super.initState();
     _loadPrices();
     _startPaymentStatusWatcher();
+    if (widget.expressMode) {
+      _idTokenRefreshSub =
+          FirebaseAuth.instance.idTokenChanges().listen((_) {
+        unawaited(_retryPaymentWatcherIfNeeded());
+      });
+    }
   }
 
   @override
   void dispose() {
+    _idTokenRefreshSub?.cancel();
+    _idTokenRefreshSub = null;
     _churchBillingSub?.cancel();
     _churchBillingSub = null;
     super.dispose();
@@ -548,6 +564,11 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       _pixSession = null;
     });
     try {
+      final tenantId = await _resolveTenantIdFromClaims();
+      if (tenantId == null || tenantId.isEmpty) {
+        throw 'Sua sessão ainda não está vinculada a uma igreja. '
+            'Saia, entre de novo com a conta de gestor e aguarde alguns segundos.';
+      }
       if (_paymentPix) {
         final pix = await _billing.createMpPixPayment(
           planId: _selected,

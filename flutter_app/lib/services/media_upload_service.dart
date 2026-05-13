@@ -24,17 +24,23 @@ class MediaUploadService {
   static Future<Uint8List> _prepareBytesForUpload({
     required Uint8List bytes,
     required String contentType,
+    bool chatJpegFast = false,
   }) async {
     // JPEGs pequenos (thumbs / ícones): evita compressão dupla — upload mais rápido.
-    if (_shouldCompressJpeg(contentType) && bytes.length < 420 * 1024) {
-      return bytes;
+    if (_shouldCompressJpeg(contentType)) {
+      if (chatJpegFast && bytes.length < 520 * 1024) {
+        return bytes;
+      }
+      if (!chatJpegFast && bytes.length < 420 * 1024) {
+        return bytes;
+      }
     }
     if (!_shouldCompressJpeg(contentType)) return bytes;
     var prepared = await ImageHelper.compressImage(
       bytes,
-      minWidth: 800,
-      minHeight: 600,
-      quality: 70,
+      minWidth: chatJpegFast ? 1000 : 800,
+      minHeight: chatJpegFast ? 750 : 600,
+      quality: chatJpegFast ? 64 : 70,
     );
     if (prepared.length > mediaImagePreferredMaxBytesEffective) {
       prepared = await ImageHelper.compressImageUnderMaxBytes(
@@ -77,12 +83,16 @@ class MediaUploadService {
     /// (ex.: já passaram por [ImageHelper.compressMemberProfileForUpload]).
     bool skipClientPrepare = false,
     bool useOfflineQueue = true,
+
+    /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
+    bool chatJpegFast = false,
   }) async {
     final preparedBytes = skipClientPrepare
         ? bytes
         : await _prepareBytesForUpload(
             bytes: bytes,
             contentType: contentType,
+            chatJpegFast: chatJpegFast,
           );
     if (deleteFirebaseDownloadUrlsBefore != null) {
       for (final u in deleteFirebaseDownloadUrlsBefore) {
