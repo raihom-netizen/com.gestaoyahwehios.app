@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
@@ -19,6 +20,7 @@ import '../../widgets/app_shell.dart';
 import '../../widgets/ios_payment_unavailable_view.dart';
 import '../../widgets/mp_checkout_embed.dart';
 import '../../widgets/primary_button.dart';
+import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -36,10 +38,15 @@ class RenewPlanPage extends StatefulWidget {
   ///     em vez de redirecionar para `/painel`.
   final bool expressMode;
 
+  /// Modo expresso: rota relativa enviada ao Cloud Function para o `back_url`
+  /// do Mercado Pago (ex.: `/atualizar-plano?from=ios_app`).
+  final String? expressCheckoutReturnPath;
+
   const RenewPlanPage({
     super.key,
     this.embeddedInShell = false,
     this.expressMode = false,
+    this.expressCheckoutReturnPath,
   });
 
   @override
@@ -603,14 +610,31 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         final int installments = _billingAnnual
             ? _expressCardInstallments.clamp(1, 6)
             : 1;
+        final String? returnPath;
+        if (widget.expressMode) {
+          returnPath =
+              widget.expressCheckoutReturnPath ?? '/atualizar-plano';
+        } else if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
+          returnPath = '/painel';
+        } else {
+          returnPath = null;
+        }
         final session = await _billing.createMpCheckout(
           planId: _selected,
           billingCycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
           paymentMethod: PaymentMethod.card,
           installments: installments,
+          returnPath: returnPath,
         );
         if (!session.isValid) throw 'Não foi possível abrir o checkout.';
         if (!mounted) return;
+        if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
+          setState(() {
+            _loading = false;
+          });
+          mpWebRedirectSameTab(session.initPoint);
+          return;
+        }
         setState(() => _checkoutSession = session);
       }
     } catch (e) {
@@ -1023,6 +1047,21 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                   ),
+                  if (kIsWeb &&
+                      mpWebCheckoutPrefersSameTabRedirect &&
+                      !_paymentPix) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'No Safari do iPhone o cartão abre na página segura do Mercado Pago no mesmo separador; '
+                      'após confirmar o pagamento volta ao Gestão YAHWEH.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade800,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                   if (_billingAnnual && !_paymentPix) ...[
                     const SizedBox(height: 16),
                     const Text(

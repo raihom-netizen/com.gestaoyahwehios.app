@@ -204,6 +204,9 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
           openedFromIosApp: widget.openedFromIosApp,
           child: RenewPlanPage(
             expressMode: true,
+            expressCheckoutReturnPath: widget.openedFromIosApp
+                ? '/atualizar-plano?from=ios_app'
+                : '/atualizar-plano',
           ),
         );
       },

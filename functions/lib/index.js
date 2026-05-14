@@ -163,6 +163,27 @@ async function resolveMpBackUrl() {
     }
     return "https://gestaoyahweh.com.br/planos";
 }
+/** Só permite alterar o back_url do MP para rotas públicas seguras. */
+function normalizeMpPreapprovalReturnPath(raw) {
+    const s = String(raw || "").trim();
+    if (!s)
+        return null;
+    if (s === "/atualizar-plano")
+        return "/atualizar-plano";
+    if (s.startsWith("/atualizar-plano?")) {
+        if (s.includes("://") || s.includes("..") || s.includes("\n") || s.includes("\r"))
+            return null;
+        return s;
+    }
+    if (s === "/painel")
+        return "/painel";
+    if (s.startsWith("/painel?")) {
+        if (s.includes("://") || s.includes("..") || s.includes("\n") || s.includes("\r"))
+            return null;
+        return s;
+    }
+    return null;
+}
 function getFetch() {
     const f = globalThis.fetch;
     if (!f) {
@@ -1548,7 +1569,17 @@ exports.createMpPreapproval = functions
         payerEmail = `pagamento+${tenantId}@gestaoyahweh.com.br`;
     }
     const notificationUrl = await resolveMpNotificationUrl();
-    const backUrl = await resolveMpBackUrl();
+    let backUrl = await resolveMpBackUrl();
+    const returnPath = normalizeMpPreapprovalReturnPath(data?.returnPath);
+    if (returnPath) {
+        try {
+            const origin = new URL(backUrl).origin;
+            backUrl = `${origin}${returnPath}`;
+        }
+        catch (_) {
+            backUrl = await resolveMpBackUrl();
+        }
+    }
     const payload = {
         reason: `Gestao YAHWEH - ${plan.name || planId} (${isAnnual ? "Anual" : "Mensal"})`,
         external_reference: tenantId,

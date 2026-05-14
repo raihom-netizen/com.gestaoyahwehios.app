@@ -1,4 +1,5 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1577: deploy completo — web, regras, functions, AAB Play, ZIP iOS Codemagic (push).
 /// 11.2.295+1576: deploy completo — web hosting, regras, functions, AAB Play,
 /// ZIP iOS Codemagic (push).
 /// 11.2.295+1575: `/igreja/login/apple` — login directo (sem membro/gestor), destino padrão
@@ -103,7 +104,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1576';
+const String appBuildNumber = '1577';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

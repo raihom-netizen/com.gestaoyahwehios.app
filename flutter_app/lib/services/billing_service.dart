@@ -56,6 +56,8 @@ class BillingService {
     BillingCycle billingCycle = BillingCycle.monthly,
     PaymentMethod paymentMethod = PaymentMethod.pix,
     int installments = 10,
+    /// Só [createMpPreapproval]: volta do MP para esta rota (ex. `/atualizar-plano`).
+    String? returnPath,
   }) async {
     final callable = _functions.httpsCallable(
       'createMpPreapproval',
@@ -72,6 +74,10 @@ class BillingService {
       payload['installments'] = billingCycle == BillingCycle.annual
           ? n.clamp(1, 6)
           : 1;
+    }
+    final rp = returnPath?.trim();
+    if (rp != null && rp.isNotEmpty) {
+      payload['returnPath'] = rp;
     }
     final res = await callable.call(payload);
     final data = res.data as Map? ?? {};
