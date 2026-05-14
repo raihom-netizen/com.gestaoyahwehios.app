@@ -1,4 +1,8 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1576: deploy completo — web hosting, regras, functions, AAB Play,
+/// ZIP iOS Codemagic (push).
+/// 11.2.295+1575: `/igreja/login/apple` — login directo (sem membro/gestor), destino padrão
+/// `/atualizar-plano`; parcelas cartão 1–6 enviadas sempre ao `createMpPreapproval`; UI Mensal/Anual.
 /// 11.2.295+1574: Configurações «Trocar de conta» — signOut + AuthGate para `/igreja/login`
 /// (web/Android/iOS), sem tela presa; limpa prefs locais de login da igreja.
 /// 11.2.295+1573: MP igreja — secção Configurações só gestor/admin/master ou permissão
@@ -99,7 +103,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1574';
+const String appBuildNumber = '1576';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

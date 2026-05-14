@@ -1510,8 +1510,20 @@ exports.createMpPreapproval = functions
     }
     const billingCycle = String(data?.billingCycle || "monthly").toLowerCase();
     const paymentMethod = String(data?.paymentMethod || "pix").toLowerCase();
-    const installments = Math.min(12, Math.max(1, Number(data?.installments) || 10));
     const isAnnual = billingCycle === "annual";
+    const rawInst = Number(data?.installments);
+    let installments = 1;
+    if (paymentMethod === "card") {
+        if (isAnnual) {
+            installments =
+                Number.isFinite(rawInst) && rawInst >= 1
+                    ? Math.min(6, Math.max(1, Math.floor(rawInst)))
+                    : 1;
+        }
+        else {
+            installments = 1;
+        }
+    }
     const priceMonthly = Number(plan.priceMonthly || 0);
     const priceAnnual = Number(plan.priceAnnual ?? plan.priceYear ?? 0);
     const price = isAnnual

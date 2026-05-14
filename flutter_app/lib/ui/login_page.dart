@@ -196,6 +196,10 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+    final afterPath = widget.afterLoginRoute.split('?').first;
+    if (widget.churchWebAppleIosRenewEntry || afterPath == '/atualizar-plano') {
+      _credentialsAsMembro = false;
+    }
     if (!_useSmartFlow) {
       _smartStep = _SmartStep.credentials;
     }
@@ -1141,6 +1145,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool get _useSmartFlow {
     if (_isMasterAdminLogin) return false;
+    if (widget.churchWebAppleIosRenewEntry) return false;
     if (widget.afterLoginRoute != '/painel') return false;
     if (widget.showSmartLoginFlow != null) return widget.showSmartLoginFlow!;
     // App iOS/Android: membro e gestor usam o mesmo login — sem escolha «Sou membro / gestor».
@@ -2241,7 +2246,7 @@ class _LoginPageState extends State<LoginPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login manualmente.',
+              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login/apple manualmente.',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -2252,7 +2257,7 @@ class _LoginPageState extends State<LoginPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login manualmente.',
+              'Não foi possível abrir o navegador. Acesse ${uri.scheme}://${uri.host}/igreja/login/apple manualmente.',
             ),
             behavior: SnackBarBehavior.floating,
           ),

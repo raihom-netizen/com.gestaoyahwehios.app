@@ -41,10 +41,18 @@ No Gestão YAHWEH (build **11.2.295+1558** em diante):
 
 | Conceito | Onde |
 |----------|------|
-| Safari abre **login web** do painel (`/igreja/login`) com `after=/atualizar-plano?from=ios_app` | `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri` + `openUpgradePlansExternally` |
-| `main.dart` resolve `after` com whitelist e `LoginPage(afterLoginRoute: …)` | rota `/igreja/login` |
+| Safari abre **login web** do painel (`/igreja/login/apple`) com `after=/atualizar-plano?from=ios_app` | `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri` + `openUpgradePlansExternally` |
+| `main.dart` resolve `after` com whitelist e `LoginPage(afterLoginRoute: …)` | rota `/igreja/login` e `/igreja/login/apple` |
 | Login Google (redirect web) aceita `afterLoginRoute` com query | `login_page.dart` — `loginAfterTargetsPainelOrAtualizarPlano` |
 | Modo expresso: copy «PIX/cartão nesta página», checkout embebido | `renew_plan_page.dart` + `MpCheckoutEmbed.footerHint` |
+
+**Controle Total** (`C:\Controletotalapp_Independente\flutter_app`, maio/2026): espelho com
+`lib/services/ios_payments_gate.dart` (Remote Config `exibir_pagamento_ios`), fragmento
+`#/login?after=/escolha-plano&from=ios_app`, leitura no `login_screen.dart`, `pushEscolhaPlano`
+no `home_shell.dart`, diálogos `premium_upgrade.dart` e `license_expired_screen.dart`.
+
+**Moova** (`C:\moova_super_premium\flutter_app`): entrada `/login/apple` com query
+`from=ios_app` + `email` opcional (`MoovaupPublicUrls.appleDriverLicenseLoginUriForNativeIos`).
 
 Ao portar financeiro ou outras fases para o Controle Total, **não** substituir este
 fluxo iOS por URL direta em `/atualizar-plano` sem o passo de login web equivalente.

@@ -1408,39 +1408,65 @@ class _ChoiceChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDisabled = !enabled || onTap == null;
-    return InkWell(
-      onTap: isDisabled ? null : onTap,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-      child: Opacity(
-        opacity: isDisabled ? 0.55 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          decoration: BoxDecoration(
-            color: selected ? cs.primary.withValues(alpha: 0.12) : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-            border: Border.all(
-              color: selected ? cs.primary : Colors.grey.shade300,
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 20, color: selected ? cs.primary : Colors.grey.shade700),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected ? cs.primary : Colors.grey.shade800,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+    final radius = BorderRadius.circular(16);
+    return Material(
+      color: Colors.transparent,
+      elevation: selected ? 3 : 0,
+      shadowColor: selected ? cs.primary.withValues(alpha: 0.35) : Colors.transparent,
+      borderRadius: radius,
+      child: InkWell(
+        onTap: isDisabled ? null : onTap,
+        borderRadius: radius,
+        child: Opacity(
+          opacity: isDisabled ? 0.55 : 1,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        cs.primary.withValues(alpha: 0.22),
+                        const Color(0xFFE0F2FE),
+                      ],
+                    )
+                  : null,
+              color: selected ? null : Colors.grey.shade100,
+              borderRadius: radius,
+              border: Border.all(
+                color: selected ? cs.primary : Colors.grey.shade300,
+                width: selected ? 2.5 : 1,
               ),
-            ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (icon != null) ...[
+                    Icon(
+                      icon,
+                      size: 22,
+                      color: selected ? cs.primary : Colors.grey.shade700,
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                        fontSize: 15,
+                        letterSpacing: -0.2,
+                        color: selected ? cs.primary : Colors.grey.shade800,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

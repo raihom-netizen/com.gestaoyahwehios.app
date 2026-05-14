@@ -66,8 +66,12 @@ class BillingService {
       'billingCycle': billingCycle == BillingCycle.annual ? 'annual' : 'monthly',
       'paymentMethod': paymentMethod == PaymentMethod.card ? 'card' : 'pix',
     };
-    if (paymentMethod == PaymentMethod.card && installments > 1) {
-      payload['installments'] = installments;
+    // Sempre enviar parcelas no cartão (1–6 anual, 1 mensal) para o backend não assumir default errado.
+    if (paymentMethod == PaymentMethod.card) {
+      final n = installments.clamp(1, 12);
+      payload['installments'] = billingCycle == BillingCycle.annual
+          ? n.clamp(1, 6)
+          : 1;
     }
     final res = await callable.call(payload);
     final data = res.data as Map? ?? {};

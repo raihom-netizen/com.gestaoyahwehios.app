@@ -96,8 +96,8 @@ class IosPaymentsGate {
     }
   }
 
-  /// URL do site: cópia do login da igreja em `/igreja/login/apple` (fluxo iOS /
-  /// renovação) e, após autenticar, redireciona para `/atualizar-plano` com `from=ios_app`.
+  /// URL do site: login da igreja em `/igreja/login/apple` (sem `after` vai a
+  /// `/atualizar-plano` no site) e, após autenticar, fluxo de planos/checkout.
   ///
   /// O Safari abre o mesmo ecrã de credenciais (Google / Apple / e-mail),
   /// com `igrejaId` nas claims antes do checkout embebido.

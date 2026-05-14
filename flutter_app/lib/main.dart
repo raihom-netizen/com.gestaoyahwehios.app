@@ -118,6 +118,12 @@ String _resolveIgrejaLoginAfterRoute(Uri loginUri) {
     }
     return target;
   }
+  // `/igreja/login/apple` sem `after`: renovação/planos — evita pós-login em `/painel`
+  // (que reativa a escolha «Sou membro / gestor» na web).
+  final loginPath = loginUri.path;
+  if (loginPath.endsWith('/igreja/login/apple')) {
+    return fromIosApp ? '/atualizar-plano?from=ios_app' : '/atualizar-plano';
+  }
   if (fromIosApp) return '/atualizar-plano?from=ios_app';
   return '/painel';
 }

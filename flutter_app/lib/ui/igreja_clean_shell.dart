@@ -190,7 +190,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
         _showPanelSnack(
-          'Não foi possível abrir o navegador. Acesse /igreja/login no site manualmente.',
+          'Não foi possível abrir o navegador. Acesse /igreja/login/apple no site manualmente.',
           isError: true,
         );
       }
