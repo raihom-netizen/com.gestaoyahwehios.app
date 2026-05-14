@@ -7,13 +7,22 @@ import 'church_chat_notification_prefs.dart';
 /// Alertas locais (foreground) para conversas, com modos:
 /// sound | vibrate | silent.
 ///
-/// Para som custom (estilo WhatsApp), adicione:
+/// **Push em segundo plano (FCM):** o servidor usa os mesmos modos e envia
+/// `android.notification.channelId` (`gy_fcm_chat_*`) + APNS (`sound` / `apns-interruption-level`).
+/// Os canais Android são criados aqui e no arranque da app (`registerFcmChatAndroidChannelsForBoot`).
+///
+/// Para som custom (estilo WhatsApp) no **foreground**, adicione:
 /// - Android: `android/app/src/main/res/raw/chat_whatsapp.mp3`
 /// - iOS: `Runner/chat_whatsapp.aiff` (incluir no target)
 class ChurchChatAlertNotificationService {
   ChurchChatAlertNotificationService._();
   static final ChurchChatAlertNotificationService instance =
       ChurchChatAlertNotificationService._();
+
+  /// Canais Android para **FCM** (segundo plano) — alinhados a `churchChatNotify.ts` / `notificationBranding.ts`.
+  static const String fcmAndroidChannelSound = 'gy_fcm_chat_sound';
+  static const String fcmAndroidChannelVibrate = 'gy_fcm_chat_vibrate';
+  static const String fcmAndroidChannelSilent = 'gy_fcm_chat_silent';
 
   static const String _channelSoundId = 'chat_alert_sound_channel';
   static const String _channelVibrateId = 'chat_alert_vibrate_channel';
@@ -22,6 +31,58 @@ class ChurchChatAlertNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  /// Garante canais `gy_fcm_chat_*` no Android **antes** do primeiro push (cold start).
+  /// Não pede permissões iOS (só Android).
+  Future<void> registerFcmChatAndroidChannelsForBoot() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final boot = FlutterLocalNotificationsPlugin();
+    await boot.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+    );
+    final androidImpl = boot.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl == null) return;
+    await _createFcmAndroidChatChannels(androidImpl);
+  }
+
+  static Future<void> _createFcmAndroidChatChannels(
+    AndroidFlutterLocalNotificationsPlugin androidImpl,
+  ) async {
+    await androidImpl.createNotificationChannel(
+      const AndroidNotificationChannel(
+        fcmAndroidChannelSound,
+        'Chat — som (Super Premium · push)',
+        description:
+            'Mensagens do chat em segundo plano com som do sistema (FCM).',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
+    await androidImpl.createNotificationChannel(
+      const AndroidNotificationChannel(
+        fcmAndroidChannelVibrate,
+        'Chat — vibrar (push)',
+        description: 'Push do chat sem som, só vibração.',
+        importance: Importance.high,
+        playSound: false,
+        enableVibration: true,
+      ),
+    );
+    await androidImpl.createNotificationChannel(
+      const AndroidNotificationChannel(
+        fcmAndroidChannelSilent,
+        'Chat — silencioso (push)',
+        description: 'Push do chat sem som nem vibração.',
+        importance: Importance.defaultImportance,
+        playSound: false,
+        enableVibration: false,
+      ),
+    );
+  }
 
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
@@ -68,6 +129,7 @@ class ChurchChatAlertNotificationService {
           enableVibration: false,
         ),
       );
+      await _createFcmAndroidChatChannels(androidImpl);
     }
 
     final iosImpl =

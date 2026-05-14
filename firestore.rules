@@ -1005,7 +1005,14 @@ service cloud.firestore {
 
       match /chat_threads/{threadId} {
         // Lista/query: `resource.data` + threadId (sem `get()` no próprio doc em listagens).
-        allow read: if canAccessTenant(id) && canReadChatThreadData(id, threadId, resource.data);
+        // Alinhar com `where participantUids arrayContains uid` — condição explícita no mesmo campo
+        // evita permission-denied em queries de lista (ex.: definições de alertas por conversa).
+        allow read: if canAccessTenant(id) && (
+            ('participantUids' in resource.data
+              && resource.data.participantUids is list
+              && request.auth.uid in resource.data.participantUids)
+            || canReadChatThreadData(id, threadId, resource.data)
+          );
         allow create: if canAccessTenant(id)
           && (
             (request.resource.data.type == 'dm'

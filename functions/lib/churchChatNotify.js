@@ -38,6 +38,10 @@ const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const notificationBranding_1 = require("./notificationBranding");
 const db = admin.firestore();
+/** Alinhado a `ChurchChatAlertNotificationService` (Flutter) — canais para FCM em segundo plano. */
+const FCM_CHAT_ANDROID_SOUND = "gy_fcm_chat_sound";
+const FCM_CHAT_ANDROID_VIBRATE = "gy_fcm_chat_vibrate";
+const FCM_CHAT_ANDROID_SILENT = "gy_fcm_chat_silent";
 function parseStringArray(raw) {
     if (!Array.isArray(raw))
         return [];
@@ -48,6 +52,110 @@ function parseStringArray(raw) {
             out.push(s);
     }
     return out;
+}
+function normalizeAlertMode(raw) {
+    const m = String(raw ?? "").trim().toLowerCase();
+    if (m === "vibrate" || m === "silent" || m === "sound")
+        return m;
+    return "sound";
+}
+function threadNotifMapFromPrefs(raw) {
+    if (!raw || typeof raw !== "object")
+        return {};
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+        const id = String(k).trim();
+        if (!id)
+            continue;
+        out[id] = normalizeAlertMode(v);
+    }
+    return out;
+}
+function chatDeliveryForMode(mode) {
+    switch (mode) {
+        case "silent":
+            return {
+                androidChannelId: FCM_CHAT_ANDROID_SILENT,
+                iosSound: null,
+                iosInterruptionLevel: "passive",
+            };
+        case "vibrate":
+            return {
+                androidChannelId: FCM_CHAT_ANDROID_VIBRATE,
+                iosSound: null,
+                iosInterruptionLevel: "active",
+            };
+        default:
+            return {
+                androidChannelId: FCM_CHAT_ANDROID_SOUND,
+                iosSound: "default",
+                iosInterruptionLevel: "active",
+            };
+    }
+}
+/** `pushChat` + `pushChatAlertMode` por uid (lotes de 10). */
+async function loadUsersChatPushState(uids) {
+    const out = new Map();
+    const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
+    const step = 10;
+    for (let i = 0; i < unique.length; i += step) {
+        const slice = unique.slice(i, i + step);
+        const refs = slice.map((uid) => db.collection("users").doc(uid));
+        const snaps = await db.getAll(...refs);
+        for (let j = 0; j < snaps.length; j++) {
+            const uid = slice[j];
+            const s = snaps[j];
+            if (!s.exists) {
+                out.set(uid, { enabled: true, globalMode: "sound" });
+                continue;
+            }
+            const d = s.data() || {};
+            out.set(uid, {
+                enabled: d.pushChat !== false,
+                globalMode: normalizeAlertMode(d.pushChatAlertMode),
+            });
+        }
+    }
+    return out;
+}
+async function loadChatMemberPrefsBatch(tenantId, uids) {
+    const out = new Map();
+    const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
+    const step = 10;
+    for (let i = 0; i < unique.length; i += step) {
+        const slice = unique.slice(i, i + step);
+        const refs = slice.map((uid) => db.collection("igrejas").doc(tenantId).collection("chat_member_prefs").doc(uid));
+        const snaps = await db.getAll(...refs);
+        for (let j = 0; j < snaps.length; j++) {
+            out.set(slice[j], snaps[j].exists ? snaps[j].data() || {} : {});
+        }
+    }
+    return out;
+}
+function resolveRecipientChatAlertMode(opts) {
+    const threadModes = threadNotifMapFromPrefs(opts.prefs.threadNotifModes);
+    const th = threadModes[opts.threadId];
+    if (th)
+        return th;
+    if (opts.threadType === "dm") {
+        const peer = String(opts.senderUid || "").trim();
+        const peerMap = threadNotifMapFromPrefs(opts.prefs.dmPeerAlertModes);
+        if (peer && peerMap[peer])
+            return peerMap[peer];
+        if (opts.prefs.dmNotificationStyle != null) {
+            return normalizeAlertMode(opts.prefs.dmNotificationStyle);
+        }
+    }
+    else {
+        const dep = String(opts.departmentId || "").trim();
+        const dm = threadNotifMapFromPrefs(opts.prefs.departmentAlertModes);
+        if (dep && dm[dep])
+            return dm[dep];
+        if (opts.prefs.groupNotificationStyle != null) {
+            return normalizeAlertMode(opts.prefs.groupNotificationStyle);
+        }
+    }
+    return opts.globalMode;
 }
 /** Tokens FCM com uid (para corpo personalizado «mencionou-o»). */
 async function collectFcmTokenPairsForUids(uids) {
@@ -82,29 +190,6 @@ async function sendEachInBatches(messages) {
         }
     }
 }
-/** `pushChat !== false` por uid — leitura em lote (evita N get() sequenciais). */
-async function uidsWithPushChatEnabled(uids) {
-    const out = new Set();
-    const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
-    const step = 10;
-    for (let i = 0; i < unique.length; i += step) {
-        const slice = unique.slice(i, i + step);
-        const refs = slice.map((uid) => db.collection("users").doc(uid));
-        const snaps = await db.getAll(...refs);
-        for (let j = 0; j < snaps.length; j++) {
-            const s = snaps[j];
-            const uid = slice[j];
-            if (!s.exists) {
-                out.add(uid);
-                continue;
-            }
-            const p = s.data()?.pushChat;
-            if (p !== false)
-                out.add(uid);
-        }
-    }
-    return out;
-}
 function previewFromMessage(msg) {
     const mtype = String(msg.type || "text");
     if (mtype === "text")
@@ -119,7 +204,7 @@ function previewFromMessage(msg) {
         return "🎵 Áudio";
     return "Nova mensagem";
 }
-/** Push aos outros participantes do thread — respeita [users.pushChat]. Mencões em grupo: corpo dedicado. */
+/** Push aos outros participantes do thread — respeita [users.pushChat] e modos de alerta (som/vibrar/silêncio) em segundo plano. */
 exports.onChurchChatMessageCreated = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{messageId}")
@@ -146,19 +231,15 @@ exports.onChurchChatMessageCreated = functions
     const titlesByUid = (thread.titlesByUid || {});
     const senderName = String(titlesByUid[senderUid] || "").trim() || "Alguém";
     const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
-    const pushOk = await uidsWithPushChatEnabled(recipients);
+    const userChatState = await loadUsersChatPushState(recipients);
+    const candidates = recipients.filter((u) => userChatState.get(u)?.enabled !== false);
+    if (!candidates.length)
+        return null;
+    const prefsByUid = await loadChatMemberPrefsBatch(tenantId, candidates);
     const recipientPushOn = [];
-    for (const uid of recipients) {
-        if (!pushOk.has(uid))
-            continue;
+    for (const uid of candidates) {
+        const prefs = prefsByUid.get(uid) || {};
         try {
-            const prefsSnap = await db
-                .collection("igrejas")
-                .doc(tenantId)
-                .collection("chat_member_prefs")
-                .doc(uid)
-                .get();
-            const prefs = prefsSnap.data() || {};
             const muted = parseStringArray(prefs.mutedThreadIds);
             const blocked = parseStringArray(prefs.blockedPeerUids);
             if (muted.includes(threadId))
@@ -167,7 +248,7 @@ exports.onChurchChatMessageCreated = functions
                 continue;
         }
         catch (_) {
-            // sem doc de prefs: entregar notificação
+            // continuar
         }
         recipientPushOn.push(uid);
     }
@@ -177,11 +258,17 @@ exports.onChurchChatMessageCreated = functions
     if (!pairs.length)
         return null;
     const threadType = String(thread.type || "");
+    const departmentIdRaw = String(thread.departmentId || "").trim();
+    const departmentIdFromThreadId = threadId.startsWith("dept_") && threadId.length > 5 ? threadId.slice(5) : "";
+    const departmentIdForPush = threadType === "department"
+        ? (departmentIdRaw || departmentIdFromThreadId)
+        : "";
     let title = String(thread.title || "").trim() || "Conversas";
     if (threadType === "dm") {
         title = senderName;
     }
     const preview = previewFromMessage(msg);
+    const threadTypeNorm = threadType === "dm" ? "dm" : "department";
     const messages = [];
     for (const { uid, token } of pairs) {
         const wasMentioned = threadType === "department" && mentionedSet.has(uid) && uid !== senderUid;
@@ -190,6 +277,17 @@ exports.onChurchChatMessageCreated = functions
                 ? `${senderName} mencionou-o: ${preview || "Nova mensagem"}`.slice(0, 200)
                 : `${senderName}: ${preview || "Nova mensagem"}`.slice(0, 200)
             : (preview || "Nova mensagem").slice(0, 200);
+        const prefs = prefsByUid.get(uid) || {};
+        const globalMode = userChatState.get(uid)?.globalMode ?? "sound";
+        const bgMode = resolveRecipientChatAlertMode({
+            prefs,
+            globalMode,
+            threadId,
+            threadType: threadTypeNorm,
+            senderUid,
+            departmentId: departmentIdForPush,
+        });
+        const chatDelivery = chatDeliveryForMode(bgMode);
         messages.push((0, notificationBranding_1.buildGyTokenMessage)({
             token,
             title,
@@ -198,12 +296,19 @@ exports.onChurchChatMessageCreated = functions
                 tenantId,
                 type: "novo_chat",
                 threadId,
-                threadType: threadType === "dm" ? "dm" : "department",
+                threadType: threadTypeNorm,
                 senderUid,
+                gyChatBgMode: bgMode,
+                ...(threadType === "dm"
+                    ? { dmPeerUid: senderUid }
+                    : departmentIdForPush
+                        ? { departmentId: departmentIdForPush }
+                        : {}),
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
                 ...(wasMentioned ? { chatMention: "1" } : {}),
             },
             module: "chat",
+            chatDelivery,
         }));
     }
     await sendEachInBatches(messages);

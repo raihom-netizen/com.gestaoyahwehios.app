@@ -110,10 +110,43 @@ export function buildGyTokenMessage(params: {
   body: string;
   data: Record<string, string>;
   module: GyModuleKind;
+  /**
+   * Chat: som/vibração/silêncio em **segundo plano** (Android `channelId` + APNS).
+   * Os IDs de canal devem existir na app — ver `ChurchChatAlertNotificationService` (Flutter).
+   */
+  chatDelivery?: {
+    androidChannelId: string;
+    /** `null` = omitir `aps.sound` (iOS: sem toque do sistema; ainda pode vibrar em hardware). */
+    iosSound: string | null;
+    /** ex.: `passive` para entrega mais discreta quando [iosSound] é null. */
+    iosInterruptionLevel?: "active" | "passive";
+  };
 }): admin.messaging.Message {
   const img = gestaoBrandLogoUrl();
   const color = moduleAccentHex(params.module);
   const data = mergeData(params.data, params.module);
+  const chat = params.chatDelivery;
+  const aps: Record<string, unknown> = {
+    mutableContent: true,
+  };
+  const apnsHeaders: Record<string, string> = {
+    "apns-priority": "10",
+  };
+  if (chat) {
+    if (chat.iosSound != null && chat.iosSound.length > 0) {
+      aps.sound = chat.iosSound;
+    }
+    if (chat.iosInterruptionLevel) {
+      apnsHeaders["apns-interruption-level"] = chat.iosInterruptionLevel;
+    }
+  } else {
+    aps.sound = "default";
+  }
+  const androidNotif: admin.messaging.AndroidNotification = {
+    imageUrl: img,
+    color,
+    ...(chat?.androidChannelId ? { channelId: chat.androidChannelId } : {}),
+  };
   return {
     token: params.token,
     notification: {
@@ -124,17 +157,12 @@ export function buildGyTokenMessage(params: {
     data,
     android: {
       priority: "high",
-      notification: {
-        imageUrl: img,
-        color,
-      },
+      notification: androidNotif,
     },
     apns: {
+      headers: apnsHeaders,
       payload: {
-        aps: {
-          sound: "default",
-          mutableContent: true,
-        },
+        aps,
       },
       fcmOptions: {
         imageUrl: img,

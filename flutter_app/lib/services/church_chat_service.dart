@@ -347,6 +347,45 @@ class ChurchChatService {
         );
   }
 
+  static Timer? _appPresenceHeartbeat;
+  static String? _appPresenceTenantId;
+
+  /// Atualiza `chat_presence` em ciclo enquanto o painel da igreja está aberto,
+  /// para o membro aparecer «online» sem abrir o módulo Chat (alinhado a [isOnlineFromSnapshot] ~45s).
+  static void startAppWidePresenceHeartbeat(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) {
+      stopAppWidePresenceHeartbeat();
+      return;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      stopAppWidePresenceHeartbeat();
+      return;
+    }
+    if (_appPresenceHeartbeat != null && _appPresenceTenantId == tid) return;
+    _appPresenceHeartbeat?.cancel();
+    _appPresenceTenantId = tid;
+    unawaited(touchPresence(tid));
+    _appPresenceHeartbeat = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => touchPresence(tid),
+    );
+  }
+
+  static void stopAppWidePresenceHeartbeat() {
+    _appPresenceHeartbeat?.cancel();
+    _appPresenceHeartbeat = null;
+    _appPresenceTenantId = null;
+  }
+
+  /// Volta ao primeiro plano — refresca já o indicador «online».
+  static Future<void> appWidePresencePingIfActive() async {
+    final tid = _appPresenceTenantId;
+    if (tid == null || tid.isEmpty) return;
+    await touchPresence(tid);
+  }
+
   static bool isOnlineFromSnapshot(DocumentSnapshot<Map<String, dynamic>>? snap) {
     final ts = snap?.data()?['lastSeenAt'];
     if (ts is! Timestamp) return false;

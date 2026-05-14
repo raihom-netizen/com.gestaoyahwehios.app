@@ -14,6 +14,8 @@ import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
+import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -130,7 +132,8 @@ class IgrejaCleanShell extends StatefulWidget {
   State<IgrejaCleanShell> createState() => _IgrejaCleanShellState();
 }
 
-class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
+class _IgrejaCleanShellState extends State<IgrejaCleanShell>
+    with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
   bool _adquirirPlanoExpanded = false;
@@ -318,6 +321,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
@@ -336,6 +340,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
       _runMembersToMembrosMigration();
       unawaited(ChurchTenantOfflineWarmupService.instance
           .scheduleWarmupAfterLogin(widget.tenantId));
+      unawaited(_bootstrapChatPresenceHeartbeat());
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = 2);
       } else if (widget.initialShellIndex != null &&
@@ -353,11 +358,48 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ChurchChatService.stopAppWidePresenceHeartbeat();
     ChurchPanelNavigationBridge.instance.unregisterShellNavigator();
     HardwareKeyboard.instance.removeHandler(_onShellHardwareKey);
     PaymentUiFeedbackService.paymentConfirmedTick
         .removeListener(_onPaymentConfirmedTick);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant IgrejaCleanShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      unawaited(_bootstrapChatPresenceHeartbeat());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ChurchChatService.appWidePresencePingIfActive());
+    }
+  }
+
+  Future<void> _bootstrapChatPresenceHeartbeat() async {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null) return;
+    final raw = widget.tenantId.trim();
+    if (raw.isEmpty) return;
+    try {
+      final tid =
+          await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        raw,
+        userUid: u.uid,
+      );
+      if (!mounted) return;
+      ChurchChatService.startAppWidePresenceHeartbeat(tid);
+    } catch (_) {
+      if (!mounted) return;
+      ChurchChatService.startAppWidePresenceHeartbeat(raw);
+    }
   }
 
   bool _focusInsideEditableText() {

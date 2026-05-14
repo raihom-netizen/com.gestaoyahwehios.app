@@ -52,6 +52,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
@@ -447,6 +448,14 @@ void main() async {
         options: DefaultFirebaseOptions.currentPlatform);
   } catch (e) {
     // Firebase já inicializado
+  }
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    try {
+      await ChurchChatAlertNotificationService.instance
+          .registerFcmChatAndroidChannelsForBoot();
+    } catch (_) {}
   }
   ensureBrasiliaTimeZoneInitialized();
   await PublicSiteAnalytics.ensureInitialized();

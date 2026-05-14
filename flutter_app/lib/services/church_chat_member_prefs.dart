@@ -13,7 +13,7 @@ String _normalizeChatAlertMode(String raw) {
 }
 
 /// Preferências por utilizador na igreja: favoritos, silenciar conversa, bloquear contacto (DM),
-/// modo de alerta por DM / grupo e por conversa (`threadNotifModes`).
+/// modo de alerta por DM / grupo, por **departamento**, por **pessoa (DM)** e por **conversa** (`threadNotifModes`).
 /// Firestore: `igrejas/{tenantId}/chat_member_prefs/{uid}`.
 class ChurchChatMemberPrefsModel {
   final List<String> favoriteThreadIds;
@@ -26,11 +26,20 @@ class ChurchChatMemberPrefsModel {
   /// `null` = herdar o modo global.
   final String? groupNotificationStyle;
 
-  /// `threadId` → `sound` | `vibrate` | `silent` (sobrepõe DM/grupo/global).
+  /// `threadId` → `sound` | `vibrate` | `silent` (prioridade máxima por conversa).
   final Map<String, String> threadNotifModes;
+
+  /// `departmentId` → modo para **todos** os grupos desse departamento (antes do estilo global de grupo).
+  final Map<String, String> departmentAlertModes;
+
+  /// `peerUid` → modo para **todas** as DMs com essa pessoa (antes do estilo global de DM).
+  final Map<String, String> dmPeerAlertModes;
 
   /// DM oculta da lista «Conversas» (só para este utilizador; não apaga o thread).
   final List<String> hiddenDmThreadIds;
+
+  /// Ordem preferida dos grupos (ids de `departamentos/{id}`). Vazio = ordem alfabética.
+  final List<String> departmentGroupOrderIds;
 
   const ChurchChatMemberPrefsModel({
     this.favoriteThreadIds = const [],
@@ -39,7 +48,10 @@ class ChurchChatMemberPrefsModel {
     this.dmNotificationStyle,
     this.groupNotificationStyle,
     this.threadNotifModes = const {},
+    this.departmentAlertModes = const {},
+    this.dmPeerAlertModes = const {},
     this.hiddenDmThreadIds = const [],
+    this.departmentGroupOrderIds = const [],
   });
 
   bool isFavorite(String threadId) => favoriteThreadIds.contains(threadId);
@@ -50,6 +62,11 @@ class ChurchChatMemberPrefsModel {
       threadId.isNotEmpty && hiddenDmThreadIds.contains(threadId);
 
   String? threadNotifOverride(String threadId) => threadNotifModes[threadId];
+
+  String? departmentAlertMode(String departmentId) =>
+      departmentAlertModes[departmentId];
+
+  String? dmPeerAlertMode(String peerUid) => dmPeerAlertModes[peerUid];
 }
 
 class ChurchChatMemberPrefs {
@@ -61,8 +78,17 @@ class ChurchChatMemberPrefs {
   /// Máximo de conversas com alerta personalizado (mapa `threadNotifModes`).
   static const int maxThreadNotifOverrides = 30;
 
+  /// Máximo de departamentos com modo próprio (`departmentAlertModes`).
+  static const int maxDepartmentAlertModes = 40;
+
+  /// Máximo de contactos DM com modo próprio (`dmPeerAlertModes`).
+  static const int maxDmPeerAlertModes = 40;
+
   /// Máximo de DMs ocultas na lista (evita documento gigante).
   static const int maxHiddenDmThreads = 80;
+
+  /// Ordem personalizada dos grupos na aba Chat (ids de departamento).
+  static const int maxDepartmentGroupOrderIds = 80;
 
   static DocumentReference<Map<String, dynamic>> docRef(
     String tenantId,
@@ -75,12 +101,14 @@ class ChurchChatMemberPrefs {
         .doc(uid);
   }
 
-  static Stream<DocumentSnapshot<Map<String, dynamic>>> watch(String tenantId) {
+  /// Nunca [Stream.empty] — alguns [StreamBuilder] ficavam sem snapshot útil (área cinza).
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> watch(
+      String tenantId) async* {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
+    if (uid == null || uid.isEmpty) {
+      return;
     }
-    return docRef(tenantId, uid).snapshots();
+    yield* docRef(tenantId, uid).snapshots();
   }
 
   static ChurchChatMemberPrefsModel parse(
@@ -94,7 +122,10 @@ class ChurchChatMemberPrefs {
       dmNotificationStyle: _optionalAlertMode(d?['dmNotificationStyle']),
       groupNotificationStyle: _optionalAlertMode(d?['groupNotificationStyle']),
       threadNotifModes: _threadNotifMap(d?['threadNotifModes']),
+      departmentAlertModes: _threadNotifMap(d?['departmentAlertModes']),
+      dmPeerAlertModes: _threadNotifMap(d?['dmPeerAlertModes']),
       hiddenDmThreadIds: _stringList(d?['hiddenDmThreadIds']),
+      departmentGroupOrderIds: _stringList(d?['departmentGroupOrderIds']),
     );
   }
 
@@ -291,6 +322,96 @@ class ChurchChatMemberPrefs {
       SetOptions(merge: true),
     );
     return true;
+  }
+
+  /// `mode == null` remove a entrada. `false` se o mapa já está no limite.
+  static Future<bool> setDepartmentAlertMode({
+    required String tenantId,
+    required String departmentId,
+    required String? mode,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final id = departmentId.trim();
+    if (id.isEmpty) return false;
+    final cur = await load(tenantId);
+    final map = Map<String, String>.from(cur.departmentAlertModes);
+    if (mode == null) {
+      map.remove(id);
+    } else {
+      if (!map.containsKey(id) && map.length >= maxDepartmentAlertModes) {
+        return false;
+      }
+      map[id] = _normalizeChatAlertMode(mode);
+    }
+    await docRef(tenantId, uid).set(
+      {
+        'departmentAlertModes': map,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
+  /// Modo de alerta para todas as DMs com [peerUid] (outro participante).
+  static Future<bool> setDmPeerAlertMode({
+    required String tenantId,
+    required String peerUid,
+    required String? mode,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final pid = peerUid.trim();
+    if (pid.isEmpty || pid == uid) return false;
+    final cur = await load(tenantId);
+    final map = Map<String, String>.from(cur.dmPeerAlertModes);
+    if (mode == null) {
+      map.remove(pid);
+    } else {
+      if (!map.containsKey(pid) && map.length >= maxDmPeerAlertModes) {
+        return false;
+      }
+      map[pid] = _normalizeChatAlertMode(mode);
+    }
+    await docRef(tenantId, uid).set(
+      {
+        'dmPeerAlertModes': map,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
+  /// Grava a ordem dos grupos (aba Grupos). Lista vazia remove preferência (volta ao A–Z).
+  static Future<void> setDepartmentGroupOrder({
+    required String tenantId,
+    required List<String> departmentIdsInOrder,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final cleaned = departmentIdsInOrder
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .take(maxDepartmentGroupOrderIds)
+        .toList();
+    await docRef(tenantId, uid).set(
+      {
+        'departmentGroupOrderIds': cleaned,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Volta à ordenação alfabética na aba Grupos.
+  static Future<void> clearDepartmentGroupOrder(String tenantId) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    await docRef(tenantId, uid).set(
+      {
+        'departmentGroupOrderIds': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// DM: não enviar se bloqueou o interlocutor.

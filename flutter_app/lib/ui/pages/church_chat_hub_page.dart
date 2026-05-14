@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
@@ -37,13 +38,6 @@ bool _chatHubThreadIsUnreadForUser(Map<String, dynamic> data, String myUid) {
   final mySeen = _chatHubThreadMyLastSeen(data, myUid);
   if (mySeen == null) return true;
   return lastMsg.toDate().isAfter(mySeen.toDate());
-}
-
-int _gruposGridCrossAxisCount(double width) {
-  if (width >= 1200) return 4;
-  if (width >= 900) return 3;
-  if (width >= 520) return 2;
-  return 2;
 }
 
 String _chatHubFmtThreadTime(dynamic ts) {
@@ -81,7 +75,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     with TickerProviderStateMixin {
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
-  Timer? _presenceTimer;
   /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
@@ -135,7 +128,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _searchCtrl.dispose();
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
-    _presenceTimer?.cancel();
     super.dispose();
   }
 
@@ -268,8 +260,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
-    _presenceTimer?.cancel();
-    _presenceTimer = null;
     setState(() {
       if (_resolvedTenantId != tid) {
         _lastGoodChatThreadsSnap = null;
@@ -282,11 +272,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
     unawaited(_loadChatNotifPrefs());
     await _syncMemberDepartments(tid);
-    _presenceTimer =
-        Timer.periodic(const Duration(seconds: 25), (_) {
-      ChurchChatService.touchPresence(tid);
-    });
-    ChurchChatService.touchPresence(tid);
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
@@ -825,9 +810,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             child: TabBarView(
               controller: _hubTabController,
               children: [
-                _buildConversasTab(context, tid, uid),
-                _buildMembrosTab(context, tid, uid),
-                _buildGruposTab(context, tid, uid),
+                ColoredBox(
+                  color: ThemeCleanPremium.surface,
+                  child: _buildConversasTab(context, tid, uid),
+                ),
+                ColoredBox(
+                  color: ThemeCleanPremium.surface,
+                  child: _buildMembrosTab(context, tid, uid),
+                ),
+                ColoredBox(
+                  color: ThemeCleanPremium.surface,
+                  child: _buildGruposTab(context, tid, uid),
+                ),
               ],
             ),
           ),
@@ -850,6 +844,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           .snapshots(),
       builder: (context, memSnap) {
         final photoByPeer = churchChatMemberPhotoUrlByAuthUid(memSnap.data);
+        final membrosLoadError =
+            memSnap.hasError ? memSnap.error?.toString() : null;
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: ChurchChatMemberPrefs.watch(tid),
@@ -878,8 +874,41 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
                 if (streamError != null && snapForList == null) {
                   return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(24),
                     children: [
+                      if (membrosLoadError != null) ...[
+                        Material(
+                          color: const Color(0xFFFFF3E0),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.photo_library_outlined,
+                                  color: Colors.orange.shade900,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Lista de membros (fotos) indisponível; as conversas podem aparecer sem avatar.\n$membrosLoadError',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      height: 1.35,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       Icon(
                         Icons.cloud_off_rounded,
                         size: 48,
@@ -905,6 +934,40 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 final threads = <Widget>[];
+                if (membrosLoadError != null) {
+                  threads.add(
+                    Material(
+                      color: const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.photo_library_outlined,
+                              color: Colors.orange.shade900,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Fotos dos avatares: lista de membros indisponível agora — as conversas continuam.\n$membrosLoadError',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                  threads.add(const SizedBox(height: 10));
+                }
                 final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
 
@@ -1076,6 +1139,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
                   children: threads,
                 );
@@ -1106,132 +1170,250 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
-  Widget _buildGruposTab(BuildContext context, String tid, String uid) {
-    final ql = _deptFilterCtrl.text.trim().toLowerCase();
-    final filtered = _departments.where((d) {
-      if (ql.isEmpty) return true;
-      return d.name.toLowerCase().contains(ql);
-    }).toList()
-      ..sort((a, b) =>
-          a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-
-    if (filtered.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Text(
-            _departments.isEmpty
-                ? 'Sem grupos — faça parte de um departamento na sua ficha de membro.'
-                : 'Nenhum grupo corresponde à pesquisa.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: ThemeCleanPremium.onSurfaceVariant,
-              height: 1.45,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
+  /// Sem preferência gravada ou com pesquisa ativa → A–Z; caso contrário aplica [orderIds].
+  List<_DeptEntry> _orderedDepartmentGroupsForTab(
+    List<_DeptEntry> filtered,
+    List<String> orderIds, {
+    required bool useSavedOrder,
+  }) {
+    final byId = {for (final e in filtered) e.id: e};
+    if (!useSavedOrder || orderIds.isEmpty) {
+      final list = byId.values.toList();
+      list.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
+      return list;
     }
+    final ordered = <_DeptEntry>[];
+    for (final id in orderIds) {
+      final e = byId.remove(id);
+      if (e != null) ordered.add(e);
+    }
+    final rest = byId.values.toList()
+      ..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+    return [...ordered, ...rest];
+  }
 
-    final mqW = MediaQuery.sizeOf(context).width;
-    final crossAxis = _gruposGridCrossAxisCount(mqW);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
+  void _onDepartmentGroupReorder(
+    String tid,
+    List<_DeptEntry> orderedSnapshot,
+    int oldIndex,
+    int newIndex,
+  ) {
+    var ni = newIndex;
+    if (ni > oldIndex) {
+      ni -= 1;
+    }
+    final next = List<_DeptEntry>.from(orderedSnapshot);
+    final item = next.removeAt(oldIndex);
+    next.insert(ni, item);
+    unawaited(
+      ChurchChatMemberPrefs.setDepartmentGroupOrder(
+        tenantId: tid,
+        departmentIdsInOrder: next.map((e) => e.id).toList(),
+      ),
+    );
+  }
+
+  Widget _buildGruposTab(BuildContext context, String tid, String uid) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ChurchChatMemberPrefs.watch(tid),
+      builder: (context, prefSnap) {
+        final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
+        final ql = _deptFilterCtrl.text.trim().toLowerCase();
+        final filtered = _departments.where((d) {
+          if (ql.isEmpty) {
+            return true;
+          }
+          return d.name.toLowerCase().contains(ql);
+        }).toList();
+
+        if (filtered.isEmpty) {
+          return Center(
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    colors: [
-                      ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.18),
+              padding: const EdgeInsets.all(28),
+              child: Text(
+                _departments.isEmpty
+                    ? 'Sem grupos — faça parte de um departamento na sua ficha de membro.'
+                    : 'Nenhum grupo corresponde à pesquisa.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          );
+        }
+
+        final useSavedOrder = ql.isEmpty;
+        final ordered = _orderedDepartmentGroupsForTab(
+          filtered,
+          prefs.departmentGroupOrderIds,
+          useSavedOrder: useSavedOrder,
+        );
+        final canReorder = useSavedOrder && ordered.length > 1;
+        final hasCustomOrder = prefs.departmentGroupOrderIds.isNotEmpty;
+
+        String helpPrimary;
+        if (!useSavedOrder) {
+          helpPrimary =
+              'Pesquisa ativa — grupos em ordem alfabética. Limpe o campo para voltar à sua ordem.';
+        } else if (ordered.length > 1) {
+          helpPrimary =
+              'Grupos em faixas — arraste ⋮⋮ para a sua ordem (guarda neste aparelho/conta). Toque na faixa para abrir · «Ver membros» à direita.';
+        } else {
+          helpPrimary =
+              'Grupos em faixas — toque na linha para abrir · «Ver membros» à direita.';
+        }
+
+        Widget stripTile(_DeptEntry d, {int? reorderIndex}) {
+          final threadId = ChurchChatService.deptThreadId(d.id);
+          return _DeptGroupPremiumStripCard(
+            tenantId: tid,
+            myUid: uid,
+            entry: d,
+            threadId: threadId,
+            reorderIndex: reorderIndex,
+            onOpenChat: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  fullscreenDialog: true,
+                  builder: (_) => ChurchChatThreadPage(
+                    tenantId: tid,
+                    threadId: threadId,
+                    title: d.name,
+                    isDepartment: true,
+                    departmentId: d.id,
+                    memberRole: widget.role,
+                    memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.grid_view_rounded,
-                      color: ThemeCleanPremium.primary,
-                      size: 22,
+              );
+            },
+            onOpenMembers: () =>
+                _showDepartmentMembersSheet(context, tid, uid, d),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Vista em grelha · toque no cartão para abrir o grupo · contagem não lidas / total de mensagens',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
-                          color: ThemeCleanPremium.onSurface,
-                        ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
+                        ],
+                      ),
+                      border: Border.all(
+                        color:
+                            ThemeCleanPremium.primary.withValues(alpha: 0.18),
                       ),
                     ),
-                  ],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.view_stream_rounded,
+                              color: ThemeCleanPremium.primary,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                helpPrimary,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                  color: ThemeCleanPremium.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (useSavedOrder && hasCustomOrder) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                unawaited(
+                                  ChurchChatMemberPrefs.clearDepartmentGroupOrder(
+                                    tid,
+                                  ),
+                                );
+                              },
+                              icon: Icon(
+                                Icons.sort_by_alpha_rounded,
+                                size: 18,
+                                color: ThemeCleanPremium.primary,
+                              ),
+                              label: Text(
+                                'Ordem alfabética (A–Z)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          SliverLayoutBuilder(
-          builder: (context, constraints) {
-            final w = constraints.crossAxisExtent;
-            final spacing = 12.0;
-            final tileW = (w - spacing * (crossAxis - 1)) / crossAxis;
-            final aspect = tileW < 200 ? 0.68 : 0.74;
-            return SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxis,
-                mainAxisSpacing: spacing,
-                crossAxisSpacing: spacing,
-                childAspectRatio: aspect,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (ctx, i) {
-                  final d = filtered[i];
-                  final threadId = ChurchChatService.deptThreadId(d.id);
-                  return _DeptGroupPremiumGridCard(
-                    tenantId: tid,
-                    myUid: uid,
-                    entry: d,
-                    threadId: threadId,
-                    onOpenChat: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          fullscreenDialog: true,
-                          builder: (_) => ChurchChatThreadPage(
-                            tenantId: tid,
-                            threadId: threadId,
-                            title: d.name,
-                            isDepartment: true,
-                            departmentId: d.id,
-                            memberRole: widget.role,
-                            memberCpfDigits:
-                                widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                          ),
-                        ),
-                      );
+              if (canReorder)
+                SliverReorderableList(
+                  itemCount: ordered.length,
+                  onReorder: (oldIndex, newIndex) {
+                    _onDepartmentGroupReorder(
+                      tid,
+                      ordered,
+                      oldIndex,
+                      newIndex,
+                    );
+                  },
+                  itemBuilder: (ctx, index) {
+                    final d = ordered[index];
+                    return KeyedSubtree(
+                      key: ValueKey<String>('deptgrp_${d.id}'),
+                      child: stripTile(d, reorderIndex: index),
+                    );
+                  },
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, i) {
+                      return stripTile(ordered[i], reorderIndex: null);
                     },
-                    onOpenMembers: () =>
-                        _showDepartmentMembersSheet(context, tid, uid, d),
-                  );
-                },
-                childCount: filtered.length,
-              ),
-            );
-          },
-        ),
-      ],
-      ),
+                    childCount: ordered.length,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1581,12 +1763,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final picked = await showModalBottomSheet<_PickResult>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: ThemeCleanPremium.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(ThemeCleanPremium.radiusLg),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         return DraggableScrollableSheet(
           expand: false,
@@ -2221,21 +2398,26 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   }
 }
 
-class _DeptGroupPremiumGridCard extends StatelessWidget {
+/// Cartão em **faixa** (lista vertical) — evita `Column` + `Expanded` + `Spacer`
+/// dentro de altura não limitada (causava layout inválido / área cinza na web).
+class _DeptGroupPremiumStripCard extends StatelessWidget {
   final String tenantId;
   final String myUid;
   final String threadId;
   final _DeptEntry entry;
   final VoidCallback onOpenChat;
   final VoidCallback onOpenMembers;
+  /// Índice na [SliverReorderableList]; `null` = sem arrastar.
+  final int? reorderIndex;
 
-  const _DeptGroupPremiumGridCard({
+  const _DeptGroupPremiumStripCard({
     required this.tenantId,
     required this.myUid,
     required this.threadId,
     required this.entry,
     required this.onOpenChat,
     required this.onOpenMembers,
+    this.reorderIndex,
   });
 
   @override
@@ -2262,94 +2444,175 @@ class _DeptGroupPremiumGridCard extends StatelessWidget {
         final participants = data?['participantUids'];
         final nChatMembers = participants is List ? participants.length : 0;
 
-        return Material(
-          color: Colors.transparent,
-          child: Ink(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                  ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
-                ],
-              ),
-              border: Border.all(
-                color: ThemeCleanPremium.primary.withValues(
-                  alpha: unreadFlag ? 0.35 : 0.2,
-                ),
-                width: unreadFlag ? 1.2 : 1,
-              ),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: InkWell(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20),
+        const stripRadius = 26.0;
+        final stripBody = Material(
+            color: Colors.transparent,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(stripRadius),
+              child: InkWell(
+                onTap: onOpenChat,
+                borderRadius: BorderRadius.circular(stripRadius),
+                child: Ink(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(stripRadius),
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        ThemeCleanPremium.primary.withValues(
+                          alpha: unreadFlag ? 0.22 : 0.16,
+                        ),
+                        ThemeCleanPremium.surface.withValues(alpha: 0.42),
+                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.1),
+                      ],
+                      stops: const [0.0, 0.42, 1.0],
                     ),
-                    onTap: onOpenChat,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  ChurchChatDepartmentAvatar(
-                                    deptData: entry.deptData,
-                                    fallbackName: entry.name,
-                                    radius: 24,
-                                  ),
-                                  if (unreadFlag)
-                                    Positioned(
-                                      right: -3,
-                                      top: -3,
-                                      child: Container(
-                                        width: 14,
-                                        height: 14,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEF4444),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                    border: Border.all(
+                      color: ThemeCleanPremium.primary.withValues(
+                        alpha: unreadFlag ? 0.38 : 0.22,
+                      ),
+                      width: unreadFlag ? 1.25 : 1,
+                    ),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 12, 4, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 10, top: 4),
+                          child: Container(
+                            width: 5,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  ThemeCleanPremium.primary,
+                                  ThemeCleanPremium.primaryLight,
                                 ],
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      entry.name,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 14.5,
-                                        height: 1.2,
-                                        color: ThemeCleanPremium.onSurface,
-                                        letterSpacing: -0.25,
-                                      ),
+                            ),
+                          ),
+                        ),
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          ChurchChatDepartmentAvatar(
+                            deptData: entry.deptData,
+                            fallbackName: entry.name,
+                            radius: 22,
+                          ),
+                          if (unreadFlag)
+                            Positioned(
+                              right: -2,
+                              top: -2,
+                              child: Container(
+                                width: 13,
+                                height: 13,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    entry.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 15,
+                                      height: 1.2,
+                                      color: ThemeCleanPremium.onSurface,
+                                      letterSpacing: -0.25,
                                     ),
-                                    if (timeLabel.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
+                                  ),
+                                ),
+                                if (timeLabel.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    timeLabel,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (nChatMembers > 0) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '$nChatMembers no chat',
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 6),
+                            Text(
+                              safePreview,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            FutureBuilder<({int unread, int total})>(
+                              key: ValueKey<String>(
+                                '$threadId|$lmKey|$seenKey',
+                              ),
+                              future: ChurchChatService
+                                  .threadMessageUnreadAndTotalCounts(
+                                tenantId: tenantId,
+                                threadId: threadId,
+                                myLastSeenInThread: mySeen,
+                              ),
+                              builder: (context, snap) {
+                                if (snap.connectionState ==
+                                        ConnectionState.waiting &&
+                                    !snap.hasData) {
+                                  return Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: ThemeCleanPremium.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
                                       Text(
-                                        'Última atividade · $timeLabel',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                        'A contar mensagens…',
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
@@ -2358,164 +2621,112 @@ class _DeptGroupPremiumGridCard extends StatelessWidget {
                                         ),
                                       ),
                                     ],
-                                    if (nChatMembers > 0) ...[
-                                      const SizedBox(height: 2),
+                                  );
+                                }
+                                final u = snap.data?.unread ?? 0;
+                                final t = snap.data?.total ?? 0;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: unreadFlag
+                                        ? const Color(0xFFFFF7ED)
+                                        : Colors.white.withValues(alpha: 0.55),
+                                    border: Border.all(
+                                      color: unreadFlag
+                                          ? const Color(0xFFF59E0B)
+                                              .withValues(alpha: 0.55)
+                                          : ThemeCleanPremium.onSurfaceVariant
+                                              .withValues(alpha: 0.12),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.sms_outlined,
+                                        size: 16,
+                                        color: unreadFlag
+                                            ? const Color(0xFFB45309)
+                                            : ThemeCleanPremium.primary,
+                                      ),
+                                      const SizedBox(width: 6),
                                       Text(
-                                        '$nChatMembers no chat',
-                                        maxLines: 1,
+                                        '$u / $t',
                                         style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: ThemeCleanPremium.primary,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 13,
+                                          letterSpacing: -0.2,
+                                          color: ThemeCleanPremium.onSurface,
                                         ),
                                       ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            safePreview,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                            ),
-                          ),
-                          const Spacer(),
-                          FutureBuilder<({int unread, int total})>(
-                            key: ValueKey<String>(
-                              '$threadId|$lmKey|$seenKey',
-                            ),
-                            future: ChurchChatService
-                                .threadMessageUnreadAndTotalCounts(
-                              tenantId: tenantId,
-                              threadId: threadId,
-                              myLastSeenInThread: mySeen,
-                            ),
-                            builder: (context, snap) {
-                              if (snap.connectionState ==
-                                      ConnectionState.waiting &&
-                                  !snap.hasData) {
-                                return Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: ThemeCleanPremium.primary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'A contar mensagens…',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: ThemeCleanPremium
-                                            .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }
-                              final u = snap.data?.unread ?? 0;
-                              final t = snap.data?.total ?? 0;
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: unreadFlag
-                                      ? const Color(0xFFFFF7ED)
-                                      : Colors.white.withValues(alpha: 0.55),
-                                  border: Border.all(
-                                    color: unreadFlag
-                                        ? const Color(0xFFF59E0B)
-                                            .withValues(alpha: 0.55)
-                                        : ThemeCleanPremium.onSurfaceVariant
-                                            .withValues(alpha: 0.12),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.sms_outlined,
-                                      size: 17,
-                                      color: unreadFlag
-                                          ? const Color(0xFFB45309)
-                                          : ThemeCleanPremium.primary,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '$u / $t',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 14,
-                                        letterSpacing: -0.2,
-                                        color: ThemeCleanPremium.onSurface,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
+                                      const SizedBox(width: 6),
+                                      Text(
                                         'não lidas / total',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                          fontSize: 10.5,
+                                          fontSize: 10,
                                           fontWeight: FontWeight.w700,
                                           color: ThemeCleanPremium
                                               .onSurfaceVariant,
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      IconButton(
+                        tooltip: 'Ver membros',
+                        onPressed: onOpenMembers,
+                        icon: Icon(
+                          Icons.groups_rounded,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                  child: FilledButton.tonalIcon(
-                    style: FilledButton.styleFrom(
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    onPressed: onOpenMembers,
-                    icon: Icon(
-                      Icons.groups_rounded,
-                      size: 20,
-                      color: ThemeCleanPremium.primary,
-                    ),
-                    label: Text(
-                      'Ver membros',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
+          ),
+        );
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (reorderIndex != null)
+                ReorderableDragStartListener(
+                  index: reorderIndex!,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.grab,
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.only(left: 4, top: 12, right: 2),
+                      child: Icon(
+                        Icons.drag_handle_rounded,
+                        size: 26,
+                        color: ThemeCleanPremium.onSurfaceVariant
+                            .withValues(alpha: 0.72),
+                      ),
+                    ),
+                  ),
+                ),
+              Expanded(child: stripBody),
+            ],
           ),
         );
       },
@@ -2675,6 +2886,15 @@ class _NovaConversaDiretaSheet extends StatefulWidget {
 class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   final _filter = TextEditingController();
 
+  String? _cpfDigitsForMember(Map<String, dynamic> d, String docId) {
+    final fromField =
+        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    if (fromField.length >= 11) return fromField;
+    final fromId = docId.replaceAll(RegExp(r'\D'), '');
+    if (fromId.length >= 11) return fromId;
+    return fromField.isEmpty ? null : fromField;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2718,187 +2938,362 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    return Column(
-      children: [
-        Container(
-          margin: const EdgeInsets.only(top: 10, bottom: 6),
-          width: 40,
-          height: 4,
-          decoration: BoxDecoration(
-            color:
-                ThemeCleanPremium.onSurfaceVariant.withValues(alpha: 0.25),
-            borderRadius: BorderRadius.circular(99),
-          ),
+    final radius = BorderRadius.vertical(
+      top: Radius.circular(ThemeCleanPremium.radiusLg + 4),
+    );
+    return ClipRRect(
+      borderRadius: radius,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-          child: Row(
-            children: [
-              Icon(Icons.person_search_rounded,
-                  color: ThemeCleanPremium.primary, size: 26),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Nova conversa direta',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: ThemeCleanPremium.onSurface,
-                  ),
-                ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(99),
               ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          child: TextField(
-            controller: _filter,
-            style: TextStyle(
-              color: ThemeCleanPremium.onSurface,
-              fontWeight: FontWeight.w500,
             ),
-            decoration: InputDecoration(
-              hintText: 'Filtrar por nome…',
-              hintStyle:
-                  TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
-              prefixIcon: Icon(Icons.filter_alt_rounded,
-                  color: ThemeCleanPremium.primary),
-              filled: true,
-              fillColor: ThemeCleanPremium.cardBackground,
-              border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                borderSide: BorderSide(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                decoration: BoxDecoration(
+                  gradient: churchChatWhatsPremiumLinearGradient,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                borderSide: BorderSide(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                ),
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-          ),
-        ),
-        Expanded(
-          child: filtered.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _eligible.isEmpty
-                          ? 'Nenhum membro disponível para conversa.'
-                          : 'Nenhum resultado para «${_filter.text.trim()}».',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.person_search_rounded,
+                        color: Colors.white,
+                        size: 24,
                       ),
                     ),
-                  ),
-                )
-              : ListView.builder(
-                  controller: widget.scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: filtered.length,
-                  itemBuilder: (_, i) {
-                    final doc = filtered[i];
-                    final d = doc.data();
-                    final auth =
-                        (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
-                    final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
-                        .toString()
-                        .trim();
-                    return StreamBuilder<
-                        DocumentSnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance
-                          .collection('igrejas')
-                          .doc(widget.tid)
-                          .collection('chat_presence')
-                          .doc(auth)
-                          .snapshots(),
-                      builder: (context, presSnap) {
-                        final on = ChurchChatService.isOnlineFromSnapshot(
-                            presSnap.data);
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          elevation: 0,
-                          color: ThemeCleanPremium.cardBackground,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusMd),
-                            side: BorderSide(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.08),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Nova conversa direta',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              letterSpacing: -0.3,
+                              color: Colors.white,
                             ),
                           ),
-                          child: ListTile(
-                            leading: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12),
-                                  foregroundColor: ThemeCleanPremium.primary,
-                                  child: Text(
-                                    nome.isNotEmpty
-                                        ? nome[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Toque num membro para abrir a DM — fotos do cadastro',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.3,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.92),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: TextField(
+                controller: _filter,
+                style: TextStyle(
+                  color: ThemeCleanPremium.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Filtrar por nome…',
+                  hintStyle: TextStyle(
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  prefixIcon: Icon(
+                    Icons.search_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  filled: true,
+                  fillColor: ThemeCleanPremium.cardBackground,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                      width: 1.15,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: ThemeCleanPremium.primary,
+                      width: 2,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Material(
+                          color: ThemeCleanPremium.cardBackground,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text(
+                              _eligible.isEmpty
+                                  ? 'Nenhum membro disponível para conversa.'
+                                  : 'Nenhum resultado para «${_filter.text.trim()}».',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: widget.scrollController,
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        final doc = filtered[i];
+                        final d = doc.data();
+                        final auth =
+                            (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+                        final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
+                            .toString()
+                            .trim();
+                        final letter = nome.isNotEmpty
+                            ? nome[0].toUpperCase()
+                            : '?';
+                        final cpfOpt = _cpfDigitsForMember(d, doc.id);
+                        return StreamBuilder<
+                            DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('igrejas')
+                              .doc(widget.tid)
+                              .collection('chat_presence')
+                              .doc(auth)
+                              .snapshots(),
+                          builder: (context, presSnap) {
+                            final on = ChurchChatService.isOnlineFromSnapshot(
+                                presSnap.data);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: () => Navigator.pop(
+                                    context,
+                                    _PickResult(uid: auth, name: nome),
                                   ),
-                                ),
-                                Positioned(
-                                  right: -2,
-                                  bottom: -2,
-                                  child: Container(
-                                    width: 13,
-                                    height: 13,
+                                  child: Ink(
                                     decoration: BoxDecoration(
-                                      color: on
-                                          ? ThemeCleanPremium.success
-                                          : const Color(0xFF9CA3AF),
-                                      shape: BoxShape.circle,
+                                      color: ThemeCleanPremium.cardBackground,
+                                      borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
-                                          color: Colors.white, width: 2),
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.22),
+                                        width: 1.1,
+                                      ),
+                                      boxShadow:
+                                          ThemeCleanPremium.softUiCardShadow,
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: 54,
+                                            height: 54,
+                                            child: Stack(
+                                              clipBehavior: Clip.none,
+                                              alignment: Alignment.center,
+                                              children: [
+                                                ClipOval(
+                                                  child: FotoMembroWidget(
+                                                    size: 50,
+                                                    tenantId: widget.tid,
+                                                    memberId: doc.id,
+                                                    memberData: d,
+                                                    authUid: auth.isNotEmpty
+                                                        ? auth
+                                                        : null,
+                                                    cpfDigits: cpfOpt,
+                                                    memCacheWidth: 160,
+                                                    memCacheHeight: 160,
+                                                    fallbackChild:
+                                                        CircleAvatar(
+                                                      radius: 25,
+                                                      backgroundColor:
+                                                          ThemeCleanPremium
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.14),
+                                                      foregroundColor:
+                                                          ThemeCleanPremium
+                                                              .primary,
+                                                      child: Text(
+                                                        letter,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                          fontSize: 20,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                Positioned(
+                                                  right: 0,
+                                                  bottom: 0,
+                                                  child: Container(
+                                                    width: 14,
+                                                    height: 14,
+                                                    decoration: BoxDecoration(
+                                                      color: on
+                                                          ? ThemeCleanPremium
+                                                              .success
+                                                          : const Color(
+                                                              0xFF9CA3AF),
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                        color: ThemeCleanPremium
+                                                            .cardBackground,
+                                                        width: 2,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  nome.isEmpty ? auth : nome,
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 15,
+                                                    height: 1.25,
+                                                    color: ThemeCleanPremium
+                                                        .onSurface,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Row(
+                                                  children: [
+                                                    Icon(
+                                                      on
+                                                          ? Icons
+                                                              .circle_rounded
+                                                          : Icons
+                                                              .trip_origin_rounded,
+                                                      size: 12,
+                                                      color: on
+                                                          ? ThemeCleanPremium
+                                                              .success
+                                                          : ThemeCleanPremium
+                                                              .onSurfaceVariant,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      on
+                                                          ? 'Online'
+                                                          : 'Offline',
+                                                      style: TextStyle(
+                                                        fontSize: 12.5,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color: on
+                                                            ? ThemeCleanPremium
+                                                                .success
+                                                            : ThemeCleanPremium
+                                                                .onSurfaceVariant,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.chat_rounded,
+                                            color: ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.65),
+                                            size: 22,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                            title: Text(
-                              nome.isEmpty ? auth : nome,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text(
-                              on ? 'Online' : 'Offline',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                                color: on
-                                    ? const Color(0xFF16A34A)
-                                    : ThemeCleanPremium.onSurfaceVariant,
                               ),
-                            ),
-                            onTap: () => Navigator.pop(
-                              context,
-                              _PickResult(uid: auth, name: nome),
-                            ),
-                          ),
+                            );
+                          },
                         );
                       },
-                    );
-                  },
-                ),
+                    ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

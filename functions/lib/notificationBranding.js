@@ -84,6 +84,29 @@ function buildGyTokenMessage(params) {
     const img = gestaoBrandLogoUrl();
     const color = moduleAccentHex(params.module);
     const data = mergeData(params.data, params.module);
+    const chat = params.chatDelivery;
+    const aps = {
+        mutableContent: true,
+    };
+    const apnsHeaders = {
+        "apns-priority": "10",
+    };
+    if (chat) {
+        if (chat.iosSound != null && chat.iosSound.length > 0) {
+            aps.sound = chat.iosSound;
+        }
+        if (chat.iosInterruptionLevel) {
+            apnsHeaders["apns-interruption-level"] = chat.iosInterruptionLevel;
+        }
+    }
+    else {
+        aps.sound = "default";
+    }
+    const androidNotif = {
+        imageUrl: img,
+        color,
+        ...(chat?.androidChannelId ? { channelId: chat.androidChannelId } : {}),
+    };
     return {
         token: params.token,
         notification: {
@@ -94,17 +117,12 @@ function buildGyTokenMessage(params) {
         data,
         android: {
             priority: "high",
-            notification: {
-                imageUrl: img,
-                color,
-            },
+            notification: androidNotif,
         },
         apns: {
+            headers: apnsHeaders,
             payload: {
-                aps: {
-                    sound: "default",
-                    mutableContent: true,
-                },
+                aps,
             },
             fcmOptions: {
                 imageUrl: img,

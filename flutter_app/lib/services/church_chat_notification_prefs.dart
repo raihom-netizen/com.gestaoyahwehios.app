@@ -103,7 +103,10 @@ class ChurchChatNotificationPrefs {
     return alertModeSound;
   }
 
-  /// Ordem: override por `threadId` → estilo DM ou grupo → modo global da conta.
+  /// Ordem: conversa (`threadId`) → departamento (grupos) ou pessoa (DM) → estilo DM/grupo → global.
+  ///
+  /// O **mesmo critério** é aplicado no servidor em `churchChatNotify` para cada destinatário
+  /// (`gyChatBgMode` + canal Android / APNS no push em segundo plano).
   static Future<String> resolveForegroundAlertMode(RemoteMessage msg) async {
     if (!looksLikeChatNotification(msg)) return alertModeSound;
     final global = await getChatAlertMode();
@@ -121,19 +124,89 @@ class ChurchChatNotificationPrefs {
     }
     final isDm = threadType == 'dm';
 
+    var departmentId = (msg.data['departmentId'] ?? '').toString().trim();
+    if (!isDm &&
+        departmentId.isEmpty &&
+        threadId.startsWith('dept_') &&
+        threadId.length > 5) {
+      departmentId = threadId.substring(5);
+    }
+
+    final dmPeerUid = (msg.data['dmPeerUid'] ?? msg.data['senderUid'] ?? '')
+        .toString()
+        .trim();
+
     try {
       final prefs = await ChurchChatMemberPrefs.load(tenantId);
       final ov = prefs.threadNotifOverride(threadId);
       if (ov != null && _validAlertModes.contains(ov)) return ov;
       if (isDm) {
+        final peer =
+            (dmPeerUid.isNotEmpty && dmPeerUid != uid)
+                ? dmPeerUid
+                : await _dmPeerUidFromThread(tenantId, threadId, uid);
+        if (peer.isNotEmpty) {
+          final pm = prefs.dmPeerAlertMode(peer);
+          if (pm != null && _validAlertModes.contains(pm)) return pm;
+        }
         final dm = prefs.dmNotificationStyle;
         if (dm != null && _validAlertModes.contains(dm)) return dm;
       } else {
+        if (departmentId.isEmpty) {
+          departmentId = await _departmentIdFromThreadDoc(tenantId, threadId);
+        }
+        if (departmentId.isNotEmpty) {
+          final dMode = prefs.departmentAlertMode(departmentId);
+          if (dMode != null && _validAlertModes.contains(dMode)) return dMode;
+        }
         final g = prefs.groupNotificationStyle;
         if (g != null && _validAlertModes.contains(g)) return g;
       }
     } catch (_) {}
     return global;
+  }
+
+  static Future<String> _dmPeerUidFromThread(
+    String tenantId,
+    String threadId,
+    String myUid,
+  ) async {
+    if (!threadId.startsWith('dm_')) return '';
+    try {
+      final t = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('chat_threads')
+          .doc(threadId)
+          .get();
+      final peers = t.data()?['participantUids'];
+      if (peers is! List) return '';
+      for (final p in peers) {
+        final s = p.toString();
+        if (s.isNotEmpty && s != myUid) return s;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  static Future<String> _departmentIdFromThreadDoc(
+    String tenantId,
+    String threadId,
+  ) async {
+    if (threadId.startsWith('dept_') && threadId.length > 5) {
+      return threadId.substring(5);
+    }
+    try {
+      final t = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('chat_threads')
+          .doc(threadId)
+          .get();
+      final id = (t.data()?['departmentId'] ?? '').toString().trim();
+      return id;
+    } catch (_) {}
+    return '';
   }
 
   static Future<String> getChatAlertMode() async {

@@ -89,8 +89,21 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1559';
+const String appBuildNumber = '1566';
 
+/// 11.2.295+1566: deploy completo — chat (alertas por conversa/departamento/pessoa, push em
+/// segundo plano som/vibrar/silêncio Android+iOS), folha «Nova conversa direta» Super Premium com fotos;
+/// web hosting + AAB Play + ZIP iOS Codemagic.
+/// 11.2.295+1565: Dashboard igreja — banner «Primeiros passos» Super Premium (gradiente nos atalhos).
+/// 11.2.295+1564: Alertas do chat — regras `chat_threads` + stream resiliente + tenant resolvido;
+/// UI Super Premium (segmentos gradiente, cartões `cardBackground`, sem «vidro» claro).
+/// 11.2.295+1563: Chat — aba Grupos: ordem por arrastar (⋮⋮) persistida em `departmentGroupOrderIds`;
+/// sem preferência ou com pesquisa → ordem A–Z; botão «Ordem alfabética (A–Z)».
+/// 11.2.295+1562: Chat — aba Grupos com cartões em faixa horizontal (pílula + gradiente L→R + barra de cor).
+/// 11.2.295+1561: Chat — presença «online» ao abrir o painel da igreja (heartbeat no shell + resume);
+/// removido timer duplicado só no hub.
+/// 11.2.295+1560: Chat hub — `ChurchChatMemberPrefs.watch` sem `Stream.empty` (evita área cinza);
+/// aba Grupos em faixas (`SliverList` + cartão horizontal); `TabBarView` + lista com fundo surface.
 /// 11.2.295+1559: deploy completo — web hosting, regras, functions, AAB Play,
 /// ZIP iOS Codemagic (push); docs migração iOS Reader Controle Total/Moovaup.
 /// 11.2.295+1558: iOS Reader — «Alterar plano» abre `/igreja/login` (login Super Premium)

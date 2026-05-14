@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -5578,6 +5579,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
 }
 
 /// Onboarding curto para quem lidera departamentos / escalas (uma vez, dispensável).
+/// Visual Super Premium (gradiente + cartão sólido) — sem ActionChip «claro».
 class _DashboardLiderOnboardingBanner extends StatefulWidget {
   final String role;
   final bool? podeVerFinanceiro;
@@ -5631,94 +5633,181 @@ class _DashboardLiderOnboardingBannerState
   @override
   Widget build(BuildContext context) {
     if (_loading || _dismissed || !_eligible) return const SizedBox.shrink();
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              ThemeCleanPremium.primary.withValues(alpha: 0.12),
-              const Color(0xFFE8EEF5),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.22)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.flag_rounded, color: ThemeCleanPremium.primary, size: 26),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Primeiros passos como líder',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.blueGrey.shade900,
+
+    Widget premiumStep({
+      required IconData icon,
+      required String label,
+      required int shellIndex,
+    }) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => widget.onNavigateToShellModule(shellIndex),
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: churchChatWhatsPremiumLinearGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.28),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 19, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                      color: Colors.white,
+                      letterSpacing: -0.2,
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Não mostrar de novo',
-                  onPressed: _dismiss,
-                  icon: Icon(Icons.close_rounded, color: Colors.grey.shade600),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Três atalhos para organizar ministério e escala com poucos toques.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (ChurchRolePermissions.shellAllowsNavIndex(
-                  widget.role,
-                  3,
-                  memberCanViewFinance: widget.podeVerFinanceiro,
-                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
-                  permissions: widget.permissions,
-                ))
-                  ActionChip(
-                    avatar: Icon(Icons.groups_rounded, size: 18, color: ThemeCleanPremium.primary),
-                    label: const Text('1. Departamentos'),
-                    onPressed: () => widget.onNavigateToShellModule(3),
-                  ),
-                if (ChurchRolePermissions.shellAllowsNavIndex(
-                  widget.role,
-                  11,
-                  memberCanViewFinance: widget.podeVerFinanceiro,
-                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
-                  permissions: widget.permissions,
-                ))
-                  ActionChip(
-                    avatar: Icon(Icons.event_available_rounded, size: 18, color: ThemeCleanPremium.primary),
-                    label: const Text('2. Escala geral'),
-                    onPressed: () => widget.onNavigateToShellModule(11),
-                  ),
-                if (ChurchRolePermissions.shellAllowsNavIndex(
-                  widget.role,
-                  2,
-                  memberCanViewFinance: widget.podeVerFinanceiro,
-                  memberCanViewPatrimonio: widget.podeVerPatrimonio,
-                  permissions: widget.permissions,
-                ))
-                  ActionChip(
-                    avatar: Icon(Icons.people_rounded, size: 18, color: ThemeCleanPremium.primary),
-                    label: const Text('3. Membros / convites'),
-                    onPressed: () => widget.onNavigateToShellModule(2),
-                  ),
-              ],
-            ),
-          ],
+          ),
         ),
+      );
+    }
+
+    final steps = <Widget>[];
+    if (ChurchRolePermissions.shellAllowsNavIndex(
+      widget.role,
+      3,
+      memberCanViewFinance: widget.podeVerFinanceiro,
+      memberCanViewPatrimonio: widget.podeVerPatrimonio,
+      permissions: widget.permissions,
+    )) {
+      steps.add(
+        premiumStep(
+          icon: Icons.groups_rounded,
+          label: '1. Departamentos',
+          shellIndex: 3,
+        ),
+      );
+    }
+    if (ChurchRolePermissions.shellAllowsNavIndex(
+      widget.role,
+      11,
+      memberCanViewFinance: widget.podeVerFinanceiro,
+      memberCanViewPatrimonio: widget.podeVerPatrimonio,
+      permissions: widget.permissions,
+    )) {
+      steps.add(
+        premiumStep(
+          icon: Icons.event_available_rounded,
+          label: '2. Escala geral',
+          shellIndex: 11,
+        ),
+      );
+    }
+    if (ChurchRolePermissions.shellAllowsNavIndex(
+      widget.role,
+      2,
+      memberCanViewFinance: widget.podeVerFinanceiro,
+      memberCanViewPatrimonio: widget.podeVerPatrimonio,
+      permissions: widget.permissions,
+    )) {
+      steps.add(
+        premiumStep(
+          icon: Icons.people_rounded,
+          label: '3. Membros / convites',
+          shellIndex: 2,
+        ),
+      );
+    }
+    if (steps.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+          width: 1.15,
+        ),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: churchChatWhatsPremiumLinearGradient,
+                  boxShadow: [
+                    BoxShadow(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.flag_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Primeiros passos na gestão',
+                      style: TextStyle(
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.35,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Atalhos rápidos para o gestor e a equipa organizarem ministério e escala.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Não mostrar de novo',
+                onPressed: _dismiss,
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: steps,
+          ),
+        ],
       ),
     );
   }
