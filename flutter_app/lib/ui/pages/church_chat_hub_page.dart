@@ -58,6 +58,8 @@ class ChurchChatHubPage extends StatefulWidget {
   final String cpf;
   final String role;
   final bool embeddedInShell;
+  /// Permissões granulares do painel (ex.: módulo `departamentos`), alinhadas a [AppPermissions.canEditDepartments].
+  final List<String>? permissions;
 
   const ChurchChatHubPage({
     super.key,
@@ -65,6 +67,7 @@ class ChurchChatHubPage extends StatefulWidget {
     required this.cpf,
     required this.role,
     this.embeddedInShell = false,
+    this.permissions,
   });
 
   @override
@@ -72,7 +75,7 @@ class ChurchChatHubPage extends StatefulWidget {
 }
 
 class _ChurchChatHubPageState extends State<ChurchChatHubPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
   /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
@@ -88,16 +91,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
   late TabController _hubTabController;
+  Timer? _gruposResyncDebounce;
+  Timer? _conversasResyncDebounce;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _hubTabController = TabController(length: 3, vsync: this);
     _gruposPulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    _hubTabController.addListener(_syncGruposPulse);
+    _hubTabController.addListener(_hubTabListener);
     _membersFilterCtrl.addListener(() => setState(() {}));
     _deptFilterCtrl.addListener(() => setState(() {}));
     ChurchPanelNavigationBridge.instance
@@ -120,15 +126,74 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _gruposResyncDebounce?.cancel();
+    _conversasResyncDebounce?.cancel();
     ChurchPanelNavigationBridge.instance
         .unregisterChatOpenListener(_onChatPendingFromBridge);
-    _hubTabController.removeListener(_syncGruposPulse);
+    _hubTabController.removeListener(_hubTabListener);
     _hubTabController.dispose();
     _gruposPulseCtrl.dispose();
     _searchCtrl.dispose();
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final t = _resolvedTenantId;
+      if (t != null) unawaited(_syncMemberDepartments(t));
+      unawaited(_pullRefreshConversas());
+    }
+  }
+
+  void _hubTabListener() {
+    _syncGruposPulse();
+    if (_hubTabController.indexIsChanging) return;
+    if (_hubTabController.index == 0) {
+      _requestConversasResync();
+    } else if (_hubTabController.index == 2) {
+      _requestGruposResync();
+    }
+  }
+
+  void _requestGruposResync() {
+    _gruposResyncDebounce?.cancel();
+    _gruposResyncDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final t = _resolvedTenantId;
+      if (t != null) unawaited(_syncMemberDepartments(t));
+    });
+  }
+
+  /// Reanexa o stream de `chat_threads` (token + nova subscrição), p.ex. após
+  /// voltar do fundo ou pull-to-refresh — sem depender de botão na UI.
+  Future<void> _pullRefreshConversas() async {
+    final tid = _resolvedTenantId;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (tid == null || uid.isEmpty) return;
+    if (_chatThreadsStream == null) {
+      await _bootstrap();
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _chatThreadsStream =
+          ChurchChatService.chatThreadsSnapshotsForUser(tid, uid);
+    });
+  }
+
+  void _requestConversasResync() {
+    _conversasResyncDebounce?.cancel();
+    _conversasResyncDebounce = Timer(const Duration(milliseconds: 550), () {
+      if (!mounted) return;
+      unawaited(_pullRefreshConversas());
+    });
   }
 
   void _syncGruposPulse() {
@@ -810,16 +875,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             child: TabBarView(
               controller: _hubTabController,
               children: [
-                ColoredBox(
-                  color: ThemeCleanPremium.surface,
+                _KeepAliveHubTab(
                   child: _buildConversasTab(context, tid, uid),
                 ),
-                ColoredBox(
-                  color: ThemeCleanPremium.surface,
+                _KeepAliveHubTab(
                   child: _buildMembrosTab(context, tid, uid),
                 ),
-                ColoredBox(
-                  color: ThemeCleanPremium.surface,
+                _KeepAliveHubTab(
                   child: _buildGruposTab(context, tid, uid),
                 ),
               ],
@@ -833,7 +895,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Widget _buildConversasTab(BuildContext context, String tid, String uid) {
     final threadStream = _chatThreadsStream;
     if (threadStream == null) {
-      return const Center(child: CircularProgressIndicator());
+      return RefreshIndicator(
+        onRefresh: _pullRefreshConversas,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator(color: ThemeCleanPremium.primary)),
+            ),
+          ],
+        ),
+      );
     }
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -873,10 +946,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 if (streamError != null && snapForList == null) {
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(24),
-                    children: [
+                  return RefreshIndicator(
+                    onRefresh: _pullRefreshConversas,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(24),
+                      children: [
                       if (membrosLoadError != null) ...[
                         Material(
                           color: const Color(0xFFFFF3E0),
@@ -926,11 +1001,27 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         ),
                       ),
                     ],
-                  );
+                  ),
+                );
                 }
                 if (snap.connectionState == ConnectionState.waiting &&
                     snapForList == null) {
-                  return const Center(child: CircularProgressIndicator());
+                  return RefreshIndicator(
+                    onRefresh: _pullRefreshConversas,
+                    child: CustomScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
                 }
 
                 final threads = <Widget>[];
@@ -1138,10 +1229,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   ));
                 }
 
-                return ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-                  children: threads,
+                return RefreshIndicator(
+                  onRefresh: _pullRefreshConversas,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+                    children: threads,
+                  ),
                 );
               },
             );
@@ -1231,20 +1325,27 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }).toList();
 
         if (filtered.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Text(
-                _departments.isEmpty
-                    ? 'Sem grupos — faça parte de um departamento na sua ficha de membro.'
-                    : 'Nenhum grupo corresponde à pesquisa.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: ThemeCleanPremium.onSurfaceVariant,
-                  height: 1.45,
-                  fontWeight: FontWeight.w600,
+          return RefreshIndicator(
+            onRefresh: () => _syncMemberDepartments(tid),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
+                Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Text(
+                    _departments.isEmpty
+                        ? 'Sem grupos — faça parte de um departamento na sua ficha de membro.'
+                        : 'Nenhum grupo corresponde à pesquisa.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                      height: 1.45,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           );
         }
@@ -1299,9 +1400,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           );
         }
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-          child: CustomScrollView(
+        return RefreshIndicator(
+          onRefresh: () => _syncMemberDepartments(tid),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+            child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
@@ -1412,6 +1515,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 ),
             ],
           ),
+        ),
         );
       },
     );
@@ -1469,6 +1573,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         departmentDocData: dept.deptData,
         role: widget.role,
         cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+        permissions: widget.permissions,
       ),
     );
   }
@@ -3294,6 +3399,42 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Mantém o estado das abas ao deslizar entre elas (evita reconstruções «a branco»).
+class _KeepAliveHubTab extends StatefulWidget {
+  final Widget child;
+
+  const _KeepAliveHubTab({required this.child});
+
+  @override
+  State<_KeepAliveHubTab> createState() => _KeepAliveHubTabState();
+}
+
+class _KeepAliveHubTabState extends State<_KeepAliveHubTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.04),
+            const Color(0xFFECFEFF).withValues(alpha: 0.42),
+            const Color(0xFFEDE9FE).withValues(alpha: 0.35),
+            ThemeCleanPremium.surface.withValues(alpha: 0.25),
+          ],
+        ),
+      ),
+      child: widget.child,
     );
   }
 }

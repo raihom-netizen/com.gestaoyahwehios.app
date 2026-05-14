@@ -7,6 +7,7 @@ Pasta com material para **replicar** features deste projeto
 |---|---|
 | [`IOS_READER_E_LOGIN_EXPRESSO.md`](./IOS_READER_E_LOGIN_EXPRESSO.md) | Caderno técnico completo — arquivos novos, mudanças por ficheiro, configurações iOS (Info.plist, entitlements, PrivacyInfo), checklists, comandos. |
 | [`PROMPT_APLICAR_EM_OUTROS_APPS.md`](./PROMPT_APLICAR_EM_OUTROS_APPS.md) | Prompts prontos para colar no Cursor abrindo Controle Total ou Moova. |
+| **Notas App Store (por app)** | [`../../flutter_app/docs/app_store_review_notes.md`](../../flutter_app/docs/app_store_review_notes.md) — **Gestão YAHWEH**. Controle Total: `C:\Controletotalapp_Independente\docs\app_store_review_notes.md`. Moovaup: `C:\moova_super_premium\flutter_app\docs\app_store_review_notes.md`. |
 
 ## O que está documentado
 

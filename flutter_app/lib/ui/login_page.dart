@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show StreamSubscription, TimeoutException, unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
@@ -120,6 +120,10 @@ class LoginPage extends StatefulWidget {
   /// `null` = ativo quando [afterLoginRoute] é `/painel` e não é login master.
   final bool? showSmartLoginFlow;
 
+  /// Web `/igreja/login/apple` — mesma UI do login da igreja; destino pós-login
+  /// vem do query `after` (ex.: `/atualizar-plano?from=ios_app`).
+  final bool churchWebAppleIosRenewEntry;
+
   const LoginPage({
     super.key,
     this.title = 'Entrar',
@@ -130,6 +134,7 @@ class LoginPage extends StatefulWidget {
     this.showFleetBranding = false,
     this.backRoute,
     this.showSmartLoginFlow,
+    this.churchWebAppleIosRenewEntry = false,
   });
 
   @override
@@ -162,8 +167,9 @@ class _LoginPageState extends State<LoginPage> {
   /// iPhone/iPad: exibir «Continuar com Apple» quando o SO suportar (nunca Android).
   bool _appleSignInAvailable = false;
 
-  /// Planos (preços/limites) do Firestore — mesma fonte do painel Master.
+  /// Planos (preços/limites) do Firestore — mesma fonte do painel Master (tempo real).
   Map<String, EffectivePlanConfig>? _effectivePlanConfigs;
+  StreamSubscription<Map<String, EffectivePlanConfig>>? _effectivePlanConfigsSub;
 
   bool get _showAppleSignInButton =>
       !kIsWeb &&
@@ -211,14 +217,33 @@ class _LoginPageState extends State<LoginPage> {
         if (mounted) setState(() => _appleSignInAvailable = ok);
       });
     }
-    PlanPriceService.getEffectivePlanConfigs().then((c) {
+    _effectivePlanConfigsSub =
+        PlanPriceService.watchEffectivePlanConfigs().listen((c) {
       if (mounted) setState(() => _effectivePlanConfigs = c);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _redirectNativeToPainelIfSessionAlive();
       Future<void>.delayed(const Duration(milliseconds: 520), () {
         if (mounted) unawaited(_tryExpressGoogleReconnect());
       });
     });
+  }
+
+  /// Sessão já válida (ex.: reabrir o app) — não mostrar tela de credenciais desnecessariamente.
+  void _redirectNativeToPainelIfSessionAlive() {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null || u.isAnonymous) return;
+    if (!mounted) return;
+    if (kIsWeb && widget.churchWebAppleIosRenewEntry) {
+      final target = widget.afterLoginRoute.trim();
+      if (target.isNotEmpty) {
+        Navigator.of(context).pushNamedAndRemoveUntil(target, (_) => false);
+      }
+      return;
+    }
+    if (kIsWeb) return;
+    if (!_nativeChurchLogin) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
   }
 
   void _clearError() {
@@ -237,6 +262,8 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _effectivePlanConfigsSub?.cancel();
+    _effectivePlanConfigsSub = null;
     _emailController.removeListener(_clearError);
     _senhaController.removeListener(_clearError);
     _emailController.dispose();
@@ -1115,7 +1142,14 @@ class _LoginPageState extends State<LoginPage> {
   bool get _useSmartFlow {
     if (_isMasterAdminLogin) return false;
     if (widget.afterLoginRoute != '/painel') return false;
-    return widget.showSmartLoginFlow ?? true;
+    if (widget.showSmartLoginFlow != null) return widget.showSmartLoginFlow!;
+    // App iOS/Android: membro e gestor usam o mesmo login — sem escolha «Sou membro / gestor».
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      return false;
+    }
+    return true;
   }
 
   /// Web + Android/iOS/macOS — o plugin `google_sign_in` não implementa Windows/Linux.
@@ -2445,14 +2479,19 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        if (widget.afterLoginRoute == '/painel' &&
-                            (!_useSmartFlow ||
-                                _smartStep == _SmartStep.credentials)) ...[
+                        if (widget.afterLoginRoute == '/painel' ||
+                            widget.churchWebAppleIosRenewEntry ||
+                            loginAfterTargetsPainelOrAtualizarPlano(
+                                widget.afterLoginRoute)) ...[
                           const SizedBox(height: 8),
                           Text(
-                            _credentialsAsMembro
-                                ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
-                                : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.',
+                            widget.churchWebAppleIosRenewEntry
+                                ? 'Entrada para renovar ou alterar o plano no iPhone. '
+                                    'Use o mesmo e-mail da igreja: Google, Apple ou e-mail e senha. '
+                                    'Após entrar, escolha o plano e pague na mesma página.'
+                                : (_credentialsAsMembro
+                                    ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
+                                    : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.'),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,
@@ -2495,10 +2534,14 @@ class _LoginPageState extends State<LoginPage> {
                           decoration: InputDecoration(
                             labelText: 'E-mail',
                             hintText: 'Ex.: seu@email.com',
-                            helperText: widget.afterLoginRoute == '/painel'
-                                ? (_credentialsAsMembro
-                                    ? 'Mesmo e-mail do cadastro na igreja (membro).'
-                                    : 'E-mail da conta de gestor.')
+                            helperText: widget.afterLoginRoute == '/painel' ||
+                                    loginAfterTargetsPainelOrAtualizarPlano(
+                                        widget.afterLoginRoute)
+                                ? (widget.churchWebAppleIosRenewEntry
+                                    ? 'Mesmo e-mail do cadastro na igreja.'
+                                    : (_credentialsAsMembro
+                                        ? 'Mesmo e-mail do cadastro na igreja (membro).'
+                                        : 'E-mail da conta de gestor.'))
                                 : 'Use o mesmo e-mail do cadastro na igreja.',
                             border: const OutlineInputBorder(),
                           ),

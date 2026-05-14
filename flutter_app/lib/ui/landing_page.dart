@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
@@ -16,13 +18,21 @@ class LandingPage extends StatefulWidget {
 
 class _LandingPageState extends State<LandingPage> {
   Map<String, EffectivePlanConfig>? _configs;
+  StreamSubscription<Map<String, EffectivePlanConfig>>? _configsSub;
 
   @override
   void initState() {
     super.initState();
-    PlanPriceService.getEffectivePlanConfigs().then((c) {
+    _configsSub = PlanPriceService.watchEffectivePlanConfigs().listen((c) {
       if (mounted) setState(() => _configs = c);
     });
+  }
+
+  @override
+  void dispose() {
+    _configsSub?.cancel();
+    _configsSub = null;
+    super.dispose();
   }
 
   Widget _pill(String text, {bool featured = false}) {

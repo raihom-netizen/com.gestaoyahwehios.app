@@ -224,9 +224,9 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                         padding.right, padding.bottom + ThemeCleanPremium.spaceXl),
                     children: [
                       Text(
-                        'Todos os planos (mesma lista do site e do painel igreja). '
-                        'Alterações aplicam na divulgação web e nos apps sem nova versão — '
-                        'dados vêm do Firestore com cache curto.',
+                        'Todos os planos (mesma lista do site, apps, login e «Atualizar plano» na web). '
+                        'Alterações em `config/plans/items` propagam em tempo real para divulgação, '
+                        'painel da igreja e fluxo Apple — sem nova versão da loja.',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                       ),
                       const SizedBox(height: 16),

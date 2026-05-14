@@ -27,6 +27,7 @@ import '../services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
+import '../services/login_preferences.dart';
 import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -733,8 +734,12 @@ class _AuthGateState extends State<AuthGate> {
                   !currentUserAfterCleanup.isAnonymous) {
                 return;
               }
-              // Web → site de divulgação (/); app → /login.
-              final dest = kIsWeb ? '/' : '/login';
+              final override =
+                  await LoginPreferences.consumePostSignOutRouteOverride();
+              final dest = (override != null && override.isNotEmpty)
+                  ? override
+                  : (kIsWeb ? '/' : '/login');
+              if (!mounted) return;
               nav.pushNamedAndRemoveUntil(dest, (_) => false);
             });
           }

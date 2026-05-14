@@ -96,11 +96,11 @@ class IosPaymentsGate {
     }
   }
 
-  /// URL do site: login do painel da igreja (mesma UI «Super Premium») e,
-  /// após autenticar, redireciona para `/atualizar-plano` com `from=ios_app`.
+  /// URL do site: cópia do login da igreja em `/igreja/login/apple` (fluxo iOS /
+  /// renovação) e, após autenticar, redireciona para `/atualizar-plano` com `from=ios_app`.
   ///
-  /// Assim o Safari abre primeiro o ecrã de login com Google / Apple / e-mail,
-  /// com `igrejaId` resolvido nas claims antes do checkout.
+  /// O Safari abre o mesmo ecrã de credenciais (Google / Apple / e-mail),
+  /// com `igrejaId` nas claims antes do checkout embebido.
   static Uri churchWebLoginThenAtualizarPlanoUri({
     String utmMedium = 'manage_subscription',
     String? email,
@@ -108,7 +108,7 @@ class IosPaymentsGate {
     final base = AppConstants.publicWebBaseUrl.trim();
     final root =
         base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    return Uri.parse('$root/igreja/login').replace(
+    return Uri.parse('$root/igreja/login/apple').replace(
       queryParameters: <String, String>{
         'after': '/atualizar-plano?from=ios_app',
         'from': 'ios_app',

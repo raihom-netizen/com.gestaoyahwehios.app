@@ -1,4 +1,14 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1574: Configurações «Trocar de conta» — signOut + AuthGate para `/igreja/login`
+/// (web/Android/iOS), sem tela presa; limpa prefs locais de login da igreja.
+/// 11.2.295+1573: MP igreja — secção Configurações só gestor/admin/master ou permissão
+/// `configuracoes_banco`; Firestore: leitura `igrejas/.../config/mercado_pago` restrita.
+/// 11.2.295+1572: Planos Master — `PlanPriceService.watchEffectivePlanConfigs()` (Firestore em
+/// tempo real) no site divulgação, `/planos`, login e renovação/Apple; removido cache 2 min.
+/// 11.2.295+1571: Hub Chat — aba «Conversas»: pull-to-refresh + reanexar stream
+/// ao voltar do fundo e ao focar a aba (estilo WhatsApp/Telegram, sem botão extra).
+/// 11.2.295+1570: Renovar plano — anual + cartão até 6x (web/Android/iOS/shell),
+/// selector de parcelas para todo o fluxo do gestor (não só `from=ios_app`).
 /// [appVersion] + [appBuildNumber] must match pubspec `version: X.Y.Z+N`.
 /// v11 baseline: web enabled, PIX/Card 10x, grace period, Mercado Pago.
 /// 11.2.295: iOS Reader/SaaS — Remote Config `exibir_pagamento_ios`
@@ -89,8 +99,16 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1566';
+const String appBuildNumber = '1574';
 
+/// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
+/// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
+/// cartão anual até 6x + checkout MP embebido na página.
+/// 11.2.295+1568: App iOS/Android — abertura direta no painel com sessão Firebase persistida;
+/// login da igreja sem escolha «Sou membro / gestor»; bloqueio biométrico com «Usar senha» sem signOut.
+/// 11.2.295+1567: Chat hub — abas com keep-alive + resync de grupos ao voltar à app/aba Grupos;
+/// fundo suave nas abas; pull-to-refresh em Grupos; folha do grupo — «Adicionar membros» (vínculo
+/// departamentos + thread) com permissão alinhada ao módulo Departamentos.
 /// 11.2.295+1566: deploy completo — chat (alertas por conversa/departamento/pessoa, push em
 /// segundo plano som/vibrar/silêncio Android+iOS), folha «Nova conversa direta» Super Premium com fotos;
 /// web hosting + AAB Play + ZIP iOS Codemagic.

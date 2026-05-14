@@ -213,24 +213,22 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         ],
       ),
     );
-    if (ok != true || !context.mounted) return;
+    if (ok != true) return;
     try {
-      await LoginPreferences.clearOAuthHints();
+      await LoginPreferences.prepareChurchAccountSwitch();
+      if (kIsWeb) {
+        try {
+          final p = await SharedPreferences.getInstance();
+          await p.remove('last_route');
+        } catch (_) {}
+      }
       if (!kIsWeb) {
         await appGoogleSignOutForAccountPicker();
       }
       await FirebaseAuth.instance.signOut();
     } catch (_) {}
-    if (!context.mounted) return;
-    if (kIsWeb) {
-      try {
-        final p = await SharedPreferences.getInstance();
-        await p.remove('last_route');
-      } catch (_) {}
-    }
-    if (!context.mounted) return;
-    Navigator.of(context, rootNavigator: true)
-        .pushNamedAndRemoveUntil('/login', (_) => false);
+    // Navegação: o AuthGate reage ao `user == null` e faz pushNamedAndRemoveUntil
+    // (evita depender do context desta página, que pode desmontar antes do Navigator).
   }
 
   Future<void> _onBiometricSwitch(bool wantOn) async {

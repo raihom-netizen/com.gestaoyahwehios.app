@@ -1,15 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_department_add_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 
 /// Lista de membros do departamento + presença + DM (mesmo fluxo do hub do chat).
-class ChurchDepartmentChatMembersSheet extends StatelessWidget {
+class ChurchDepartmentChatMembersSheet extends StatefulWidget {
   final BuildContext navigatorContext;
   final String tenantId;
   final String currentUid;
@@ -18,6 +20,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
   final Map<String, dynamic>? departmentDocData;
   final String role;
   final String cpfDigits;
+  final List<String>? permissions;
 
   const ChurchDepartmentChatMembersSheet({
     super.key,
@@ -29,22 +32,50 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
     required this.departmentDocData,
     required this.role,
     required this.cpfDigits,
+    this.permissions,
   });
+
+  @override
+  State<ChurchDepartmentChatMembersSheet> createState() =>
+      _ChurchDepartmentChatMembersSheetState();
+}
+
+class _ChurchDepartmentChatMembersSheetState
+    extends State<ChurchDepartmentChatMembersSheet> {
+  late Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _membersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _membersFuture = ChurchChatService.fetchActiveDepartmentMembers(
+      tenantId: widget.tenantId,
+      departmentId: widget.departmentId,
+    );
+  }
+
+  void _reloadMembers() {
+    setState(() {
+      _membersFuture = ChurchChatService.fetchActiveDepartmentMembers(
+        tenantId: widget.tenantId,
+        departmentId: widget.departmentId,
+      );
+    });
+  }
 
   Future<void> _openGroupChat(BuildContext sheetCtx) async {
     Navigator.of(sheetCtx).pop();
-    if (!navigatorContext.mounted) return;
-    await Navigator.of(navigatorContext).push(
+    if (!widget.navigatorContext.mounted) return;
+    await Navigator.of(widget.navigatorContext).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
         builder: (_) => ChurchChatThreadPage(
-          tenantId: tenantId,
-          threadId: ChurchChatService.deptThreadId(departmentId),
-          title: departmentName,
+          tenantId: widget.tenantId,
+          threadId: ChurchChatService.deptThreadId(widget.departmentId),
+          title: widget.departmentName,
           isDepartment: true,
-          departmentId: departmentId,
-          memberRole: role,
-          memberCpfDigits: cpfDigits,
+          departmentId: widget.departmentId,
+          memberRole: widget.role,
+          memberCpfDigits: widget.cpfDigits,
         ),
       ),
     );
@@ -54,33 +85,50 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
       BuildContext sheetCtx, String peerUid, String name) async {
     Navigator.of(sheetCtx).pop();
     await ChurchChatService.ensureDmThread(
-      tenantId: tenantId,
-      uidA: currentUid,
+      tenantId: widget.tenantId,
+      uidA: widget.currentUid,
       uidB: peerUid,
       titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
       titleB: name,
     );
-    final threadId = ChurchChatService.dmThreadId(currentUid, peerUid);
-    if (!navigatorContext.mounted) return;
-    await Navigator.of(navigatorContext).push(
+    final threadId =
+        ChurchChatService.dmThreadId(widget.currentUid, peerUid);
+    if (!widget.navigatorContext.mounted) return;
+    await Navigator.of(widget.navigatorContext).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
         builder: (_) => ChurchChatThreadPage(
-          tenantId: tenantId,
+          tenantId: widget.tenantId,
           threadId: threadId,
           title: name,
           isDepartment: false,
           peerUid: peerUid,
-          memberRole: role,
-          memberCpfDigits: cpfDigits,
+          memberRole: widget.role,
+          memberCpfDigits: widget.cpfDigits,
         ),
       ),
     );
   }
 
+  Future<void> _onAddMembers(BuildContext sheetCtx) async {
+    final ok = await showChurchDepartmentAddMembersSheet(
+      sheetCtx,
+      tenantId: widget.tenantId,
+      departmentId: widget.departmentId,
+      departmentName: widget.departmentName,
+      role: widget.role,
+      permissions: widget.permissions,
+    );
+    if (ok == true && mounted) _reloadMembers();
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final canEdit = AppPermissions.canEditDepartments(
+      widget.role,
+      permissions: widget.permissions,
+    );
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.74,
@@ -89,7 +137,15 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
       builder: (ctx, scrollCtrl) {
         return Container(
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.surface,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                ThemeCleanPremium.surface,
+                const Color(0xFFECFEFF).withValues(alpha: 0.65),
+                const Color(0xFFF5F3FF).withValues(alpha: 0.5),
+              ],
+            ),
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(22)),
             boxShadow: [
@@ -121,8 +177,8 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ChurchChatDepartmentAvatar(
-                      deptData: departmentDocData,
-                      fallbackName: departmentName,
+                      deptData: widget.departmentDocData,
+                      fallbackName: widget.departmentName,
                       radius: 28,
                     ),
                     const SizedBox(width: 14),
@@ -131,7 +187,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            departmentName,
+                            widget.departmentName,
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 19,
@@ -148,6 +204,33 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                               color: ThemeCleanPremium.onSurfaceVariant,
                             ),
                           ),
+                          if (canEdit) ...[
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                ),
+                                onPressed: () => _onAddMembers(ctx),
+                                icon: Icon(
+                                  Icons.person_add_alt_1_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                                label: Text(
+                                  'Adicionar membros ao departamento',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -157,10 +240,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
               Expanded(
                 child: FutureBuilder<
                     List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future: ChurchChatService.fetchActiveDepartmentMembers(
-                    tenantId: tenantId,
-                    departmentId: departmentId,
-                  ),
+                  future: _membersFuture,
                   builder: (context, snap) {
                     if (snap.connectionState != ConnectionState.done) {
                       return const Center(child: CircularProgressIndicator());
@@ -198,7 +278,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                             ? (auth.isNotEmpty ? auth : 'Membro')
                             : nome;
                         final canDm =
-                            auth.isNotEmpty && auth != currentUid;
+                            auth.isNotEmpty && auth != widget.currentUid;
                         final fotoUrl = imageUrlFromMap(d);
                         final dpr = MediaQuery.devicePixelRatioOf(context);
                         final mem = (48 * dpr).round().clamp(96, 220);
@@ -222,7 +302,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                                   DocumentSnapshot<Map<String, dynamic>>>(
                                   stream: FirebaseFirestore.instance
                                       .collection('igrejas')
-                                      .doc(tenantId)
+                                      .doc(widget.tenantId)
                                       .collection('chat_presence')
                                       .doc(auth)
                                       .snapshots(),
@@ -283,7 +363,7 @@ class ChurchDepartmentChatMembersSheet extends StatelessWidget {
                                   DocumentSnapshot<Map<String, dynamic>>>(
                                   stream: FirebaseFirestore.instance
                                       .collection('igrejas')
-                                      .doc(tenantId)
+                                      .doc(widget.tenantId)
                                       .collection('chat_presence')
                                       .doc(auth)
                                       .snapshots(),

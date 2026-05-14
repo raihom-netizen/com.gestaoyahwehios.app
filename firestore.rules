@@ -424,7 +424,13 @@ service cloud.firestore {
       }
 
       match /config/{docId} {
-        allow read: if isMaster() || canAccessTenant(id);
+        // `mercado_pago`: credenciais da conta da igreja — só gestão; demais `config/*` mantêm leitura ampla na igreja.
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (
+            docId != 'mercado_pago'
+            || canManageChurch()
+            || hasTenantModulePermission(id, 'configuracoes_banco')
+          ));
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
       // Credenciais MP por igreja (Access Token) — só servidor

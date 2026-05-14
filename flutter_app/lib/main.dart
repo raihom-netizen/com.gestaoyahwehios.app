@@ -97,7 +97,7 @@ String _sanitizeChurchPostLoginRoute(String raw) {
   return p;
 }
 
-/// Query `after` em `/igreja/login` (whitelist). Fluxo iOS (`from=ios_app`)
+/// Query `after` em `/igreja/login` e `/igreja/login/apple` (whitelist). Fluxo iOS (`from=ios_app`)
 /// garante `from=ios_app` em `/atualizar-plano` para o gate expresso.
 String _resolveIgrejaLoginAfterRoute(Uri loginUri) {
   final fromIosApp =
@@ -143,7 +143,10 @@ class _LastRouteObserver extends NavigatorObserver {
     if (name == null || name.isEmpty) return;
     // Evita gravar rotas de login/entrada para não criar loops ao reabrir o app.
     if (name == '/' || name.startsWith('/login')) return;
-    if (name == '/login_admin' || name.startsWith('/igreja/login')) return;
+    if (name == '/login_admin' ||
+        name.startsWith('/igreja/login')) {
+      return;
+    }
     // Focamos em estabilidade do painel principal.
     final isPainel = name == '/painel' ||
         name == '/admin' ||
@@ -592,8 +595,10 @@ void main() async {
       } else if (!kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.iOS)) {
-        // Android/iOS: sem rota salva → só tela de login (planos e site ficam na web).
-        initialRoute = '/login';
+        // Android/iOS: sem rota salva — com sessão Firebase persistida abre direto o painel.
+        final cu = FirebaseAuth.instance.currentUser;
+        initialRoute =
+            (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
       }
     } catch (_) {}
     // Fallback se SharedPreferences falhar no app móvel.
@@ -601,7 +606,9 @@ void main() async {
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) &&
         (initialRoute == '/' || initialRoute.isEmpty)) {
-      initialRoute = '/login';
+      final cu = FirebaseAuth.instance.currentUser;
+      initialRoute =
+          (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
     }
   }
   await initializeDateFormatting('pt_BR', null);
@@ -932,6 +939,20 @@ class _AppWithThemeState extends State<_AppWithTheme>
                     backRoute: '/',
                     prefillEmail:
                         (em != null && em.isNotEmpty) ? em : null,
+                  );
+                  break;
+                }
+                case '/igreja/login/apple': {
+                  final em = uri.queryParameters['email']?.trim();
+                  final afterLogin = _resolveIgrejaLoginAfterRoute(uri);
+                  pagina = LoginPage(
+                    title: 'Entrar — Painel da Igreja',
+                    afterLoginRoute: afterLogin,
+                    showFleetBranding: false,
+                    backRoute: '/',
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                    churchWebAppleIosRenewEntry: true,
                   );
                   break;
                 }

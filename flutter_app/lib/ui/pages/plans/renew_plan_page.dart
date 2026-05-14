@@ -61,7 +61,13 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   final _billing = BillingService();
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _churchBillingSub;
   StreamSubscription<User?>? _idTokenRefreshSub;
+  StreamSubscription<Map<String, EffectivePlanConfig>>? _planPricesSub;
   bool _paymentApprovedRedirected = false;
+
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _paymentSectionKey = GlobalKey();
+  /// Parcelas no cartão (anual + cartão): 1 a 6.
+  int _expressCardInstallments = 1;
 
   /// Modo expresso — última versão do doc da igreja (para mostrar plano
   /// atual + data de vencimento no cabeçalho).
@@ -81,6 +87,20 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     setState(() {
       _checkoutSession = null;
       _pixSession = null;
+    });
+  }
+
+  void _scrollPaymentSectionIntoView() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _paymentSectionKey.currentContext;
+      if (ctx != null && mounted) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.12,
+          duration: const Duration(milliseconds: 480),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
@@ -291,7 +311,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   @override
   void initState() {
     super.initState();
-    _loadPrices();
+    _planPricesSub =
+        PlanPriceService.watchEffectivePlanConfigs().listen((cfg) {
+      if (mounted) setState(() => _effectiveConfigs = cfg);
+    });
     _startPaymentStatusWatcher();
     if (widget.expressMode) {
       _idTokenRefreshSub =
@@ -303,16 +326,14 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   @override
   void dispose() {
+    _planPricesSub?.cancel();
+    _planPricesSub = null;
     _idTokenRefreshSub?.cancel();
     _idTokenRefreshSub = null;
     _churchBillingSub?.cancel();
     _churchBillingSub = null;
+    _scrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadPrices() async {
-    final cfg = await PlanPriceService.getEffectivePlanConfigs();
-    if (mounted) setState(() => _effectiveConfigs = cfg);
   }
 
   PlanoOficial get _selectedPlan {
@@ -578,8 +599,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         if (!mounted) return;
         setState(() => _pixSession = pix);
       } else {
-        // Mensal: cartão em 1x. Anual: cartão em até 10x.
-        final installments = _billingAnnual ? 10 : 1;
+        // Mensal: 1x. Anual + cartão: 1–6x à escolha do gestor.
+        final int installments = _billingAnnual
+            ? _expressCardInstallments.clamp(1, 6)
+            : 1;
         final session = await _billing.createMpCheckout(
           planId: _selected,
           billingCycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
@@ -849,6 +872,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           }
 
           return SingleChildScrollView(
+            controller: _scrollController,
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1200),
@@ -892,11 +916,37 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           onTap: () => setState(() => _selected = p.id),
                           priceMonthly: cfg?.monthlyPrice ?? p.monthlyPrice,
                           priceAnnual: cfg?.annualPrice ?? p.annualPrice,
+                          onChooseMonthly: widget.expressMode
+                              ? () {
+                                  setState(() {
+                                    _selected = p.id;
+                                    _billingAnnual = false;
+                                    _expressCardInstallments = 1;
+                                  });
+                                  _scrollPaymentSectionIntoView();
+                                }
+                              : null,
+                          onChooseAnnual: widget.expressMode
+                              ? () {
+                                  setState(() {
+                                    _selected = p.id;
+                                    _billingAnnual = true;
+                                    _expressCardInstallments =
+                                        _expressCardInstallments.clamp(1, 6);
+                                  });
+                                  _scrollPaymentSectionIntoView();
+                                }
+                              : null,
                         ),
                       );
                     }).toList(),
                   ),
                   const SizedBox(height: 24),
+                  KeyedSubtree(
+                    key: _paymentSectionKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                   const Text(
                     'Ciclo de cobrança',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
@@ -913,6 +963,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           selected: !_billingAnnual,
                           onTap: () => setState(() {
                             _billingAnnual = false;
+                            _expressCardInstallments = 1;
                           }),
                         ),
                       ),
@@ -923,6 +974,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           selected: _billingAnnual,
                           onTap: () => setState(() {
                             _billingAnnual = true;
+                            _expressCardInstallments =
+                                _expressCardInstallments.clamp(1, 6);
                           }),
                         ),
                       ),
@@ -950,7 +1003,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       SizedBox(
                         width: isMobile ? double.infinity : (constraints.maxWidth - 12) / 2,
                         child: _ChoiceChip(
-                          label: _billingAnnual ? 'Cartão em 10x' : 'Cartão (1x)',
+                          label: _billingAnnual
+                              ? 'Cartão (até 6x)'
+                              : 'Cartão (1x)',
                           icon: Icons.credit_card_rounded,
                           selected: !_paymentPix,
                           onTap: () => setState(() => _paymentPix = false),
@@ -963,11 +1018,34 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       _billingAnnual
-                          ? 'Anual: PIX à vista ou cartão parcelado em até 10x.'
+                          ? 'Anual: PIX à vista ou cartão em até 6x — escolha as parcelas abaixo.'
                           : 'Mensal: uma cobrança — PIX ou cartão à vista (1x).',
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                   ),
+                  if (_billingAnnual && !_paymentPix) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Parcelas no cartão',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: List.generate(6, (i) {
+                        final n = i + 1;
+                        final sel = _expressCardInstallments == n;
+                        return FilterChip(
+                          label: Text('${n}x'),
+                          selected: sel,
+                          onSelected: (_) =>
+                              setState(() => _expressCardInstallments = n),
+                        );
+                      }),
+                    ),
+                  ],
                   if (_err != null) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -1025,7 +1103,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
-                      '${_selectedPlan.name} • ${_billingAnnual ? "Anual" : "Mensal"} • ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão 10x" : "Cartão 1x")}',
+                      '${_selectedPlan.name} • ${_billingAnnual ? "Anual" : "Mensal"} • ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão ${_expressCardInstallments.clamp(1, 6)}x" : "Cartão 1x")}',
                       style: TextStyle(
                         color: cs.primary,
                         fontWeight: FontWeight.w700,
@@ -1034,6 +1112,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1092,6 +1173,8 @@ class _PlanCardOficial extends StatelessWidget {
   final VoidCallback onTap;
   final double? priceMonthly;
   final double? priceAnnual;
+  final VoidCallback? onChooseMonthly;
+  final VoidCallback? onChooseAnnual;
 
   const _PlanCardOficial({
     required this.plan,
@@ -1099,6 +1182,8 @@ class _PlanCardOficial extends StatelessWidget {
     required this.onTap,
     this.priceMonthly,
     this.priceAnnual,
+    this.onChooseMonthly,
+    this.onChooseAnnual,
   });
 
   @override
@@ -1195,6 +1280,43 @@ class _PlanCardOficial extends StatelessWidget {
                 'Backups automáticos e segurança',
                 style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
               ),
+              if (onChooseMonthly != null && onChooseAnnual != null) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.tonal(
+                        onPressed: onChooseMonthly,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text(
+                          'Mensal',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: onChooseAnnual,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text(
+                          'Anual',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Toque para ir ao pagamento (PIX ou cartão) no fim da página.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+              ],
               if (selected) ...[
                 const SizedBox(height: 8),
                 Row(

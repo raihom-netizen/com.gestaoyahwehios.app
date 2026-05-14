@@ -46,6 +46,7 @@ class SitePublicPage extends StatefulWidget {
 
 class _SitePublicPageState extends State<SitePublicPage> {
   Map<String, EffectivePlanConfig>? _effectiveConfigs;
+  StreamSubscription<Map<String, EffectivePlanConfig>>? _effectiveConfigsSub;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -64,14 +65,17 @@ class _SitePublicPageState extends State<SitePublicPage> {
         PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       });
     }
-    // Planos = mesma fonte do Master: Firestore `config/plans/items` (+ fallback [planosOficiais]).
-    PlanPriceService.getEffectivePlanConfigs().then((p) {
+    // Planos = mesma fonte do Master: `config/plans/items` em tempo real (+ fallback [planosOficiais]).
+    _effectiveConfigsSub =
+        PlanPriceService.watchEffectivePlanConfigs().listen((p) {
       if (mounted) setState(() => _effectiveConfigs = p);
     });
   }
 
   @override
   void dispose() {
+    _effectiveConfigsSub?.cancel();
+    _effectiveConfigsSub = null;
     _scrollController.dispose();
     super.dispose();
   }

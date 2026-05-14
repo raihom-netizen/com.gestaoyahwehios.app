@@ -272,13 +272,20 @@ class AppPermissions {
   static bool isRestrictedMember(String role) =>
       ChurchRolePermissions.snapshotFor(role).restrictedNav;
 
-  /// Configurações de integração bancária / Mercado Pago na igreja — só gestores, tesouraria ou permissão granular `configuracoes_banco`.
-  /// Membro restrito não vê salvo o gestor conceder a chave em [permissions] no cadastro.
+  /// Integração Mercado Pago da igreja (PIX/cartão na tesouraria) — **muito restrita**:
+  /// só [gestor], [master] da igreja ou administrador (`admin`/`adm`/`administrador*`),
+  /// ou permissão granular `configuracoes_banco` concedida pelo gestor.
+  /// Tesoureiro, pastor e outros papéis **não** vêem esta secção por defeito (alinhado a `saveChurchMercadoPagoCredentials`).
   static bool canViewChurchMercadoPagoSettings(String role, {List<String>? permissions}) {
     if (hasModulePermission(permissions, 'configuracoes_banco')) return true;
     if (isRestrictedMember(role)) return false;
-    final r = role.toLowerCase();
-    return AppRoles.isFullAccess(role) || r == AppRoles.tesoureiro || r == AppRoles.tesouraria;
+    final r = role.toLowerCase().trim();
+    final adminLike = r == AppRoles.admin ||
+        r == AppRoles.adm ||
+        r == 'administrador' ||
+        r == 'administradora';
+    final gestorLike = r == AppRoles.gestor || r == AppRoles.master;
+    return adminLike || gestorLike;
   }
 
   /// Relatórios PDF completos (membros, aniversariantes, etc.). Perfil restrito: só [Relatório de Eventos], salvo

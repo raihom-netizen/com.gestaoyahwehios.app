@@ -48,8 +48,8 @@ class BillingService {
 
   /// Cria preferência de pagamento no Mercado Pago.
   /// [billingCycle]: 'monthly' ou 'annual'
-  /// [paymentMethod]: 'pix' ou 'card' (cartão parcelado em até 10x)
-  /// [installments]: número de parcelas para cartão (ex.: 10). Ignorado se paymentMethod for PIX.
+  /// [paymentMethod]: 'pix' ou 'card' (anual: cartão em até 6x conforme [installments])
+  /// [installments]: parcelas no cartão (ex.: 1–6 no anual). Ignorado se paymentMethod for PIX.
   /// O backend retorna [init_point] e [back_url] (retorno pós-pagamento).
   Future<MpCheckoutSession> createMpCheckout({
     required String planId,

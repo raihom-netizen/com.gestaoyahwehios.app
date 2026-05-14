@@ -76,33 +76,43 @@ class EffectivePlanConfig {
 }
 
 /// Preços e metadados de planos a partir do Firestore + defaults em [planosOficiais].
+///
+/// O painel Master grava em `config/plans/items`. A UI de divulgação, login e renovação
+/// deve usar [watchEffectivePlanConfigs] para refletir alterações sem novo deploy nem
+/// esperar cache. Serviços pontuais podem usar [getEffectivePlanConfigs] (leitura única).
 class PlanPriceService {
   static final _firestore = FirebaseFirestore.instance;
-  static const _cacheDuration = Duration(minutes: 2);
-  static DateTime? _lastFetch;
-  static Map<String, EffectivePlanConfig>? _cache;
 
-  /// Catálogo efetivo indexado por `planId` (só planos em [planosOficiais]).
-  static Future<Map<String, EffectivePlanConfig>> getEffectivePlanConfigs() async {
-    if (_cache != null &&
-        _lastFetch != null &&
-        DateTime.now().difference(_lastFetch!) < _cacheDuration) {
-      return _cache!;
+  static Map<String, EffectivePlanConfig> _mergeCatalogFromQuerySnap(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    final fsData = {for (final d in snap.docs) d.id: d.data()};
+    final result = <String, EffectivePlanConfig>{};
+    for (final p in planosOficiais) {
+      result[p.id] = EffectivePlanConfig.merge(p, fsData[p.id]);
     }
-    final fsData = <String, Map<String, dynamic>>{};
+    return result;
+  }
+
+  /// Emite o catálogo sempre que `config/plans/items` muda (Painel Master ou outro cliente).
+  static Stream<Map<String, EffectivePlanConfig>> watchEffectivePlanConfigs() {
+    return _firestore
+        .collection('config')
+        .doc('plans')
+        .collection('items')
+        .snapshots()
+        .map(_mergeCatalogFromQuerySnap);
+  }
+
+  /// Leitura única (ex.: limites de membros). Para ecrãs com preços visíveis, prefira [watchEffectivePlanConfigs].
+  static Future<Map<String, EffectivePlanConfig>> getEffectivePlanConfigs() async {
     try {
-      final snap =
-          await _firestore.collection('config').doc('plans').collection('items').get();
-      for (final d in snap.docs) {
-        fsData[d.id] = d.data();
-      }
-      final result = <String, EffectivePlanConfig>{};
-      for (final p in planosOficiais) {
-        result[p.id] = EffectivePlanConfig.merge(p, fsData[p.id]);
-      }
-      _cache = result;
-      _lastFetch = DateTime.now();
-      return _cache!;
+      final snap = await _firestore
+          .collection('config')
+          .doc('plans')
+          .collection('items')
+          .get();
+      return _mergeCatalogFromQuerySnap(snap);
     } catch (_) {
       final fallback = <String, EffectivePlanConfig>{
         for (final p in planosOficiais) p.id: EffectivePlanConfig.merge(p, null),
@@ -120,9 +130,6 @@ class PlanPriceService {
     };
   }
 
-  /// Invalida cache (ex.: após o master gravar em `config/plans/items`).
-  static void invalidateCache() {
-    _cache = null;
-    _lastFetch = null;
-  }
+  /// Compatível com ecrãs que invalidavam cache após gravar no Master (o stream atualiza sozinho).
+  static void invalidateCache() {}
 }

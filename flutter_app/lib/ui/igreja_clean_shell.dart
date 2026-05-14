@@ -136,7 +136,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
-  bool _adquirirPlanoExpanded = false;
 
   /// Desktop web: menu lateral estreito só com ícones (+ tooltip).
   bool _sidebarCollapsed = false;
@@ -1999,6 +1998,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           cpf: widget.cpf,
           role: widget.role,
           embeddedInShell: true,
+          permissions: widget.permissions,
         );
       default:
         return IgrejaDashboardModerno(

@@ -3,6 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 const String _kLastLoginIdentifier = 'last_login_identifier';
 const String _kLastOAuthProvider = 'last_oauth_provider';
 
+/// Consumido pelo [AuthGate] após `signOut` (uma vez) — força rota em vez de `/` (web) ou `/login`.
+const String _kPostSignOutRouteOverride = 'gv_post_signout_route_override';
+
 /// Preferências locais para login expresso / reconexão Google silenciosa (alinhado ao Controle Total).
 class LoginPreferences {
   LoginPreferences._();
@@ -44,5 +47,32 @@ class LoginPreferences {
   static Future<void> clearOAuthHints() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kLastOAuthProvider);
+  }
+
+  /// Lê e apaga a rota pós-logout definida antes do [FirebaseAuth.signOut] (ex.: trocar de conta).
+  static Future<String?> consumePostSignOutRouteOverride() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = (prefs.getString(_kPostSignOutRouteOverride) ?? '').trim();
+    if (v.isEmpty) return null;
+    await prefs.remove(_kPostSignOutRouteOverride);
+    return v;
+  }
+
+  /// Configurações → «Trocar de conta»: próximo redirect do AuthGate vai para o login do painel da igreja
+  /// e os campos locais de e-mail/senha «lembrar» ficam limpos para outro utilizador escolher.
+  static Future<void> prepareChurchAccountSwitch() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPostSignOutRouteOverride, '/igreja/login');
+    await prefs.remove(_kLastLoginIdentifier);
+    await prefs.remove(_kLastOAuthProvider);
+    const prefix = 'igreja';
+    await prefs.remove('remember_login_$prefix');
+    await prefs.remove('saved_login_$prefix');
+    await prefs.remove('saved_senha_$prefix');
+    await prefs.remove('saved_cpf_$prefix');
+    await prefs.remove('web_remember_password');
+    await prefs.remove('web_saved_login');
+    await prefs.remove('web_saved_cpf');
+    await prefs.remove('web_saved_senha');
   }
 }

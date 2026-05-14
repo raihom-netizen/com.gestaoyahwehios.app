@@ -202,7 +202,9 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
           key: ValueKey<String>(user.uid),
           user: user,
           openedFromIosApp: widget.openedFromIosApp,
-          child: const RenewPlanPage(expressMode: true),
+          child: RenewPlanPage(
+            expressMode: true,
+          ),
         );
       },
     );
