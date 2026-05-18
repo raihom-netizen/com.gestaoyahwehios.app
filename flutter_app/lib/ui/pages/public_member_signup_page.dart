@@ -139,11 +139,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     _bootstrap();
   }
 
-  /// Na web, auth anónima antes do Firestore/Storage evita falha ao resolver a logo em alta resolução.
+  /// Auth de visitante + carga da igreja (web, Android e iOS — mesmas regras).
   Future<void> _bootstrap() async {
-    if (kIsWeb) {
-      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    }
+    await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
     await _loadTenant();
   }
 

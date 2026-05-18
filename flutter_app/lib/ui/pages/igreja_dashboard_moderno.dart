@@ -30,8 +30,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -94,6 +96,11 @@ import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
+import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
+import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
 /// Membros em tempo real via `snapshots()` (um stream ou merge de vários tenants com mesmo slug).
@@ -220,6 +227,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     WidgetsBinding.instance.addObserver(this);
     _effectiveTenantId = widget.tenantId;
     _loadStreams();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(PanelDashboardSnapshotService.warmFromCallable());
+    });
   }
 
   @override
@@ -325,7 +335,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  static const int _dashboardMembersLimit = 500;
+  static const int _dashboardMembersLimit = 320;
+  static const int _dashboardDepartmentsLimit = 120;
 
   /// Um snapshot ou merge de várias coleções `membros` (mesmo slug). Cancela ouvintes ao cancelar o stream.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createMembersSnapshotStream(
@@ -401,6 +412,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           .collection('igrejas')
           .doc(allIds.first)
           .collection('departamentos')
+          .limit(_dashboardDepartmentsLimit)
           .snapshots();
     }
     return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
@@ -424,6 +436,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
               .collection('igrejas')
               .doc(id)
               .collection('departamentos')
+              .limit(_dashboardDepartmentsLimit)
               .snapshots()
               .listen(
                 (snap) {
@@ -500,6 +513,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         _AniversariantesCard(
                           snap: mergedSnap,
                           tenantId: _effectiveTenantId,
+                          role: widget.role,
+                          memberCpfDigits:
+                              widget.cpf.replaceAll(RegExp(r'\D'), ''),
                           engagement: _engagementCtrl,
                           onRetry: _loadStreams,
                         ),
@@ -515,6 +531,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                           membersSnap: mergedSnap,
                           deptStream: _deptStream!,
                           tenantId: _effectiveTenantId,
+                          role: widget.role,
+                          viewerCpfDigits:
+                              widget.cpf.replaceAll(RegExp(r'\D'), ''),
                           onRetry: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -522,6 +541,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                           membersSnap: mergedSnap,
                           deptStream: _deptStream!,
                           tenantId: _effectiveTenantId,
+                          role: widget.role,
+                          viewerCpfDigits:
+                              widget.cpf.replaceAll(RegExp(r'\D'), ''),
                           onRetry: _loadStreams,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -908,6 +930,8 @@ void _openAniversarianteDetalheSheet(
   BuildContext context, {
   required QueryDocumentSnapshot<Map<String, dynamic>> doc,
   required String tenantId,
+  required String memberRole,
+  required String memberCpfDigits,
   required bool isToday,
 }) {
   final data = doc.data();
@@ -1086,34 +1110,26 @@ void _openAniversarianteDetalheSheet(
                   ),
                 ],
                 const SizedBox(height: 28),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _anivOpenParabensWhatsApp(context, primeiro, fone);
-                    },
-                    icon: const Icon(Icons.chat_rounded, size: 22),
-                    label: const Text(
-                      'Parabenizar no WhatsApp',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF16A34A),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      minimumSize: const Size(
-                        double.infinity,
-                        ThemeCleanPremium.minTouchTarget,
-                      ),
-                    ),
+                YahwehSuperPremiumActionButton.chat(
+                  label: 'Parabenizar no chat da igreja',
+                  onPressed: () => ChurchBirthdayParabenizar.openChat(
+                    context: ctx,
+                    tenantId: tenantId,
+                    memberRole: memberRole,
+                    memberCpfDigits: memberCpfDigits,
+                    memberData: data,
+                    displayName: titulo,
+                    primeiroNome: primeiro,
+                    popSheetBeforeNavigate: true,
                   ),
+                ),
+                const SizedBox(height: 10),
+                YahwehSuperPremiumActionButton.whatsapp(
+                  label: 'Parabenizar no WhatsApp',
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _anivOpenParabensWhatsApp(context, primeiro, fone);
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextButton(
@@ -1455,21 +1471,25 @@ class _DashboardPanelLoadError extends StatelessWidget {
   }
 }
 
-/// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (WhatsApp).
+/// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (chat / WhatsApp).
 class _AniversariantesCard extends StatelessWidget {
   /// Raio do círculo interno da foto (anel +3.5px — visual ~93px).
   static const double kAvatarRadius = 43;
-  static const double kRowHeight = 212;
+  static const double kRowHeight = 232;
   static const double kColWidth = 116;
 
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final String tenantId;
+  final String role;
+  final String memberCpfDigits;
   final ChurchDashboardEngagementController engagement;
   final Future<void> Function() onRetry;
 
   const _AniversariantesCard({
     required this.snap,
     required this.tenantId,
+    required this.role,
+    required this.memberCpfDigits,
     required this.engagement,
     required this.onRetry,
   });
@@ -1873,6 +1893,8 @@ class _AniversariantesCard extends StatelessWidget {
                             context,
                             doc: d,
                             tenantId: tenantId,
+                            memberRole: role,
+                            memberCpfDigits: memberCpfDigits,
                             isToday: isToday,
                           ),
                           borderRadius: BorderRadius.circular(24),
@@ -1919,39 +1941,35 @@ class _AniversariantesCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      FilledButton.tonalIcon(
-                        onPressed: () => _anivOpenParabensWhatsApp(
-                          context,
-                          primeiro,
-                          fone,
-                        ),
-                        icon: Icon(
-                          Icons.chat_rounded,
-                          size: 15,
-                          color: Colors.green.shade800,
-                        ),
-                        label: Text(
-                          'Parabenizar',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.green.shade800,
+                      SizedBox(
+                        width: double.infinity,
+                        child: YahwehSuperPremiumActionButton.chat(
+                          compact: true,
+                          label: 'Chat',
+                          onPressed: () => ChurchBirthdayParabenizar.openChat(
+                            context: context,
+                            tenantId: tenantId,
+                            memberRole: role,
+                            memberCpfDigits: memberCpfDigits,
+                            memberData: data,
+                            displayName: _anivNomeCompleto(data).trim().isEmpty
+                                ? primeiro
+                                : _anivNomeCompleto(data).trim(),
+                            primeiroNome: primeiro,
                           ),
                         ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFDCFCE7),
-                          foregroundColor: const Color(0xFF166534),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: double.infinity,
+                        child: YahwehSuperPremiumActionButton.whatsapp(
+                          compact: true,
+                          label: 'WhatsApp',
+                          onPressed: () => _anivOpenParabensWhatsApp(
+                            context,
+                            primeiro,
+                            fone,
                           ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          elevation: 0,
-                          shadowColor: Colors.transparent,
                         ),
                       ),
                     ],
@@ -2082,6 +2100,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
 
   Future<void> _openUrl(String url) async {
     if (!mounted) return;
+    if (PublicMemberSignupNavigation.tryOpenInAppFromUrl(context, url)) {
+      return;
+    }
     await openHttpsUrlInBrowser(context, url);
   }
 
@@ -2148,7 +2169,8 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     }
 
     final siteUrl = '${AppConstants.publicWebBaseUrl}/igreja/$_slug';
-    final cadastroUrl = '${AppConstants.publicWebBaseUrl}/igreja/$_slug/cadastro-membro';
+    final cadastroUrl =
+        AppConstants.publicChurchMemberSignupUrl(_slug!);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2360,138 +2382,6 @@ String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
   return null;
 }
 
-/// Rótulos de função para exibição na tela de detalhe (líder/corpo administrativo).
-String _funcaoDisplayLabel(String v) {
-  const labels = {
-    'pastor': 'Pastor', 'pastora': 'Pastora', 'presbitero': 'Presbítero', 'diacono': 'Diácono',
-    'secretario': 'Secretário', 'secretaria': 'Secretária', 'tesoureiro': 'Tesoureiro', 'tesoureira': 'Tesoureira', 'evangelista': 'Evangelista',
-    'musico': 'Músico', 'auxiliar': 'Auxiliar', 'divulgacao': 'Divulgação',
-    'membro': 'Membro', 'adm': 'Administrador', 'gestor': 'Gestor',
-  };
-  return labels[v.toLowerCase()] ?? v;
-}
-
-/// Tela full-screen: foto, nome completo, cargo, departamentos, telefone e WhatsApp "Fale comigo".
-void _openLiderDetalhe(
-  BuildContext context, {
-  required Map<String, dynamic> memberData,
-  required List<String> departmentNames,
-  List<String> funcoes = const [],
-  String? tenantId,
-  String? memberDocId,
-}) {
-  final nome = (memberData['NOME_COMPLETO'] ?? memberData['nome'] ?? memberData['name'] ?? '').toString();
-  final foto = imageUrlFromMap(memberData);
-  final phone = (memberData['TELEFONES'] ?? memberData['telefone'] ?? memberData['phone'] ?? memberData['telefones'] ?? '').toString().trim();
-  final hasFoto = isValidImageUrl(foto);
-  final avatarColor = avatarColorForMember(memberData, hasPhoto: hasFoto);
-  final tid = tenantId?.trim() ?? '';
-  final mid = memberDocId?.trim() ?? '';
-  final canStorage = tid.isNotEmpty && mid.isNotEmpty;
-  final initialLetter = (nome.isNotEmpty ? nome[0] : '?').toUpperCase();
-  final letterAvatar = CircleAvatar(
-    radius: 64,
-    backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.2),
-    child: Text(initialLetter, style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Colors.white)),
-  );
-  final cpfRawLider =
-      (memberData['CPF'] ?? memberData['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-  final cpfDigitsLider = cpfRawLider.length == 11 ? cpfRawLider : null;
-
-  Navigator.of(context).push(
-    ThemeCleanPremium.fadeSlideRoute(
-      Scaffold(
-        backgroundColor: ThemeCleanPremium.surfaceVariant,
-        appBar: AppBar(
-          title: const Text('Contato'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          backgroundColor: ThemeCleanPremium.primary,
-          foregroundColor: Colors.white,
-        ),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-            child: Column(
-              children: [
-                const SizedBox(height: 24),
-                canStorage
-                    ? FotoMembroWidget(
-                        imageUrl: hasFoto ? foto : null,
-                        memberData: memberData,
-                        tenantId: tid,
-                        memberId: mid,
-                        cpfDigits: cpfDigitsLider,
-                        authUid: _dashboardMemberAuthUid(memberData),
-                        size: 128,
-                        memCacheWidth: 256,
-                        memCacheHeight: 256,
-                        backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.2),
-                      )
-                    : (hasFoto
-                        ? SafeMemberProfilePhoto(
-                            imageUrl: foto,
-                            tenantId: null,
-                            memberId: null,
-                            width: 128,
-                            height: 128,
-                            circular: true,
-                            fit: BoxFit.cover,
-                            enableStorageFallback: false,
-                            placeholder: letterAvatar,
-                            errorChild: letterAvatar,
-                          )
-                        : letterAvatar),
-                const SizedBox(height: 20),
-                Text(nome, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface), textAlign: TextAlign.center),
-                if (funcoes.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: funcoes.map((f) => Chip(label: Text(_funcaoDisplayLabel(f), style: const TextStyle(fontSize: 12)), padding: EdgeInsets.zero, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap)).toList(),
-                  ),
-                ],
-                if (departmentNames.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('Líder dos departamentos: ${departmentNames.join(', ')}', style: TextStyle(fontSize: 14, color: ThemeCleanPremium.onSurfaceVariant), textAlign: TextAlign.center),
-                ],
-                if (phone.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  Text(phone, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: ThemeCleanPremium.onSurface)),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: () {
-                      final tel = phone.replaceAll(RegExp(r'[^\d+]'), '');
-                      final num = tel.startsWith('+') ? tel : '55$tel';
-                      final uri = Uri.parse('https://wa.me/$num?text=${Uri.encodeComponent('Fale comigo')}');
-                      launchUrl(uri, mode: LaunchMode.externalApplication);
-                    },
-                    icon: const Icon(Icons.chat_rounded, size: 22),
-                    label: const Text('WhatsApp — Fale comigo'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                      minimumSize: const Size(double.infinity, 48),
-                    ),
-                  ),
-                ] else
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text('Telefone não informado.', style: TextStyle(fontSize: 14, color: ThemeCleanPremium.onSurfaceVariant)),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 /// Cartão premium para Galeria de Líderes / Corpo Administrativo (lista no telefone, grelha no desktop).
 class _PremiumLeaderGalleryTile extends StatelessWidget {
   const _PremiumLeaderGalleryTile({
@@ -2639,12 +2529,16 @@ class _LideresGaleria extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap;
   final Stream<QuerySnapshot<Map<String, dynamic>>> deptStream;
   final String tenantId;
+  final String role;
+  final String viewerCpfDigits;
   final Future<void> Function() onRetry;
 
   const _LideresGaleria({
     required this.membersSnap,
     required this.deptStream,
     required this.tenantId,
+    required this.role,
+    required this.viewerCpfDigits,
     required this.onRetry,
   });
 
@@ -2786,6 +2680,23 @@ class _LideresGaleria extends StatelessWidget {
             );
           }
 
+          ChurchGalleryPhotoWarmup.schedule(
+            context: context,
+            tenantId: tenantId,
+            members: entries.map((e) {
+              final cpf = e.key;
+              final memberData = leaderToMember[cpf];
+              final memberDocId = memberDocIdByCpf[cpf];
+              if (memberDocId == null) return null;
+              return ChurchGalleryMemberPhotoRef(
+                memberDocId: memberDocId,
+                memberData: memberData,
+                cpfDigits: cpf.length == 11 ? cpf : null,
+                authUid: _dashboardMemberAuthUid(memberData),
+              );
+            }).whereType<ChurchGalleryMemberPhotoRef>(),
+          );
+
           return LayoutBuilder(
             builder: (context, constraints) {
               final narrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
@@ -2823,6 +2734,7 @@ class _LideresGaleria extends StatelessWidget {
                         size: avatarSize,
                         memCacheWidth: memPx,
                         memCacheHeight: memPx,
+                        preferListThumbnail: true,
                         backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
                       )
                     : CircleAvatar(
@@ -2842,14 +2754,20 @@ class _LideresGaleria extends StatelessWidget {
                   nome: nome,
                   subtitle: deptNames.join(', '),
                   avatar: avatarWidget,
-                  onTap: () => _openLiderDetalhe(
-                    context,
-                    memberData: memberData ?? {'NOME_COMPLETO': nome, 'TELEFONES': ''},
-                    departmentNames: deptNames,
-                    funcoes: funcoes,
-                    tenantId: tenantId,
-                    memberDocId: memberDocId,
-                  ),
+                  onTap: () {
+                    if (memberDocId == null) return;
+                    openChurchLeaderContactPage(
+                      context,
+                      memberData: memberData ??
+                          {'NOME_COMPLETO': nome, 'TELEFONES': ''},
+                      departmentNames: deptNames,
+                      funcoes: funcoes,
+                      tenantId: tenantId,
+                      memberDocId: memberDocId,
+                      memberRole: role,
+                      viewerCpfDigits: viewerCpfDigits,
+                    );
+                  },
                 );
               }).toList();
               return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -2866,12 +2784,16 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap;
   final Stream<QuerySnapshot<Map<String, dynamic>>> deptStream;
   final String tenantId;
+  final String role;
+  final String viewerCpfDigits;
   final Future<void> Function() onRetry;
 
   const _CorpoAdministrativoGaleria({
     required this.membersSnap,
     required this.deptStream,
     required this.tenantId,
+    required this.role,
+    required this.viewerCpfDigits,
     required this.onRetry,
   });
 
@@ -2899,7 +2821,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
     return false;
   }
 
-  /// Chaves aceites por [_funcaoDisplayLabel] (sem acento).
+  /// Chaves aceites por [churchRoleDisplayLabel] (sem acento).
   static String _canonicalCorpoFuncao(String foldedKey) {
     if (foldedKey == 'pastor' || foldedKey == 'pastora') return foldedKey;
     if (foldedKey == 'secretario' || foldedKey == 'secretaria') {
@@ -3018,7 +2940,9 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                 final deptNames = deptIds.map((id) => deptNamesById[id] ?? id).where((s) => s.isNotEmpty).toList();
                 final avatarSize = narrow ? 52.0 : 72.0;
                 final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 360);
-                final subtitle = funcoes.map(_funcaoDisplayLabel).join(', ');
+                final subtitle = funcoes
+                    .map((f) => churchRoleDisplayLabel(f))
+                    .join(', ');
                 final avatarWidget = FotoMembroWidget(
                   imageUrl: hasFoto ? foto : null,
                   memberData: data,
@@ -3029,6 +2953,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                   size: avatarSize,
                   memCacheWidth: memPx,
                   memCacheHeight: memPx,
+                  preferListThumbnail: true,
                   backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
                 );
                 return _PremiumLeaderGalleryTile(
@@ -3036,16 +2961,33 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                   nome: nome,
                   subtitle: subtitle,
                   avatar: avatarWidget,
-                  onTap: () => _openLiderDetalhe(
+                  onTap: () => openChurchLeaderContactPage(
                     context,
                     memberData: data,
                     departmentNames: deptNames,
                     funcoes: funcoes,
                     tenantId: tenantId,
                     memberDocId: m.id,
+                    memberRole: role,
+                    viewerCpfDigits: viewerCpfDigits,
                   ),
                 );
               }).toList();
+              ChurchGalleryPhotoWarmup.schedule(
+                context: context,
+                tenantId: tenantId,
+                members: list.map((m) {
+                  final cpf = (m.data()['CPF'] ?? m.data()['cpf'] ?? '')
+                      .toString()
+                      .replaceAll(RegExp(r'[^0-9]'), '');
+                  return ChurchGalleryMemberPhotoRef(
+                    memberDocId: m.id,
+                    memberData: m.data(),
+                    cpfDigits: cpf.length == 11 ? cpf : null,
+                    authUid: _dashboardMemberAuthUid(m.data()),
+                  );
+                }),
+              );
               return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
             },
           );
@@ -4654,45 +4596,78 @@ class _TarefasPendentes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
-    return _CleanCard(
-      title: 'Tarefas Pendentes',
-      icon: Icons.checklist_rounded,
-      child: Column(
-        children: [
-          if (AppPermissions.canApprovePendingMemberSignups(role,
-              permissions: permissions)) ...[
-            _PendingRow(
-              icon: Icons.person_add_rounded,
-              color: const Color(0xFFE11D48),
-              label: 'Membros pendentes de aprovação',
-              stream: ref.collection('membros').where('status', isEqualTo: 'pendente').snapshots(),
-              onTap: () => Navigator.push(
-                  context,
-                  ThemeCleanPremium.fadeSlideRoute(AprovarMembrosPendentesPage(
-                      tenantId: tenantId,
-                      gestorRole: role,
-                      permissions: permissions))),
-            ),
-            const SizedBox(height: 10),
-          ],
-          _PendingRow(
-            icon: Icons.people_outline_rounded,
-            color: const Color(0xFF0891B2),
-            label: 'Visitantes aguardando follow-up',
-            stream: ref.collection('visitantes').where('status', isEqualTo: 'Novo').snapshots(),
-            onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(VisitorsPage(tenantId: tenantId, role: role))),
+    return StreamBuilder<PanelDashboardSnapshot>(
+      stream: PanelDashboardSnapshotService.watch(tenantId),
+      builder: (context, cacheSnap) {
+        final summary = cacheSnap.data ?? const PanelDashboardSnapshot();
+        final cacheReady = cacheSnap.hasData;
+        return _CleanCard(
+          title: 'Tarefas Pendentes',
+          icon: Icons.checklist_rounded,
+          child: Column(
+            children: [
+              if (AppPermissions.canApprovePendingMemberSignups(role,
+                  permissions: permissions)) ...[
+                _PendingRow(
+                  icon: Icons.person_add_rounded,
+                  color: const Color(0xFFE11D48),
+                  label: 'Membros pendentes de aprovação',
+                  count: cacheReady ? summary.pendingMembersCount : null,
+                  fallbackStream: FirebaseFirestore.instance
+                      .collection('igrejas')
+                      .doc(tenantId)
+                      .collection('membros')
+                      .where('status', isEqualTo: 'pendente')
+                      .limit(40)
+                      .snapshots(),
+                  onTap: () => Navigator.push(
+                      context,
+                      ThemeCleanPremium.fadeSlideRoute(AprovarMembrosPendentesPage(
+                          tenantId: tenantId,
+                          gestorRole: role,
+                          permissions: permissions))),
+                ),
+                const SizedBox(height: 10),
+              ],
+              _PendingRow(
+                icon: Icons.people_outline_rounded,
+                color: const Color(0xFF0891B2),
+                label: 'Visitantes aguardando follow-up',
+                count: cacheReady ? summary.newVisitorsCount : null,
+                fallbackStream: FirebaseFirestore.instance
+                    .collection('igrejas')
+                    .doc(tenantId)
+                    .collection('visitantes')
+                    .where('status', isEqualTo: 'Novo')
+                    .limit(40)
+                    .snapshots(),
+                onTap: () => Navigator.push(
+                    context,
+                    ThemeCleanPremium.fadeSlideRoute(
+                        VisitorsPage(tenantId: tenantId, role: role))),
+              ),
+              const SizedBox(height: 10),
+              _PendingRow(
+                icon: Icons.volunteer_activism_rounded,
+                color: const Color(0xFF7C3AED),
+                label: 'Pedidos de oração ativos',
+                count: cacheReady ? summary.openPrayerRequestsCount : null,
+                fallbackStream: FirebaseFirestore.instance
+                    .collection('igrejas')
+                    .doc(tenantId)
+                    .collection('pedidosOracao')
+                    .where('respondida', isEqualTo: false)
+                    .limit(40)
+                    .snapshots(),
+                onTap: () => Navigator.push(
+                    context,
+                    ThemeCleanPremium.fadeSlideRoute(
+                        PrayerRequestsPage(tenantId: tenantId, role: role))),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          _PendingRow(
-            icon: Icons.volunteer_activism_rounded,
-            color: const Color(0xFF7C3AED),
-            label: 'Pedidos de oração ativos',
-            stream: ref.collection('pedidosOracao').where('respondida', isEqualTo: false).snapshots(),
-            onTap: () => Navigator.push(context, ThemeCleanPremium.fadeSlideRoute(PrayerRequestsPage(tenantId: tenantId, role: role))),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -4701,17 +4676,35 @@ class _PendingRow extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String label;
-  final Stream<QuerySnapshot> stream;
+  final int? count;
+  final Stream<QuerySnapshot>? fallbackStream;
   final VoidCallback? onTap;
-  const _PendingRow({required this.icon, required this.color, required this.label, required this.stream, this.onTap});
+  const _PendingRow({
+    required this.icon,
+    required this.color,
+    required this.label,
+    this.count,
+    this.fallbackStream,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (count != null) {
+      return _pendingRowBody(context, count!, loading: false);
+    }
     return StreamBuilder<QuerySnapshot>(
-      stream: stream,
+      stream: fallbackStream,
       builder: (context, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        final loading = snap.connectionState == ConnectionState.waiting && !snap.hasData;
+        final c = snap.hasData ? snap.data!.docs.length : 0;
+        final loading =
+            snap.connectionState == ConnectionState.waiting && !snap.hasData;
+        return _pendingRowBody(context, c, loading: loading);
+      },
+    );
+  }
+
+  Widget _pendingRowBody(BuildContext context, int count, {required bool loading}) {
         final child = Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
@@ -4739,16 +4732,14 @@ class _PendingRow extends StatelessWidget {
           ),
         );
         if (onTap == null) return child;
-        return Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-            child: child,
-          ),
-        );
-      },
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+        child: child,
+      ),
     );
   }
 }

@@ -635,10 +635,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     try {
       switch (index) {
         case 2:
-          unawaited(base.collection('membros').limit(24).get());
+          unawaited(base
+              .collection('membros')
+              .orderBy('updatedAt', descending: true)
+              .limit(24)
+              .get());
           break;
         case 6:
-          unawaited(base.collection('avisos').limit(24).get());
+          unawaited(base
+              .collection('avisos')
+              .orderBy('createdAt', descending: true)
+              .limit(24)
+              .get());
           break;
         case 7:
           unawaited(base

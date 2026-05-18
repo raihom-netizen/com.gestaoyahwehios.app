@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_role_extensions.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
@@ -47,6 +48,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -70,7 +72,6 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_page.dart';
 import 'change_password_page.dart';
-import 'public_member_signup_page.dart';
 import 'internal_new_member_page.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
@@ -566,7 +567,7 @@ class _MembersPageState extends State<MembersPage> {
 
   void _scheduleMembersAutoRefresh() {
     _membersRealtimeDebounce?.cancel();
-    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 450), () {
+    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       _refreshMembers();
     });
@@ -589,6 +590,7 @@ class _MembersPageState extends State<MembersPage> {
           .collection('igrejas')
           .doc(tenantId)
           .collection('membros')
+          .orderBy('updatedAt', descending: true)
           .limit(_membersLoadLimit)
           .snapshots()
           .listen((_) => _scheduleMembersAutoRefresh()),
@@ -644,22 +646,13 @@ class _MembersPageState extends State<MembersPage> {
         .collection('igrejas')
         .doc(effectiveId)
         .collection('membros')
+        .orderBy('updatedAt', descending: true)
         .limit(_membersLoadLimit)
         .get(getOpts);
     final membersLegacyFuture = db
         .collection('igrejas')
         .doc(effectiveId)
         .collection('members')
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    final usersTFuture = db
-        .collection('users')
-        .where('tenantId', isEqualTo: effectiveId)
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    final usersIFuture = db
-        .collection('users')
-        .where('igrejaId', isEqualTo: effectiveId)
         .limit(_membersLoadLimit)
         .get(getOpts);
     final pendenteFuture = db
@@ -670,19 +663,39 @@ class _MembersPageState extends State<MembersPage> {
         .limit(500)
         .get(getOpts);
 
-    final initial = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+    final initialCore = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
       membrosFuture,
       membersLegacyFuture,
-      usersTFuture,
-      usersIFuture,
       pendenteFuture,
     ]);
 
-    final membrosSnap = initial[0];
-    final legacySnap = initial[1];
-    final usersTSnap = initial[2];
-    final usersISnap = initial[3];
-    final pendenteSnap = initial[4];
+    final membrosSnap = initialCore[0];
+    final legacySnap = initialCore[1];
+    final pendenteSnap = initialCore[2];
+
+    final needsUsers =
+        membrosSnap.docs.isEmpty && legacySnap.docs.isEmpty;
+    late final QuerySnapshot<Map<String, dynamic>> usersTSnap;
+    late final QuerySnapshot<Map<String, dynamic>> usersISnap;
+    if (needsUsers) {
+      final usersPair = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+        db
+            .collection('users')
+            .where('tenantId', isEqualTo: effectiveId)
+            .limit(_membersLoadLimit)
+            .get(getOpts),
+        db
+            .collection('users')
+            .where('igrejaId', isEqualTo: effectiveId)
+            .limit(_membersLoadLimit)
+            .get(getOpts),
+      ]);
+      usersTSnap = usersPair[0];
+      usersISnap = usersPair[1];
+    } else {
+      usersTSnap = _EmptyQuerySnapshot();
+      usersISnap = _EmptyQuerySnapshot();
+    }
 
     final mergedMembers = <QueryDocumentSnapshot<Map<String, dynamic>>>[
       ...membrosSnap.docs
@@ -1492,7 +1505,7 @@ class _MembersPageState extends State<MembersPage> {
   // ─── Departamentos ────────────────────────────────────────────────────────
   Future<List<_DeptItem>> _loadDepartments() async {
     // Sem orderBy('name'): documentos só com id (ex.: ens_professores) não têm [name] e sumiam da query.
-    final snap = await _departments.get();
+    final snap = await _departments.limit(150).get();
     final list = snap.docs
         .map((d) => _DeptItem(
               id: d.id,
@@ -3672,6 +3685,11 @@ class _MembersPageState extends State<MembersPage> {
                 );
                 photoUrl = upload.downloadUrl;
                 photoStoragePath = upload.storagePath;
+                MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+                  previousDownloadUrl: previousPhotoUrlForEvict,
+                  newDownloadUrl: photoUrl,
+                  storagePath: photoStoragePath,
+                );
                 FirebaseStorageCleanupService
                     .scheduleCleanupAfterMemberProfilePhotoUpload(
                   tenantId: targetTenantId,
@@ -3958,6 +3976,11 @@ class _MembersPageState extends State<MembersPage> {
             );
             photoUrl = upload.downloadUrl;
             photoStoragePath = upload.storagePath;
+            MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+              previousDownloadUrl: previousPhotoUrlForEvictGestor,
+              newDownloadUrl: photoUrl,
+              storagePath: photoStoragePath,
+            );
             FirebaseStorageCleanupService
                 .scheduleCleanupAfterMemberProfilePhotoUpload(
               tenantId: targetTenantId,
@@ -8464,8 +8487,7 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
         final hasSlug = slug != null && slug.isNotEmpty;
         final loading = snap.connectionState == ConnectionState.waiting;
         String url = '';
-        if (hasSlug)
-          url = '${AppConstants.publicWebBaseUrl}/igreja/$slug/cadastro-membro';
+        if (hasSlug) url = AppConstants.publicChurchMemberSignupUrl(slug);
         return Padding(
           padding:
               EdgeInsets.fromLTRB(padding.horizontal, 8, padding.horizontal, 0),
@@ -8587,11 +8609,8 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                             minimumSize: const Size(48, 36)),
                       ),
                       FilledButton.icon(
-                        onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    PublicMemberSignupPage(slug: slug))),
+                        onPressed: () => PublicMemberSignupNavigation.open(
+                            context, slug: slug),
                         icon: const Icon(Icons.open_in_new_rounded, size: 18),
                         label: const Text('Abrir formulário'),
                         style: FilledButton.styleFrom(

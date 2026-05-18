@@ -10,8 +10,10 @@ import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:intl/intl.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
@@ -524,146 +526,44 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
   static const String _kPastoralWhatsPrefill =
       'Olá! Aqui é a pastoral da igreja. Como está? Gostaríamos de manter contato com você.';
 
-  Future<void> _contactPastoralMemberViaWhatsApp(
-    BuildContext rootCtx,
-    MemberPastoralAlert a,
-  ) async {
-    final raw = a.phoneDigits.trim();
-    if (raw.length < 10) {
-      if (!rootCtx.mounted) return;
-      ScaffoldMessenger.of(rootCtx).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Cadastre o telefone na ficha do membro (Membros) para contactar pelo WhatsApp.',
-        ),
-      );
-      return;
+  String _viewerCpfDigits() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    for (final d in widget.memberDocs) {
+      final data = d.data();
+      final cpf = (data['CPF'] ?? data['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+      if (cpf.length != 11) continue;
+      final au = (data['authUid'] ?? '').toString().trim();
+      if (au.isNotEmpty && au == uid) return cpf;
     }
-    await launchWhatsAppContact(
-      raw,
-      prefilledMessage: _kPastoralWhatsPrefill,
-    );
+    return '';
+  }
+
+  Map<String, dynamic> _memberDataForPastoralAlert(MemberPastoralAlert a) {
+    for (final d in widget.memberDocs) {
+      if (d.id == a.memberId) return d.data();
+    }
+    return {
+      'NOME_COMPLETO': a.name,
+      'CPF': a.cpfDigits,
+      'TELEFONE': a.phoneDigits,
+      if (a.authUid != null && a.authUid!.isNotEmpty) 'authUid': a.authUid,
+    };
   }
 
   Future<void> _openPastoralAlertsSheet(
       BuildContext context, List<MemberPastoralAlert> alerts) async {
-    final rootCtx = context;
+    final viewerCpf = _viewerCpfDigits();
 
-    Widget alertTile(MemberPastoralAlert a, VoidCallback closeModal) {
-      final hasPhone = a.phoneDigits.trim().length >= 10;
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () async {
-              closeModal();
-              if (!rootCtx.mounted) return;
-              await _contactPastoralMemberViaWhatsApp(rootCtx, a);
-              widget.onRefreshDashboard?.call();
-            },
-            child: Ink(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.white,
-                    const Color(0xFFFFF8F8),
-                    const Color(0xFFFEF2F2).withValues(alpha: 0.92),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: hasPhone
-                      ? const Color(0xFF25D366).withValues(alpha: 0.35)
-                      : const Color(0xFFFCA5A5).withValues(alpha: 0.75),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.07),
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF25D366), Color(0xFF128C7E)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF25D366).withValues(alpha: 0.35),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const FaIcon(
-                        FontAwesomeIcons.whatsapp,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            a.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            a.summary,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                              height: 1.25,
-                            ),
-                          ),
-                          if (!hasPhone)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                'Sem telefone na ficha — cadastre em Membros.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.orange.shade800,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 15,
-                      color: Colors.grey.shade400,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+    Widget alertTile(MemberPastoralAlert a) {
+      return PastoralAttentionMemberCard(
+        alert: a,
+        memberData: _memberDataForPastoralAlert(a),
+        tenantId: widget.tenantId,
+        memberRole: widget.role,
+        viewerCpfDigits: viewerCpf,
+        whatsappPrefill: _kPastoralWhatsPrefill,
       );
     }
 
@@ -712,7 +612,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
 
     final desc =
-        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Toque no cartão para abrir o WhatsApp.';
+        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Em cada faixa, escolha Chat Igreja ou WhatsApp.';
 
     if (kIsWeb) {
       await showDialog<void>(
@@ -808,8 +708,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                             padding:
                                 const EdgeInsets.fromLTRB(16, 8, 16, 20),
                             itemCount: alerts.length,
-                            itemBuilder: (_, i) =>
-                                alertTile(alerts[i], close),
+                            itemBuilder: (_, i) => alertTile(alerts[i]),
                           ),
                   ),
                 ],
@@ -920,8 +819,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                             controller: sc,
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                             itemCount: alerts.length,
-                            itemBuilder: (context, i) =>
-                                alertTile(alerts[i], () => Navigator.pop(sheetCtx)),
+                            itemBuilder: (context, i) => alertTile(alerts[i]),
                           ),
                   ),
                 ],

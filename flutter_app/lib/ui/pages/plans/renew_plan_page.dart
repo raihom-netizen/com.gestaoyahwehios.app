@@ -5,12 +5,14 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_service.dart';
+import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
@@ -24,6 +26,8 @@ import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
+
+enum _ExpressPayStep { options, confirm }
 
 class RenewPlanPage extends StatefulWidget {
   /// Quando true (ex.: bloqueio de licença no shell), não exibe AppBar próprio.
@@ -75,6 +79,11 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   final GlobalKey _paymentSectionKey = GlobalKey();
   /// Parcelas no cartão (anual + cartão): 1 a 6.
   int _expressCardInstallments = 1;
+
+  /// Safari iOS / modo expresso: opções → confirmação antes do Mercado Pago.
+  _ExpressPayStep _expressPayStep = _ExpressPayStep.options;
+  String? _prefetchKey;
+  MpCheckoutSession? _prefetchedCheckout;
 
   /// Modo expresso — última versão do doc da igreja (para mostrar plano
   /// atual + data de vencimento no cabeçalho).
@@ -249,14 +258,104 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (nowPaid) _wasBillingPaidAtBaseline = true;
   }
 
-  Future<String?> _resolveTenantIdFromClaims() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return null;
-    final token = await user.getIdTokenResult(true);
-    final tenantId = (token.claims?['igrejaId'] ?? token.claims?['tenantId'] ?? '')
-        .toString()
-        .trim();
-    return tenantId.isEmpty ? null : tenantId;
+  Future<String?> _resolveTenantIdFromClaims({bool forceRefresh = false}) async {
+    return ExpressRenewBootstrap.instance.resolveTenantId(
+      forceRefresh: forceRefresh,
+    );
+  }
+
+  /// Confirmação + prefetch antes do MP: web, Android e `/atualizar-plano`.
+  bool get _usesAnnualCardConfirmFlow {
+    if (widget.expressMode) return true;
+    if (kIsWeb) return true;
+    if (defaultTargetPlatform == TargetPlatform.android) return true;
+    return false;
+  }
+
+  String get _currentPrefetchKey =>
+      '$_selected|${_billingAnnual ? "a" : "m"}|${_expressCardInstallments.clamp(1, 6)}';
+
+  void _invalidateCheckoutPrefetch() {
+    _prefetchKey = null;
+    _prefetchedCheckout = null;
+  }
+
+  void _backToPaymentOptions() {
+    setState(() {
+      _expressPayStep = _ExpressPayStep.options;
+      _err = null;
+    });
+    _invalidateCheckoutPrefetch();
+    _scrollPaymentSectionIntoView();
+  }
+
+  void _goToCardConfirmStep() {
+    if (!_usesAnnualCardConfirmFlow || _paymentPix) return;
+    setState(() {
+      _expressPayStep = _ExpressPayStep.confirm;
+      _err = null;
+    });
+    _scheduleCheckoutPrefetch();
+    _scrollPaymentSectionIntoView();
+  }
+
+  void _onSelectPix() {
+    setState(() {
+      _paymentPix = true;
+      _expressPayStep = _ExpressPayStep.options;
+      _err = null;
+    });
+    _invalidateCheckoutPrefetch();
+  }
+
+  void _onSelectCard() {
+    setState(() {
+      _paymentPix = false;
+      _expressPayStep = _ExpressPayStep.options;
+      _err = null;
+    });
+    _invalidateCheckoutPrefetch();
+    if (_usesAnnualCardConfirmFlow && !_billingAnnual) {
+      _goToCardConfirmStep();
+    } else {
+      _scrollPaymentSectionIntoView();
+    }
+  }
+
+  void _onSelectInstallment(int n) {
+    setState(() => _expressCardInstallments = n);
+    _invalidateCheckoutPrefetch();
+    if (_usesAnnualCardConfirmFlow) {
+      _goToCardConfirmStep();
+    }
+  }
+
+  Future<void> _scheduleCheckoutPrefetch() async {
+    if (_paymentPix || !_usesAnnualCardConfirmFlow) return;
+    final key = _currentPrefetchKey;
+    if (_prefetchedCheckout != null && _prefetchKey == key) return;
+    _prefetchKey = key;
+    _prefetchedCheckout = null;
+    try {
+      final returnPath = widget.expressMode
+          ? (widget.expressCheckoutReturnPath ?? '/atualizar-plano')
+          : '/painel';
+      final session = await _billing.createMpCheckout(
+        planId: _selected,
+        billingCycle:
+            _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+        paymentMethod: PaymentMethod.card,
+        installments: _billingAnnual
+            ? _expressCardInstallments.clamp(1, 6)
+            : 1,
+        returnPath: returnPath,
+      );
+      if (!mounted) return;
+      if (_prefetchKey != key) return;
+      if (session.isValid) {
+        setState(() => _prefetchedCheckout = session);
+      }
+    } catch (_) {}
   }
 
   void _handlePaymentApprovedAutoReturn() {
@@ -310,7 +409,6 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   /// Claims podem chegar segundos após o login — reabre o listener do doc da igreja.
   Future<void> _retryPaymentWatcherIfNeeded() async {
-    if (!widget.expressMode) return;
     if (_churchBillingSub != null) return;
     await _startPaymentStatusWatcher();
   }
@@ -318,17 +416,36 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   @override
   void initState() {
     super.initState();
+    final boot = ExpressRenewBootstrap.instance;
+    final cachedPlans = boot.cachedPlans;
+    if (cachedPlans != null) {
+      _effectiveConfigs = cachedPlans;
+    }
+    final cachedChurch = boot.cachedChurchData;
+    if (cachedChurch != null) {
+      _churchData = cachedChurch;
+      _applyChurchBillingSnapshot(cachedChurch);
+    }
+    unawaited(boot.warmUp().then((_) {
+      if (!mounted) return;
+      final plans = boot.cachedPlans;
+      final church = boot.cachedChurchData;
+      if (plans != null || church != null) {
+        setState(() {
+          if (plans != null) _effectiveConfigs = plans;
+          if (church != null) _churchData = church;
+        });
+        if (church != null) _applyChurchBillingSnapshot(church);
+      }
+    }));
     _planPricesSub =
         PlanPriceService.watchEffectivePlanConfigs().listen((cfg) {
       if (mounted) setState(() => _effectiveConfigs = cfg);
     });
     _startPaymentStatusWatcher();
-    if (widget.expressMode) {
-      _idTokenRefreshSub =
-          FirebaseAuth.instance.idTokenChanges().listen((_) {
-        unawaited(_retryPaymentWatcherIfNeeded());
-      });
-    }
+    _idTokenRefreshSub = FirebaseAuth.instance.idTokenChanges().listen((_) {
+      unawaited(_retryPaymentWatcherIfNeeded());
+    });
   }
 
   @override
@@ -349,6 +466,121 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     return planosOficiais.firstWhere(
       (p) => p.id == _selected,
       orElse: () => planosOficiais.first,
+    );
+  }
+
+  String _confirmPanelHint() {
+    if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
+      return 'Ao confirmar, abrimos a página segura do Mercado Pago neste separador. '
+          'Depois do pagamento você volta automaticamente ao Gestão YAHWEH e a licença '
+          'anual é atualizada em instantes.';
+    }
+    if (kIsWeb) {
+      return 'Ao confirmar, o checkout seguro do Mercado Pago abre nesta página. '
+          'Após o pagamento, a licença anual da igreja é renovada automaticamente.';
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'Ao confirmar, o checkout do Mercado Pago abre no app. '
+          'Quando o pagamento for aprovado, a licença anual é liberada em instantes.';
+    }
+    return 'Revise os dados e confirme para abrir o checkout seguro do Mercado Pago.';
+  }
+
+  double? _selectedCyclePrice() {
+    final cfg = _effectiveConfigs?[_selected];
+    if (_billingAnnual) {
+      final a = cfg?.annualPrice;
+      if (a != null && a > 0) return a;
+      final m = cfg?.monthlyPrice ?? _selectedPlan.monthlyPrice;
+      if (m != null && m > 0) return m * 12;
+      return _selectedPlan.annualPrice;
+    }
+    return cfg?.monthlyPrice ?? _selectedPlan.monthlyPrice;
+  }
+
+  Widget _buildExpressConfirmPanel(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final price = _selectedCyclePrice();
+    final inst = _billingAnnual
+        ? _expressCardInstallments.clamp(1, 6)
+        : 1;
+    final parcelHint = _billingAnnual && inst > 1
+        ? ' (${inst}x no cartão — total ${_money(price ?? 0)})'
+        : '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.verified_user_rounded, color: cs.primary, size: 26),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Confirmar pagamento',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${_selectedPlan.name} • ${_billingAnnual ? "Anual" : "Mensal"} • '
+            'Cartão ${inst}x$parcelHint',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: cs.onSurface,
+              height: 1.35,
+            ),
+          ),
+          if (price != null && price > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              _money(price),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: cs.primary,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Text(
+            _confirmPanelHint(),
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade700,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            text: 'Confirmar e pagar',
+            icon: Icons.lock_rounded,
+            loading: _loading,
+            onPressed: _startSubscription,
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: _loading ? null : _backToPaymentOptions,
+              child: const Text('Alterar plano ou parcelas'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -584,6 +816,17 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }
   }
 
+  Future<void> _openCardCheckout(MpCheckoutSession session) async {
+    if (!session.isValid) throw 'Não foi possível abrir o checkout.';
+    if (!mounted) return;
+    if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
+      setState(() => _loading = false);
+      mpWebRedirectSameTab(session.initPoint);
+      return;
+    }
+    setState(() => _checkoutSession = session);
+  }
+
   Future<void> _startSubscription() async {
     setState(() {
       _loading = true;
@@ -619,23 +862,20 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         } else {
           returnPath = null;
         }
-        final session = await _billing.createMpCheckout(
-          planId: _selected,
-          billingCycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
-          paymentMethod: PaymentMethod.card,
-          installments: installments,
-          returnPath: returnPath,
-        );
-        if (!session.isValid) throw 'Não foi possível abrir o checkout.';
-        if (!mounted) return;
-        if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
-          setState(() {
-            _loading = false;
-          });
-          mpWebRedirectSameTab(session.initPoint);
-          return;
-        }
-        setState(() => _checkoutSession = session);
+        final prefetchOk = _prefetchedCheckout != null &&
+            _prefetchKey == _currentPrefetchKey;
+        final session = prefetchOk
+            ? _prefetchedCheckout!
+            : await _billing.createMpCheckout(
+                planId: _selected,
+                billingCycle: _billingAnnual
+                    ? BillingCycle.annual
+                    : BillingCycle.monthly,
+                paymentMethod: PaymentMethod.card,
+                installments: installments,
+                returnPath: returnPath,
+              );
+        await _openCardCheckout(session);
       }
     } catch (e) {
       String msg = _parseBillingError(e);
@@ -917,11 +1157,19 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                   const SizedBox(height: 6),
                   Text(
                     widget.expressMode
-                        ? 'Todos os módulos inclusos — selecione plano e ciclo abaixo. '
-                            'PIX ou cartão na mesma página, padrão Super Premium e mais rápido: '
-                            'sem ir para o site do Mercado Pago — o checkout abre aqui embebido; '
-                            'o processamento continua seguro com o Mercado Pago em segundo plano.'
-                        : 'Todos os módulos inclusos. O que muda é a escala de uso.',
+                        ? (kIsWeb
+                            ? (mpWebCheckoutPrefersSameTabRedirect
+                                ? 'Selecione plano, ciclo e forma de pagamento. '
+                                    'No iPhone (Safari), o cartão abre no Mercado Pago; '
+                                    'o PIX fica nesta página. Anual no cartão: até 6x.'
+                                : 'Selecione plano e ciclo. Anual no cartão em até 6x; '
+                                    'após confirmar, o checkout abre nesta página.')
+                            : 'Selecione plano e ciclo. Anual no cartão em até 6x; '
+                                'a licença renova automaticamente após o pagamento.')
+                        : (kIsWeb || defaultTargetPlatform == TargetPlatform.android)
+                            ? 'Todos os módulos inclusos. Anual: PIX à vista ou cartão em até 6x '
+                                '(confirme antes de pagar). A licença atualiza após aprovação.'
+                            : 'Todos os módulos inclusos. O que muda é a escala de uso.',
                     style:
                         TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
@@ -937,30 +1185,34 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                         child: _PlanCardOficial(
                           plan: display,
                           selected: p.id == _selected,
-                          onTap: () => setState(() => _selected = p.id),
+                          onTap: () => setState(() {
+                            _selected = p.id;
+                            _expressPayStep = _ExpressPayStep.options;
+                            _invalidateCheckoutPrefetch();
+                          }),
                           priceMonthly: cfg?.monthlyPrice ?? p.monthlyPrice,
                           priceAnnual: cfg?.annualPrice ?? p.annualPrice,
-                          onChooseMonthly: widget.expressMode
-                              ? () {
-                                  setState(() {
-                                    _selected = p.id;
-                                    _billingAnnual = false;
-                                    _expressCardInstallments = 1;
-                                  });
-                                  _scrollPaymentSectionIntoView();
-                                }
-                              : null,
-                          onChooseAnnual: widget.expressMode
-                              ? () {
-                                  setState(() {
-                                    _selected = p.id;
-                                    _billingAnnual = true;
-                                    _expressCardInstallments =
-                                        _expressCardInstallments.clamp(1, 6);
-                                  });
-                                  _scrollPaymentSectionIntoView();
-                                }
-                              : null,
+                          onChooseMonthly: () {
+                            setState(() {
+                              _selected = p.id;
+                              _billingAnnual = false;
+                              _expressCardInstallments = 1;
+                              _expressPayStep = _ExpressPayStep.options;
+                              _invalidateCheckoutPrefetch();
+                            });
+                            _scrollPaymentSectionIntoView();
+                          },
+                          onChooseAnnual: () {
+                            setState(() {
+                              _selected = p.id;
+                              _billingAnnual = true;
+                              _expressCardInstallments =
+                                  _expressCardInstallments.clamp(1, 6);
+                              _expressPayStep = _ExpressPayStep.options;
+                              _invalidateCheckoutPrefetch();
+                            });
+                            _scrollPaymentSectionIntoView();
+                          },
                         ),
                       );
                     }).toList(),
@@ -988,6 +1240,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           onTap: () => setState(() {
                             _billingAnnual = false;
                             _expressCardInstallments = 1;
+                            _expressPayStep = _ExpressPayStep.options;
+                            _invalidateCheckoutPrefetch();
                           }),
                         ),
                       ),
@@ -1000,6 +1254,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                             _billingAnnual = true;
                             _expressCardInstallments =
                                 _expressCardInstallments.clamp(1, 6);
+                            _expressPayStep = _ExpressPayStep.options;
+                            _invalidateCheckoutPrefetch();
                           }),
                         ),
                       ),
@@ -1021,7 +1277,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           label: 'PIX',
                           icon: Icons.qr_code_2_rounded,
                           selected: _paymentPix,
-                          onTap: () => setState(() => _paymentPix = true),
+                          onTap: _onSelectPix,
                         ),
                       ),
                       SizedBox(
@@ -1032,7 +1288,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               : 'Cartão (1x)',
                           icon: Icons.credit_card_rounded,
                           selected: !_paymentPix,
-                          onTap: () => setState(() => _paymentPix = false),
+                          onTap: _onSelectCard,
                           enabled: true,
                         ),
                       ),
@@ -1047,13 +1303,14 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                   ),
-                  if (kIsWeb &&
-                      mpWebCheckoutPrefersSameTabRedirect &&
-                      !_paymentPix) ...[
+                  if (kIsWeb && !_paymentPix) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'No Safari do iPhone o cartão abre na página segura do Mercado Pago no mesmo separador; '
-                      'após confirmar o pagamento volta ao Gestão YAHWEH.',
+                      mpWebCheckoutPrefersSameTabRedirect
+                          ? 'No Safari do iPhone o cartão abre na página segura do Mercado Pago; '
+                              'após o pagamento a licença anual volta ativa no Gestão YAHWEH.'
+                          : 'No cartão anual (até 6x), confirme o resumo e pague; '
+                              'a licença da igreja renova automaticamente após aprovação.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.blue.shade800,
@@ -1062,7 +1319,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       ),
                     ),
                   ],
-                  if (_billingAnnual && !_paymentPix) ...[
+                  if (_billingAnnual &&
+                      !_paymentPix &&
+                      !(_usesAnnualCardConfirmFlow &&
+                          _expressPayStep == _ExpressPayStep.confirm)) ...[
                     const SizedBox(height: 16),
                     const Text(
                       'Parcelas no cartão',
@@ -1079,11 +1339,16 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                         return FilterChip(
                           label: Text('${n}x'),
                           selected: sel,
-                          onSelected: (_) =>
-                              setState(() => _expressCardInstallments = n),
+                          onSelected: (_) => _onSelectInstallment(n),
                         );
                       }),
                     ),
+                  ],
+                  if (_usesAnnualCardConfirmFlow &&
+                      !_paymentPix &&
+                      _expressPayStep == _ExpressPayStep.confirm) ...[
+                    const SizedBox(height: 20),
+                    _buildExpressConfirmPanel(context),
                   ],
                   if (_err != null) ...[
                     const SizedBox(height: 12),
@@ -1121,13 +1386,19 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 24),
-                  PrimaryButton(
-                    text: _paymentPix ? 'Pagar com PIX' : 'Pagar com Cartão',
-                    icon: _paymentPix ? Icons.qr_code_2_rounded : Icons.credit_card_rounded,
-                    loading: _loading,
-                    onPressed: _startSubscription,
-                  ),
+                  if (_paymentPix ||
+                      !_usesAnnualCardConfirmFlow ||
+                      _expressPayStep == _ExpressPayStep.options) ...[
+                    const SizedBox(height: 24),
+                    PrimaryButton(
+                      text: _paymentPix ? 'Pagar com PIX' : 'Pagar com Cartão',
+                      icon: _paymentPix
+                          ? Icons.qr_code_2_rounded
+                          : Icons.credit_card_rounded,
+                      loading: _loading,
+                      onPressed: _startSubscription,
+                    ),
+                  ],
                   if (!widget.expressMode) ...[
                     const SizedBox(height: 10),
                     OutlinedButton.icon(

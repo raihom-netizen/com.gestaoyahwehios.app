@@ -1708,12 +1708,11 @@ export const createMpPreapproval = functions
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
 
-    const planSnap = await db
-      .collection("config")
-      .doc("plans")
-      .collection("items")
-      .doc(planId)
-      .get();
+    const [planSnap, notificationUrl, backUrlBase] = await Promise.all([
+      db.collection("config").doc("plans").collection("items").doc(planId).get(),
+      resolveMpNotificationUrl(),
+      resolveMpBackUrl(),
+    ]);
 
     let plan: { name?: string; priceMonthly?: number; priceAnnual?: number; priceYear?: number } = {};
     if (planSnap.exists) {
@@ -1778,15 +1777,14 @@ export const createMpPreapproval = functions
       payerEmail = `pagamento+${tenantId}@gestaoyahweh.com.br`;
     }
 
-    const notificationUrl = await resolveMpNotificationUrl();
-    let backUrl = await resolveMpBackUrl();
+    let backUrl = backUrlBase;
     const returnPath = normalizeMpPreapprovalReturnPath(data?.returnPath);
     if (returnPath) {
       try {
         const origin = new URL(backUrl).origin;
         backUrl = `${origin}${returnPath}`;
       } catch (_) {
-        backUrl = await resolveMpBackUrl();
+        backUrl = backUrlBase;
       }
     }
 
@@ -7062,4 +7060,13 @@ export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
 
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
+
+export {
+  onChurchMembroWritePanelDashboard,
+  onChurchAvisoWritePanelDashboard,
+  onChurchNoticiaWritePanelDashboard,
+  onChurchVisitanteWritePanelDashboard,
+  onChurchPedidoOracaoWritePanelDashboard,
+  getChurchPanelSnapshot,
+} from "./panelDashboardCache";
 

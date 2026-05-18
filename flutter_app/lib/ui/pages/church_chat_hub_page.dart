@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
@@ -836,6 +837,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             },
             onNewDm: () => _openPickPeer(context, tid, uid),
             onAlertModeTap: _openChatAlertModeSheet,
+            onProfilePhotoTap: () => showChurchChatProfilePhotoSheet(
+              context,
+              tenantId: tid,
+              cpfDigits: widget.cpf,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -2836,12 +2842,14 @@ class _PremiumChatHeader extends StatelessWidget {
   final VoidCallback onMuteTap;
   final VoidCallback onNewDm;
   final VoidCallback onAlertModeTap;
+  final VoidCallback onProfilePhotoTap;
 
   const _PremiumChatHeader({
     required this.chatPushEnabled,
     required this.onMuteTap,
     required this.onNewDm,
     required this.onAlertModeTap,
+    required this.onProfilePhotoTap,
   });
 
   @override
@@ -2918,6 +2926,14 @@ class _PremiumChatHeader extends StatelessWidget {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Minha foto de perfil (chat e cadastro)',
+                    onPressed: onProfilePhotoTap,
+                    icon: const Icon(
+                      Icons.account_circle_outlined,
+                      color: Colors.white,
                     ),
                   ),
                   IconButton(

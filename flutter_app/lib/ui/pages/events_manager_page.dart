@@ -1181,7 +1181,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() {
-    return widget.noticias.orderBy('startAt', descending: true).limit(250).get();
+    return widget.noticias.orderBy('startAt', descending: true).limit(80).get();
   }
 
   Future<void> _refresh() async {
@@ -2205,7 +2205,7 @@ class _FeedTabState extends State<_FeedTab> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
     return widget.noticias
         .orderBy('startAt', descending: true)
-        .limit(200)
+        .limit(60)
         .get();
   }
 
@@ -7891,7 +7891,7 @@ class _FixosTabState extends State<_FixosTab> {
               isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
           .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
           .orderBy('startAt')
-          .limit(250)
+          .limit(80)
           .get();
       return snap.docs;
     } catch (_) {
@@ -7899,10 +7899,10 @@ class _FixosTabState extends State<_FixosTab> {
       try {
         snap = await widget.noticias
             .orderBy('startAt', descending: false)
-            .limit(200)
+            .limit(60)
             .get();
       } catch (_) {
-        snap = await widget.noticias.limit(250).get();
+        snap = await widget.noticias.limit(80).get();
       }
       final out = snap.docs.where((d) {
         if ((d.data()['type'] ?? '').toString() != 'evento') return false;
@@ -9343,7 +9343,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             .get();
       } catch (_) {
         // Fallback sem orderBy (evita exigir índice no Firestore).
-        snap = await widget.noticias.limit(150).get();
+        snap = await widget.noticias.limit(80).get();
       }
       var allSorted = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
       if (allSorted.length > 1 &&
@@ -9399,12 +9399,9 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         final title = (data['title'] ?? 'Evento').toString();
         final rsvp = (data['rsvp'] as List?)?.length ?? 0;
         final likes = (data['likes'] as List?)?.length ?? 0;
-        int comments = 0;
-        try {
-          final countSnap =
-              await d.reference.collection('comentarios').count().get();
-          comments = countSnap.count ?? 0;
-        } catch (_) {}
+        final comments = (data['commentsCount'] is num)
+            ? (data['commentsCount'] as num).toInt()
+            : 0;
         final st = data['startAt'];
         final startAt = st is Timestamp ? st.toDate() : null;
         list.add(_EventStats(

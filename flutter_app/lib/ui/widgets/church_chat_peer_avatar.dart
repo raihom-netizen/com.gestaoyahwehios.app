@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
@@ -26,8 +27,13 @@ class ChurchChatPeerAvatar extends StatelessWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final cachePx = (size * dpr).round().clamp(96, 280);
 
+    final rev = ref != null
+        ? MemberProfilePhotoUpdateService.cacheRevisionFromData(ref.data)
+        : 0;
+
     if (ref != null && ref.memberId.isNotEmpty) {
       return StableMemberAvatar(
+        key: ValueKey('chat_peer_${tenantId}_${ref.memberId}_$rev'),
         imageUrl: ref.photoUrl,
         tenantId: tenantId,
         memberId: ref.memberId,

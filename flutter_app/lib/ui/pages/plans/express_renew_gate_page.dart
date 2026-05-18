@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
@@ -51,6 +52,9 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
   void initState() {
     super.initState();
     _authStream = FirebaseAuth.instance.authStateChanges();
+    if (FirebaseAuth.instance.currentUser != null) {
+      unawaited(ExpressRenewBootstrap.instance.warmUp());
+    }
     if (kIsWeb) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _completeWebOAuthRedirectIfNeeded());
@@ -187,6 +191,9 @@ class _ExpressRenewGatePageState extends State<ExpressRenewGatePage> {
           return const _LoadingScaffold();
         }
         final user = snap.data;
+        if (user != null) {
+          unawaited(ExpressRenewBootstrap.instance.warmUp());
+        }
         if (user == null) {
           return _ExpressGateLoginScaffold(
             inFlight: _expressInFlight,
@@ -266,13 +273,14 @@ class _TenantClaimGateState extends State<_TenantClaimGate> {
       _checking = true;
     });
     try {
-      for (var i = 0; i < 12; i++) {
+      unawaited(ExpressRenewBootstrap.instance.warmUp());
+      for (var i = 0; i < 8; i++) {
         if (!mounted) return;
-        final tr = await widget.user.getIdTokenResult(i > 0);
-        final id = (tr.claims?['igrejaId'] ?? tr.claims?['tenantId'] ?? '')
-            .toString()
-            .trim();
+        final force = i == 1;
+        final tr = await widget.user.getIdTokenResult(force);
+        final id = ExpressRenewBootstrap.tenantFromClaims(tr.claims);
         if (id.isNotEmpty) {
+          ExpressRenewBootstrap.instance.rememberTenantId(id);
           if (mounted) {
             setState(() {
               _hasTenantClaim = true;
@@ -281,7 +289,8 @@ class _TenantClaimGateState extends State<_TenantClaimGate> {
           }
           return;
         }
-        await Future<void>.delayed(Duration(milliseconds: 220 + 90 * i));
+        if (i == 0) continue;
+        await Future<void>.delayed(Duration(milliseconds: 160 + 70 * i));
       }
       if (mounted) {
         setState(() {

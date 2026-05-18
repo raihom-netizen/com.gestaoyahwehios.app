@@ -136,11 +136,30 @@ class AppConstants {
     return '$publicWebBaseUrl/${Uri.encodeComponent(s)}';
   }
 
-  /// Cadastro público de membros: `/{slug}/cadastro-membro`.
-  static String publicChurchMemberSignupUrl(String slug) {
+  /// Cadastro público de membros (link partilhável).
+  /// Domínio central: `/igreja/{slug}/cadastro-membro`. Domínio dedicado da igreja: `/{slug}/cadastro-membro`.
+  static String publicChurchMemberSignupUrl(
+    String slug, {
+    Map<String, dynamic>? church,
+  }) {
     final s = slug.trim();
-    if (s.isEmpty) return publicWebBaseUrl;
-    return '${publicChurchHomeUrl(s)}/cadastro-membro';
+    if (s.isEmpty) return publicWebBaseUrlForChurch(church);
+    final base = publicWebBaseUrlForChurch(church);
+    final enc = Uri.encodeComponent(s);
+    if (_isGestaoCentralPublicBase(base)) {
+      return '$base/igreja/$enc/cadastro-membro';
+    }
+    return '$base/$enc/cadastro-membro';
+  }
+
+  static bool _isGestaoCentralPublicBase(String base) {
+    final b = base.toLowerCase().replaceAll(RegExp(r'/$'), '');
+    const central = {
+      'https://gestaoyahweh.com.br',
+      'https://gestaoyahweh-21e23.web.app',
+      'https://gestaoyahweh-21e23.firebaseapp.com',
+    };
+    return central.contains(b);
   }
 
   /// Link da publicação no site: `/{slug}/{noticiaId}` (SPA / deep link no app).

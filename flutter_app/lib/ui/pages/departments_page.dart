@@ -25,6 +25,8 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
         normalizeChurchDepartmentNameKey;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -1572,6 +1574,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         membersCol: _membersCol,
         deptRef: _col.doc(deptDoc.id),
         canWrite: _canWrite,
+        memberRole: widget.role,
         onWhatsApp: _openWhatsAppForMemberData,
         onEditDepartamento: () {
           Navigator.pop(ctx);
@@ -3336,6 +3339,7 @@ class _DepartmentHubSheet extends StatelessWidget {
   final CollectionReference<Map<String, dynamic>> membersCol;
   final DocumentReference<Map<String, dynamic>> deptRef;
   final bool canWrite;
+  final String memberRole;
   final Future<void> Function(Map<String, dynamic>) onWhatsApp;
   final VoidCallback onEditDepartamento;
   final VoidCallback onAddMember;
@@ -3351,6 +3355,7 @@ class _DepartmentHubSheet extends StatelessWidget {
     required this.membersCol,
     required this.deptRef,
     required this.canWrite,
+    required this.memberRole,
     required this.onWhatsApp,
     required this.onEditDepartamento,
     required this.onAddMember,
@@ -3540,6 +3545,14 @@ class _DepartmentHubSheet extends StatelessWidget {
         ],
       ),
       child: ListTile(
+        onTap: () => openChurchLeaderContactPage(
+          context,
+          memberData: data,
+          departmentNames: [deptName],
+          tenantId: tenantId,
+          memberDocId: doc.id,
+          memberRole: memberRole,
+        ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         leading: FotoMembroWidget(
@@ -3549,6 +3562,7 @@ class _DepartmentHubSheet extends StatelessWidget {
           imageUrl: imageUrlFromMap(data),
           cpfDigits: cpf,
           memberData: data,
+          preferListThumbnail: true,
         ),
         title: Row(
           children: [
@@ -3576,6 +3590,19 @@ class _DepartmentHubSheet extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              tooltip: 'Chat Igreja',
+              onPressed: () => ChurchMemberContactChat.openChatIgreja(
+                context: context,
+                tenantId: tenantId,
+                memberRole: memberRole,
+                viewerCpfDigits: '',
+                memberData: data,
+                displayName: nome,
+              ),
+              icon: Icon(Icons.forum_rounded,
+                  color: ThemeCleanPremium.primary, size: 22),
+            ),
             IconButton(
               tooltip: 'WhatsApp',
               onPressed: () => onWhatsApp(data),
@@ -3647,6 +3674,14 @@ class _DepartmentHubSheet extends StatelessWidget {
         ],
       ),
       child: ListTile(
+        onTap: () => openChurchLeaderContactPage(
+          context,
+          memberData: data,
+          departmentNames: [deptName],
+          tenantId: tenantId,
+          memberDocId: doc.id,
+          memberRole: memberRole,
+        ),
         leading: FotoMembroWidget(
           size: 40,
           tenantId: tenantId,
@@ -3654,11 +3689,25 @@ class _DepartmentHubSheet extends StatelessWidget {
           imageUrl: imageUrlFromMap(data),
           cpfDigits: _cpfDigits(data),
           memberData: data,
+          preferListThumbnail: true,
         ),
         title: Text(_nomeMembro(doc)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              tooltip: 'Chat Igreja',
+              onPressed: () => ChurchMemberContactChat.openChatIgreja(
+                context: context,
+                tenantId: tenantId,
+                memberRole: memberRole,
+                viewerCpfDigits: '',
+                memberData: data,
+                displayName: _nomeMembro(doc),
+              ),
+              icon: Icon(Icons.forum_rounded,
+                  color: ThemeCleanPremium.primary, size: 20),
+            ),
             IconButton(
               tooltip: 'WhatsApp',
               onPressed: () => onWhatsApp(data),

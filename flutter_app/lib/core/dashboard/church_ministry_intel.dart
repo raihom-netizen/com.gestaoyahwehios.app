@@ -11,6 +11,8 @@ class MemberPastoralAlert {
   final String summary;
   /// Dígitos para `wa.me` (mesma prioridade que carteirinha / departamentos).
   final String phoneDigits;
+  /// Conta Firebase do membro (chat da igreja).
+  final String? authUid;
 
   const MemberPastoralAlert({
     required this.memberId,
@@ -18,6 +20,7 @@ class MemberPastoralAlert {
     required this.cpfDigits,
     required this.summary,
     this.phoneDigits = '',
+    this.authUid,
   });
 }
 
@@ -266,6 +269,7 @@ class ChurchMinistryIntelService {
         cpfDigits: cpf,
         summary: parts.join(' · '),
         phoneDigits: memberPhoneDigitsForWhatsApp(m),
+        authUid: authUid.isNotEmpty ? authUid : null,
       ));
     }
     alerts.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));

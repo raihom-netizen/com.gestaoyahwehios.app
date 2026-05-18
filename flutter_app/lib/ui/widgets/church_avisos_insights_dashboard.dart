@@ -85,11 +85,9 @@ class _ChurchAvisosInsightsDashboardState
         final title =
             (data['title'] ?? data['titulo'] ?? 'Aviso').toString().trim();
         final likes = (data['likes'] as List?)?.length ?? 0;
-        int comments = 0;
-        try {
-          final c = await d.reference.collection('comentarios').count().get();
-          comments = c.count ?? 0;
-        } catch (_) {}
+        final comments = (data['commentsCount'] is num)
+            ? (data['commentsCount'] as num).toInt()
+            : 0;
         final ca = data['createdAt'];
         final created = ca is Timestamp ? ca.toDate() : null;
         list.add(_AvisoInsight(

@@ -62,6 +62,7 @@ import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_proximo_culto
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/ui/web/church_public_seo.dart';
 import 'package:gestao_yahweh/ui/web/open_external_url.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -1472,6 +1473,75 @@ Future<void> _churchPublicOpenNoticiaVideoFromMap(
   await _openPublicVideo(context, raw, thumbnailUrl: thumb, title: t);
 }
 
+/// Igreja resolvida por `slug` (query) ou pelo id do documento (= segmento da URL).
+class _ChurchPublicTenantResolved {
+  final String id;
+  final Map<String, dynamic> data;
+  const _ChurchPublicTenantResolved({required this.id, required this.data});
+}
+
+Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
+  String slugClean,
+) {
+  return Stream.multi((controller) {
+    QuerySnapshot<Map<String, dynamic>>? bySlug;
+    DocumentSnapshot<Map<String, dynamic>>? byId;
+    var slugReady = false;
+    var idReady = false;
+
+    void emit() {
+      if (!slugReady || !idReady) return;
+      if (bySlug != null && bySlug!.docs.isNotEmpty) {
+        final d = bySlug!.docs.first;
+        controller.add(
+          _ChurchPublicTenantResolved(id: d.id, data: d.data() ?? {}),
+        );
+        return;
+      }
+      if (byId != null && byId!.exists) {
+        controller.add(
+          _ChurchPublicTenantResolved(
+            id: byId!.id,
+            data: byId!.data() ?? {},
+          ),
+        );
+        return;
+      }
+      controller.add(null);
+    }
+
+    final subSlug = FirebaseFirestore.instance
+        .collection('igrejas')
+        .where('slug', isEqualTo: slugClean)
+        .limit(1)
+        .snapshots()
+        .listen(
+      (snap) {
+        bySlug = snap;
+        slugReady = true;
+        emit();
+      },
+      onError: controller.addError,
+    );
+    final subId = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(slugClean)
+        .snapshots()
+        .listen(
+      (snap) {
+        byId = snap;
+        idReady = true;
+        emit();
+      },
+      onError: controller.addError,
+    );
+    controller.onCancel = () {
+      subSlug.cancel();
+      subId.cancel();
+    };
+  });
+}
+
 /// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
 class _ChurchPublicLogoWarmup extends StatefulWidget {
   final String tenantId;
@@ -1655,12 +1725,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
         width: double.infinity,
         height: double.infinity,
         color: const Color(0xFFF8FAFC),
-        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('slug', isEqualTo: slugClean)
-              .limit(1)
-              .snapshots(),
+        child: StreamBuilder<_ChurchPublicTenantResolved?>(
+          stream: _churchPublicTenantBySlugStream(slugClean),
           builder: (context, snap) {
             if (snap.hasError) {
               return _ErrorBox(
@@ -1715,17 +1781,16 @@ class _ChurchPublicPageInner extends StatelessWidget {
                 ),
               );
             }
-            final docs = snap.data!.docs;
-            if (docs.isEmpty) {
+            final tenant = snap.data;
+            if (tenant == null) {
               return _ChurchTenantFallback(
                 slugClean: slugClean,
                 prettyName: _prettyName(slugClean),
               );
             }
 
-            final docSnap = docs.first;
-            final igrejaId = docSnap.id;
-            final data = docSnap.data();
+            final igrejaId = tenant.id;
+            final data = tenant.data;
             final churchDataWithId = Map<String, dynamic>.from(data)
               ..['id'] = igrejaId;
             final subscriptionState = SubscriptionGuard.evaluate(church: data);
@@ -2028,8 +2093,11 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                               onMemberSignup: () {
                                                 logChurchPublic(
                                                     'hero_member_signup');
-                                                Navigator.pushNamed(context,
-                                                    '/$slugClean/cadastro-membro');
+                                                PublicMemberSignupNavigation.open(
+                                                  context,
+                                                  slug: slugClean,
+                                                  church: data,
+                                                );
                                               },
                                               onMemberLogin: () {
                                                 logChurchPublic(
@@ -4654,11 +4722,60 @@ class _ChurchTenantFallback extends StatelessWidget {
           'facebook_link',
         ]);
         final accentFb = _churchAccentFromData(data);
+        final churchDataWithIdFb = Map<String, dynamic>.from(data)
+          ..['id'] = igrejaId;
 
-        return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          key: ValueKey(igrejaId),
-          children: [
+        void onDoacaoFallback() {
+          logChurchPublicLocal('app_bar_doacao');
+          if (IosPaymentsGate.isIosNative) {
+            final url = Uri.parse(
+              '${AppConstants.publicWebBaseUrl}/igreja/$slugClean',
+            );
+            unawaited(
+              launchUrl(url, mode: LaunchMode.externalApplication),
+            );
+            return;
+          }
+          showChurchPublicDonationSheet(
+            context,
+            tenantId: igrejaId,
+            accentColor: accentFb,
+            slugClean: slugClean,
+          );
+        }
+
+        return ChurchPublicSiteScaffoldBackground(
+          child: _ChurchPublicLogoWarmup(
+            tenantId: igrejaId,
+            churchData: churchDataWithIdFb,
+            child: CustomScrollView(
+              key: ValueKey(igrejaId),
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              slivers: [
+                ChurchPublicSiteSliverAppBar(
+                  nome: nome,
+                  tenantId: igrejaId,
+                  churchData: churchDataWithIdFb,
+                  accentColor: accentFb,
+                  onAcessar: () =>
+                      Navigator.pushNamed(context, '/igreja/login'),
+                  onDoacao: onDoacaoFallback,
+                ),
+                ChurchPublicPortalNavSliver(
+                  accent: accentFb,
+                  onInicio: () {},
+                  onAvisos: () {},
+                  onDestaques: () {},
+                  onEventos: () {},
+                  onAcessarSistema: () =>
+                      Navigator.pushNamed(context, '/igreja/login'),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
             ChurchPublicWelcomeStrip(
               churchName: nome,
               accentColor: accentFb,
@@ -4725,8 +4842,11 @@ class _ChurchTenantFallback extends StatelessWidget {
             const SizedBox(height: 16),
             ChurchPublicSiteHero(
               accentColor: accentFb,
-              onMemberSignup: () =>
-                  Navigator.pushNamed(context, '/$slugClean/cadastro-membro'),
+              onMemberSignup: () => PublicMemberSignupNavigation.open(
+                context,
+                slug: slugClean,
+                church: data,
+              ),
               onMemberLogin: () =>
                   Navigator.pushNamed(context, '/igreja/login'),
               onTalkChurch: waLaunchUri == null
@@ -5327,7 +5447,12 @@ class _ChurchTenantFallback extends StatelessWidget {
                 );
               },
             ),
-          ],
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -5398,9 +5523,7 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) {
-      unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
-    }
+    unawaited(PublicSiteMediaAuth.ensurePublicVisitorMediaAccess());
   }
 
   @override

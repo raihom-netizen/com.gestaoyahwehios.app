@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -106,6 +107,9 @@ class ChurchChatThreadPage extends StatefulWidget {
   /// Doc `departamentos/{id}` quando [isDepartment].
   final String? departmentId;
 
+  /// Texto inicial no campo de mensagem (ex.: parabéns de aniversário).
+  final String? initialDraftText;
+
   const ChurchChatThreadPage({
     super.key,
     required this.tenantId,
@@ -116,6 +120,7 @@ class ChurchChatThreadPage extends StatefulWidget {
     this.memberRole = '',
     this.memberCpfDigits = '',
     this.departmentId,
+    this.initialDraftText,
   });
 
   @override
@@ -156,6 +161,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final draft = widget.initialDraftText?.trim();
+    if (draft != null && draft.isNotEmpty) {
+      _ctrl.text = draft;
+    }
     _scroll.addListener(_onScrollPagination);
     _ctrl.addListener(_onComposeTyping);
     _prefsSub =
@@ -1663,6 +1672,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   );
                   Navigator.of(context).pop();
                 }
+              } else if (v == 'my_photo') {
+                await showChurchChatProfilePhotoSheet(
+                  context,
+                  tenantId: widget.tenantId,
+                  cpfDigits: widget.memberCpfDigits,
+                );
               } else if (v == 'dept_members' &&
                   widget.isDepartment &&
                   (widget.departmentId ?? '').isNotEmpty) {
@@ -1739,6 +1754,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               }
             },
             itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'my_photo',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.account_circle_outlined,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: const Text('Minha foto de perfil'),
+                  subtitle: const Text(
+                    'Actualiza no chat e no cadastro de membro',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'fav',
                 child: ListTile(
@@ -1972,7 +2003,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ),
       ),
       body: ColoredBox(
-        color: Colors.white,
+        color: const Color(0xFFF4F6F8),
         child: Column(
           children: [
             if (_searchingMessages)
@@ -2135,79 +2166,52 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         );
                         final groupIncoming =
                             widget.isDepartment && !mine;
-                        final bubbleBg = mine
-                            ? ThemeCleanPremium.primary
-                                .withValues(alpha: 0.16)
-                            : (groupIncoming
-                                ? ChurchChatSenderPalette
-                                    .bubbleBackgroundForUid(senderUid)
-                                : ThemeCleanPremium.cardBackground);
-                        final bubbleBorder = mine
-                            ? ThemeCleanPremium.primary
-                                .withValues(alpha: 0.06)
-                            : (groupIncoming
-                                ? ChurchChatSenderPalette
-                                    .bubbleBorderForUid(senderUid)
-                                : ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.06));
                         final quoteAccent = (!mine &&
                                 widget.isDepartment)
                             ? ChurchChatSenderPalette
                                 .nameColorForUid(senderUid)
                             : null;
+                        final maxBubbleW =
+                            MediaQuery.sizeOf(context).width * 0.78;
+                        final bubbleDecoration = mine
+                            ? BoxDecoration(
+                                color: ChurchChatSenderPalette
+                                    .outgoingBubbleBackground,
+                                borderRadius:
+                                    ChurchChatSenderPalette.bubbleBorderRadius(
+                                  mine: true,
+                                ),
+                                boxShadow: ChurchChatSenderPalette.bubbleShadow,
+                              )
+                            : BoxDecoration(
+                                color: groupIncoming
+                                    ? ChurchChatSenderPalette
+                                        .bubbleBackgroundForUid(senderUid)
+                                    : ChurchChatSenderPalette
+                                        .incomingDmBubbleBackground,
+                                borderRadius:
+                                    ChurchChatSenderPalette.bubbleBorderRadius(
+                                  mine: false,
+                                ),
+                                border: Border.all(
+                                  color: groupIncoming
+                                      ? ChurchChatSenderPalette
+                                          .bubbleBorderForUid(senderUid)
+                                      : const Color(0xFFE2E8F0),
+                                  width: 0.6,
+                                ),
+                                boxShadow: ChurchChatSenderPalette.bubbleShadow,
+                              );
                         final bubbleCard = Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.only(bottom: 6),
+                            constraints: BoxConstraints(maxWidth: maxBubbleW),
+                            margin: EdgeInsets.only(
+                              bottom: 4,
+                              left: mine ? 56 : (groupIncoming ? 0 : 4),
+                              right: mine ? 4 : 56,
+                            ),
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            decoration: mine
-                                ? BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.centerLeft,
-                                      end: Alignment.centerRight,
-                                      colors: [
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.08),
-                                        const Color(0xFFB9E7D9),
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.22),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border(
-                                      left: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.35),
-                                        width: 3,
-                                      ),
-                                      top: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.1),
-                                      ),
-                                      right: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.1),
-                                      ),
-                                      bottom: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.1),
-                                      ),
-                                    ),
-                                  )
-                                : BoxDecoration(
-                                    color: bubbleBg,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border(
-                                      left: BorderSide(
-                                        color: bubbleBorder
-                                            .withValues(alpha: 0.9),
-                                        width: 3,
-                                      ),
-                                      top: BorderSide(color: bubbleBorder),
-                                      right: BorderSide(color: bubbleBorder),
-                                      bottom: BorderSide(color: bubbleBorder),
-                                    ),
-                                  ),
+                                horizontal: 12, vertical: 8),
+                            decoration: bubbleDecoration,
                             child: Column(
                               crossAxisAlignment: mine
                                   ? CrossAxisAlignment.end
@@ -2226,19 +2230,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                         fontWeight: FontWeight.w800,
                                         color: ChurchChatSenderPalette
                                             .nameColorForUid(senderUid),
-                                      ),
-                                    ),
-                                  ),
-                                if (widget.isDepartment && mine)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Text(
-                                      'Você',
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w800,
-                                        color: ThemeCleanPremium.onSurface
-                                            .withValues(alpha: 0.48),
                                       ),
                                     ),
                                   ),
@@ -2295,21 +2286,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             }
                             _showMessageActions(messageId, m, senderUid);
                           },
-                          child: SizedBox(
-                            width: double.infinity,
+                          child: Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
                             child: groupIncoming
                                 ? Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                        CrossAxisAlignment.end,
                                     children: [
                                       ChurchChatPeerAvatar(
                                         tenantId: widget.tenantId,
                                         peerAuthUid: senderUid,
                                         memberRef: memberByUid[senderUid],
-                                        radius: 19,
+                                        radius: 16,
                                       ),
-                                      const SizedBox(width: 8),
-                                      Expanded(child: bubbleCard),
+                                      const SizedBox(width: 6),
+                                      Flexible(child: bubbleCard),
                                     ],
                                   )
                                 : bubbleCard,

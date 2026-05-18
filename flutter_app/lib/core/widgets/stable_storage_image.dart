@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
+    show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Imagem estável: resolve path/gs/https via [AppStorageImageService] e exibe com [ResilientNetworkImage].
@@ -463,8 +465,11 @@ class StableMemberAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final rev = memberData != null
+        ? (memberPhotoDisplayCacheRevision(memberData!) ?? 0)
+        : 0;
     return FotoMembroWidget(
-      key: ValueKey<String>('stable_av_${tenantId}_$memberId'),
+      key: ValueKey<String>('stable_av_${tenantId}_${memberId}_$rev'),
       imageUrl: imageUrl,
       size: size,
       tenantId: tenantId,

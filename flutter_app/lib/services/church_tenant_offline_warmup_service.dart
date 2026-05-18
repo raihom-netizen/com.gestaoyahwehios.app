@@ -72,23 +72,31 @@ class ChurchTenantOfflineWarmupService {
         await church.get();
       }),
       safe('membros', () async {
-        await church.collection('membros').limit(400).get();
+        await church
+            .collection('membros')
+            .orderBy('updatedAt', descending: true)
+            .limit(200)
+            .get();
       }),
       safe('members_legacy', () async {
         await church.collection('members').limit(120).get();
       }),
       safe('avisos', () async {
-        await church.collection('avisos').limit(100).get();
+        await church
+            .collection('avisos')
+            .orderBy('createdAt', descending: true)
+            .limit(60)
+            .get();
       }),
       safe('noticias', () async {
         try {
           await church
               .collection('noticias')
               .orderBy('startAt', descending: true)
-              .limit(120)
+              .limit(60)
               .get();
         } catch (_) {
-          await church.collection('noticias').limit(120).get();
+          await church.collection('noticias').limit(60).get();
         }
       }),
       safe('finance_recent', () async {

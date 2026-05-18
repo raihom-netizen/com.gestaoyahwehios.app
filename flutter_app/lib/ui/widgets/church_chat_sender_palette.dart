@@ -39,4 +39,29 @@ abstract final class ChurchChatSenderPalette {
     final c = _incoming[_idx(senderUid)];
     return c.withValues(alpha: 0.28);
   }
+
+  /// Bolha enviada (estilo WhatsApp — sólida, sem faixa/gradiente).
+  static const Color outgoingBubbleBackground = Color(0xFFD8F3E8);
+
+  /// DM recebida — fundo branco.
+  static const Color incomingDmBubbleBackground = Color(0xFFFFFFFF);
+
+  static BorderRadius bubbleBorderRadius({required bool mine}) {
+    const r = 14.0;
+    const tail = 4.0;
+    return BorderRadius.only(
+      topLeft: const Radius.circular(r),
+      topRight: const Radius.circular(r),
+      bottomLeft: Radius.circular(mine ? r : tail),
+      bottomRight: Radius.circular(mine ? tail : r),
+    );
+  }
+
+  static List<BoxShadow> get bubbleShadow => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.05),
+          blurRadius: 4,
+          offset: const Offset(0, 1),
+        ),
+      ];
 }

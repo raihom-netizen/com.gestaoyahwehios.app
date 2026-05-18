@@ -12,9 +12,9 @@ class PublicSiteMediaAuth {
 
   static Future<void>? _ongoing;
 
-  /// Idempotente; seguro chamar antes de cada download de mídia na web.
-  static Future<void> ensureWebAnonymousForStorage() async {
-    if (!kIsWeb) return;
+  /// Sessão de visitante (anónima) para logo/foto no site público e cadastro de membro.
+  /// Web + app nativo (Android/iOS) quando o link abre dentro do Gestão YAHWEH.
+  static Future<void> ensurePublicVisitorMediaAccess() async {
     final u = FirebaseAuth.instance.currentUser;
     if (u != null && !u.isAnonymous) return;
     if (u != null && u.isAnonymous) return;
@@ -29,6 +29,12 @@ class PublicSiteMediaAuth {
     } finally {
       _ongoing = null;
     }
+  }
+
+  /// Idempotente; seguro chamar antes de cada download de mídia na web.
+  static Future<void> ensureWebAnonymousForStorage() async {
+    if (!kIsWeb) return;
+    await ensurePublicVisitorMediaAccess();
   }
 
   static Future<void> _signInAnonymously() async {

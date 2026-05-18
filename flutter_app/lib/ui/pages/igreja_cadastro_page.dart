@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -3125,7 +3126,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                 : '${AppConstants.publicWebBaseUrl}/igreja/${Uri.encodeComponent(slug)}';
                                             final cadUrl = slug.isEmpty
                                                 ? AppConstants.publicWebBaseUrl
-                                                : '$homeUrl/cadastro-membro';
+                                                : AppConstants
+                                                    .publicChurchMemberSignupUrl(
+                                                        slug);
                                             return Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.stretch,
@@ -3145,9 +3148,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                   label:
                                                       'Cadastro de membros (público)',
                                                   url: cadUrl,
-                                                  onOpen: () =>
+                                                  onOpen: () {
+                                                    if (!PublicMemberSignupNavigation
+                                                        .tryOpenInAppFromUrl(
+                                                            ctx, cadUrl)) {
                                                       openHttpsUrlInBrowser(
-                                                          ctx, cadUrl),
+                                                          ctx, cadUrl);
+                                                    }
+                                                  },
                                                   onCopy: () => _copyAndSnack(
                                                       context, cadUrl),
                                                 ),

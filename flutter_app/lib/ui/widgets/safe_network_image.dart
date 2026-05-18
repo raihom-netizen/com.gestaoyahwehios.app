@@ -1797,6 +1797,15 @@ class MemberProfilePhotoBytesCache {
     _order.remove(k);
   }
 
+  /// Após substituir o ficheiro no mesmo path do Storage (nova foto, mesmo objeto).
+  static void removeByObjectPath(String objectPath) {
+    final p = objectPath.trim();
+    if (p.isEmpty) return;
+    final k = 'p:$p';
+    _map.remove(k);
+    _order.remove(k);
+  }
+
   static void put(String rawUrl, Uint8List bytes) {
     final k = _stableKey(rawUrl);
     if (k.isEmpty || bytes.length < 24) return;

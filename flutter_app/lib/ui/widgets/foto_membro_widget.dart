@@ -38,6 +38,8 @@ class FotoMembroWidget extends StatelessWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final int? imageCacheRevision;
+  /// Galerias/listas: prioriza miniatura no Storage (carregamento mais rápido).
+  final bool preferListThumbnail;
   /// Pré-visualização local (ex.: logo após escolher foto, antes do upload terminar).
   final Uint8List? memoryPreviewBytes;
 
@@ -57,6 +59,7 @@ class FotoMembroWidget extends StatelessWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.imageCacheRevision,
+    this.preferListThumbnail = false,
   });
 
   static String? _mergedMemberImageUrl(String? imageUrl, Map<String, dynamic> d) {
@@ -139,6 +142,7 @@ class FotoMembroWidget extends StatelessWidget {
         fit: BoxFit.cover,
         memCacheWidth: memCacheWidth ?? defaultMc,
         memCacheHeight: memCacheHeight ?? defaultMc,
+        preferListThumbnail: preferListThumbnail,
         placeholder: err,
         errorChild: err,
       );

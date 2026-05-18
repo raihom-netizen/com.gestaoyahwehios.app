@@ -59,8 +59,10 @@ import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
+import 'package:gestao_yahweh/core/public_web_route_parser.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
 
@@ -565,6 +567,19 @@ void main() async {
       initialRoute = '/igreja/$subdomainSlug';
     }
   }
+  AppDeepLink.registerWarmLinkHandler();
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    try {
+      final deepPath = await AppDeepLink.initialPath();
+      final fromDeep = PublicWebRouteParser.inAppRouteFromPath(deepPath ?? '');
+      if (fromDeep != null &&
+          PublicWebRouteParser.isPublicSignupDeepRoute(fromDeep)) {
+        initialRoute = fromDeep;
+      }
+    } catch (_) {}
+  }
   // Web: não chamar checkAndReloadIfNewVersion para evitar reload automático e tela piscando.
   // Ao abrir pelo ícone: restaura última rota para abrir onde parou (evita tela preta/branca)
   if (true) {
@@ -586,7 +601,9 @@ void main() async {
         if (!isPublicRoot) {
           // PWA/ícone costuma abrir em `/`; aí restauramos painel onde parou.
           final keepCurrent = kIsWeb && initialRoute != '/' && initialRoute != '';
-          if (!keepCurrent) {
+          final isPublicSignupDeep =
+              PublicWebRouteParser.isPublicSignupDeepRoute(initialRoute);
+          if (!keepCurrent && !isPublicSignupDeep) {
             // Web/PWA: restaurar última rota. App nativo: só se já houver sessão —
             // senão /painel abre AuthGate com user==null e fica preso no loading.
             if (kIsWeb) {
@@ -641,6 +658,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     with WidgetsBindingObserver {
   late final ThemeModeProvider _themeProvider;
   Timer? _webResumeRepaintDebounce;
+  StreamSubscription<String>? _deepLinkSub;
   void _onThemeChanged() => setState(() {});
 
   /// Web/PWA (CanvasKit): ao voltar de outro app, o canvas pode ficar preto até recompositor.
@@ -667,6 +685,15 @@ class _AppWithThemeState extends State<_AppWithTheme>
     }
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);
+    if (!kIsWeb) {
+      _deepLinkSub = AppDeepLink.warmLinks.listen((path) {
+        final route = PublicWebRouteParser.inAppRouteFromPath(path);
+        if (route == null) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          appRootNavigatorKey.currentState?.pushNamed(route);
+        });
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       window_close_handler.initWindowCloseHandler(appRootNavigatorKey);
     });
@@ -675,6 +702,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _deepLinkSub?.cancel();
     _webResumeRepaintDebounce?.cancel();
     if (kIsWeb) {
       unregisterWebResumeRepaint();

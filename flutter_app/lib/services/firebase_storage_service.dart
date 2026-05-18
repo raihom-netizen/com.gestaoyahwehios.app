@@ -253,6 +253,8 @@ class FirebaseStorageService {
     String? nomeCompleto,
     /// Qualquer campo do doc com URL/path `.../membros/{id}/foto_perfil...` — prioriza essa pasta.
     Map<String, dynamic>? memberFirestoreHint,
+    /// Listas/galerias: tenta miniaturas `thumb_foto_perfil.jpg` antes do full HD.
+    bool preferListThumbnail = false,
   }) async {
     final tid = tenantId.trim();
     final mid = memberId.trim();
@@ -273,7 +275,7 @@ class FirebaseStorageService {
         ? '-'
         : (List<String>.from(hintStems)..sort()).join(',');
     final cacheKey =
-        '$tid:$mid:$cpfNorm:${authNorm.isEmpty ? '-' : authNorm}:$stemNamed:$hintKey';
+        '$tid:$mid:$cpfNorm:${authNorm.isEmpty ? '-' : authNorm}:$stemNamed:$hintKey:${preferListThumbnail ? 't' : 'f'}';
     if (_memberPhotoUrlCache.containsKey(cacheKey)) {
       return _memberPhotoUrlCache[cacheKey];
     }
@@ -302,6 +304,23 @@ class FirebaseStorageService {
     }
 
     final paths = <String>[];
+    if (preferListThumbnail) {
+      void addThumbForStem(String stem) {
+        final s = stem.trim();
+        if (s.isEmpty) return;
+        paths.addAll([
+          ChurchStorageLayout.memberProfileResizeThumbPath(tid, s),
+          'igrejas/$tid/membros/$s/thumb_foto_perfil_thumb.jpg',
+          'igrejas/$tid/membros/$s/thumb_foto_perfil_card.jpg',
+        ]);
+      }
+      for (final stem in orderedStems) {
+        addThumbForStem(stem);
+      }
+      addThumbForStem(mid);
+      if (cpf.length == 11) addThumbForStem(cpf);
+      if (authNorm.isNotEmpty) addThumbForStem(authNorm);
+    }
     if (authNorm.isNotEmpty) {
       final cAuth = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tid, authNorm);
       final base = cAuth.substring(0, cAuth.length - 4);

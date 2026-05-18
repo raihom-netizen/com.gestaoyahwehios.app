@@ -44,6 +44,7 @@ class SafeMemberProfilePhoto extends StatefulWidget {
   final int? imageCacheRevision;
   /// Dados do doc Firestore: extrai pasta `membros/{id}/` de URLs salvas (token expirado / id ≠ doc).
   final Map<String, dynamic>? memberFirestoreHint;
+  final bool preferListThumbnail;
 
   const SafeMemberProfilePhoto({
     super.key,
@@ -64,6 +65,7 @@ class SafeMemberProfilePhoto extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.imageCacheRevision,
+    this.preferListThumbnail = false,
   });
 
   @override
@@ -98,6 +100,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         (oldWidget.nomeCompleto ?? '') != (widget.nomeCompleto ?? '') ||
         oldWidget.enableStorageFallback != widget.enableStorageFallback ||
         oldWidget.imageCacheRevision != widget.imageCacheRevision ||
+        oldWidget.preferListThumbnail != widget.preferListThumbnail ||
         !identical(
             oldWidget.memberFirestoreHint, widget.memberFirestoreHint);
     if (urlChanged || idsChanged) {
@@ -172,6 +175,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           memberFirestoreHint: widget.memberFirestoreHint,
           sourceImageUrl: widget.imageUrl,
           imageCacheRevision: widget.imageCacheRevision,
+          preferListThumbnail: widget.preferListThumbnail,
           width: widget.width,
           height: widget.height,
           memCacheW: mcW,
@@ -202,6 +206,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           memberFirestoreHint: widget.memberFirestoreHint,
           sourceImageUrl: widget.imageUrl,
           imageCacheRevision: widget.imageCacheRevision,
+          preferListThumbnail: widget.preferListThumbnail,
           width: widget.width,
           height: widget.height,
           memCacheW: mcW,
@@ -234,6 +239,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
                 memberFirestoreHint: widget.memberFirestoreHint,
                 sourceImageUrl: widget.imageUrl,
                 imageCacheRevision: widget.imageCacheRevision,
+                preferListThumbnail: widget.preferListThumbnail,
                 width: widget.width,
                 height: widget.height,
                 memCacheW: mcW,
@@ -324,6 +330,7 @@ class _MemberPhotoStorageFallback extends StatefulWidget {
   final Widget? placeholder;
   final Widget errorChild;
   final int? imageCacheRevision;
+  final bool preferListThumbnail;
 
   const _MemberPhotoStorageFallback({
     required this.tenantId,
@@ -341,6 +348,7 @@ class _MemberPhotoStorageFallback extends StatefulWidget {
     required this.fit,
     this.placeholder,
     required this.errorChild,
+    this.preferListThumbnail = false,
   });
 
   @override
@@ -367,6 +375,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
         (oldWidget.authUid ?? '') != (widget.authUid ?? '') ||
         (oldWidget.nomeCompleto ?? '') != (widget.nomeCompleto ?? '') ||
         oldWidget.imageCacheRevision != widget.imageCacheRevision ||
+        oldWidget.preferListThumbnail != widget.preferListThumbnail ||
         !identical(
             oldWidget.memberFirestoreHint, widget.memberFirestoreHint);
     if (sourceChanged || idChanged) {
@@ -401,6 +410,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
       authUid: widget.authUid,
       nomeCompleto: widget.nomeCompleto,
       memberFirestoreHint: widget.memberFirestoreHint,
+      preferListThumbnail: widget.preferListThumbnail,
     );
     }
 
