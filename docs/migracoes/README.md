@@ -6,6 +6,7 @@ Pasta com material para **replicar** features deste projeto
 | Ficheiro | Para que serve |
 |---|---|
 | [`IOS_READER_E_LOGIN_EXPRESSO.md`](./IOS_READER_E_LOGIN_EXPRESSO.md) | Caderno técnico completo — arquivos novos, mudanças por ficheiro, configurações iOS (Info.plist, entitlements, PrivacyInfo), checklists, comandos. |
+| [`IOS_DOACOES_322IV.md`](./IOS_DOACOES_322IV.md) | **Só Gestão YAHWEH** — doações no iOS via Safari (Guideline 3.2.2(iv)). Controle Total e Moova **não têm** módulo de doações. |
 | [`PROMPT_APLICAR_EM_OUTROS_APPS.md`](./PROMPT_APLICAR_EM_OUTROS_APPS.md) | Prompts prontos para colar no Cursor abrindo Controle Total ou Moova. |
 | **Notas App Store (por app)** | [`../../flutter_app/docs/app_store_review_notes.md`](../../flutter_app/docs/app_store_review_notes.md) — **Gestão YAHWEH**. Controle Total: `C:\Controletotalapp_Independente\docs\app_store_review_notes.md`. Moovaup: `C:\moova_super_premium\flutter_app\docs\app_store_review_notes.md`. |
 
@@ -20,7 +21,8 @@ Pasta com material para **replicar** features deste projeto
      do painel (`/igreja/login?after=/atualizar-plano?from=ios_app&from=ios_app&email=…`),
      não direto em `/atualizar-plano` — evita sessão sem claims (`igrejaId`). Ver
      `IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri` no código-fonte.
-   - Doações + checkout MP em iOS abrem Safari externo (não WebView).
+   - **Doações (só YAHWEH):** no iOS, módulo «Doação» → `IosDonationReaderView` → Safari (`/igreja/{slug}`). Android mantém `ChurchDonationsPage`. **Controle Total / Moova:** sem módulo de doações — não aplicar.
+   - Checkout MP de **licença** em iOS: Safari (login web primeiro).
    - Labels condicionais «Atualizar plano» (não «Pagar/Comprar/Assinar»).
 2. **Express Renew** — rota web pública `/atualizar-plano`
    - `ExpressRenewGatePage` (header «Super Premium» + Login Expresso popup).
@@ -33,16 +35,22 @@ Pasta com material para **replicar** features deste projeto
    - `Runner.entitlements` (`com.apple.developer.applesignin` + `aps-environment`).
    - `PrivacyInfo.xcprivacy` + registro no `project.pbxproj` (4 entries).
 
-## Apps alvo previstos
+## Apps alvo — o que aplicar
 
-- `C:\Controletotalapp_Independente` — falta **iOS Hardening completo**
-  (Login Expresso já é a fonte original).
-- `C:\moova_super_premium` (**Moovaup** / Moova Super Premium) — falta **iOS Hardening + Login Expresso +
-  Express Renew**.
+| App | Licença / plano (3.1.x) | Doações (3.2.2) | Login expresso |
+|-----|-------------------------|-----------------|----------------|
+| **Gestão YAHWEH** | ✅ Reader + Safari | ✅ `IosDonationReaderView` | ✅ Portado do CT |
+| **Controle Total** | ⏳ Aplicar hardening | ❌ **N/A** (app sem doações) | ✅ **Fonte original** |
+| **Moova Super Premium** | ⏳ Aplicar hardening | ❌ **N/A** (app sem doações) | ⏳ Aplicar |
 
-## Origem
+## Origem e builds
 
-Implementado em **Gestão YAHWEH** (maio/2026): baseline **`11.2.295+1512`**;
-URL iOS login-first **`11.2.295+1558`** (ver caderno §0 / §2); build publicado **`11.2.295+1559`**.
-Referência principal:
-[`IOS_READER_E_LOGIN_EXPRESSO.md`](./IOS_READER_E_LOGIN_EXPRESSO.md).
+Implementado em **Gestão YAHWEH** (maio/2026):
+
+- Baseline Reader: **`11.2.295+1512`**
+- URL iOS login-first: **`11.2.295+1558`**
+- Doações iOS só Safari: código em **`11.2.295+1577+`** (reenviar à Apple após rejeição 3.2.2(iv))
+
+Cadernos: [`IOS_READER_E_LOGIN_EXPRESSO.md`](./IOS_READER_E_LOGIN_EXPRESSO.md) + [`IOS_DOACOES_322IV.md`](./IOS_DOACOES_322IV.md).
+
+**Nota:** a questão da **licença da plataforma** (renovar plano no site) segue o padrão Reader — caminho certo para aprovação 3.1.x. Doações é requisito **adicional** só no YAHWEH.

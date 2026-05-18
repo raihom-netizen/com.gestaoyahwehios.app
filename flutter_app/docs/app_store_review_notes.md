@@ -22,10 +22,14 @@ Where Sign in with Apple is offered alongside other third-party login options, i
 **Demo / test access**  
 *Fill in before submission:* test URL, email, password, tenant/church name, and steps: e.g. “Tap X → Safari opens → complete login on web → return to app”.
 
+**Charitable donations / church contributions (Guideline 3.2.2(iv))**  
+The app is **not** a registered charitable organization. On **iOS**, the in-app **“Donation”** menu does **not** collect PIX or card payments. It only opens the **church’s public website in Safari**, where members may contribute (same as the web). **Android** retains in-app donation tools for church treasurers.
+
 **What to test**  
 1. Sign in as the demo church manager.  
 2. Open **Settings / subscription / renew plan** entry points: the app should **not** show Mercado Pago checkout for the **platform** subscription inside the app on iOS; it should open the **website** flow if payment is needed.  
-3. Core modules (members, schedules, etc.) work with the demo data.
+3. Open **Donation** on iOS: should show an informational screen and open **Safari** to the church public page — **no** PIX/card form inside the native app.  
+4. Core modules (members, schedules, etc.) work with the demo data.
 
 **Contact**  
 *Fill in:* name, phone, email monitored during review.
@@ -49,10 +53,14 @@ Onde o login com Apple é oferecido juntamente com outros fornecedores, cumpre o
 **Conta de teste**  
 *Preencher antes do envio:* URL, credenciais, igreja de teste, passos (ex.: “toque em X → abre Safari → login no site → …”).
 
+**Doações / Guideline 3.2.2(iv)**  
+A app **não** é ONG registada. No **iOS**, o menu **Doação** **não** recolhe PIX/cartão: abre o **site público da igreja no Safari**. No **Android**, o módulo de doações do tesoureiro mantém-se.
+
 **O que testar**  
 1. Entrar com o gestor de demonstração.  
 2. Abrir fluxos de **renovar / atualizar plano** da plataforma: na **iOS nativa** não deve aparecer checkout da **licença** dentro da app; deve orientar para o **site**.  
-3. Validar módulos principais com dados de demo.
+3. Menu **Doação** no iPhone: ecrã informativo + Safari — **sem** formulário de pagamento no binário.  
+4. Validar módulos principais com dados de demo.
 
 **Contacto**  
 *Preencher:* nome, telefone, e-mail.
@@ -70,7 +78,8 @@ Onde o login com Apple é oferecido juntamente com outros fornecedores, cumpre o
 ### Capturas de ecrã (iPhone)
 - [ ] **Sem preços** da assinatura da plataforma nas capturas do **iOS**, se a política for “só na web”.
 - [ ] Mostrar **funcionalidades** (membros, escalas, mural, etc.), não o checkout da licença.
-- [ ] Se aparecerem valores (dízimo/oferta), deixar claro na loja que é **contribuição da igreja**, não compra da licença YAHWEH (se aplicável).
+- [ ] **iOS:** capturas **sem** ecrã de PIX/cartão de dízimo **dentro** da app (doação = Safari).
+- [ ] Se aparecerem valores na web/Android, deixar claro que é **contribuição da igreja**, não licença YAHWEH.
 
 ### Binary / comportamento
 - [ ] Confirmar **`exibir_pagamento_ios` = false** (Remote Config) para o build enviado à revisão.
@@ -102,7 +111,9 @@ Onde o login com Apple é oferecido juntamente com outros fornecedores, cumpre o
 | Inicialização do gate | `lib/main.dart` |
 | Renovação sem checkout in-app (Reader) | `lib/ui/pages/plans/renew_plan_page.dart`, `lib/ui/widgets/ios_payment_unavailable_view.dart` |
 | Rotas `/planos` e `/pagamento` no iOS | `lib/main.dart` (`onGenerateRoute`) |
+| Doações iOS (3.2.2(iv)) | `lib/ui/widgets/ios_donation_reader_view.dart`, `ios_payments_gate.dart` (`openChurchDonationsExternally`), `igreja_clean_shell.dart` |
+| Migração / outros apps | `docs/migracoes/IOS_DOACOES_322IV.md` (só YAHWEH; CT/Moova sem doações) |
 
 ---
 
-*Última actualização: documento criado para partilha interna e com a equipa de revisão Apple. Ajustar campos “Fill in / Preencher” antes de cada submissão.*
+*Última actualização: 2026-05-18 — doações iOS Safari-only + Reader licença. Ajustar campos “Fill in / Preencher” antes de cada submissão.*

@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -609,6 +610,14 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
 
   @override
   Widget build(BuildContext context) {
+    // Apple 3.2.2(iv): sem coleta de doação no binário iOS — só Safari → site.
+    if (IosPaymentsGate.isIosNative) {
+      return IosDonationReaderView(
+        tenantId: widget.tenantId,
+        embeddedInShell: widget.embeddedInShell,
+      );
+    }
+
     final primary = ThemeCleanPremium.primary;
     final deep = Color.lerp(primary, const Color(0xFF0F172A), 0.35)!;
 

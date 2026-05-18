@@ -2,10 +2,10 @@
 
 > Caderno técnico do que foi implementado no **Gestão YAHWEH** em
 > maio/2026 (baseline build `11.2.295+1512`; URL iOS **login-first**
-> `11.2.295+1558`) para:
+> `11.2.295+1558`; doações iOS Safari-only `11.2.295+1577+`) para:
 >
 > 1. **Homologar na App Store** sem rejeição por pagamento (Guidelines
->    3.1.1, 3.1.3(b), 3.2.1(viii), 4.8 e Privacy Manifest).
+>    3.1.1, 3.1.3(b), **3.2.2(iv)** doações, 4.8 e Privacy Manifest).
 > 2. **Replicar o «Login Expresso»** do Controle Total (Google
 >    silencioso → Apple iOS → Google UI).
 > 3. **Fluxo express «Atualizar plano»** — na web: primeiro **login do
@@ -16,6 +16,9 @@
 >
 > Este ficheiro é o **mapa** para aplicar a mesma lógica em outros
 > projetos (Controle Total, Moova Super Premium, etc.).
+>
+> **Doações (3.2.2(iv)):** só o **Gestão YAHWEH** tem módulo de dízimos.
+> Controle Total e Moova **não** — ver [`IOS_DOACOES_322IV.md`](./IOS_DOACOES_322IV.md).
 
 ---
 
@@ -26,8 +29,8 @@ A Apple rejeita app SaaS que:
 - Mostre botões «Pagar com Mercado Pago / Cartão» dentro do binário iOS.
 - Abra Safari para checkout sem se enquadrar em **Multiplatform Service**
   (3.1.3(b)).
-- Colete doações dentro do app (3.2.1(viii) — doações em iOS só por
-  website/SMS).
+- Colete doações beneficentes dentro do app (**3.2.2(iv)** — em iOS só
+  **link para o site** no Safari; ver [`IOS_DOACOES_322IV.md`](./IOS_DOACOES_322IV.md)).
 - Ofereça login Google sem oferecer **Sign in with Apple** (4.8).
 - Submeta sem **Privacy Manifest** (`PrivacyInfo.xcprivacy` é
   obrigatório desde maio/2024).
@@ -871,7 +874,8 @@ flutter_app/lib/ui/pages/completar_cadastro_membro_page.dart    # label
 flutter_app/lib/ui/pages/public_member_signup_page.dart         # label
 flutter_app/lib/ui/church_public_page.dart                      # doação + Adquirir Sistema → Safari iOS
 flutter_app/lib/ui/site_publico_igreja/church_public_donation_sheet.dart  # checkout MP → Safari iOS
-flutter_app/lib/ui/pages/church_donations_page.dart             # checkout MP admin → Safari iOS
+flutter_app/lib/ui/pages/church_donations_page.dart             # guard iOS; Android/web inalterado
+flutter_app/lib/ui/widgets/ios_donation_reader_view.dart      # NOVO — menu Doação no iOS (sem PIX no app)
 ```
 
 ### Arquivos iOS (`ios/`)
@@ -885,4 +889,18 @@ flutter_app/ios/Runner.xcodeproj/project.pbxproj   # registrar PrivacyInfo.xcpri
 
 ---
 
-_Última atualização: 2026-05-09 — Gestão YAHWEH `11.2.295+1512`._
+## 10. Doações no iOS (Guideline 3.2.2(iv)) — só Gestão YAHWEH
+
+**Controle Total** e **Moova** não têm este módulo — **não replicar**.
+
+No YAHWEH, após rejeição Apple por «arrecadação de doações no app»:
+
+1. **`IosDonationReaderView`** substitui `ChurchDonationsPage` no menu (índice 23 do `igreja_clean_shell`) quando `IosPaymentsGate.isIosNative`.
+2. CTA abre Safari em `churchPublicDonationSafariUri` / `openChurchDonationsExternally` (`ios_payments_gate.dart`).
+3. **`church_donations_page.dart`:** no início do `build`, se iOS native → retorna `IosDonationReaderView` (defesa em profundidade).
+
+Detalhe, texto para App Store Connect e checklist: [`IOS_DOACOES_322IV.md`](./IOS_DOACOES_322IV.md).
+
+---
+
+_Última atualização: 2026-05-18 — Gestão YAHWEH `11.2.295+1577` (licença Reader + doações Safari)._

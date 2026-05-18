@@ -50,6 +50,7 @@ import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'pages/pastoral_comunicacao_page.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'pages/church_donations_page.dart';
 import '../services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
@@ -1984,6 +1985,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
+        if (IosPaymentsGate.isIosNative) {
+          return IosDonationReaderView(
+            key: const ValueKey('page_23_ios_donation'),
+            tenantId: widget.tenantId,
+            embeddedInShell: true,
+          );
+        }
         return ChurchDonationsPage(
           key: const ValueKey('page_23'),
           tenantId: widget.tenantId,

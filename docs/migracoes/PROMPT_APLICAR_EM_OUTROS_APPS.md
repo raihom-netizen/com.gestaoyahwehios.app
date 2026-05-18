@@ -13,9 +13,10 @@
 ## A) Para `C:\Controletotalapp_Independente`
 
 > _Este projeto **já tem** o «Login expresso» (foi a fonte original).
-> Falta aplicar todo o **iOS App Store Hardening**: Reader,
-> Multiplatform Service, Privacy Manifest, entitlements, doações via
-> Safari, e o fluxo express na web._
+> Falta aplicar o **iOS App Store Hardening**: Reader, Multiplatform
+> Service, Privacy Manifest, entitlements, e o fluxo express na web._
+>
+> **Não tem módulo de doações** — **pular PARTE 4** (só Gestão YAHWEH)._
 
 ```
 Aplique no Controle Total App o mesmo iOS App Store Hardening que foi
@@ -100,14 +101,11 @@ PARTE 3 — Labels e textos condicionais
     para `/atualizar-plano?from=ios_app` (mesmo helper do gate; não usar
     só `/atualizar-plano` como primeira página).
 
-PARTE 4 — Doações (se houver) — Guideline 3.2.1(viii)
+PARTE 4 — Doações — **PULAR no Controle Total**
 
-12. Se o app tem checkout/doação Mercado Pago em WebView embedded
-    (mp_checkout_embed_io ou similar), em iOS native abra Safari
-    externo (`launchUrl(uri, mode: LaunchMode.externalApplication)`)
-    em vez do WebView. Defesa em profundidade: gatear AMBOS o entry
-    point (botão que mostra o sheet) E o método interno (preview
-    modal).
+> O Controle Total **não** tem dízimos/ofertas. **Não** criar
+> `IosDonationReaderView` aqui. Se no futuro existir módulo semelhante,
+> seguir `docs/migracoes/IOS_DOACOES_322IV.md` (padrão YAHWEH).
 
 PARTE 5 — Configurações iOS (`ios/`)
 
@@ -238,12 +236,12 @@ PARTE 1 — iOS Reader / Multiplatform (Guideline 3.1.1 / 3.1.3(b))
    para `/atualizar-plano?from=ios_app`.
 
 ═══════════════════════════════════════════════════════════════
-PARTE 2 — Doações (se Moova tiver) — Guideline 3.2.1(viii)
+PARTE 2 — Doações — **PULAR no Moova**
 ═══════════════════════════════════════════════════════════════
 
-9. Se o Moova tem checkout/doação MP em WebView embedded, em iOS
-   native abra Safari externo. Gatear ENTRY POINT (botão Doação) E
-   método interno (preview modal). Defesa em profundidade.
+> O Moova **não** tem módulo de dízimos/ofertas (é app de motorista /
+> licença). **Não** aplicar `IosDonationReaderView`. Licença motorista
+> no iOS: Safari em `/login/apple?from=ios_app` (já no Moova).
 
 ═══════════════════════════════════════════════════════════════
 PARTE 3 — Login Expresso

@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.da
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -1580,7 +1581,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.peerUid!.isNotEmpty &&
         _prefs.isBlockedPeer(widget.peerUid!);
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         elevation: 0,
         flexibleSpace: Container(
@@ -1898,17 +1899,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     .limit(500)
                     .snapshots(),
                 builder: (context, ms) {
-                  final map = churchChatMemberPhotoUrlByAuthUid(ms.data);
-                  final url = map[widget.peerUid!] ?? '';
-                  final dpr = MediaQuery.devicePixelRatioOf(context);
-                  final mem = (38 * dpr).round().clamp(72, 200);
-                  return SafeCircleAvatarImage(
-                    imageUrl: url,
+                  final memberBy =
+                      churchChatMemberByAuthUid(ms.data);
+                  final ref = memberBy[widget.peerUid!];
+                  return ChurchChatPeerAvatar(
+                    tenantId: widget.tenantId,
+                    peerAuthUid: widget.peerUid!,
+                    memberRef: ref,
                     radius: 19,
-                    memCacheSize: mem,
-                    fallbackIcon: Icons.person_rounded,
-                    fallbackColor: Colors.white,
-                    backgroundColor: Colors.white24,
                   );
                 },
               )
@@ -1973,10 +1971,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ],
         ),
       ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: ThemeCleanPremium.churchPanelBodyGradient,
-        ),
+      body: ColoredBox(
+        color: Colors.white,
         child: Column(
           children: [
             if (_searchingMessages)
@@ -2043,8 +2039,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     .limit(800)
                     .snapshots(),
                 builder: (context, memAll) {
-                  final photoByUid =
-                      churchChatMemberPhotoUrlByAuthUid(memAll.data);
+                  final memberByUid =
+                      churchChatMemberByAuthUid(memAll.data);
                   return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: ChurchChatService.threadRef(
                             widget.tenantId, widget.threadId)
@@ -2306,19 +2302,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      SafeCircleAvatarImage(
-                                        imageUrl: photoByUid[senderUid],
+                                      ChurchChatPeerAvatar(
+                                        tenantId: widget.tenantId,
+                                        peerAuthUid: senderUid,
+                                        memberRef: memberByUid[senderUid],
                                         radius: 19,
-                                        memCacheSize: (38 *
-                                                MediaQuery.devicePixelRatioOf(
-                                                    context))
-                                            .round()
-                                            .clamp(72, 220),
-                                        fallbackIcon: Icons.person_rounded,
-                                        fallbackColor:
-                                            ChurchChatSenderPalette
-                                                .nameColorForUid(senderUid),
-                                        backgroundColor: Colors.white,
                                       ),
                                       const SizedBox(width: 8),
                                       Expanded(child: bubbleCard),

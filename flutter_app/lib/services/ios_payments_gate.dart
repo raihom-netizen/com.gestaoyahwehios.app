@@ -132,4 +132,36 @@ class IosPaymentsGate {
     );
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
+
+  /// Site público da igreja — dízimos/ofertas (PIX e cartão) no **navegador**.
+  /// Apple Guideline 3.2.2(iv): doações beneficentes não no binário iOS.
+  static Uri churchPublicDonationSafariUri({
+    required String churchSlug,
+    Map<String, dynamic>? churchData,
+  }) {
+    final base = churchData != null
+        ? AppConstants.publicWebBaseUrlForChurch(churchData)
+        : AppConstants.publicWebBaseUrl;
+    final root = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    final slug = churchSlug.trim().isEmpty ? 'igreja' : churchSlug.trim();
+    return Uri.parse('$root/igreja/$slug').replace(
+      queryParameters: const <String, String>{
+        'from': 'ios_app',
+        'utm_source': 'app_ios',
+        'utm_medium': 'church_donation',
+      },
+    );
+  }
+
+  /// Abre o site da igreja no Safari (botão «Doação» / dízimos e ofertas).
+  static Future<bool> openChurchDonationsExternally({
+    required String churchSlug,
+    Map<String, dynamic>? churchData,
+  }) {
+    final uri = churchPublicDonationSafariUri(
+      churchSlug: churchSlug,
+      churchData: churchData,
+    );
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 }

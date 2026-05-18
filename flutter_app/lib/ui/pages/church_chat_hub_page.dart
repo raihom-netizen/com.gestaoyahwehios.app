@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.da
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
@@ -812,18 +813,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final tid = _resolvedTenantId;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (tid == null || uid == null) {
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: ThemeCleanPremium.churchPanelBodyGradient,
-        ),
-        child: const Center(child: CircularProgressIndicator()),
+      return const ColoredBox(
+        color: Colors.white,
+        child: Center(child: CircularProgressIndicator()),
       );
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: ThemeCleanPremium.churchPanelBodyGradient,
-      ),
+    return ColoredBox(
+      color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -917,6 +914,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           .snapshots(),
       builder: (context, memSnap) {
         final photoByPeer = churchChatMemberPhotoUrlByAuthUid(memSnap.data);
+        final memberByPeer = churchChatMemberByAuthUid(memSnap.data);
         final membrosLoadError =
             memSnap.hasError ? memSnap.error?.toString() : null;
 
@@ -1226,6 +1224,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     displayed,
                     prefs,
                     photoByPeer,
+                    memberByPeer,
                   ));
                 }
 
@@ -1602,12 +1601,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     ChurchChatMemberPrefsModel prefs,
     Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
   ) {
     if (docs.isEmpty) return const SizedBox.shrink();
     return Column(
       children: [
-        for (final doc in docs)
-          _dmChatRow(context, tid, uid, doc, prefs, photoByPeerUid),
+        for (var i = 0; i < docs.length; i++) ...[
+          if (i > 0)
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: Colors.grey.shade200,
+              indent: 72,
+            ),
+          _dmChatRow(
+            context,
+            tid,
+            uid,
+            docs[i],
+            prefs,
+            photoByPeerUid,
+            memberByPeerUid,
+          ),
+        ],
       ],
     );
   }
@@ -1619,6 +1635,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     ChurchChatMemberPrefsModel prefs,
     Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
   ) {
     final data = doc.data();
     final peers = (data['participantUids'] as List?)
@@ -1634,9 +1651,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final preview =
         (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
     final ts = data['lastMessageAt'];
-    final photoUrl = photoByPeerUid[peer];
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final memCache = (52 * dpr).round().clamp(96, 240);
+    final memberRef = memberByPeerUid[peer];
+    final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -1652,17 +1668,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           subtitle: preview,
           subtitleMaxLines: 2,
           timeLabel: _fmtTime(ts),
-          photo: SafeCircleAvatarImage(
-            imageUrl: photoUrl,
-            radius: 26,
-            memCacheSize: memCache,
-            fallbackIcon: Icons.person_rounded,
-            fallbackColor: ThemeCleanPremium.primary,
-            backgroundColor:
-                ThemeCleanPremium.primary.withValues(alpha: 0.12),
+          photo: ChurchChatPeerAvatar(
+            tenantId: tid,
+            peerAuthUid: peer,
+            memberRef: memberRef,
+            radius: 24,
           ),
           showPresence: true,
           online: online,
+          isUnread: isUnread,
           isFavorite: prefs.isFavorite(doc.id),
           isMuted: prefs.isMutedThread(doc.id),
           onTap: () {
@@ -1704,35 +1718,43 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     VoidCallback? onLongPress,
     bool showPresence = false,
     bool online = false,
+    bool isUnread = false,
     bool isFavorite = false,
     bool isMuted = false,
     int subtitleMaxLines = 1,
     Widget? trailing,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: ThemeCleanPremium.cardBackground,
-        elevation: 0,
-        shadowColor: Colors.transparent,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          child: Ink(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              border: Border.all(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-              ),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Stack(
+    final accent = isFavorite
+        ? const Color(0xFFF59E0B)
+        : isUnread
+            ? ThemeCleanPremium.primary
+            : Colors.transparent;
+  final rowBg = isUnread
+        ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
+        : isFavorite
+            ? const Color(0xFFFFFBEB)
+            : Colors.white;
+
+    return Material(
+      color: rowBg,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Row(
+            children: [
+              if (accent != Colors.transparent)
+                Container(
+                  width: 3,
+                  height: 52,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              Stack(
                     clipBehavior: Clip.none,
                     children: [
                       photo,
@@ -1764,7 +1786,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontWeight: FontWeight.w800,
+                            fontWeight:
+                                isUnread ? FontWeight.w800 : FontWeight.w700,
                             fontSize: 16,
                             color: ThemeCleanPremium.onSurface,
                           ),
@@ -1819,8 +1842,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               ),
             ),
           ),
-        ),
-      ),
     );
   }
 
@@ -2392,31 +2413,18 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                     final on = ts != null &&
                         DateTime.now().difference(ts.toDate()).inSeconds < 45;
                     final photoUrl = imageUrlFromMap(d);
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Material(
-                        color: ThemeCleanPremium.cardBackground,
-                        elevation: 0,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        child: InkWell(
-                          onTap: () => widget.onOpenDm(auth, label),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          child: Ink(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
-                              border: Border.all(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.08),
-                              ),
-                              boxShadow: ThemeCleanPremium.softUiCardShadow,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              child: Row(
+                    return Material(
+                      color: on
+                          ? ThemeCleanPremium.primary.withValues(alpha: 0.05)
+                          : Colors.white,
+                      child: InkWell(
+                        onTap: () => widget.onOpenDm(auth, label),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
                                 children: [
                                   Stack(
                                     clipBehavior: Clip.none,
@@ -2487,13 +2495,12 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                                   Icon(
                                     Icons.chat_bubble_outline_rounded,
                                     color: ThemeCleanPremium.primary,
+                                    size: 22,
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                        ),
-                      ),
                     );
                   },
                 ),
@@ -2560,25 +2567,14 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
                 child: Ink(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(stripRadius),
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        ThemeCleanPremium.primary.withValues(
-                          alpha: unreadFlag ? 0.22 : 0.16,
-                        ),
-                        ThemeCleanPremium.surface.withValues(alpha: 0.42),
-                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.1),
-                      ],
-                      stops: const [0.0, 0.42, 1.0],
-                    ),
+                    color: unreadFlag
+                        ? ThemeCleanPremium.primary.withValues(alpha: 0.07)
+                        : Colors.white,
                     border: Border.all(
-                      color: ThemeCleanPremium.primary.withValues(
-                        alpha: unreadFlag ? 0.38 : 0.22,
-                      ),
-                      width: unreadFlag ? 1.25 : 1,
+                      color: unreadFlag
+                          ? ThemeCleanPremium.primary.withValues(alpha: 0.25)
+                          : Colors.grey.shade200,
                     ),
-                    boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 12, 4, 12),
@@ -2588,22 +2584,18 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(right: 10, top: 4),
                           child: Container(
-                            width: 5,
+                            width: 4,
                             height: 44,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(999),
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  ThemeCleanPremium.primary,
-                                  ThemeCleanPremium.primaryLight,
-                                ],
-                              ),
+                              color: unreadFlag
+                                  ? ThemeCleanPremium.primary
+                                  : ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.35),
                             ),
                           ),
                         ),
-                      Stack(
+                        Stack(
                         clipBehavior: Clip.none,
                         children: [
                           ChurchChatDepartmentAvatar(

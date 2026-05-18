@@ -72,6 +72,8 @@ import 'member_card_page.dart';
 import 'change_password_page.dart';
 import 'public_member_signup_page.dart';
 import 'internal_new_member_page.dart';
+import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
 import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
@@ -1593,6 +1595,69 @@ class _MembersPageState extends State<MembersPage> {
     return digits;
   }
 
+  String _memberFirebaseAuthUid(Map<String, dynamic> d, String memberDocId) {
+    final auth = _str(d, 'authUid', 'auth_uid', 'firebaseUid').trim();
+    if (auth.isNotEmpty) return auth;
+    if (memberDocId.length >= 20 &&
+        RegExp(r'^[A-Za-z0-9]+$').hasMatch(memberDocId)) {
+      return memberDocId;
+    }
+    return '';
+  }
+
+  bool _canOpenChatWithMember(_MemberDoc member) {
+    final peer = _memberFirebaseAuthUid(member.data, member.id);
+    if (peer.isEmpty) return false;
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (myUid.isEmpty || peer == myUid) return false;
+    return !_memberDocIsPending(member.data);
+  }
+
+  Future<void> _openChatWithMember(
+      BuildContext context, _MemberDoc member) async {
+    final peerUid = _memberFirebaseAuthUid(member.data, member.id);
+    if (peerUid.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Este membro ainda não tem login no app para conversar.',
+          ),
+        ),
+      );
+      return;
+    }
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    if (myUid == null) return;
+    final name = _str(member.data, 'NOME_COMPLETO', 'nome', 'name');
+    final display = name.isEmpty ? 'Membro' : name;
+    final tid = _effectiveTenantId;
+    await ChurchChatService.ensureDmThread(
+      tenantId: tid,
+      uidA: myUid,
+      uidB: peerUid,
+      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
+      titleB: display,
+    );
+    final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
+    if (!context.mounted) return;
+    final cpfDigits = widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ?? '';
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ChurchChatThreadPage(
+          tenantId: tid,
+          threadId: threadId,
+          title: display,
+          isDepartment: false,
+          peerUid: peerUid,
+          memberRole: widget.role,
+          memberCpfDigits: cpfDigits,
+        ),
+      ),
+    );
+  }
+
   // ─── Ver Detalhes do Membro ───────────────────────────────────────────────
   void _showMemberDetails(BuildContext context, _MemberDoc member) {
     final d = member.data;
@@ -1893,6 +1958,16 @@ class _MembersPageState extends State<MembersPage> {
                           Navigator.pop(ctx);
                           _editMember(context, member);
                         }),
+                  if (_canOpenChatWithMember(member))
+                    _ActionChip(
+                      icon: Icons.chat_rounded,
+                      label: 'Conversar no chat',
+                      color: const Color(0xFF0D9488),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        unawaited(_openChatWithMember(context, member));
+                      },
+                    ),
                   if (_canOpenCarteirinhaFor(member))
                     _ActionChip(
                         icon: Icons.badge_rounded,
