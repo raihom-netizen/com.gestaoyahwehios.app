@@ -113,7 +113,8 @@ workflows:
         APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
-      flutter: stable
+      # 3.44+ exige flutter_quill 11.5.1 (onFocusReceived) e font_awesome 11 (IconData final).
+      flutter: 3.44.0
       xcode: latest
       cocoapods: default
     scripts:

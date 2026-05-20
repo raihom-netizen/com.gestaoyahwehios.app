@@ -77,14 +77,14 @@ dependencies:
   screenshot: ^3.0.0
   gal: ^2.3.2
   flutter_staggered_grid_view: ^0.7.0
-  font_awesome_flutter: ^10.8.0
+  font_awesome_flutter: ^11.0.0
   connectivity_plus: ^7.1.0
   flutter_linkify: ^6.0.0
   flutter_staggered_animations: ^1.1.1
   # Sincronizado com Controle Total: colar print (imagem) na ?rea de transfer?ncia em Android/iOS/desktop.
   # Extrato / fatura PDF (texto embutido) ? alinhado ao Controle Total
   pdfrx: ^2.2.24
-  flutter_quill: ^11.5.0
+  flutter_quill: ^11.5.1
   record: ^6.2.0
   emoji_picker_flutter: ^4.4.0
   just_audio: ^0.10.5

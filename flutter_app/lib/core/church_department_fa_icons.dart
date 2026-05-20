@@ -1,8 +1,7 @@
-import 'package:flutter/widgets.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 /// Ícones Font Awesome para os departamentos base (fallback: Material em [DepartmentsPage]).
-IconData? churchDepartmentFaIcon(String iconKey) {
+FaIconData? churchDepartmentFaIcon(String iconKey) {
   switch (iconKey) {
     case 'pastoral':
       return FontAwesomeIcons.cross;
