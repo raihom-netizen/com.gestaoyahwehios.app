@@ -50,6 +50,13 @@ Map<String, ChurchChatMemberRef> churchChatMemberByAuthUid(
 ChurchChatMemberRef? _refFromMemberDoc(
   String memberId,
   Map<String, dynamic> d,
+) =>
+    churchChatMemberRefFromMemberDoc(memberId, d);
+
+/// Extrai [ChurchChatMemberRef] de um doc `membros/{id}`.
+ChurchChatMemberRef? churchChatMemberRefFromMemberDoc(
+  String memberId,
+  Map<String, dynamic> d,
 ) {
   final au = (d['authUid'] ?? d['firebaseUid'] ?? '').toString().trim();
   if (au.isEmpty) return null;

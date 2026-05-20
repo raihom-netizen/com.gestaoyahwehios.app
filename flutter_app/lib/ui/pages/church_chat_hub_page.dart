@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
+import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -95,10 +97,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   late TabController _hubTabController;
   Timer? _gruposResyncDebounce;
   Timer? _conversasResyncDebounce;
+  /// Avatares no hub — `chat_peer_profiles` (sem stream de 600 `membros`).
+  Map<String, ChurchChatMemberRef> _peerMemberByUid = {};
+  Map<String, bool> _peerOnlineByUid = {};
+  Timer? _presencePollTimer;
+  String? _presencePollKey;
+  late final VoidCallback _photoSyncListener;
 
   @override
   void initState() {
     super.initState();
+    _photoSyncListener = _onMemberProfilePhotoSynced;
+    MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
     _hubTabController = TabController(length: 3, vsync: this);
     _gruposPulseCtrl = AnimationController(
@@ -128,9 +138,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   @override
   void dispose() {
+    MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     WidgetsBinding.instance.removeObserver(this);
     _gruposResyncDebounce?.cancel();
     _conversasResyncDebounce?.cancel();
+    _presencePollTimer?.cancel();
     ChurchPanelNavigationBridge.instance
         .unregisterChatOpenListener(_onChatPendingFromBridge);
     _hubTabController.removeListener(_hubTabListener);
@@ -217,6 +229,89 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final t = (doc.data()['type'] ?? '').toString();
     if (t == 'department') return true;
     return doc.id.startsWith('dept_');
+  }
+
+  static Set<String> _peerUidsFromDmThreads(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String myUid,
+  ) {
+    final out = <String>{};
+    for (final d in docs) {
+      if (_docIsDepartmentThread(d)) continue;
+      final peers = (d.data()['participantUids'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty) ??
+          [];
+      for (final p in peers) {
+        if (p != myUid) out.add(p);
+      }
+    }
+    return out;
+  }
+
+  void _onMemberProfilePhotoSynced() {
+    final tid = _resolvedTenantId;
+    final uid =
+        MemberProfilePhotoSyncNotifier.instance.lastAuthUid?.trim() ?? '';
+    if (tid == null || uid.isEmpty) return;
+    unawaited(_refreshPeerProfilesForAuthUids(tid, {uid}));
+  }
+
+  Future<void> _refreshPeerProfilesForAuthUids(
+    String tenantId,
+    Set<String> authUids,
+  ) async {
+    if (authUids.isEmpty) return;
+    final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+      tenantId: tenantId,
+      authUids: authUids,
+      refetchAuthUids: authUids,
+    );
+    if (!mounted || _resolvedTenantId != tenantId) return;
+    if (loaded.isEmpty) return;
+    setState(() => _peerMemberByUid = {..._peerMemberByUid, ...loaded});
+  }
+
+  void _schedulePeerProfilesLoad(String tenantId, Set<String> peerUids) {
+    if (peerUids.isEmpty) return;
+    final missing =
+        peerUids.where((u) => !_peerMemberByUid.containsKey(u)).toSet();
+    if (missing.isEmpty) return;
+    unawaited(() async {
+      final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+        tenantId: tenantId,
+        authUids: missing,
+      );
+      if (!mounted || _resolvedTenantId != tenantId) return;
+      if (loaded.isEmpty) return;
+      setState(() => _peerMemberByUid = {..._peerMemberByUid, ...loaded});
+    }());
+  }
+
+  void _schedulePresencePolling(String tenantId, Set<String> peerUids) {
+    final key = peerUids.toList()..sort();
+    final keyStr = '$tenantId|${key.join(",")}';
+    if (_presencePollKey == keyStr && _presencePollTimer != null) return;
+    _presencePollKey = keyStr;
+    _presencePollTimer?.cancel();
+    if (peerUids.isEmpty) {
+      _peerOnlineByUid = {};
+      return;
+    }
+    Future<void> poll() async {
+      final online = await ChurchChatService.fetchPresenceOnlineMap(
+        tenantId: tenantId,
+        authUids: peerUids,
+      );
+      if (!mounted || _resolvedTenantId != tenantId) return;
+      setState(() => _peerOnlineByUid = online);
+    }
+
+    unawaited(poll());
+    _presencePollTimer = Timer.periodic(
+      const Duration(seconds: 22),
+      (_) => unawaited(poll()),
+    );
   }
 
   static bool _computeUnreadGroupThreads(
@@ -837,11 +932,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             },
             onNewDm: () => _openPickPeer(context, tid, uid),
             onAlertModeTap: _openChatAlertModeSheet,
-            onProfilePhotoTap: () => showChurchChatProfilePhotoSheet(
-              context,
-              tenantId: tid,
-              cpfDigits: widget.cpf,
-            ),
+            onProfilePhotoTap: () async {
+              final uidMe = uid;
+              await showChurchChatProfilePhotoSheet(
+                context,
+                tenantId: tid,
+                cpfDigits: widget.cpf,
+              );
+              if (!mounted || uidMe.isEmpty) return;
+              unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
+            },
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -911,34 +1011,30 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ),
       );
     }
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .limit(600)
-          .snapshots(),
-      builder: (context, memSnap) {
-        final photoByPeer = churchChatMemberPhotoUrlByAuthUid(memSnap.data);
-        final memberByPeer = churchChatMemberByAuthUid(memSnap.data);
-        final membrosLoadError =
-            memSnap.hasError ? memSnap.error?.toString() : null;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ChurchChatMemberPrefs.watch(tid),
+      builder: (context, prefSnap) {
+        final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: threadStream,
+          builder: (context, snap) {
+            if (snap.hasData) {
+              _lastGoodChatThreadsSnap = snap.data;
+            }
+            final snapForList =
+                snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
+            final streamError = snap.hasError ? snap.error : null;
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: ChurchChatMemberPrefs.watch(tid),
-          builder: (context, prefSnap) {
-            final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: threadStream,
-              builder: (context, snap) {
-                if (snap.hasData) {
-                  _lastGoodChatThreadsSnap = snap.data;
-                }
-                final snapForList =
-                    snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
-                final streamError = snap.hasError ? snap.error : null;
-
-                final dmDocs = snapForList?.docs ?? [];
+            final dmDocs = snapForList?.docs ?? [];
+            final peerIds = _peerUidsFromDmThreads(dmDocs, uid);
+            _schedulePeerProfilesLoad(tid, peerIds);
+            _schedulePresencePolling(tid, peerIds);
+            final memberByPeer = _peerMemberByUid;
+            final photoByPeer = <String, String>{
+              for (final e in memberByPeer.entries)
+                if (e.value.photoUrl != null && e.value.photoUrl!.isNotEmpty)
+                  e.key: e.value.photoUrl!,
+            };
                 final unreadG = _computeUnreadGroupThreads(dmDocs, uid);
                 if (unreadG != _unreadGroupMessages) {
                   Future.microtask(() {
@@ -956,38 +1052,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(24),
                       children: [
-                      if (membrosLoadError != null) ...[
-                        Material(
-                          color: const Color(0xFFFFF3E0),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.photo_library_outlined,
-                                  color: Colors.orange.shade900,
-                                  size: 22,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    'Lista de membros (fotos) indisponível; as conversas podem aparecer sem avatar.\n$membrosLoadError',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      height: 1.35,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade900,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
                       Icon(
                         Icons.cloud_off_rounded,
                         size: 48,
@@ -1029,40 +1093,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 final threads = <Widget>[];
-                if (membrosLoadError != null) {
-                  threads.add(
-                    Material(
-                      color: const Color(0xFFFFF3E0),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.photo_library_outlined,
-                              color: Colors.orange.shade900,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Fotos dos avatares: lista de membros indisponível agora — as conversas continuam.\n$membrosLoadError',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade900,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                  threads.add(const SizedBox(height: 10));
-                }
                 final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
 
@@ -1246,8 +1276,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             );
           },
         );
-      },
-    );
   }
 
   Widget _buildMembrosTab(BuildContext context, String tid, String uid) {
@@ -1660,58 +1688,48 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final memberRef = memberByPeerUid[peer];
     final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('chat_presence')
-          .doc(peer)
-          .snapshots(),
-      builder: (context, pres) {
-        final online = ChurchChatService.isOnlineFromSnapshot(pres.data);
-        return _chatTile(
-          title: rowTitle,
-          subtitle: preview,
-          subtitleMaxLines: 2,
-          timeLabel: _fmtTime(ts),
-          photo: ChurchChatPeerAvatar(
-            tenantId: tid,
-            peerAuthUid: peer,
-            memberRef: memberRef,
-            radius: 24,
-          ),
-          showPresence: true,
-          online: online,
-          isUnread: isUnread,
-          isFavorite: prefs.isFavorite(doc.id),
-          isMuted: prefs.isMutedThread(doc.id),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                fullscreenDialog: true,
-                builder: (_) => ChurchChatThreadPage(
-                  tenantId: tid,
-                  threadId: doc.id,
-                  title: fullTitle,
-                  isDepartment: false,
-                  peerUid: peer,
-                  memberRole: widget.role,
-                  memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                ),
-              ),
-            );
-          },
-          onLongPress: () => _showThreadActionsSheet(
-            context: context,
-            tenantId: tid,
-            threadId: doc.id,
-            title: fullTitle,
-            isDepartment: false,
-            peerUid: peer,
-            prefs: prefs,
+    final online = _peerOnlineByUid[peer] ?? false;
+    return _chatTile(
+      title: rowTitle,
+      subtitle: preview,
+      subtitleMaxLines: 2,
+      timeLabel: _fmtTime(ts),
+      photo: ChurchChatPeerAvatar(
+        tenantId: tid,
+        peerAuthUid: peer,
+        memberRef: memberRef,
+        radius: 24,
+      ),
+      showPresence: true,
+      online: online,
+      isUnread: isUnread,
+      isFavorite: prefs.isFavorite(doc.id),
+      isMuted: prefs.isMutedThread(doc.id),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ChurchChatThreadPage(
+              tenantId: tid,
+              threadId: doc.id,
+              title: fullTitle,
+              isDepartment: false,
+              peerUid: peer,
+              memberRole: widget.role,
+              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+            ),
           ),
         );
       },
+      onLongPress: () => _showThreadActionsSheet(
+        context: context,
+        tenantId: tid,
+        threadId: doc.id,
+        title: fullTitle,
+        isDepartment: false,
+        peerUid: peer,
+        prefs: prefs,
+      ),
     );
   }
 
@@ -1804,8 +1822,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           maxLines: subtitleMaxLines,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: ThemeCleanPremium.onSurfaceVariant,
+                            color: isUnread
+                                ? ThemeCleanPremium.onSurface
+                                : ThemeCleanPremium.onSurfaceVariant,
                             fontSize: 13,
+                            fontWeight:
+                                isUnread ? FontWeight.w600 : FontWeight.w400,
                             height: subtitleMaxLines > 1 ? 1.25 : null,
                           ),
                         ),
@@ -2554,11 +2576,6 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
             preview.isEmpty ? 'Toque para abrir o grupo' : preview;
         final lastMsgAt = data?['lastMessageAt'];
         final timeLabel = _chatHubFmtThreadTime(lastMsgAt);
-        final mySeen =
-            data != null ? _chatHubThreadMyLastSeen(data, myUid) : null;
-        final lmKey =
-            lastMsgAt is Timestamp ? lastMsgAt.millisecondsSinceEpoch : 0;
-        final seenKey = mySeen?.millisecondsSinceEpoch ?? -1;
         final participants = data?['participantUids'];
         final nChatMembers = participants is List ? participants.length : 0;
 
@@ -2688,99 +2705,42 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
                                 color: ThemeCleanPremium.onSurfaceVariant,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            FutureBuilder<({int unread, int total})>(
-                              key: ValueKey<String>(
-                                '$threadId|$lmKey|$seenKey',
-                              ),
-                              future: ChurchChatService
-                                  .threadMessageUnreadAndTotalCounts(
-                                tenantId: tenantId,
-                                threadId: threadId,
-                                myLastSeenInThread: mySeen,
-                              ),
-                              builder: (context, snap) {
-                                if (snap.connectionState ==
-                                        ConnectionState.waiting &&
-                                    !snap.hasData) {
-                                  return Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: ThemeCleanPremium.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'A contar mensagens…',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: ThemeCleanPremium
-                                              .onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }
-                                final u = snap.data?.unread ?? 0;
-                                final t = snap.data?.total ?? 0;
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
+                            if (unreadFlag) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: const Color(0xFFFFF7ED),
+                                  border: Border.all(
+                                    color: const Color(0xFFF59E0B)
+                                        .withValues(alpha: 0.55),
                                   ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    color: unreadFlag
-                                        ? const Color(0xFFFFF7ED)
-                                        : Colors.white.withValues(alpha: 0.55),
-                                    border: Border.all(
-                                      color: unreadFlag
-                                          ? const Color(0xFFF59E0B)
-                                              .withValues(alpha: 0.55)
-                                          : ThemeCleanPremium.onSurfaceVariant
-                                              .withValues(alpha: 0.12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.mark_chat_unread_rounded,
+                                      size: 16,
+                                      color: const Color(0xFFB45309),
                                     ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.sms_outlined,
-                                        size: 16,
-                                        color: unreadFlag
-                                            ? const Color(0xFFB45309)
-                                            : ThemeCleanPremium.primary,
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Novas mensagens',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12,
+                                        color: ThemeCleanPremium.onSurface,
                                       ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '$u / $t',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 13,
-                                          letterSpacing: -0.2,
-                                          color: ThemeCleanPremium.onSurface,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'não lidas / total',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: ThemeCleanPremium
-                                              .onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

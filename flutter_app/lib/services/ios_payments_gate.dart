@@ -37,6 +37,27 @@ class IosPaymentsGate {
   static bool _initialized = false;
   static bool _flagShowPayments = _defaultIosShowPayments;
 
+  /// Apple Guideline 3.1.1: cadastro de nova igreja/organizacao so na web.
+  /// No app iOS nativo permanece apenas login; gestor altera plano no Safari.
+  static bool get hideOrganizationSignup => isIosNative;
+
+  /// Rotas de onboarding de organizacao (gestor) bloqueadas no iOS nativo.
+  static bool isOrganizationSignupPath(String path, List<String> pathSegments) {
+    if (!hideOrganizationSignup) return false;
+    final low = path.toLowerCase();
+    if (low == '/signup' || low.startsWith('/signup/')) return true;
+    if (pathSegments.length >= 3 &&
+        pathSegments[0] == 'igreja' &&
+        pathSegments[1] != 'login' &&
+        pathSegments[2] == 'cadastro') {
+      return true;
+    }
+    if (pathSegments.length == 2 && pathSegments[1].toLowerCase() == 'cadastro') {
+      return true;
+    }
+    return false;
+  }
+
   /// `true` quando o dispositivo eh iOS nativo (nao web / nao desktop).
   static bool get isIosNative {
     if (kIsWeb) return false;
@@ -150,6 +171,28 @@ class IosPaymentsGate {
         'utm_source': 'app_ios',
         'utm_medium': 'church_donation',
       },
+    );
+  }
+
+  /// Cadastro de nova igreja/organização — apenas no site (Apple 3.1.1).
+  static Uri organizationSignupWebUri() {
+    final base = AppConstants.publicWebBaseUrl.trim();
+    final root =
+        base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    return Uri.parse('$root/signup').replace(
+      queryParameters: const <String, String>{
+        'from': 'ios_app',
+        'utm_source': 'app_ios',
+        'utm_medium': 'organization_signup',
+      },
+    );
+  }
+
+  /// Abre o cadastro de nova igreja no Safari (fora do app iOS).
+  static Future<bool> openOrganizationSignupExternally() {
+    return launchUrl(
+      organizationSignupWebUri(),
+      mode: LaunchMode.externalApplication,
     );
   }
 

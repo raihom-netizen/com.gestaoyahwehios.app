@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import '../pages/site_public_page.dart';
+import '../services/ios_payments_gate.dart';
 
 import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
@@ -28,6 +29,7 @@ import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
 import '../services/login_preferences.dart';
+import '../services/church_auto_session_service.dart';
 import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -117,7 +119,11 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Se você está abrindo uma igreja nova: use o botão abaixo e siga em duas etapas (seu nome e CPF, depois nome da igreja). Se já é membro de uma igreja no sistema, use a página inicial com seu e-mail para localizar o painel.',
+                      IosPaymentsGate.hideOrganizationSignup
+                          ? 'No app iOS não há cadastro de nova igreja — apenas login com conta existente. '
+                              'Abra gestaoyahweh.com.br no navegador para cadastrar sua igreja. '
+                              'Se já é gestor ou membro, saia e entre com o e-mail vinculado.'
+                          : 'Se você está abrindo uma igreja nova: use o botão abaixo e siga em duas etapas (seu nome e CPF, depois nome da igreja). Se já é membro de uma igreja no sistema, use a página inicial com seu e-mail para localizar o painel.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
@@ -136,16 +142,20 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/signup/completar-dados', (_) => false),
-                      icon: const Icon(Icons.add_business),
-                      label: const Text('Nova igreja — continuar cadastro (30 dias grátis)'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    if (!IosPaymentsGate.hideOrganizationSignup) ...[
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                            context, '/signup/completar-dados', (_) => false),
+                        icon: const Icon(Icons.add_business),
+                        label: const Text(
+                            'Nova igreja — continuar cadastro (30 dias grátis)'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
                       ),
-                    ),
+                    ],
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false),
@@ -617,31 +627,23 @@ class _AuthGateState extends State<AuthGate> {
         'podeEmitirRelatoriosCompletos': podeEmitirRelatoriosCompletos,
         'permissions': permissions,
       };
-      if (!kIsWeb) {
-        await AuthProfileCacheService.instance.save(user.uid, result);
-      }
+      await AuthProfileCacheService.instance.save(user.uid, result);
       return result;
     } catch (_) {
-      if (!kIsWeb) {
-        final c = await AuthProfileCacheService.instance.load(user.uid);
-        if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-          return c;
-        }
+      final c = await AuthProfileCacheService.instance.load(user.uid);
+      if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        return c;
       }
       if (AppConnectivityService.instance.isOnline) {
         final via = await _loadProfileViaCallable(user);
         if (via != null) {
-          if (!kIsWeb) {
-            await AuthProfileCacheService.instance.save(user.uid, via);
-          }
+          await AuthProfileCacheService.instance.save(user.uid, via);
           return via;
         }
       }
-      if (!kIsWeb) {
-        final c2 = await AuthProfileCacheService.instance.load(user.uid);
-        if (c2 != null && (c2['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-          return c2;
-        }
+      final c2 = await AuthProfileCacheService.instance.load(user.uid);
+      if (c2 != null && (c2['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        return c2;
       }
       return null;
     }
@@ -728,6 +730,7 @@ class _AuthGateState extends State<AuthGate> {
                   await p.remove('last_route');
                 } catch (_) {}
               }
+              await ChurchAutoSessionService.clearAutoPainel();
               if (!mounted) return;
               final currentUserAfterCleanup = FirebaseAuth.instance.currentUser;
               if (currentUserAfterCleanup != null &&
@@ -794,25 +797,26 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
     try {
       return await widget.loadProfile();
     } catch (_) {
-      if (!kIsWeb) {
-        final c = await AuthProfileCacheService.instance.load(widget.user.uid);
-        if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-          return c;
-        }
+      final c = await AuthProfileCacheService.instance.load(widget.user.uid);
+      if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        return c;
       }
       rethrow;
     }
   }
 
-  /// Abertura mais rápida do painel: perfil em disco primeiro (mobile), rede em paralelo.
+  /// Abertura mais rápida: perfil em disco primeiro (web + mobile), rede em paralelo.
   Future<Map<String, dynamic>?> _profileFutureCacheFirst() async {
-    if (!kIsWeb) {
-      final cached = await AuthProfileCacheService.instance.load(widget.user.uid);
-      if (cached != null &&
-          (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-        unawaited(_silentRefreshProfileCache());
-        return cached;
-      }
+    final cached = await AuthProfileCacheService.instance.load(widget.user.uid);
+    if (cached != null &&
+        (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+      unawaited(_silentRefreshProfileCache());
+      unawaited(
+        ChurchAutoSessionService.preheatPanelCaches(
+          tenantIdHint: (cached['igrejaId'] ?? '').toString(),
+        ),
+      );
+      return cached;
     }
     return _profileFutureWithOfflineFallback();
   }

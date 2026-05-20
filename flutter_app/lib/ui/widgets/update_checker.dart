@@ -6,21 +6,27 @@ import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Diálogo premium (não bloqueante): nova versão + Play Store / atualizar.
+/// Diálogo de nova versão — [VersionResult.force] bloqueia até atualizar na loja.
 Future<void> showPremiumVersionUpdateDialog(
   BuildContext context,
   VersionResult vr,
 ) async {
   final hasUrl = vr.updateUrl.isNotEmpty;
+  final forced = vr.force;
   await showDialog<void>(
     context: context,
     useRootNavigator: true,
-    barrierDismissible: true,
+    barrierDismissible: !forced,
     builder: (ctx) {
       final isAndroidStore = !kIsWeb &&
           defaultTargetPlatform == TargetPlatform.android &&
           hasUrl;
-      return Dialog(
+      final isIosStore = !kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
+          hasUrl;
+      return PopScope(
+        canPop: !forced,
+        child: Dialog(
         backgroundColor: Colors.transparent,
         insetPadding:
             const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
@@ -78,7 +84,9 @@ Future<void> showPremiumVersionUpdateDialog(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Nova versão disponível',
+                                forced
+                                    ? 'Atualização obrigatória'
+                                    : 'Nova versão disponível',
                                 style: TextStyle(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w800,
@@ -88,7 +96,7 @@ Future<void> showPremiumVersionUpdateDialog(
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Sua versão: $appVersionLabel · Loja: v${vr.current}',
+                                'Sua versão: $appVersionLabel · Exigido: ${vr.current}',
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w600,
@@ -116,12 +124,12 @@ Future<void> showPremiumVersionUpdateDialog(
                       ),
                     ),
                   ),
-                  if (hasUrl) ...[
-                    if (isAndroidStore)
+                    if (hasUrl) ...[
+                    if (isAndroidStore || isIosStore)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
                         child: SelectableText(
-                          kDefaultPlayStoreUrl,
+                          vr.updateUrl,
                           style: TextStyle(
                             fontSize: 11.5,
                             height: 1.35,
@@ -166,7 +174,9 @@ Future<void> showPremiumVersionUpdateDialog(
                               label: Text(
                                 isAndroidStore
                                     ? 'Atualizar na Play Store'
-                                    : 'Atualizar agora',
+                                    : isIosStore
+                                        ? 'Atualizar no iPhone'
+                                        : 'Atualizar agora',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 15,
@@ -174,17 +184,19 @@ Future<void> showPremiumVersionUpdateDialog(
                               ),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            child: Text(
-                              'Depois',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.grey.shade700,
+                          if (!forced) ...[
+                            const SizedBox(height: 4),
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              child: Text(
+                                'Depois',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade700,
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -204,12 +216,13 @@ Future<void> showPremiumVersionUpdateDialog(
             ),
           ),
         ),
+      ),
       );
     },
   );
 }
 
-/// Checagem automática ao abrir o app: aviso **dismissível** com link para a loja (sem bloquear uso).
+/// Checagem automática ao abrir o app: aviso ou bloqueio conforme `config/appVersion`.
 class UpdateChecker extends StatefulWidget {
   final Widget child;
 

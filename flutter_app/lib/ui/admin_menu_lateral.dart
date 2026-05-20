@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Contexto do painel: apenas igrejas (licenças/usuários controlados pelo Gestão Frotas à parte).
 enum AdminContext {
   igrejas,
 }
 
-/// Identificadores das telas do painel admin. Apenas Igrejas + Sistema.
+/// Identificadores das telas do painel admin. Command Center + grupos SaaS.
 enum AdminMenuItem {
+  commandCenter,
   igrejasDashboard,
   igrejasLista,
   igrejasPlanos,
@@ -33,6 +35,7 @@ enum AdminMenuItem {
   sistemaAvisoGlobal,
   sistemaVersaoMinima,
   sistemaMigrarMembros,
+  sistemaFeatureFlags,
   sistemaHome,
 }
 
@@ -56,7 +59,7 @@ class AdminMenuLateral extends StatelessWidget {
   });
 
   static AdminMenuItem firstItemFor(AdminContext ctx) {
-    return AdminMenuItem.igrejasDashboard;
+    return AdminMenuItem.commandCenter;
   }
 
   @override
@@ -65,14 +68,12 @@ class AdminMenuLateral extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: width,
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.navSidebar,
+      decoration: masterSidebarGradientDecoration.copyWith(
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withValues(alpha: 0.18),
             blurRadius: 24,
             offset: const Offset(4, 0),
-            spreadRadius: 0,
           ),
         ],
       ),
@@ -116,22 +117,18 @@ class AdminMenuLateral extends StatelessWidget {
                 children: [
                   ..._menuItemsForContext(),
                   const SizedBox(height: 12),
-                  _sectionTitle('SISTEMA', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaDashboard) ?? true) _tile(AdminMenuItem.sistemaDashboard, Icons.analytics, 'Dashboard Geral', isCollapsed),
+                  _sectionTitle('SEGURANÇA', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaAlertas) ?? true) _tile(AdminMenuItem.sistemaAlertas, Icons.notifications, 'Alertas', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaAuditoria) ?? true) _tile(AdminMenuItem.sistemaAuditoria, Icons.history, 'Auditoria', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.sistemaMultiAdmin) ?? true) _tile(AdminMenuItem.sistemaMultiAdmin, Icons.admin_panel_settings, 'Multi-Admin', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.sistemaNiveisAcesso) ?? true) _tile(AdminMenuItem.sistemaNiveisAcesso, Icons.security, 'Níveis de Acesso', isCollapsed),
+                  _sectionTitle('SISTEMA', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.sistemaDashboard) ?? true) _tile(AdminMenuItem.sistemaDashboard, Icons.analytics, 'BI / Dashboard', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaCustomizacao) ?? true) _tile(AdminMenuItem.sistemaCustomizacao, Icons.settings, 'Customização', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaSuporte) ?? true) _tile(AdminMenuItem.sistemaSuporte, Icons.support_agent, 'Suporte', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaMultiAdmin) ?? true) _tile(AdminMenuItem.sistemaMultiAdmin, Icons.admin_panel_settings, 'Multi-Admin', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaPrecos) ?? true) _tile(AdminMenuItem.sistemaPrecos, Icons.edit_note, 'Editar Preços', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaNiveisAcesso) ?? true) _tile(AdminMenuItem.sistemaNiveisAcesso, Icons.security, 'Níveis de Acesso', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaSugestoes) ?? true) _tile(AdminMenuItem.sistemaSugestoes, Icons.feedback, 'Sugestões / Críticas', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaDivulgacao) ?? true) _tile(AdminMenuItem.sistemaDivulgacao, Icons.perm_media_rounded, 'Mídias Divulgação', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaAcessos) ?? true) _tile(AdminMenuItem.sistemaAcessos, Icons.show_chart_rounded, 'Acessos ao domínio', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaArmazenamento) ?? true) _tile(AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded, 'Armazenamento', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaAvisoGlobal) ?? true) _tile(AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded, 'Aviso global / Manutenção', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaVersaoMinima) ?? true) _tile(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded, 'Forçar atualização', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.sistemaMigrarMembros) ?? true) _tile(AdminMenuItem.sistemaMigrarMembros, Icons.people_alt_rounded, 'Migrar membros', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.sistemaSugestoes) ?? true) _tile(AdminMenuItem.sistemaSugestoes, Icons.feedback, 'Sugestões', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.igrejasTorreComando) ?? true) _tile(AdminMenuItem.igrejasTorreComando, Icons.apartment_rounded, 'Torre SaaS (legado)', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.igrejasDashboard) ?? true) _tile(AdminMenuItem.igrejasDashboard, Icons.dashboard_rounded, 'Painel igrejas (legado)', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaHome) ?? true) _tile(AdminMenuItem.sistemaHome, Icons.home, 'Voltar ao Início', isCollapsed),
                   const SizedBox(height: 24),
                 ],
@@ -162,19 +159,54 @@ class AdminMenuLateral extends StatelessWidget {
 
   List<Widget> _menuItemsForContext() {
     return [
-      _sectionTitle('IGREJAS', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasDashboard) ?? true) _tile(AdminMenuItem.igrejasDashboard, Icons.dashboard_rounded, 'Painel Igrejas', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasLista) ?? true) _tile(AdminMenuItem.igrejasLista, Icons.church_rounded, 'Lista Igrejas', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasPlanos) ?? true) _tile(AdminMenuItem.igrejasPlanos, Icons.credit_card_rounded, 'Planos & Cobranças', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasUsuarios) ?? true) _tile(AdminMenuItem.igrejasUsuarios, Icons.people_rounded, 'Usuários', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.commandCenter) ?? true)
+        _tile(AdminMenuItem.commandCenter, Icons.hub_rounded,
+            'Command Center', isCollapsed),
+      _sectionTitle('CLIENTES', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasLista) ?? true)
+        _tile(AdminMenuItem.igrejasLista, Icons.church_rounded, 'Lista Igrejas',
+            isCollapsed),
       if (itemVisible?.call(AdminMenuItem.igrejasControle360) ?? true)
         _tile(AdminMenuItem.igrejasControle360, Icons.threesixty_rounded,
-            'Controle 360 — Utilizadores', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasMercadoPago) ?? true) _tile(AdminMenuItem.igrejasMercadoPago, Icons.payment_rounded, 'Mercado Pago', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasRecebimentos) ?? true) _tile(AdminMenuItem.igrejasRecebimentos, Icons.receipt_long_rounded, 'Recebimentos Licenças', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasGestores) ?? true) _tile(AdminMenuItem.igrejasGestores, Icons.person_add_rounded, 'Ativar mais gestores', isCollapsed),
-      if (itemVisible?.call(AdminMenuItem.igrejasTorreComando) ?? true)
-        _tile(AdminMenuItem.igrejasTorreComando, Icons.hub_rounded, 'Torre SaaS', isCollapsed),
+            'Controle 360', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasGestores) ?? true)
+        _tile(AdminMenuItem.igrejasGestores, Icons.person_add_rounded,
+            'Ativar gestores', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaMigrarMembros) ?? true)
+        _tile(AdminMenuItem.sistemaMigrarMembros, Icons.people_alt_rounded,
+            'Migrar membros', isCollapsed),
+      _sectionTitle('RECEITA', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasPlanos) ?? true)
+        _tile(AdminMenuItem.igrejasPlanos, Icons.credit_card_rounded,
+            'Planos & Cobranças', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasMercadoPago) ?? true)
+        _tile(AdminMenuItem.igrejasMercadoPago, Icons.payment_rounded,
+            'Mercado Pago', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.igrejasRecebimentos) ?? true)
+        _tile(AdminMenuItem.igrejasRecebimentos, Icons.receipt_long_rounded,
+            'Recebimentos', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaPrecos) ?? true)
+        _tile(AdminMenuItem.sistemaPrecos, Icons.edit_note_rounded,
+            'Editar preços', isCollapsed),
+      _sectionTitle('PLATAFORMA', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaAvisoGlobal) ?? true)
+        _tile(AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded,
+            'Avisos / Promoções', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaVersaoMinima) ?? true)
+        _tile(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded,
+            'Nova versão', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaDivulgacao) ?? true)
+        _tile(AdminMenuItem.sistemaDivulgacao, Icons.perm_media_rounded,
+            'Mídias divulgação', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaAcessos) ?? true)
+        _tile(AdminMenuItem.sistemaAcessos, Icons.show_chart_rounded,
+            'Acessos domínio', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaArmazenamento) ?? true)
+        _tile(AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded,
+            'Armazenamento', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaFeatureFlags) ?? true)
+        _tile(AdminMenuItem.sistemaFeatureFlags, Icons.toggle_on_rounded,
+            'Feature flags', isCollapsed),
     ];
   }
 
@@ -209,6 +241,9 @@ class AdminMenuLateral extends StatelessWidget {
 
   Color _itemAccent(AdminMenuItem item) {
     switch (item) {
+      case AdminMenuItem.commandCenter:
+      case AdminMenuItem.igrejasTorreComando:
+        return const Color(0xFF8B5CF6);
       case AdminMenuItem.igrejasDashboard:
       case AdminMenuItem.sistemaDashboard:
         return const Color(0xFF38BDF8);
@@ -225,7 +260,6 @@ class AdminMenuLateral extends StatelessWidget {
       case AdminMenuItem.igrejasMercadoPago:
       case AdminMenuItem.sistemaAcessos:
         return const Color(0xFF06B6D4);
-      case AdminMenuItem.igrejasTorreComando:
       case AdminMenuItem.sistemaMultiAdmin:
       case AdminMenuItem.sistemaNiveisAcesso:
         return const Color(0xFF8B5CF6);
@@ -239,6 +273,8 @@ class AdminMenuLateral extends StatelessWidget {
       case AdminMenuItem.sistemaArmazenamento:
       case AdminMenuItem.sistemaSugestoes:
       case AdminMenuItem.sistemaDivulgacao:
+      case AdminMenuItem.sistemaFeatureFlags:
+        return const Color(0xFF06B6D4);
       case AdminMenuItem.sistemaHome:
         return const Color(0xFF60A5FA);
     }

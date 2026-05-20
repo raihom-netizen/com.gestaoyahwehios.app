@@ -22,6 +22,12 @@ class ChurchTenantOfflineWarmupService {
   String? _sessionTenant;
   bool _warmupDoneThisSession = false;
 
+  /// Novo login ou pré-carga antes de abrir o painel — permite aquecer de novo.
+  void resetForNewSession() {
+    _sessionTenant = null;
+    _warmupDoneThisSession = false;
+  }
+
   /// Chamado uma vez ao abrir [IgrejaCleanShell] com rede disponível.
   Future<void> scheduleWarmupAfterLogin(String tenantIdRaw) async {
     final tidIn = tenantIdRaw.trim();

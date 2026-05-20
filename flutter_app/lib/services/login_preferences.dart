@@ -6,6 +6,9 @@ const String _kLastOAuthProvider = 'last_oauth_provider';
 /// Consumido pelo [AuthGate] após `signOut` (uma vez) — força rota em vez de `/` (web) ou `/login`.
 const String _kPostSignOutRouteOverride = 'gv_post_signout_route_override';
 
+/// Login automático do painel nas próximas aberturas (web + Android).
+const String kAutoPainelLogin = 'auto_painel_login_v1';
+
 /// Preferências locais para login expresso / reconexão Google silenciosa (alinhado ao Controle Total).
 class LoginPreferences {
   LoginPreferences._();
@@ -65,6 +68,7 @@ class LoginPreferences {
     await prefs.setString(_kPostSignOutRouteOverride, '/igreja/login');
     await prefs.remove(_kLastLoginIdentifier);
     await prefs.remove(_kLastOAuthProvider);
+    await prefs.remove(kAutoPainelLogin);
     const prefix = 'igreja';
     await prefs.remove('remember_login_$prefix');
     await prefs.remove('saved_login_$prefix');

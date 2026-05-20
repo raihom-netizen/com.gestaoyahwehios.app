@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,7 +16,15 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
+import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_chat_video_prepare.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
@@ -148,18 +158,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Duration _voiceElapsed = Duration.zero;
 
   _ReplyDraft? _replyDraft;
-  int _messageLimit = ChurchChatService.defaultMessagePageSize;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _olderMessageDocs = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestRecentDocs = const [];
   bool _loadingMoreHistory = false;
-  DateTime? _lastLimitBump;
+  bool _hasMoreOlderHistory = true;
+  int _olderPagesLoaded = 0;
+  DateTime? _lastHistoryLoadBump;
   Timer? _typingDebounce;
   Timer? _typingIdleTimer;
 
   /// Uids mencionados nesta composição (picker @) — enviados em [mentionedUids] no texto.
   final Set<String> _mentionedUidsPending = <String>{};
 
+  /// Avatares por `authUid` — `chat_peer_profiles` (sem stream de 800 membros).
+  Map<String, ChurchChatMemberRef> _senderMemberByUid = {};
+  bool _peerOnline = false;
+  Timer? _peerPresencePoll;
+  late final VoidCallback _photoSyncListener;
+  final List<ChurchChatOutboundPending> _pendingOutbound = [];
+
   @override
   void initState() {
     super.initState();
+    _photoSyncListener = _onMemberProfilePhotoSynced;
+    MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
     final draft = widget.initialDraftText?.trim();
     if (draft != null && draft.isNotEmpty) {
@@ -183,6 +205,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ),
       );
     });
+    unawaited(_loadInitialSenderProfiles());
+    _startPeerPresencePoll();
     if (widget.isDepartment &&
         widget.departmentId != null &&
         widget.departmentId!.isNotEmpty) {
@@ -201,6 +225,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   @override
   void dispose() {
+    MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     WidgetsBinding.instance.removeObserver(this);
     _scroll.removeListener(_onScrollPagination);
     _ctrl.removeListener(_onComposeTyping);
@@ -213,6 +238,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ),
     );
     _deptSub?.cancel();
+    _peerPresencePoll?.cancel();
     _voiceTicker?.cancel();
     final vr = _voiceRecorder;
     if (vr != null) {
@@ -249,26 +275,85 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final p = _scroll.position;
     if (p.maxScrollExtent <= 0) return;
     if (p.pixels >= p.maxScrollExtent - 160) {
-      _maybeIncreaseMessageLimit();
+      unawaited(_loadOlderHistory());
     }
   }
 
-  void _maybeIncreaseMessageLimit() {
-    const maxLimit = 2500;
-    if (_messageLimit >= maxLimit) return;
+  DateTime _messageCreatedAt(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final raw = d.data()['createdAt'];
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeVisibleMessages(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> recent,
+  ) {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in recent) {
+      byId[d.id] = d;
+    }
+    for (final d in _olderMessageDocs) {
+      byId.putIfAbsent(d.id, () => d);
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => _messageCreatedAt(b).compareTo(_messageCreatedAt(a)));
+    return merged;
+  }
+
+  QueryDocumentSnapshot<Map<String, dynamic>>? _oldestLoadedDoc() {
+    final all = _mergeVisibleMessages(_latestRecentDocs);
+    if (all.isEmpty) return null;
+    return all.last;
+  }
+
+  Future<void> _loadOlderHistory() async {
+    if (_loadingMoreHistory || !_hasMoreOlderHistory) return;
+    if (_olderPagesLoaded >= ChurchChatService.maxOlderMessagePages) return;
+    final oldest = _oldestLoadedDoc();
+    if (oldest == null) return;
     final now = DateTime.now();
-    if (_lastLimitBump != null &&
-        now.difference(_lastLimitBump!).inMilliseconds < 700) {
+    if (_lastHistoryLoadBump != null &&
+        now.difference(_lastHistoryLoadBump!).inMilliseconds < 700) {
       return;
     }
-    _lastLimitBump = now;
-    setState(() {
-      _loadingMoreHistory = true;
-      _messageLimit += ChurchChatService.defaultMessagePageSize;
-    });
-    Future<void>.delayed(const Duration(milliseconds: 500), () {
+    _lastHistoryLoadBump = now;
+    setState(() => _loadingMoreHistory = true);
+    try {
+      final page = await ChurchChatService.loadOlderMessagesPage(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        startAfterDoc: oldest,
+      );
+      if (!mounted) return;
+      setState(() {
+        _loadingMoreHistory = false;
+        if (page.isEmpty) {
+          _hasMoreOlderHistory = false;
+        } else {
+          _olderPagesLoaded++;
+          for (final d in page) {
+            if (!_olderMessageDocs.any((x) => x.id == d.id)) {
+              _olderMessageDocs.add(d);
+            }
+          }
+        }
+      });
+    } catch (_) {
       if (mounted) setState(() => _loadingMoreHistory = false);
-    });
+    }
+  }
+
+  void _openForwardSheet(String messageId, Map<String, dynamic> m) {
+    unawaited(
+      ChurchChatForwardSheet.show(
+        context,
+        tenantId: widget.tenantId,
+        sourceThreadId: widget.threadId,
+        messageId: messageId,
+        messageData: m,
+      ),
+    );
   }
 
   void _onComposeTyping() {
@@ -862,6 +947,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 });
               },
             ),
+            ListTile(
+              leading: Icon(Icons.forward_rounded,
+                  color: ThemeCleanPremium.primary),
+              title: const Text('Reencaminhar'),
+              subtitle: const Text('Enviar cópia para outra conversa.'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openForwardSheet(messageId, m);
+              },
+            ),
             if ((m['type'] ?? 'text').toString() == 'text')
               ListTile(
                 leading: Icon(Icons.copy_rounded,
@@ -1218,15 +1313,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
-    final x = await picker.pickImage(source: source);
+    final x = await picker.pickImage(source: source, imageQuality: 88);
     if (x == null) return;
     final bytes = await x.readAsBytes();
+    if (!mounted) return;
     final name = x.name.isNotEmpty ? x.name : 'foto.jpg';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    final send = await showChurchChatMediaPreviewSheet(
+      context,
+      previewBytes: bytes,
+      title: 'Enviar foto',
+      isVideo: false,
+    );
+    if (!send || !mounted) return;
     await _uploadAndSend(bytes, name, mime, kind);
   }
 
@@ -1234,14 +1337,241 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final picker = ImagePicker();
     final x = await picker.pickVideo(source: source);
     if (x == null) return;
-    final bytes = await x.readAsBytes();
-    final name = x.name.isNotEmpty ? x.name : 'video.mp4';
+    var name = x.name.isNotEmpty ? x.name : 'video.mp4';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
+      try {
+        final prepared =
+            await ChurchChatVideoPrepare.preparePathForUpload(x.path!);
+        final outName = prepared.split(Platform.pathSeparator).last;
+        if (outName.isNotEmpty) name = outName;
+        await _uploadAndSendFromPath(prepared, name, mime, kind);
+        return;
+      } on StateError catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+        return;
+      } catch (_) {
+        await _uploadAndSendFromPath(x.path!, name, mime, kind);
+        return;
+      }
+    }
+    final bytes = await x.readAsBytes();
     await _uploadAndSend(bytes, name, mime, kind);
+  }
+
+  void _onMemberProfilePhotoSynced() {
+    final uid =
+        MemberProfilePhotoSyncNotifier.instance.lastAuthUid?.trim() ?? '';
+    if (uid.isEmpty) return;
+    final peer = widget.peerUid?.trim() ?? '';
+    final me = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    if (uid != peer && uid != me) return;
+    unawaited(_refreshSenderProfilesForAuthUids({uid}));
+  }
+
+  Future<void> _refreshSenderProfilesForAuthUids(Set<String> authUids) async {
+    if (authUids.isEmpty) return;
+    final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+      tenantId: widget.tenantId,
+      authUids: authUids,
+      refetchAuthUids: authUids,
+    );
+    if (!mounted || loaded.isEmpty) return;
+    setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
+  }
+
+  Future<void> _loadInitialSenderProfiles() async {
+    final uids = <String>{};
+    final peer = widget.peerUid?.trim() ?? '';
+    if (peer.isNotEmpty) uids.add(peer);
+    final me = FirebaseAuth.instance.currentUser?.uid;
+    if (me != null && me.isNotEmpty) uids.add(me);
+    if (uids.isEmpty) return;
+    final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+      tenantId: widget.tenantId,
+      authUids: uids,
+    );
+    if (!mounted || loaded.isEmpty) return;
+    setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
+  }
+
+  void _ensureSenderProfiles(Iterable<String> senderUids) {
+    final missing = senderUids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && !_senderMemberByUid.containsKey(e))
+        .toSet();
+    if (missing.isEmpty) return;
+    unawaited(() async {
+      final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+        tenantId: widget.tenantId,
+        authUids: missing,
+      );
+      if (!mounted || loaded.isEmpty) return;
+      setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
+    }());
+  }
+
+  void _startPeerPresencePoll() {
+    _peerPresencePoll?.cancel();
+    final peer = widget.peerUid?.trim() ?? '';
+    if (peer.isEmpty || widget.isDepartment) return;
+    Future<void> poll() async {
+      final map = await ChurchChatService.fetchPresenceOnlineMap(
+        tenantId: widget.tenantId,
+        authUids: [peer],
+      );
+      if (!mounted) return;
+      setState(() => _peerOnline = map[peer] ?? false);
+    }
+
+    unawaited(poll());
+    _peerPresencePoll = Timer.periodic(
+      const Duration(seconds: 22),
+      (_) => unawaited(poll()),
+    );
+  }
+
+  void _enqueuePending(ChurchChatOutboundPending pending) {
+    if (!mounted) return;
+    setState(() {
+      _pendingOutbound.insert(0, pending);
+      _sending = true;
+    });
+  }
+
+  void _removePending(String localId) {
+    if (!mounted) return;
+    setState(() {
+      _pendingOutbound.removeWhere((p) => p.localId == localId);
+      _sending = _pendingOutbound.any((p) => !p.failed && !p.cancelled);
+    });
+  }
+
+  void _setPendingProgress(String localId, double progress) {
+    final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+    if (i < 0) return;
+    _pendingOutbound[i].progress = progress;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _flushPendingUpload({
+    required ChurchChatOutboundPending pending,
+    required List<int>? bytes,
+    required String? localPath,
+  }) async {
+    final replyPayload = _replyDraft?.toReplyPayload();
+    try {
+      unawaited(FeedPostMediaUpload.warmAuthToken());
+      final ({String url, String path}) up;
+      if (localPath != null && localPath.isNotEmpty && !kIsWeb) {
+        up = await ChurchChatService.uploadChatFile(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          localPath: localPath,
+          fileName: pending.fileName,
+          contentType: pending.mime,
+          onProgress: (p) => _setPendingProgress(pending.localId, p),
+        );
+      } else if (bytes != null && bytes.isNotEmpty) {
+        up = await ChurchChatService.uploadChatBytes(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          bytes: bytes,
+          fileName: pending.fileName,
+          contentType: pending.mime,
+          onProgress: (p) => _setPendingProgress(pending.localId, p),
+        );
+      } else {
+        throw StateError('Sem dados para enviar.');
+      }
+      final ok = await ChurchChatService.sendMediaMessage(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        downloadUrl: up.url,
+        storagePath: up.path,
+        kind: pending.kind,
+        fileName: pending.kind == 'document' ? pending.fileName : null,
+        replyTo: replyPayload,
+        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+      );
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Envio bloqueado para este contacto.')),
+        );
+      } else if (ok && mounted) {
+        setState(() => _replyDraft = null);
+      }
+      _removePending(pending.localId);
+    } on FirebaseException catch (e) {
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage = e.message ?? e.code;
+        if (mounted) {
+          setState(() => _sending = false);
+        }
+      }
+    } catch (e) {
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage = '$e';
+        if (mounted) {
+          setState(() => _sending = false);
+        }
+      }
+    }
+  }
+
+  Future<void> _uploadAndSendFromPath(
+    String localPath,
+    String name,
+    String mime,
+    String kind,
+  ) async {
+    final can = await ChurchChatMemberPrefs.canSendToDmThread(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+    );
+    if (!can) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não é possível enviar — desbloqueie o contacto nas opções.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    _typingDebounce?.cancel();
+    _typingIdleTimer?.cancel();
+    await ChurchChatService.clearTypingForMe(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+    );
+    final pending = ChurchChatOutboundPending(
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
+      kind: kind,
+      fileName: name,
+      mime: mime,
+      localPath: localPath,
+      replyPreview: _replyDraft?.preview,
+    );
+    _enqueuePending(pending);
+    unawaited(_flushPendingUpload(
+      pending: pending,
+      bytes: null,
+      localPath: localPath,
+    ));
   }
 
   Future<void> _pickDocument() async {
@@ -1262,16 +1592,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         'ods',
         'zip',
       ],
-      withData: true,
+      withData: !kIsWeb,
     );
     final f = r?.files.single;
-    if (f?.bytes == null) return;
-    final name = f!.name;
+    if (f == null) return;
+    final name = f.name;
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
+      await _uploadAndSendFromPath(f.path!, name, mime, kind);
+      return;
+    }
+    if (f.bytes == null) return;
     await _uploadAndSend(f.bytes!, name, mime, kind);
   }
 
@@ -1287,16 +1622,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         'opus',
         'flac',
       ],
-      withData: true,
+      withData: !kIsWeb,
     );
     final f = r?.files.single;
-    if (f?.bytes == null) return;
-    final name = f!.name;
+    if (f == null) return;
+    final name = f.name;
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
+      await _uploadAndSendFromPath(f.path!, name, mime, kind);
+      return;
+    }
+    if (f.bytes == null) return;
     await _uploadAndSend(f.bytes!, name, mime, kind);
   }
 
@@ -1328,113 +1668,128 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: widget.tenantId,
       threadId: widget.threadId,
     );
-    final replyPayload = _replyDraft?.toReplyPayload();
-    setState(() => _sending = true);
-    BuildContext? dialogCtx;
-    final progressVN = ValueNotifier<double>(0);
-    UploadTask? uploadTask;
-    try {
-      if (mounted) {
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (dctx) {
-            dialogCtx = dctx;
-            return PopScope(
-              canPop: false,
-              child: AlertDialog(
-                title: const Text('A enviar…'),
-                content: ValueListenableBuilder<double>(
-                  valueListenable: progressVN,
-                  builder: (_, v, __) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LinearProgressIndicator(
-                        value: v > 0 && v < 1 ? v : null,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Foto, vídeo ou ficheiro para a conversa.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      uploadTask?.cancel();
-                      Navigator.of(dctx).pop();
-                    },
-                    child: const Text('Cancelar'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      }
-      final up = await ChurchChatService.uploadChatBytes(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-        bytes: bytes,
-        fileName: name,
-        contentType: mime,
-        onProgress: (p) => progressVN.value = p,
-        onUploadTaskCreated: (t) => uploadTask = t,
+    final preview = (kind == 'image' || kind == 'video')
+        ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+        : null;
+    final pending = ChurchChatOutboundPending(
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
+      kind: kind,
+      fileName: name,
+      mime: mime,
+      previewBytes: preview,
+      replyPreview: _replyDraft?.preview,
+    );
+    _enqueuePending(pending);
+    unawaited(_flushPendingUpload(
+      pending: pending,
+      bytes: bytes,
+      localPath: null,
+    ));
+  }
+
+  Widget _buildPendingOutboundBubble(
+    ChurchChatOutboundPending p,
+    String myUid,
+  ) {
+    final maxBubbleW = MediaQuery.sizeOf(context).width * 0.78;
+    Widget body;
+    if (p.kind == 'image' && p.previewBytes != null) {
+      body = ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.memory(
+          p.previewBytes!,
+          width: 200,
+          fit: BoxFit.cover,
+        ),
       );
-      final ok = await ChurchChatService.sendMediaMessage(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-        downloadUrl: up.url,
-        storagePath: up.path,
-        kind: kind,
-        fileName: kind == 'document' ? name : null,
-        replyTo: replyPayload,
-        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
-      );
-      if (ok && mounted) {
-        setState(() => _replyDraft = null);
-      }
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Envio bloqueado para este contacto.')),
-        );
-      }
-    } on FirebaseException catch (e) {
-      if (e.code == 'canceled') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Envio cancelado.')),
-          );
-        }
-      } else if (mounted) {
-        final msg = (e.message ?? '').trim();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              msg.isNotEmpty ? msg : 'Falha no envio (${e.code}).',
+    } else {
+      body = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            p.failed ? Icons.error_outline_rounded : Icons.upload_rounded,
+            size: 18,
+            color: p.failed
+                ? ThemeCleanPremium.error
+                : ThemeCleanPremium.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              p.failed
+                  ? (p.errorMessage ?? 'Falha no envio')
+                  : 'A enviar ${p.fileName}…',
+              style: const TextStyle(fontSize: 14),
             ),
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Falha no envio: $e')),
-        );
-      }
-    } finally {
-      if (dialogCtx != null && dialogCtx!.mounted) {
-        Navigator.of(dialogCtx!).pop();
-      }
-      progressVN.dispose();
-      if (mounted) setState(() => _sending = false);
+        ],
+      );
     }
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxBubbleW),
+        margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: ChurchChatSenderPalette.outgoingBubbleBackground
+              .withValues(alpha: p.failed ? 0.55 : 0.92),
+          borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(mine: true),
+          border: Border.all(
+            color: p.failed
+                ? ThemeCleanPremium.error.withValues(alpha: 0.5)
+                : Colors.transparent,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            body,
+            const SizedBox(height: 6),
+            if (!p.failed)
+              LinearProgressIndicator(
+                value: p.progress > 0 && p.progress < 1 ? p.progress : null,
+                minHeight: 3,
+                borderRadius: BorderRadius.circular(2),
+              )
+            else
+              TextButton(
+                onPressed: () {
+                  p.failed = false;
+                  p.errorMessage = null;
+                  unawaited(_flushPendingUpload(
+                    pending: p,
+                    bytes: p.previewBytes != null
+                        ? p.previewBytes!.toList()
+                        : null,
+                    localPath: p.localPath,
+                  ));
+                },
+                child: const Text('Tentar de novo'),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _fmtMsgTime(Timestamp.fromDate(p.createdAt)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: ThemeCleanPremium.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.schedule_rounded,
+                  size: 14,
+                  color: ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatVoiceDuration(Duration d) {
@@ -1566,13 +1921,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (path == null || kIsWeb) return;
 
     try {
-      final bytes = await churchChatReadFileBytes(path);
-      await churchChatDeleteFileQuiet(path);
       final lower = path.toLowerCase();
       final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
       final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
       final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-      await _uploadAndSend(bytes, name, mime, 'audio');
+      await _uploadAndSendFromPath(path, name, mime, 'audio');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1678,6 +2031,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   tenantId: widget.tenantId,
                   cpfDigits: widget.memberCpfDigits,
                 );
+                final me = uid;
+                if (me.isNotEmpty && mounted) {
+                  unawaited(_refreshSenderProfilesForAuthUids({me}));
+                }
               } else if (v == 'dept_members' &&
                   widget.isDepartment &&
                   (widget.departmentId ?? '').isNotEmpty) {
@@ -1922,24 +2279,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               )
             else if (widget.peerUid != null &&
                 widget.peerUid!.isNotEmpty)
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('igrejas')
-                    .doc(widget.tenantId)
-                    .collection('membros')
-                    .limit(500)
-                    .snapshots(),
-                builder: (context, ms) {
-                  final memberBy =
-                      churchChatMemberByAuthUid(ms.data);
-                  final ref = memberBy[widget.peerUid!];
-                  return ChurchChatPeerAvatar(
-                    tenantId: widget.tenantId,
-                    peerAuthUid: widget.peerUid!,
-                    memberRef: ref,
-                    radius: 19,
-                  );
-                },
+              ChurchChatPeerAvatar(
+                tenantId: widget.tenantId,
+                peerAuthUid: widget.peerUid!,
+                memberRef: _senderMemberByUid[widget.peerUid!],
+                radius: 19,
               )
             else
               CircleAvatar(
@@ -1977,24 +2321,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     )
                   else if (widget.peerUid != null &&
                       widget.peerUid!.isNotEmpty)
-                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance
-                          .collection('igrejas')
-                          .doc(widget.tenantId)
-                          .collection('chat_presence')
-                          .doc(widget.peerUid!)
-                          .snapshots(),
-                      builder: (context, snap) {
-                        final on =
-                            ChurchChatService.isOnlineFromSnapshot(snap.data);
-                        return Text(
-                          on ? 'online' : 'offline',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white.withValues(alpha: 0.85),
-                          ),
-                        );
-                      },
+                    Text(
+                      _peerOnline ? 'online' : 'offline',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
                     ),
                 ],
               ),
@@ -2062,21 +2394,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
             _buildTypingStrip(uid),
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('igrejas')
-                    .doc(widget.tenantId)
-                    .collection('membros')
-                    .limit(800)
+              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: ChurchChatService.threadRef(
+                        widget.tenantId, widget.threadId)
                     .snapshots(),
-                builder: (context, memAll) {
-                  final memberByUid =
-                      churchChatMemberByAuthUid(memAll.data);
-                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: ChurchChatService.threadRef(
-                            widget.tenantId, widget.threadId)
-                        .snapshots(),
-                    builder: (context, thrSnap) {
+                builder: (context, thrSnap) {
                 Timestamp? peerSeenAt;
                 if (!widget.isDepartment &&
                     widget.peerUid != null &&
@@ -2098,16 +2420,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   }
                 }
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: ChurchChatService.messagesCol(
-                          widget.tenantId, widget.threadId)
-                      .orderBy('createdAt', descending: true)
-                      .limit(_messageLimit)
-                      .snapshots(),
+                  stream: ChurchChatService.recentMessagesStream(
+                    tenantId: widget.tenantId,
+                    threadId: widget.threadId,
+                  ),
                   builder: (context, snap) {
                     if (!snap.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final docsRaw = snap.data!.docs;
+                    _latestRecentDocs = snap.data!.docs;
+                    final docsRaw = _mergeVisibleMessages(_latestRecentDocs);
                     final visibleDocs = docsRaw
                         .where((d) => !ChurchChatService.messageHiddenForMe(
                               d.data(),
@@ -2121,7 +2443,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             .where((d) =>
                                 _messageHaystack(d.data()).contains(q))
                             .toList();
-                    if (docs.isEmpty) {
+                    _ensureSenderProfiles(
+                      docs.map(
+                        (d) => (d.data()['senderUid'] ?? '').toString(),
+                      ),
+                    );
+                    if (docs.isEmpty && _pendingOutbound.isEmpty) {
                       return Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
@@ -2138,14 +2465,40 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         ),
                       );
                     }
+                    final pendingCount = _pendingOutbound.length;
+                    final historyTail = (_loadingMoreHistory ||
+                            (_hasMoreOlderHistory && docs.isNotEmpty))
+                        ? 1
+                        : 0;
                     return ListView.builder(
                       controller: _scroll,
                       reverse: true,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 10),
-                      itemCount: docs.length,
+                      itemCount: docs.length + pendingCount + historyTail,
                       itemBuilder: (_, i) {
-                        final m = docs[i].data();
+                        if (i >= docs.length + pendingCount) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Center(
+                              child: _loadingMoreHistory
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                          );
+                        }
+                        if (i < pendingCount) {
+                          final p = _pendingOutbound[pendingCount - 1 - i];
+                          return _buildPendingOutboundBubble(p, uid);
+                        }
+                        final docIndex = i - pendingCount;
+                        final m = docs[docIndex].data();
                         final mine = (m['senderUid'] ?? '').toString() == uid;
                         final type = (m['type'] ?? 'text').toString();
                         final createdRaw = m['createdAt'];
@@ -2156,7 +2509,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             ct != null &&
                             ps.millisecondsSinceEpoch >=
                                 ct.millisecondsSinceEpoch;
-                        final messageId = docs[i].id;
+                        final messageId = docs[docIndex].id;
+                        DateTime? msgWhen;
+                        if (ct != null) msgWhen = ct.toDate();
+                        DateTime? olderWhen;
+                        if (docIndex + 1 < docs.length) {
+                          final olderRaw = docs[docIndex + 1].data()['createdAt'];
+                          if (olderRaw is Timestamp) {
+                            olderWhen = olderRaw.toDate();
+                          }
+                        }
+                        final showDate = msgWhen != null &&
+                            churchChatNeedsDateSeparator(
+                              olderMessage: olderWhen,
+                              currentMessage: msgWhen,
+                            );
                         final senderUid =
                             (m['senderUid'] ?? '').toString();
                         final senderLabel = _senderDisplayForMessage(
@@ -2286,27 +2653,52 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             }
                             _showMessageActions(messageId, m, senderUid);
                           },
-                          child: Align(
-                            alignment: mine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: groupIncoming
-                                ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.end,
-                                    children: [
-                                      ChurchChatPeerAvatar(
-                                        tenantId: widget.tenantId,
-                                        peerAuthUid: senderUid,
-                                        memberRef: memberByUid[senderUid],
-                                        radius: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(child: bubbleCard),
-                                    ],
-                                  )
-                                : bubbleCard,
+                          onDoubleTap: () {
+                            if (ChurchChatService.messageHiddenForMe(m, uid)) {
+                              return;
+                            }
+                            unawaited(
+                              ChurchChatService.setMyReactionOnMessage(
+                                tenantId: widget.tenantId,
+                                threadId: widget.threadId,
+                                messageId: messageId,
+                                emoji: '❤️',
+                              ),
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: mine
+                                ? CrossAxisAlignment.end
+                                : CrossAxisAlignment.stretch,
+                            children: [
+                              if (showDate && msgWhen != null)
+                                ChurchChatDateSeparatorChip(
+                                  label: churchChatDateSeparatorLabel(msgWhen),
+                                ),
+                              Align(
+                                alignment: mine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: groupIncoming
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          ChurchChatPeerAvatar(
+                                            tenantId: widget.tenantId,
+                                            peerAuthUid: senderUid,
+                                            memberRef:
+                                                _senderMemberByUid[senderUid],
+                                            radius: 16,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Flexible(child: bubbleCard),
+                                        ],
+                                      )
+                                    : bubbleCard,
+                              ),
+                            ],
                           ),
                         );
                       },
@@ -2314,9 +2706,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   },
                 );
               },
-            );
-                },
-              ),
+            ),
             ),
           AbsorbPointer(
             absorbing: blockedDm,
@@ -2379,7 +2769,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           ),
                           Flexible(
                             child: Text(
-                              'Toque no microfone para enviar',
+                              'Solte para enviar o áudio',
                               maxLines: 2,
                               textAlign: TextAlign.end,
                               style: TextStyle(
@@ -2417,19 +2807,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       tooltip: 'Mencionar membro (@)',
                     ),
                   if (!kIsWeb)
-                    IconButton(
-                      onPressed: _sending ? null : _toggleVoiceRecordSend,
-                      icon: Icon(
-                        _voiceRecording
-                            ? Icons.stop_circle_rounded
-                            : Icons.mic_rounded,
-                        color: _voiceRecording
-                            ? ThemeCleanPremium.error
-                            : ThemeCleanPremium.onSurfaceVariant,
+                    GestureDetector(
+                      onLongPressStart: _sending
+                          ? null
+                          : (_) => unawaited(_startVoiceRecording()),
+                      onLongPressEnd: _sending
+                          ? null
+                          : (_) => unawaited(_finishVoiceRecording(send: true)),
+                      onLongPressCancel: _sending
+                          ? null
+                          : () => unawaited(_finishVoiceRecording(send: false)),
+                      child: IconButton(
+                        onPressed: _sending ? null : _toggleVoiceRecordSend,
+                        icon: Icon(
+                          _voiceRecording
+                              ? Icons.stop_circle_rounded
+                              : Icons.mic_rounded,
+                          color: _voiceRecording
+                              ? ThemeCleanPremium.error
+                              : ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                        tooltip: _voiceRecording
+                            ? 'Soltar para enviar'
+                            : 'Segure para gravar · toque para modo alternativo',
                       ),
-                      tooltip: _voiceRecording
-                          ? 'Enviar gravação'
-                          : 'Gravar mensagem de voz',
                     ),
                   Expanded(
                     child: TextField(
@@ -2559,6 +2960,33 @@ class _MessageBody extends StatelessWidget {
     final preview = (rt['preview'] ?? '').toString();
     if (preview.isEmpty) return const SizedBox.shrink();
     final accent = replyQuoteAccent ?? ThemeCleanPremium.primary;
+    return _inlineQuoteBox(
+      context,
+      label: 'Resposta',
+      preview: preview,
+      accent: accent,
+    );
+  }
+
+  Widget _forwardedQuote(BuildContext context) {
+    final fwd = data['forwardedFrom'];
+    if (fwd is! Map) return const SizedBox.shrink();
+    final preview = (fwd['preview'] ?? '').toString();
+    if (preview.isEmpty) return const SizedBox.shrink();
+    return _inlineQuoteBox(
+      context,
+      label: 'Reencaminhada',
+      preview: preview,
+      accent: ThemeCleanPremium.primary.withValues(alpha: 0.75),
+    );
+  }
+
+  Widget _inlineQuoteBox(
+    BuildContext context, {
+    required String label,
+    required String preview,
+    required Color accent,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -2576,31 +3004,49 @@ class _MessageBody extends StatelessWidget {
             ),
           ),
         ),
-        child: Text(
-          preview,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 12.5,
-            height: 1.25,
-            color: ThemeCleanPremium.onSurfaceVariant,
-            fontWeight: FontWeight.w500,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: accent,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              preview,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.25,
+                color: ThemeCleanPremium.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
+  List<Widget> _quotePrefix(BuildContext context) => [
+        _forwardedQuote(context),
+        _replyQuote(context),
+      ];
+
   @override
   Widget build(BuildContext context) {
-    final quote = _replyQuote(context);
     if (type == 'text') {
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           Text(
             (data['text'] ?? '').toString(),
             style: const TextStyle(fontSize: 15, height: 1.35),
@@ -2616,7 +3062,7 @@ class _MessageBody extends StatelessWidget {
               mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            quote,
+            ..._quotePrefix(context),
             const Text('[figurinha indisponível]'),
           ],
         );
@@ -2626,7 +3072,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           Container(
             constraints:
                 const BoxConstraints(maxWidth: 176, maxHeight: 176),
@@ -2660,7 +3106,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           const Text('[mídia indisponível]'),
         ],
       );
@@ -2671,7 +3117,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           LayoutBuilder(
             builder: (context, c) {
               final maxW = c.maxWidth.isFinite ? c.maxWidth : 280.0;
@@ -2693,6 +3139,17 @@ class _MessageBody extends StatelessWidget {
                               imageUrl: url,
                               fit: BoxFit.cover,
                               width: w,
+                              memCacheWidth: (MediaQuery.devicePixelRatioOf(
+                                          context) *
+                                      w)
+                                  .round()
+                                  .clamp(96, 320),
+                              memCacheHeight: (MediaQuery.devicePixelRatioOf(
+                                          context) *
+                                      w *
+                                      0.75)
+                                  .round()
+                                  .clamp(72, 240),
                             ),
                           ),
                         ),
@@ -2771,7 +3228,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: Column(
@@ -2887,7 +3344,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           InkWell(
             onTap: () async {
               final u = Uri.parse(url);
@@ -2924,7 +3381,7 @@ class _MessageBody extends StatelessWidget {
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          quote,
+          ..._quotePrefix(context),
           ChurchChatInlineAudioPlayer(
             mediaUrl: url,
             storagePath: sp.isEmpty ? null : sp,
@@ -2939,7 +3396,7 @@ class _MessageBody extends StatelessWidget {
           mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        quote,
+        ..._quotePrefix(context),
         InkWell(
           onTap: () async {
             final u = Uri.parse(url);

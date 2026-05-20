@@ -7058,6 +7058,7 @@ export {
 
 export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
+export { onIgrejaMembroWriteChatPeerProfile } from "./churchChatPeerProfileSync";
 
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
 
@@ -7065,8 +7066,11 @@ export {
   onChurchMembroWritePanelDashboard,
   onChurchAvisoWritePanelDashboard,
   onChurchNoticiaWritePanelDashboard,
+  onChurchDepartamentoWritePanelDashboard,
   onChurchVisitanteWritePanelDashboard,
   onChurchPedidoOracaoWritePanelDashboard,
   getChurchPanelSnapshot,
 } from "./panelDashboardCache";
+
+export { getChurchMembersDirectory } from "./membersDirectoryCache";
 

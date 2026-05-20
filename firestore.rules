@@ -985,6 +985,12 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Cache de foto/nome para Chat Igreja (escrito pelo Admin SDK ao atualizar membros).
+      match /chat_peer_profiles/{authUid} {
+        allow read: if canAccessTenant(id);
+        allow write: if false;
+      }
+
       // Favoritos / silenciar conversa / bloquear contacto (chat) — só o próprio doc.
       match /chat_member_prefs/{uid} {
         allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);

@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -45,7 +47,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
+    show kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -73,7 +75,6 @@ import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
-import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
         BrDateDdMmYyyyInputFormatter,
@@ -565,9 +566,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       !ctx.mounted) return;
                                                   setSheetState(() {});
                                                   try {
-                                                    await FirebaseAuth
-                                                        .instance.currentUser
-                                                        ?.getIdToken(true);
+                                                    await FeedPostMediaUpload
+                                                        .warmAuthToken();
                                                     final bytes = await file
                                                         .readAsBytes();
                                                     final compressed =
@@ -583,22 +583,17 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                             DateTime.now()
                                                                 .millisecondsSinceEpoch
                                                                 .toString();
-                                                    final ref = FirebaseStorage
-                                                        .instance
-                                                        .ref(
-                                                            ChurchStorageLayout.eventTemplateCoverPath(
-                                                                tenantId,
-                                                                templateStorageId));
-                                                    await ref.putData(
-                                                        compressed,
-                                                        SettableMetadata(
-                                                            contentType:
-                                                                'image/jpeg',
-                                                            cacheControl:
-                                                                'public, max-age=31536000'));
                                                     final downloadUrl =
-                                                        await ref
-                                                            .getDownloadURL();
+                                                        await FeedPostMediaUpload
+                                                            .uploadFeedPhotoBytes(
+                                                      storagePath:
+                                                          ChurchStorageLayout
+                                                              .eventTemplateCoverPath(
+                                                        tenantId,
+                                                        templateStorageId,
+                                                      ),
+                                                      bytes: compressed,
+                                                    );
                                                     FirebaseStorageCleanupService
                                                         .scheduleCleanupAfterEventTemplateCoverUpload(
                                                       tenantId: tenantId,
@@ -654,8 +649,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             if (file == null || !ctx.mounted) return;
                             setSheetState(() {});
                             try {
-                              await FirebaseAuth.instance.currentUser
-                                  ?.getIdToken(true);
+                              await FeedPostMediaUpload.warmAuthToken();
                               final bytes = await file.readAsBytes();
                               final compressed =
                                   await ImageHelper.compressImage(
@@ -668,16 +662,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                   DateTime.now()
                                       .millisecondsSinceEpoch
                                       .toString();
-                              final ref = FirebaseStorage.instance.ref(
-                                  ChurchStorageLayout.eventTemplateCoverPath(
-                                      tenantId, templateStorageId));
-                              await ref.putData(
-                                  compressed,
-                                  SettableMetadata(
-                                      contentType: 'image/jpeg',
-                                      cacheControl:
-                                          'public, max-age=31536000'));
-                              final downloadUrl = await ref.getDownloadURL();
+                              final downloadUrl =
+                                  await FeedPostMediaUpload.uploadFeedPhotoBytes(
+                                storagePath:
+                                    ChurchStorageLayout.eventTemplateCoverPath(
+                                  tenantId,
+                                  templateStorageId,
+                                ),
+                                bytes: compressed,
+                              );
                               FirebaseStorageCleanupService
                                   .scheduleCleanupAfterEventTemplateCoverUpload(
                                 tenantId: tenantId,
@@ -5751,18 +5744,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<MediaUploadResult> _upload(
       Uint8List bytes, String postDocId, int slotIndex) async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final storagePath = ChurchStorageLayout.eventPostPhotoPath(
       widget.tenantId,
       postDocId,
       slotIndex,
     );
-    final webp = bytesLookLikeWebp(bytes);
-    return MediaUploadService.uploadBytesDetailed(
+    return FeedPostMediaUpload.uploadFeedPhotoDetailed(
       storagePath: storagePath,
       bytes: bytes,
-      contentType: webp ? 'image/webp' : 'image/jpeg',
-      skipClientPrepare: webp,
     );
   }
 
@@ -6113,16 +6102,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
-  double? _aspectRatioFromBytes(Uint8List bytes) {
-    try {
-      final im = img.decodeImage(bytes);
-      if (im == null || im.height <= 0) return null;
-      return im.width / im.height;
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _save() async {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
@@ -6133,15 +6112,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final postId = docRef.id;
     try {
+      await FeedPostMediaUpload.warmAuthToken();
       final allUrls = List<String>.from(_existingUrls);
       final initialLen = allUrls.length;
       final room = (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
       if (room > 0) {
-        final uploads = List<Future<MediaUploadResult>>.generate(
-          room,
-          (i) => _upload(_newImages[i], postId, initialLen + i),
+        final uploadResults = await FeedPostMediaUpload.uploadParallel(
+          count: room,
+          uploadOne: (i, report) async {
+            return _upload(
+              _newImages[i],
+              postId,
+              initialLen + i,
+            );
+          },
         );
-        for (final up in await Future.wait(uploads)) {
+        for (final up in uploadResults) {
           allUrls.add(up.downloadUrl);
         }
       }
@@ -6164,8 +6150,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .where((m) => (m['videoUrl'] as String).isNotEmpty)
           .toList();
       final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
-      final arFromNew =
-          _newImages.isNotEmpty ? _aspectRatioFromBytes(_newImages.first) : null;
+      final arFromNew = _newImages.isNotEmpty
+          ? await imageAspectRatioFromBytes(_newImages.first)
+          : null;
       final payload = <String, dynamic>{
         'type': 'evento',
         'title': _title.text.trim(),
@@ -6241,7 +6228,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied');
       if (mounted && isAssertionOrPerm) {
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken();
+          await FeedPostMediaUpload.warmAuthToken();
           await Future.delayed(const Duration(milliseconds: 150));
           if (widget.doc == null) {
             final retryUrls = List<String>.from(_existingUrls);
@@ -6249,11 +6236,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final rRoom =
                 (_maxPhotosPerEvent - rInit).clamp(0, _newImages.length);
             if (rRoom > 0) {
-              final rUp = List<Future<MediaUploadResult>>.generate(
-                rRoom,
-                (i) => _upload(_newImages[i], postId, rInit + i),
+              final rUp = await FeedPostMediaUpload.uploadParallel(
+                count: rRoom,
+                uploadOne: (i, _) =>
+                    _upload(_newImages[i], postId, rInit + i),
               );
-              for (final up in await Future.wait(rUp)) {
+              for (final up in rUp) {
                 retryUrls.add(up.downloadUrl);
               }
             }
@@ -6265,7 +6253,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
             final retryDerived = _pathsFromImageUrls(retrySafe);
             final arRetry = _newImages.isNotEmpty
-                ? _aspectRatioFromBytes(_newImages.first)
+                ? await imageAspectRatioFromBytes(_newImages.first)
                 : null;
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')
@@ -6347,7 +6335,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
             final mergeDerived = _pathsFromImageUrls(mergeSafe);
             final arMerge = _newImages.isNotEmpty
-                ? _aspectRatioFromBytes(_newImages.first)
+                ? await imageAspectRatioFromBytes(_newImages.first)
                 : null;
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')

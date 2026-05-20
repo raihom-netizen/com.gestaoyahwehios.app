@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
@@ -37,12 +38,20 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
   Future<void> _setFree(
       DocumentReference<Map<String, dynamic>> ref, bool free) async {
+    final billing = BillingLicenseService();
+    if (free) {
+      await billing.setTenantFreeMaster(ref.id);
+      return;
+    }
     await ref.set(
       {
+        'plano': FieldValue.delete(),
+        'planId': FieldValue.delete(),
         'license': {
-          'isFree': free,
+          'isFree': false,
           'updatedAt': FieldValue.serverTimestamp(),
-        }
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
     );

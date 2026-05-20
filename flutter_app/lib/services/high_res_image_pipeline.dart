@@ -31,8 +31,8 @@ const int kMemberCropWebpMaxEdgePx = 768;
 /// Qualidade na saída do recorte nativo (sem perda antes do WebP).
 const int kCropperCompressQuality = 100;
 
-/// WebP premium — avisos **e** eventos no mural (unificado).
-const int kPremiumMuralFeedWebpQuality = 95;
+/// WebP do feed — equilíbrio nitidez/velocidade de upload (avisos + eventos).
+const int kPremiumMuralFeedWebpQuality = 86;
 
 /// WebP final — retrocompat (igual ao premium mural).
 const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;
@@ -69,21 +69,31 @@ Future<XFile?> pickCropEncodeWebp({
   );
 }
 
-/// Várias fotos da galeria — recorte + WebP para cada uma.
+/// Várias fotos da galeria — recorte + WebP (até [parallel] em paralelo).
 Future<List<XFile>> pickMultiCropEncodeFeedWebp(
   List<XFile> picked, {
   BuildContext? webCropContext,
   int webpOutputQuality = kHighResWebpQuality,
+  int parallel = 3,
 }) async {
+  if (picked.isEmpty) return const [];
   final out = <XFile>[];
-  for (final x in picked) {
-    final y = await cropEncodePickedToWebp(
-      x,
-      profile: HighResCropProfile.feedFree,
-      webCropContext: webCropContext,
-      webpOutputQuality: webpOutputQuality,
+  final batch = parallel.clamp(1, 4);
+  for (var start = 0; start < picked.length; start += batch) {
+    final chunk = picked.skip(start).take(batch).toList();
+    final encoded = await Future.wait(
+      chunk.map(
+        (x) => cropEncodePickedToWebp(
+          x,
+          profile: HighResCropProfile.feedFree,
+          webCropContext: webCropContext,
+          webpOutputQuality: webpOutputQuality,
+        ),
+      ),
     );
-    if (y != null) out.add(y);
+    for (final y in encoded) {
+      if (y != null) out.add(y);
+    }
   }
   return out;
 }

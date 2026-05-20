@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -9,7 +10,9 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show appGoogleSignIn, appGoogleSignOutForAccountPicker;
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 /// Login social no onboarding: painel se já tem igreja; senão `/signup/completar-dados` (perfil + igreja).
@@ -34,6 +37,9 @@ class GestorOAuthOnboardingService {
         role: role,
       );
       if (!context.mounted) return;
+      await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
+      unawaited(ChurchAutoSessionService.preheatPanelCaches(tenantIdHint: igrejaId));
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Conta já vinculada. Redirecionando ao painel.'),
@@ -42,6 +48,27 @@ class GestorOAuthOnboardingService {
       );
       Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false);
     } else {
+      if (IosPaymentsGate.hideOrganizationSignup) {
+        await FirebaseAuth.instance.signOut();
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Esta conta ainda não está vinculada a uma igreja. '
+              'No app iOS só é possível entrar com conta existente. '
+              'Cadastro de nova igreja: gestaoyahweh.com.br (navegador). '
+              'Se já é gestor, use o e-mail da igreja cadastrada.',
+            ),
+            duration: Duration(seconds: 7),
+          ),
+        );
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/igreja/login',
+          (_) => false,
+        );
+        return;
+      }
       Navigator.pushNamedAndRemoveUntil(
         context,
         '/signup/completar-dados',

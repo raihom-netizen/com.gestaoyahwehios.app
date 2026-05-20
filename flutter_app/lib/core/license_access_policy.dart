@@ -34,18 +34,24 @@ class LicenseAccessPolicy {
     required Map<String, dynamic>? church,
   }) {
     if (church != null) {
+      final lic = church['license'];
+      final planKey =
+          (church['plano'] ?? church['planId'] ?? '').toString().toLowerCase();
+      final isFree = planKey == 'free' ||
+          (lic is Map && lic['isFree'] == true);
+      if (isFree) {
+        if (church['adminBlocked'] == true) return true;
+        if (lic is Map && lic['adminBlocked'] == true) return true;
+        return false;
+      }
       if (church['adminBlocked'] == true) return true;
       if (church['ativa'] == false) return true;
       if (church['masterInactive'] == true) return true;
       if (church['siteDisabled'] == true) return true;
-      final lic = church['license'];
       if (lic is Map) {
         if (lic['adminBlocked'] == true) return true;
         if (lic['active'] == false) return true;
-        if (lic['isFree'] == true) return false;
       }
-      final plano = (church['plano'] ?? '').toString().toLowerCase();
-      if (plano == 'free') return false;
 
       final accessEnd = churchAccessEnd(church);
       if (accessEnd != null) {

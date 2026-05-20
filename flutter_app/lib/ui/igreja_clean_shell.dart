@@ -2263,7 +2263,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ? LicenseAccessPolicy.licenseAccessBlocked(
                   subscription: widget.subscription, church: churchLive)
               : widget.trialExpired;
-          final bool licenseBlocked = guard.blocked || legacyBlocked;
+          final bool licenseBlocked = guard.isFree
+              ? guard.adminBlocked
+              : (guard.blocked || legacyBlocked);
           _globalSearchAllowed = registrationComplete && !licenseBlocked;
           if (churchLive != null) {
             final sig =

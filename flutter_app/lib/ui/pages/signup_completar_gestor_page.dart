@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Após login (Google/Apple/e-mail): 1) nome + CPF como futuro gestor; 2) dados mínimos da igreja.
@@ -35,6 +36,13 @@ class _SignupCompletarGestorPageState extends State<SignupCompletarGestorPage> {
   @override
   void initState() {
     super.initState();
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(context, '/igreja/login', (_) => false);
+      });
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && _nome.text.trim().isEmpty) {
       _nome.text = user.displayName ?? '';

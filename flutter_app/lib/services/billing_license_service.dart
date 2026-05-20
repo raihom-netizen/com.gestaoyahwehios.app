@@ -30,12 +30,8 @@ class BillingLicenseService {
   Future<void> setIgrejaPlano(String igrejaId, String plan) async {
     final ref = _db.collection('igrejas').doc(igrejaId);
     if (plan == 'free') {
-      await ref.update({
-        'plano': 'free',
-        'status': 'ativa',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'licenseExpiresAt': FieldValue.delete(),
-      });
+      await setTenantFreeMaster(igrejaId);
+      return;
     } else {
       await ref.update({
         'plano': plan,
@@ -78,13 +74,8 @@ class BillingLicenseService {
   Future<void> setTenantPlano(String tenantId, String plan, {DateTime? licenseExpiresAt}) async {
     final ref = _db.collection('igrejas').doc(tenantId);
     if (plan == 'free') {
-      await ref.update({
-        'plano': 'free',
-        'status': 'ativa',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'removedByAdminAt': FieldValue.delete(),
-        'licenseExpiresAt': FieldValue.delete(),
-      });
+      await setTenantFreeMaster(tenantId);
+      return;
     } else {
       final data = <String, dynamic>{
         'plano': plan,
@@ -95,21 +86,6 @@ class BillingLicenseService {
       if (licenseExpiresAt != null) data['licenseExpiresAt'] = Timestamp.fromDate(licenseExpiresAt);
       await ref.set(data, SetOptions(merge: true));
     }
-    try {
-      if (plan == 'free') {
-        await _db.collection('igrejas').doc(tenantId).update({
-          'plano': 'free', 'status': 'ativa', 'updatedAt': FieldValue.serverTimestamp(),
-          'removedByAdminAt': FieldValue.delete(), 'licenseExpiresAt': FieldValue.delete(),
-        });
-      } else {
-        final data = <String, dynamic>{
-          'plano': plan, 'status': 'ativa', 'updatedAt': FieldValue.serverTimestamp(),
-          'removedByAdminAt': FieldValue.delete(),
-        };
-        if (licenseExpiresAt != null) data['licenseExpiresAt'] = Timestamp.fromDate(licenseExpiresAt);
-        await _db.collection('igrejas').doc(tenantId).set(data, SetOptions(merge: true));
-      }
-    } catch (_) {}
   }
 
   /// Define apenas a data de vencimento da licença do tenant.
@@ -180,11 +156,18 @@ class BillingLicenseService {
 
   /// Painel master: igreja gratuita (sem bloqueio por licença).
   Future<void> setTenantFreeMaster(String tenantId) async {
-    await _db.collection('igrejas').doc(tenantId).set({
+    final ref = _db.collection('igrejas').doc(tenantId);
+    await ref.set({
       'plano': 'free',
       'planId': 'free',
       'adminBlocked': false,
       'status': 'ativa',
+      'ativa': true,
+      'status_assinatura': 'active',
+      'data_bloqueio': FieldValue.delete(),
+      'data_vencimento': FieldValue.delete(),
+      'masterInactive': FieldValue.delete(),
+      'siteDisabled': FieldValue.delete(),
       'license': {
         'isFree': true,
         'active': true,
@@ -194,9 +177,32 @@ class BillingLicenseService {
       },
       'billing': {'status': 'paid', 'provider': 'master_manual'},
       'licenseExpiresAt': FieldValue.delete(),
+      'trialEndsAt': FieldValue.delete(),
       'removedByAdminAt': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    await _syncSubscriptionsForFreeTenant(tenantId);
+  }
+
+  /// Alinha doc `subscriptions` para não manter status BLOCKED após FREE.
+  Future<void> _syncSubscriptionsForFreeTenant(String tenantId) async {
+    try {
+      final snap = await _db
+          .collection('subscriptions')
+          .where('igrejaId', isEqualTo: tenantId)
+          .limit(8)
+          .get();
+      for (final doc in snap.docs) {
+        await doc.reference.set({
+          'status': 'ACTIVE',
+          'status_assinatura': 'active',
+          'planId': 'free',
+          'plano': 'free',
+          'adminBlocked': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (_) {}
   }
 
   /// Painel master: plano pago manual + opcional vencimento e ciclo.

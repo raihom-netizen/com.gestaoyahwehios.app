@@ -50,6 +50,8 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -298,6 +300,7 @@ class _MembersPageState extends State<MembersPage> {
   final List<StreamSubscription<dynamic>> _membersRealtimeSubs = [];
   Timer? _membersRealtimeDebounce;
   String _membersRealtimeTenant = '';
+  bool _membrosRealtimeSkipInitial = true;
 
   /// UI otimista: some da lista após confirmar exclusão (reverte se falhar).
   final Set<String> _optimisticRemovedMemberIds = <String>{};
@@ -313,6 +316,10 @@ class _MembersPageState extends State<MembersPage> {
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
   static const int _membersPageSize = 20;
   int _membersVisibleCount = _membersPageSize;
+
+  /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
+  MembersDirectorySnapshot _directoryCache = const MembersDirectorySnapshot();
+  StreamSubscription<MembersDirectorySnapshot>? _directoryCacheSub;
 
   static int? _parseIdade(dynamic raw) {
     if (raw == null) return null;
@@ -512,6 +519,8 @@ class _MembersPageState extends State<MembersPage> {
     );
     _membersDataFuture = _loadMembersData();
     _deptsFuture = _loadDeptsForFilter();
+    unawaited(_hydrateMembersDirectoryCache());
+    unawaited(_watchMembersDirectoryCache());
     // Resolve tenant o mais cedo possível para que _effectiveTenantId esteja correto em ações (add/edit).
     _resolveEffectiveTenantId().then((resolved) {
       if (mounted && _resolvedTenantId != resolved) {
@@ -555,6 +564,7 @@ class _MembersPageState extends State<MembersPage> {
 
   @override
   void dispose() {
+    _directoryCacheSub?.cancel();
     _membersRealtimeDebounce?.cancel();
     for (final sub in _membersRealtimeSubs) {
       sub.cancel();
@@ -567,10 +577,111 @@ class _MembersPageState extends State<MembersPage> {
 
   void _scheduleMembersAutoRefresh() {
     _membersRealtimeDebounce?.cancel();
-    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 900), () {
+    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 1200), () {
       if (!mounted) return;
       _refreshMembers();
     });
+  }
+
+  MemberDirectoryEntry _directoryEntryFromFirestoreDoc(
+    DocumentSnapshot<Map<String, dynamic>> d,
+  ) {
+    final data = d.data() ?? <String, dynamic>{};
+    final photo = imageUrlFromMap(data);
+    final cpf = (data['CPF'] ?? data['cpf'] ?? '')
+        .toString()
+        .replaceAll(RegExp(r'\D'), '');
+    final funcoesRaw = data['FUNCOES'] ?? data['funcoes'];
+    final funcoes = funcoesRaw is List
+        ? funcoesRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+    final deptRaw = data['DEPARTAMENTOS'] ?? data['departamentos'];
+    final departamentos = deptRaw is List
+        ? deptRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+    final status =
+        (data['STATUS'] ?? data['status'] ?? 'ativo').toString().toLowerCase();
+    return MemberDirectoryEntry(
+      memberDocId: d.id,
+      displayName:
+          (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? 'Membro')
+              .toString(),
+      photoUrl: photo.isEmpty ? null : photo,
+      fotoUrlCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
+      authUid: _memberAuthUidFromData(data),
+      cpfDigits: cpf.length == 11 ? cpf : null,
+      email: (data['EMAIL'] ?? data['email'] ?? '').toString().trim().isEmpty
+          ? null
+          : (data['EMAIL'] ?? data['email'] ?? '').toString(),
+      telefone: (data['TELEFONES'] ?? data['TELEFONE'] ?? data['telefone'] ?? '')
+              .toString()
+              .trim()
+              .isEmpty
+          ? null
+          : (data['TELEFONES'] ?? data['TELEFONE'] ?? data['telefone'] ?? '')
+              .toString(),
+      status: status,
+      funcao: (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '')
+              .toString()
+              .trim()
+              .isEmpty
+          ? null
+          : (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '')
+              .toString(),
+      funcoes: funcoes,
+      departamentos: departamentos,
+      genero: (data['SEXO'] ?? data['sexo'] ?? data['genero'] ?? '')
+              .toString()
+              .trim()
+              .isEmpty
+          ? null
+          : (data['SEXO'] ?? data['sexo'] ?? data['genero'] ?? '').toString(),
+      createdAt: data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null,
+      updatedAt: data['updatedAt'] is Timestamp ? data['updatedAt'] as Timestamp : null,
+      dataNascimento: data['DATA_NASCIMENTO'] ?? data['dataNascimento'],
+    );
+  }
+
+  Future<void> _applyMembrosRealtimeSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    if (!mounted) return;
+    if (snap.docChanges.isEmpty) return;
+
+    final byId = <String, MemberDirectoryEntry>{
+      for (final e in _directoryCache.entries) e.memberDocId: e,
+    };
+    var touched = false;
+    for (final change in snap.docChanges) {
+      touched = true;
+      final id = change.doc.id;
+      if (change.type == DocumentChangeType.removed) {
+        byId.remove(id);
+        _optimisticRemovedMemberIds.add(id);
+      } else {
+        byId[id] = _directoryEntryFromFirestoreDoc(change.doc);
+        _optimisticRemovedMemberIds.remove(id);
+      }
+    }
+    if (!touched) return;
+
+    final sorted = byId.values.toList()
+      ..sort((a, b) => a.displayName
+          .toLowerCase()
+          .compareTo(b.displayName.toLowerCase()));
+    if (sorted.length > 600) {
+      sorted.removeRange(600, sorted.length);
+    }
+
+    setState(() {
+      _directoryCache = MembersDirectorySnapshot(
+        totalCount: _directoryCache.totalCount > 0
+            ? _directoryCache.totalCount
+            : sorted.length,
+        entries: sorted,
+      );
+    });
+    _scheduleMembersAutoRefresh();
   }
 
   void _startMembersRealtimeWatch(String tenantIdRaw) {
@@ -584,6 +695,7 @@ class _MembersPageState extends State<MembersPage> {
     }
     _membersRealtimeSubs.clear();
     _membersRealtimeTenant = tenantId;
+    _membrosRealtimeSkipInitial = true;
     final db = FirebaseFirestore.instance;
     _membersRealtimeSubs.add(
       db
@@ -593,7 +705,13 @@ class _MembersPageState extends State<MembersPage> {
           .orderBy('updatedAt', descending: true)
           .limit(_membersLoadLimit)
           .snapshots()
-          .listen((_) => _scheduleMembersAutoRefresh()),
+          .listen((snap) {
+        if (_membrosRealtimeSkipInitial) {
+          _membrosRealtimeSkipInitial = false;
+          return;
+        }
+        unawaited(_applyMembrosRealtimeSnapshot(snap));
+      }),
     );
     // Uma query OR em vez de dois listeners (menos ligações + menos leituras em mudança).
     _membersRealtimeSubs.add(
@@ -612,6 +730,43 @@ class _MembersPageState extends State<MembersPage> {
   Future<void> _loadDeptsForFilter() async {
     final depts = await _loadDepartments();
     if (mounted) setState(() => _departamentos = depts);
+  }
+
+  Future<void> _hydrateMembersDirectoryCache() async {
+    final resolved = await _resolveEffectiveTenantId();
+    final tid = resolved.isNotEmpty ? resolved : widget.tenantId.trim();
+    if (tid.isEmpty || !mounted) return;
+    final cache = await MembersDirectorySnapshotService.readOnce(tid);
+    if (!mounted) return;
+    if (cache.hasEntries) {
+      setState(() => _directoryCache = cache);
+    }
+    unawaited(
+      MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((warmed) {
+        if (!mounted || !warmed.hasEntries) return;
+        setState(() => _directoryCache = warmed);
+      }),
+    );
+  }
+
+  Future<void> _watchMembersDirectoryCache() async {
+    final resolved = await _resolveEffectiveTenantId();
+    final tid = resolved.isNotEmpty ? resolved : widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    await _directoryCacheSub?.cancel();
+    _directoryCacheSub =
+        MembersDirectorySnapshotService.watch(tid).listen((snap) {
+      if (!mounted || !snap.hasEntries) return;
+      setState(() => _directoryCache = snap);
+    });
+  }
+
+  List<_MemberDoc> _memberDocsFromDirectoryCache() {
+    return _directoryCache.entries
+        .map((e) => _MemberDoc(e.memberDocId, e.toMemberDataMap()))
+        .map(_memberWithOptimisticOverlay)
+        .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
+        .toList();
   }
 
   static const int _membersLoadLimit = 400;
@@ -3883,6 +4038,19 @@ class _MembersPageState extends State<MembersPage> {
             final mergedSelf = Map<String, dynamic>.from(member.data)
               ..addAll(updates);
             _invalidateMemberPhotoCaches(targetTenantId, member.id, mergedSelf);
+            final revSelf = updates['fotoUrlCacheRevision'];
+            if (revSelf is int) {
+              unawaited(
+                MemberProfilePhotoUpdateService
+                    .syncChatPeerProfilesAfterPhotoUpdate(
+                  primaryTenantId: targetTenantId,
+                  memberDocId: member.id,
+                  memberData: mergedSelf,
+                  photoUrl: u,
+                  cacheRevision: revSelf,
+                ),
+              );
+            }
           }
           _refreshMembers(clearOptimisticMemberOverlayId: member.id);
         }
@@ -4309,6 +4477,18 @@ class _MembersPageState extends State<MembersPage> {
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
         _invalidateMemberPhotoCaches(targetTenantId, mid, mergedGestor);
+        final revGestor = updates['fotoUrlCacheRevision'];
+        if (revGestor is int) {
+          unawaited(
+            MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
+              primaryTenantId: targetTenantId,
+              memberDocId: mid,
+              memberData: mergedGestor,
+              photoUrl: u,
+              cacheRevision: revGestor,
+            ),
+          );
+        }
         Future.delayed(const Duration(seconds: 20), () {
           if (!mounted) return;
           setState(() => _uploadedPhotoUrls.remove(mid));
@@ -4357,6 +4537,19 @@ class _MembersPageState extends State<MembersPage> {
               final mergedRetry = Map<String, dynamic>.from(member.data)
                 ..addAll(updates);
               _invalidateMemberPhotoCaches(targetTenantId, mid, mergedRetry);
+              final revRetry = updates['fotoUrlCacheRevision'];
+              if (revRetry is int) {
+                unawaited(
+                  MemberProfilePhotoUpdateService
+                      .syncChatPeerProfilesAfterPhotoUpdate(
+                    primaryTenantId: targetTenantId,
+                    memberDocId: mid,
+                    memberData: mergedRetry,
+                    photoUrl: u,
+                    cacheRevision: revRetry,
+                  ),
+                );
+              }
               Future.delayed(const Duration(seconds: 20), () {
                 if (!mounted) return;
                 setState(() => _uploadedPhotoUrls.remove(mid));
@@ -4794,17 +4987,66 @@ class _MembersPageState extends State<MembersPage> {
     return ('', 'membro');
   }
 
+  /// Lista a partir do cache servidor (1 doc) enquanto o Firestore completa.
+  Widget _buildMembersDirectoryCacheList(
+    EdgeInsets padding, {
+    required List<_MemberDoc> docs,
+    required bool addBlocked,
+    MembersLimitResult? limitResult,
+    required bool includeInlineFilters,
+  }) {
+    final slivers = <Widget>[
+      if (includeInlineFilters)
+        SliverToBoxAdapter(
+          child: _buildMembersUltraFilterStrip(
+            padding,
+            limitResult: limitResult,
+            addBlocked: addBlocked,
+          ),
+        ),
+      const SliverToBoxAdapter(
+        child: LinearProgressIndicator(minHeight: 2),
+      ),
+      _buildMembersListSliver(docs),
+    ];
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) => _onMembersScrollNotification(n, docs.length),
+      child: _wrapMembersListScroll(
+        onRefresh: () async => _refreshMembers(forceServer: true),
+        scrollableChild: CustomScrollView(
+          controller: _membersScrollController,
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: slivers,
+        ),
+      ),
+    );
+  }
+
   // ─── Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) ─
   Widget _buildMembersListSliver(List<_MemberDoc> docs) {
     final visibleCount = _membersVisibleCount.clamp(0, docs.length);
-    final preloadUrls = docs
-        .take((visibleCount + 12).clamp(0, docs.length))
-        .map((m) => _photoUrlForMember(m.id, m.data))
-        .where((u) => sanitizeImageUrl(u).isNotEmpty)
-        .toList();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      preloadNetworkImages(context, preloadUrls, maxItems: 12);
+      final tid = _effectiveTenantId.trim();
+      if (tid.isEmpty) return;
+      ChurchGalleryPhotoWarmup.schedule(
+        context: context,
+        tenantId: tid,
+        maxMembers: (visibleCount + 12).clamp(8, 32),
+        members: docs.take(visibleCount + 12).map((m) {
+          final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'\D'), '');
+          return ChurchGalleryMemberPhotoRef(
+            memberDocId: m.id,
+            memberData: m.data,
+            cpfDigits: cpf.length == 11 ? cpf : null,
+            authUid: _memberAuthUidFromData(m.data),
+          );
+        }),
+      );
     });
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(ThemeCleanPremium.spaceMd, 0,
@@ -6398,6 +6640,18 @@ class _MembersPageState extends State<MembersPage> {
       future: _membersDataFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
+          if (_directoryCache.hasEntries) {
+            final cacheDocs = _aplicarFiltros(_memberDocsFromDirectoryCache());
+            if (cacheDocs.isNotEmpty) {
+              return _buildMembersDirectoryCacheList(
+                padding,
+                docs: cacheDocs,
+                addBlocked: addBlocked,
+                limitResult: limitResult,
+                includeInlineFilters: includeInlineFilters,
+              );
+            }
+          }
           if (includeInlineFilters) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -9096,6 +9350,7 @@ class _MemberAvatar extends StatelessWidget {
       backgroundColor: backgroundColor,
       memCacheWidth: mc,
       memCacheHeight: mc,
+      preferListThumbnail: true,
       fallbackChild: letter,
     );
     if (!_canPreview(urlKey, tid, mid)) return memberWidget;

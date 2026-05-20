@@ -33,8 +33,12 @@ import 'admin_forcar_atualizacao_page.dart';
 import 'admin_migrar_membros_page.dart';
 import 'admin_sugestoes_page.dart';
 import 'admin_divulgacao_media_page.dart';
+import 'master_command_center_page.dart';
+import 'master_feature_flags_page.dart';
 import 'master_saas_command_center_page.dart';
 import 'master_usuarios_controle_360_page.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/master_global_search_dialog.dart';
 import 'admin_aviso_global_page.dart';
 import 'pages/storage_usage_page.dart';
 import 'widgets/version_footer.dart';
@@ -48,6 +52,8 @@ part 'admin_igrejas_tab.dart';
 /// Título do AppBar no painel master em telas estreitas (celular / web estreito).
 String _masterMenuTitle(AdminMenuItem item) {
   switch (item) {
+    case AdminMenuItem.commandCenter:
+      return 'Command Center';
     case AdminMenuItem.igrejasDashboard:
       return 'Painel Igrejas';
     case AdminMenuItem.igrejasLista:
@@ -96,9 +102,15 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Aviso de nova versão';
     case AdminMenuItem.sistemaMigrarMembros:
       return 'Migrar membros';
+    case AdminMenuItem.sistemaFeatureFlags:
+      return 'Feature flags';
     case AdminMenuItem.sistemaHome:
       return 'Início';
   }
+}
+
+class _MasterSearchIntent extends Intent {
+  const _MasterSearchIntent();
 }
 
 class AdminPanelPage extends StatefulWidget {
@@ -125,7 +137,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
   @override
   void initState() {
     super.initState();
-    _selectedItem = AdminMenuItem.sistemaDashboard;
+    _selectedItem = AdminMenuItem.commandCenter;
     _adminContext = AdminContext.igrejas;
     // Timeout 10s: se a verificação do token travar, negar acesso master por segurança.
     _isAdminFuture = Future.any<bool>([
@@ -203,6 +215,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
     if (_masterPermissions.isEmpty) return true;
     if (item == AdminMenuItem.sistemaHome) return true;
     const map = <AdminMenuItem, String>{
+      AdminMenuItem.commandCenter: 'dashboard',
       AdminMenuItem.igrejasDashboard: 'igrejas',
       AdminMenuItem.igrejasLista: 'igrejas',
       AdminMenuItem.igrejasPlanos: 'planos',
@@ -227,6 +240,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
       AdminMenuItem.sistemaAvisoGlobal: 'aviso_global',
       AdminMenuItem.sistemaVersaoMinima: 'versao',
       AdminMenuItem.sistemaMigrarMembros: 'migracao',
+      AdminMenuItem.sistemaFeatureFlags: 'customizacao',
     };
     final key = map[item];
     if (key == null) return true;
@@ -453,6 +467,12 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
 
     Widget content;
     switch (_selectedItem) {
+      case AdminMenuItem.commandCenter:
+        content = MasterCommandCenterPage(
+          onNavigateTo: (item) => _selectMenuItem(context, item),
+          moduleVisible: _canAccessMasterItem,
+        );
+        break;
       case AdminMenuItem.igrejasDashboard:
         content = _IgrejasTab(
             query: _q,
@@ -535,11 +555,30 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
       case AdminMenuItem.sistemaMigrarMembros:
         content = const AdminMigrarMembrosPage();
         break;
+      case AdminMenuItem.sistemaFeatureFlags:
+        content = const MasterFeatureFlagsPage();
+        break;
       case AdminMenuItem.sistemaHome:
         content = const Center(child: Text('Voltar ao Início'));
         break;
     }
     return content;
+  }
+
+  void _openGlobalSearch(BuildContext context) {
+    unawaited(
+      MasterGlobalSearchDialog.show(
+        context,
+        onOpenChurch: (id, data) {
+          MasterChurchDetailSheet.show(
+            context,
+            tenantId: id,
+            churchData: data,
+            onNavigateTo: (item) => _selectMenuItem(context, item),
+          );
+        },
+      ),
+    );
   }
 
   void _selectMenuItem(BuildContext context, AdminMenuItem item) {
@@ -574,7 +613,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
     return Drawer(
       width: drawerW,
       child: Container(
-        color: ThemeCleanPremium.navSidebar,
+        decoration: masterSidebarGradientDecoration,
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -634,6 +673,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   children: [
+                    if (_canAccessMasterItem(AdminMenuItem.commandCenter))
+                      _drawerTile(context, Icons.hub_rounded, 'Command Center',
+                          AdminMenuItem.commandCenter),
                     ..._drawerTilesForContext(context),
                     const Divider(height: 24, color: Colors.white24),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaDashboard))
@@ -698,6 +740,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                         AdminMenuItem.sistemaMigrarMembros))
                       _drawerTile(context, Icons.people_alt_rounded,
                           'Migrar membros', AdminMenuItem.sistemaMigrarMembros),
+                    if (_canAccessMasterItem(AdminMenuItem.sistemaFeatureFlags))
+                      _drawerTile(context, Icons.toggle_on_rounded,
+                          'Feature flags', AdminMenuItem.sistemaFeatureFlags),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaHome))
                       _drawerTile(context, Icons.home_rounded,
                           'Voltar ao Início', AdminMenuItem.sistemaHome),
@@ -823,7 +868,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
         if (!loading && !_canAccessMasterItem(_selectedItem)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            setState(() => _selectedItem = AdminMenuItem.sistemaDashboard);
+            setState(() => _selectedItem = AdminMenuItem.commandCenter);
           });
         }
         if (!loading && !isAdmin && !_reportedSuspiciousAccess) {
@@ -836,7 +881,25 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
           ));
         }
 
-        return Listener(
+        return Shortcuts(
+          shortcuts: <ShortcutActivator, Intent>{
+            LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyK):
+                const _MasterSearchIntent(),
+            LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyK):
+                const _MasterSearchIntent(),
+          },
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              _MasterSearchIntent: CallbackAction<_MasterSearchIntent>(
+                onInvoke: (_) {
+                  _openGlobalSearch(context);
+                  return null;
+                },
+              ),
+            },
+            child: Focus(
+              autofocus: true,
+              child: Listener(
           onPointerDown: (_) => _touchActivity(),
           onPointerMove: (_) => _touchActivity(),
           child: Scaffold(
@@ -870,6 +933,11 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                       ),
                     ),
                     actions: [
+                      IconButton(
+                        icon: const Icon(Icons.search_rounded, size: 22),
+                        onPressed: () => _openGlobalSearch(context),
+                        tooltip: 'Pesquisar igrejas',
+                      ),
                       IconButton(
                         icon: const Icon(Icons.logout_rounded, size: 22),
                         onPressed: () async {
@@ -927,6 +995,8 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                                   _AdminHeader(
                                     onMenuToggle: () => setState(
                                         () => _menuCollapsed = !_menuCollapsed),
+                                    onGlobalSearch: () =>
+                                        _openGlobalSearch(context),
                                     onLogout: () async {
                                       await _writeAuditLog(
                                         action: 'master_logout',
@@ -1014,6 +1084,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
               ),
             ),
           ),
+        ),
+            ),
+          ),
         );
       },
     );
@@ -1026,9 +1099,14 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
 
 class _AdminHeader extends StatelessWidget {
   final VoidCallback onMenuToggle;
+  final VoidCallback onGlobalSearch;
   final VoidCallback onLogout;
 
-  const _AdminHeader({required this.onMenuToggle, required this.onLogout});
+  const _AdminHeader({
+    required this.onMenuToggle,
+    required this.onGlobalSearch,
+    required this.onLogout,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1100,6 +1178,17 @@ class _AdminHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
               ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.search_rounded, size: 20),
+            onPressed: onGlobalSearch,
+            tooltip: 'Pesquisar igrejas (Ctrl+K)',
+            style: IconButton.styleFrom(
+              foregroundColor: ThemeCleanPremium.onSurface,
+              minimumSize: const Size(40, 40),
+              padding: const EdgeInsets.all(8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
           IconButton(

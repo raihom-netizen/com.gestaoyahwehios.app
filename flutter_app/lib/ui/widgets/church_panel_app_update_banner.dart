@@ -1,7 +1,8 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/app_version.dart';
@@ -50,10 +51,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
 
   @override
   Widget build(BuildContext context) {
-    // Painel web: aviso para recarregar (nova build). Android: Play Store.
-    if (!kIsWeb && defaultTargetPlatform != TargetPlatform.android) {
-      return const SizedBox.shrink();
-    }
+    // Painel web, Android e iOS: aviso com link da loja ou recarregar web.
     if (!_prefsReady) return const SizedBox.shrink();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -211,9 +209,17 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                                     VersionService.instance.openUpdateUrl(url),
                                   );
                                 },
-                                icon: const Icon(Icons.shopping_bag_rounded,
-                                    size: 18),
-                                label: const Text('Atualizar na Play Store'),
+                                icon: Icon(
+                                  defaultTargetPlatform == TargetPlatform.iOS
+                                      ? Icons.apple_rounded
+                                      : Icons.shopping_bag_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  defaultTargetPlatform == TargetPlatform.iOS
+                                      ? 'Atualizar no iPhone'
+                                      : 'Atualizar na Play Store',
+                                ),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: ThemeCleanPremium.primary,
                                   foregroundColor: Colors.white,

@@ -44,6 +44,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/window_close_handler_stub.dart'
     if (dart.library.io) 'package:gestao_yahweh/window_close_handler_io.dart'
     as window_close_handler;
@@ -623,6 +624,14 @@ void main() async {
         initialRoute =
             (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
       }
+      if (kIsWeb) {
+        final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
+          initialRoute,
+        );
+        if (autoPainel != null) {
+          initialRoute = autoPainel;
+        }
+      }
     } catch (_) {}
     // Fallback se SharedPreferences falhar no app móvel.
     if (!kIsWeb &&
@@ -632,6 +641,20 @@ void main() async {
       final cu = FirebaseAuth.instance.currentUser;
       initialRoute =
           (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
+    }
+    if (kIsWeb) {
+      final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
+        initialRoute,
+      );
+      if (autoPainel != null) {
+        initialRoute = autoPainel;
+      }
+    }
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        initialRoute == '/painel' &&
+        FirebaseAuth.instance.currentUser != null) {
+      unawaited(ChurchAutoSessionService.preheatPanelCaches());
     }
   }
   await initializeDateFormatting('pt_BR', null);
@@ -836,7 +859,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 return MaterialPageRoute(
                   settings: settings,
                   builder: (_) => LoginPage(
-                    title: 'Entrar — Painel da Igreja',
+                    title: 'Entrar com conta existente',
                     afterLoginRoute: '/painel',
                     showFleetBranding: false,
                     backRoute: '/',
@@ -849,6 +872,20 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 return MaterialPageRoute(
                   settings: settings,
                   builder: (_) => const IosPaymentUnavailableView(),
+                );
+              }
+              if (IosPaymentsGate.isOrganizationSignupPath(path, pathSegments)) {
+                final em = uri.queryParameters['email']?.trim();
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (_) => LoginPage(
+                    title: 'Entrar com conta existente',
+                    afterLoginRoute: '/painel',
+                    showFleetBranding: false,
+                    backRoute: '/',
+                    prefillEmail:
+                        (em != null && em.isNotEmpty) ? em : null,
+                  ),
                 );
               }
             }
@@ -971,6 +1008,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
+                    showSmartLoginFlow: false,
                     prefillEmail:
                         (em != null && em.isNotEmpty) ? em : null,
                   );

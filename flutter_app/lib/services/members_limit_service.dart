@@ -97,6 +97,33 @@ class MembersLimitService {
     }
   }
 
+  /// Total em `_panel_cache` (dashboard ou members_directory) — evita varrer coleções na abertura.
+  Future<int?> _cachedMembersTotalCount(String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    try {
+      final snap = await _db
+          .collection('igrejas')
+          .doc(tid)
+          .collection('_panel_cache')
+          .doc('dashboard_summary')
+          .get();
+      final n = snap.data()?['membersTotalCount'];
+      if (n is num && n >= 0) return n.toInt();
+    } catch (_) {}
+    try {
+      final snap = await _db
+          .collection('igrejas')
+          .doc(tid)
+          .collection('_panel_cache')
+          .doc('members_directory')
+          .get();
+      final n = snap.data()?['totalCount'];
+      if (n is num && n >= 0) return n.toInt();
+    } catch (_) {}
+    return null;
+  }
+
   /// Conta membros do tenant: igrejas/tenantId/membros + igrejas/tenantId/members (legado, até migração) + users.
   /// [maxPerSource] limita a leitura por coleção para não carregar milhares de docs (ex.: planLimit + 200).
   Future<int> countMembers(String tenantId, {int? maxPerSource}) async {
@@ -169,7 +196,9 @@ class MembersLimitService {
     final cfg = configs[planId];
     final planLimit = cfg?.maxMembers ?? getPlanLimit(planId);
     final maxPerSource = planLimit > 0 ? planLimit + 200 : 2500;
-    final currentCount = await countMembers(tenantId, maxPerSource: maxPerSource);
+    final cached = await _cachedMembersTotalCount(tenantId);
+    final currentCount = cached ??
+        await countMembers(tenantId, maxPerSource: maxPerSource);
     final hardLimit = planLimit > 0 ? planLimit + AppConstants.membersGraceOverLimit : 99999;
     final planName = cfg?.name ?? getPlanName(planId);
     return MembersLimitResult(

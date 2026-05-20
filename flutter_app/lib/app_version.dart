@@ -1,4 +1,9 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1588: deploy completo produção — web, AAB Play, ZIP iOS Codemagic (push).
+/// 11.2.295+1587: deploy completo — Command Center master, login auto-sessão, chat 2ª entrega.
+/// 11.2.295+1586: Painel Master Command Center Super Premium — home unificada, menu 6 grupos,
+/// pesquisa global Ctrl+K, ficha igreja, feature flags, cache KPIs 15 min.
+/// 11.2.295+1581: painel/membros/avisos expresso; chat WhatsApp-like (envio otimista, prévia mídia, segurar voz).
 /// 11.2.295+1580: deploy completo — painel cache, membros/avisos/eventos rápidos, renovação plano web/Android.
 /// 11.2.295+1579: bump iOS — build 1578 já enviado à App Store Connect (90189 redundant upload).
 /// 11.2.295+1578: deploy completo — web online, doações iOS Safari, chat, AAB Play, ZIP iOS Codemagic (push).
@@ -107,7 +112,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1580';
+const String appBuildNumber = '1588';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

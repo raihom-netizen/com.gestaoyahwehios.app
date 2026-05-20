@@ -41,10 +41,32 @@ class VersionResult {
   });
 }
 
-/// Mensagem padrão quando `config/appVersion` não define [message] (tom “ultra premium”).
-String kDefaultVersionUpdateMessage(String minVersion) {
-  return 'Nova versão disponível (v$minVersion). Toque em Atualizar na Play Store '
-      'para obter o app mais recente — melhorias, correções e experiência premium.';
+/// Mensagem padrão quando `config/appVersion` não define [message].
+String kDefaultVersionUpdateMessage(String targetLabel) {
+  return 'Nova versão disponível ($targetLabel). Toque em Atualizar para instalar '
+      'o build mais recente — melhorias, correções e experiência premium.';
+}
+
+/// `true` se a versão instalada está abaixo de [minVersion] ou do [minBuildNumber] (mesmo X.Y.Z).
+bool isAppBelowRequiredVersion({
+  required String minVersion,
+  int? minBuildNumber,
+}) {
+  final min = minVersion.trim();
+  if (min.isEmpty) return false;
+  final cmp = _compareVersions(appVersion, min);
+  if (cmp < 0) return true;
+  if (cmp > 0) return false;
+  final minB = minBuildNumber ?? 0;
+  if (minB <= 0) return false;
+  final currentB = int.tryParse(appBuildNumber) ?? 0;
+  return currentB < minB;
+}
+
+String _targetVersionLabel(String minVersion, int? minBuildNumber) {
+  final b = minBuildNumber ?? 0;
+  if (b > 0) return '$minVersion+$b';
+  return minVersion;
 }
 
 /// Compara duas versões no formato "major.minor" ou "major.minor.patch".
@@ -80,19 +102,53 @@ class VersionService {
   /// [storeUrlAndroid] vazio → [kDefaultPlayStoreUrl].
   PanelUpdateHint? panelUpdateHintFromConfigData(Map<String, dynamic>? data) {
     if (data == null) return null;
+    final minVer = (data['minVersion'] ?? '').toString().trim();
+    final minBuildRaw = data['minBuildNumber'];
+    final minBuild = minBuildRaw is num
+        ? minBuildRaw.toInt()
+        : int.tryParse('$minBuildRaw') ?? 0;
+
     var target = (data['latestVersion'] ?? '').toString().trim();
     if (target.isEmpty) {
-      target = (data['minVersion'] ?? '').toString().trim();
+      target = _targetVersionLabel(minVer, minBuild > 0 ? minBuild : null);
     }
-    if (target.isEmpty) return null;
-    if (_compareVersions(appVersion, target) >= 0) return null;
+    if (minVer.isEmpty && target.isEmpty) return null;
 
-    final url = (data['storeUrlAndroid'] ?? '').toString().trim();
-    final storeUrl = url.isNotEmpty ? url : kDefaultPlayStoreUrl;
+    var compareVer = minVer;
+    var compareBuild = minBuild > 0 ? minBuild : null;
+    if (compareVer.isEmpty && target.contains('+')) {
+      final parts = target.split('+');
+      compareVer = parts.first.trim();
+      if (parts.length > 1) {
+        compareBuild = int.tryParse(parts[1].trim());
+      }
+    } else if (compareVer.isEmpty) {
+      compareVer = target;
+    }
+    if (!isAppBelowRequiredVersion(
+      minVersion: compareVer,
+      minBuildNumber: compareBuild,
+    )) {
+      return null;
+    }
+
+    final androidUrl = (data['storeUrlAndroid'] ?? '').toString().trim();
+    final iosUrl = (data['storeUrlIos'] ?? '').toString().trim();
+    String storeUrl;
+    if (kIsWeb) {
+      storeUrl = androidUrl.isNotEmpty ? androidUrl : kDefaultPlayStoreUrl;
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      storeUrl = iosUrl.isNotEmpty
+          ? iosUrl
+          : AppConstants.gestaoYahwehTestFlightUrl;
+    } else {
+      storeUrl = androidUrl.isNotEmpty ? androidUrl : kDefaultPlayStoreUrl;
+    }
+
     var msg = (data['panelUpdateMessage'] ?? data['message'] ?? '').toString().trim();
     if (msg.isEmpty) {
       msg =
-          'Está disponível uma nova versão ($target). Atualize na Play Store para melhorias e correções.';
+          'Está disponível uma nova versão ($target). Atualize na loja para melhorias e correções.';
     }
     return PanelUpdateHint(
       targetVersion: target,
@@ -103,7 +159,7 @@ class VersionService {
 
   /// Busca no Firestore (config/appVersion) a versão mínima e URLs de loja.
   /// Campos do doc: minVersion, message, storeUrlAndroid, storeUrlIos, webRefresh (bool).
-  /// [forceUpdate] no Firestore é ignorado no cliente: o app **não bloqueia** — só exibe aviso com link da loja.
+  /// Campos: minVersion, minBuildNumber, forceUpdate, message, storeUrlAndroid, storeUrlIos, webRefresh.
   /// Leitura pública para funcionar antes do login.
   Future<VersionResult> check() async {
     try {
@@ -114,13 +170,26 @@ class VersionService {
       final minVersion = (data['minVersion'] ?? '').toString().trim();
       if (minVersion.isEmpty) return const VersionResult();
 
+      final minBuildRaw = data['minBuildNumber'];
+      final minBuildNumber = minBuildRaw is num
+          ? minBuildRaw.toInt()
+          : int.tryParse('$minBuildRaw');
+      final forceUpdate = data['forceUpdate'] == true;
       final message = (data['message'] ?? '').toString();
       final storeUrlAndroid = (data['storeUrlAndroid'] ?? '').toString().trim();
       final storeUrlIos = (data['storeUrlIos'] ?? '').toString().trim();
       final webRefresh = data['webRefresh'] == true;
 
-      final outdated = _compareVersions(appVersion, minVersion) < 0;
+      final outdated = isAppBelowRequiredVersion(
+        minVersion: minVersion,
+        minBuildNumber: minBuildNumber,
+      );
       if (!outdated) return const VersionResult();
+
+      final targetLabel = _targetVersionLabel(
+        minVersion,
+        minBuildNumber,
+      );
 
       String updateUrl = '';
       if (kIsWeb) {
@@ -134,19 +203,20 @@ class VersionService {
         if (defaultTargetPlatform == TargetPlatform.android) {
           updateUrl =
               storeUrlAndroid.isNotEmpty ? storeUrlAndroid : kDefaultPlayStoreUrl;
-        } else if (defaultTargetPlatform == TargetPlatform.iOS &&
-            storeUrlIos.isNotEmpty) {
-          updateUrl = storeUrlIos;
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          updateUrl = storeUrlIos.isNotEmpty
+              ? storeUrlIos
+              : AppConstants.gestaoYahwehTestFlightUrl;
         }
       }
 
       return VersionResult(
         outdated: true,
-        force: false,
-        current: minVersion,
+        force: forceUpdate,
+        current: targetLabel,
         message: message.trim().isNotEmpty
             ? message.trim()
-            : kDefaultVersionUpdateMessage(minVersion),
+            : kDefaultVersionUpdateMessage(targetLabel),
         updateUrl: updateUrl,
       );
     } catch (_) {

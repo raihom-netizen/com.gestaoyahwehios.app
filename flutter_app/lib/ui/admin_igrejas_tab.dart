@@ -247,7 +247,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final adminBlocked =
         ig['adminBlocked'] == true || lic['adminBlocked'] == true;
     final isFree = lic['isFree'] == true ||
-        (ig['plano'] ?? '').toString().toLowerCase() == 'free';
+        (ig['plano'] ?? ig['planId'] ?? '').toString().toLowerCase() == 'free';
     String planoSel = (ig['planId'] ?? ig['plano'] ?? 'essencial').toString();
     if (!planosOficiais.any((p) => p.id == planoSel))
       planoSel = planosOficiais.first.id;

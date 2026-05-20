@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,8 +13,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
+    show kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -231,7 +232,6 @@ class _InstagramMuralState extends State<InstagramMural> {
     super.initState();
     _loadTenant();
     _startFeedLiveSync();
-    unawaited(_loadFeedPage(reset: true));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_canManageAll) {
@@ -251,7 +251,6 @@ class _InstagramMuralState extends State<InstagramMural> {
       _isFeedInitialLoading = true;
       _feedLoadError = null;
       _startFeedLiveSync();
-      unawaited(_loadFeedPage(reset: true));
     }
   }
 
@@ -3261,24 +3260,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             widget.tenantId, postId, slotIndex)
         : ChurchStorageLayout.avisoPostPhotoPath(
             widget.tenantId, postId, slotIndex);
-    return MediaUploadService.uploadBytesWithRetry(
+    return FeedPostMediaUpload.uploadFeedPhotoBytes(
       storagePath: storagePath,
       bytes: bytes,
-      contentType:
-          bytesLookLikeWebp(bytes) ? 'image/webp' : 'image/jpeg',
       onProgress: onProgress,
-      skipClientPrepare: bytesLookLikeWebp(bytes),
     );
-  }
-
-  double _aspectRatioFromImageBytes(Uint8List bytes) {
-    try {
-      final im = img.decodeImage(bytes);
-      if (im == null || im.height <= 0) return 1.0;
-      return (im.width / im.height).clamp(0.4, 2.3);
-    } catch (_) {
-      return 1.0;
-    }
   }
 
   Future<void> _save() async {
@@ -3291,31 +3277,27 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final postId = docRef.id;
     setState(() => _saving = true);
     try {
+      await FeedPostMediaUpload.warmAuthToken();
       var allUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       if (_newImages.isNotEmpty) {
         final startSlot = allUrls.length;
         final n = _newImages.length;
-        GlobalUploadProgress.instance.start('A enviar imagens…');
-        try {
-          final uploaded = <String>[];
-          for (var i = 0; i < n; i++) {
-            final u = await _upload(
-              _newImages[i],
-              postId,
-              startSlot + i,
-              onProgress: (p) =>
-                  GlobalUploadProgress.instance.update((i + p) / n),
-            );
-            uploaded.add(u);
-          }
-          allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
-        } finally {
-          GlobalUploadProgress.instance.end();
-        }
+        final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+          count: n,
+          progressLabel: 'A enviar imagens…',
+          uploadOne: (i, report) => _upload(
+            _newImages[i],
+            postId,
+            startSlot + i,
+            onProgress: report,
+          ),
+        );
+        allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
       }
       var aspectRatio = 1.0;
       if (_newImages.isNotEmpty) {
-        aspectRatio = _aspectRatioFromImageBytes(_newImages.first);
+        final ar = await imageAspectRatioFromBytes(_newImages.first);
+        if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
       }
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final displayName =

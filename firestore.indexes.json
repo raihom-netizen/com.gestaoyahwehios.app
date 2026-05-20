@@ -413,6 +413,14 @@
       "collectionGroup": "membros",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "departamentosIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "NOME_COMPLETO", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "STATUS", "order": "ASCENDING" },
         { "fieldPath": "FUNCAO", "order": "ASCENDING" }
       ]
@@ -446,6 +454,13 @@
       ]
     },
     {
+      "collectionGroup": "membros",
+      "fieldPath": "authUid",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "finance",
       "fieldPath": "createdAt",
       "indexes": [
@@ -461,6 +476,20 @@
         { "queryScope": "COLLECTION", "order": "DESCENDING" },
         { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },
         { "queryScope": "COLLECTION_GROUP", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "expiresAt",
+      "indexes": [
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "createdAt",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "DESCENDING" }
       ]
     }
   ]

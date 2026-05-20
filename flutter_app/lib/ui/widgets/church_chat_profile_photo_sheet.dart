@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlF
 import 'package:image_picker/image_picker.dart';
 
 /// Folha para trocar a foto de perfil — actualiza o cadastro do membro e o chat (iOS/Android/web).
-Future<void> showChurchChatProfilePhotoSheet(
+Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
   BuildContext context, {
   required String tenantId,
   String? cpfDigits,
@@ -20,14 +20,14 @@ Future<void> showChurchChatProfilePhotoSheet(
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Faça login para alterar a foto.')),
     );
-    return;
+    return null;
   }
   final mem = await MemberProfilePhotoUpdateService.resolveMemberDoc(
     tenantId: tenantId,
     authUid: uid,
     cpfDigits: cpfDigits,
   );
-  if (!context.mounted) return;
+  if (!context.mounted) return null;
   if (mem == null || !mem.exists) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -36,10 +36,10 @@ Future<void> showChurchChatProfilePhotoSheet(
         ),
       ),
     );
-    return;
+    return null;
   }
 
-  await showModalBottomSheet<void>(
+  return showModalBottomSheet<MemberProfilePhotoUpdateResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -105,7 +105,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
-      await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
         tenantId: widget.tenantId,
         memberDocId: widget.memberId,
         memberData: data,
@@ -121,7 +121,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
           'Foto actualizada no chat e no cadastro de membro.',
         ),
       );
-      Navigator.pop(context);
+      Navigator.pop(context, result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploading = false);

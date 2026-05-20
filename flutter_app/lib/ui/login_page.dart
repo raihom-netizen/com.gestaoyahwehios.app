@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +20,7 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart'
         isGoogleSignInAndroidConfigError,
         isGoogleSignInUserCancellation;
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
@@ -152,6 +154,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _quickBiometricReady = false;
   /// App iOS/Android: com biometria + credenciais salvas, o usuário pode exibir e-mail/senha.
   bool _showManualCredentialFields = false;
+  /// Web/Android painel: só Google na tela principal; e-mail/senha fica opcional.
+  bool _showExpandedEmailLogin = false;
   /// Evita disparar varias vezes o prompt nativo na mesma visita a esta tela.
   bool _autoBiometricSessionAttempted = false;
   String? _errorMessage;
@@ -172,9 +176,19 @@ class _LoginPageState extends State<LoginPage> {
   StreamSubscription<Map<String, EffectivePlanConfig>>? _effectivePlanConfigsSub;
 
   bool get _showAppleSignInButton =>
+      !_simplifiedGoogleOnlyLogin &&
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.iOS &&
       _appleSignInAvailable;
+
+  String get _painelLoginRoute => widget.afterLoginRoute.split('?').first;
+
+  /// Web + Android: um único botão Google; membro/gestor detectados após login.
+  bool get _simplifiedGoogleOnlyLogin =>
+      _painelLoginRoute == '/painel' &&
+      !_isMasterAdminLogin &&
+      !widget.churchWebAppleIosRenewEntry &&
+      (kIsWeb || defaultTargetPlatform == TargetPlatform.android);
 
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
@@ -226,17 +240,44 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) setState(() => _effectivePlanConfigs = c);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _redirectNativeToPainelIfSessionAlive();
-      Future<void>.delayed(const Duration(milliseconds: 520), () {
-        if (mounted) unawaited(_tryExpressGoogleReconnect());
-      });
+      unawaited(_restoreSessionOnLoginPageOpen());
     });
   }
 
-  /// Sessão já válida (ex.: reabrir o app) — não mostrar tela de credenciais desnecessariamente.
-  void _redirectNativeToPainelIfSessionAlive() {
-    final u = FirebaseAuth.instance.currentUser;
-    if (u == null || u.isAnonymous) return;
+  /// Reabrir app: sessão Firebase ou Google silencioso → painel com dados já aquecidos.
+  Future<void> _restoreSessionOnLoginPageOpen() async {
+    if (!mounted) return;
+    if (_painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
+
+    final existing = FirebaseAuth.instance.currentUser;
+    if (existing != null && !existing.isAnonymous) {
+      unawaited(ChurchAutoSessionService.preheatPanelCaches());
+      _goToPainelIfStillMounted();
+      return;
+    }
+
+    if (!kIsWeb && (_simplifiedGoogleOnlyLogin || _nativeChurchLogin)) {
+      final restored = await ChurchAutoSessionService.trySilentGoogleRestore();
+      if (!mounted) return;
+      if (restored && FirebaseAuth.instance.currentUser != null) {
+        setState(() => _sessionFinalizing = true);
+        try {
+          await _afterGoogleSignInSuccess();
+        } finally {
+          if (mounted) setState(() => _sessionFinalizing = false);
+        }
+        return;
+      }
+    }
+
+    if (!kIsWeb && _nativeChurchLogin) {
+      Future<void>.delayed(const Duration(milliseconds: 480), () {
+        if (mounted) unawaited(_tryExpressGoogleReconnect());
+      });
+    }
+  }
+
+  void _goToPainelIfStillMounted() {
     if (!mounted) return;
     if (kIsWeb && widget.churchWebAppleIosRenewEntry) {
       final target = widget.afterLoginRoute.trim();
@@ -245,9 +286,9 @@ class _LoginPageState extends State<LoginPage> {
       }
       return;
     }
-    if (kIsWeb) return;
-    if (!_nativeChurchLogin) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
+    if (kIsWeb || _nativeChurchLogin || _simplifiedGoogleOnlyLogin) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
+    }
   }
 
   void _clearError() {
@@ -414,6 +455,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   bool _requireChurchPanelEmailBeforeOAuth() {
+    if (_simplifiedGoogleOnlyLogin) return true;
     if (!_nativeChurchLogin) return true;
     if (_churchPanelEmailHintFilled()) return true;
     if (!mounted) return false;
@@ -429,6 +471,7 @@ class _LoginPageState extends State<LoginPage> {
 
   /// Evita conta Google/Apple diferente do e-mail indicado (partilha de telemóvel, troca de conta).
   Future<bool> _nativeChurchSignedEmailMatchesHint(User user) async {
+    if (_simplifiedGoogleOnlyLogin) return true;
     if (!_nativeChurchLogin) return true;
     final signed = (user.email ?? '').trim().toLowerCase();
     if (signed.isEmpty) return true;
@@ -630,8 +673,14 @@ class _LoginPageState extends State<LoginPage> {
     await _syncLoginPreferencesHints();
     if (mounted) setState(() => _errorMessage = null);
     if (!mounted) return false;
+
+    final target = widget.afterLoginRoute.split('?').first;
+    if (target == '/painel') {
+      await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
+      unawaited(ChurchAutoSessionService.preheatPanelCaches());
+    }
+
     // Antes de navegar: evita segunda leitura biométrica no painel (corrida com o navigate).
-    // Login com e-mail/senha, Google (com guarda biométrica) ou «Entrar» biométrico já identificou o utilizador.
     if (!kIsWeb && _nativeChurchLogin) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
@@ -691,7 +740,30 @@ class _LoginPageState extends State<LoginPage> {
       await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
     }
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
+
+    if (_simplifiedGoogleOnlyLogin) {
+      final bound = await _userHasChurchBinding(user);
+      if (!bound) {
+        if (!mounted) return;
+        await GestorOAuthOnboardingService.routeAfterOAuthSignIn(context);
+        return;
+      }
+    }
+
     await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
+  }
+
+  Future<bool> _userHasChurchBinding(User user) async {
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final data = doc.data();
+      final igrejaId =
+          (data?['igrejaId'] ?? data?['tenantId'] ?? '').toString().trim();
+      return igrejaId.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Web: conclui login após `signInWithRedirect` (quando popup falha ou navegador bloqueia).
@@ -827,6 +899,11 @@ class _LoginPageState extends State<LoginPage> {
       _showFirebaseAuthErrorSnack(e);
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
+      final code = (e.code).toLowerCase();
+      if (_simplifiedGoogleOnlyLogin && code.contains('not-found')) {
+        await GestorOAuthOnboardingService.routeAfterOAuthSignIn(context);
+        return;
+      }
       final msg = _loginFirebaseFunctionsUserMessage(e, membro: _credentialsAsMembro);
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
@@ -1144,9 +1221,10 @@ class _LoginPageState extends State<LoginPage> {
   bool get _isMasterAdminLogin => widget.afterLoginRoute == '/admin';
 
   bool get _useSmartFlow {
+    if (_simplifiedGoogleOnlyLogin) return false;
     if (_isMasterAdminLogin) return false;
     if (widget.churchWebAppleIosRenewEntry) return false;
-    if (widget.afterLoginRoute != '/painel') return false;
+    if (_painelLoginRoute != '/painel') return false;
     if (widget.showSmartLoginFlow != null) return widget.showSmartLoginFlow!;
     // App iOS/Android: membro e gestor usam o mesmo login — sem escolha «Sou membro / gestor».
     if (!kIsWeb &&
@@ -1166,14 +1244,31 @@ class _LoginPageState extends State<LoginPage> {
 
   /// Login com Google + e-mail/senha no painel da igreja (após etapa de credenciais no fluxo inteligente).
   bool get _showChurchGoogleButton =>
-      widget.afterLoginRoute == '/painel' &&
+      _painelLoginRoute == '/painel' &&
       !_isMasterAdminLogin &&
-      (!_useSmartFlow || _smartStep == _SmartStep.credentials) &&
+      (_simplifiedGoogleOnlyLogin ||
+          !_useSmartFlow ||
+          _smartStep == _SmartStep.credentials) &&
       _googleSignInSupported;
+
+  /// Título no iOS: só login (sem cadastro de igreja no app).
+  String get _displayLoginTitle {
+    if (IosPaymentsGate.hideOrganizationSignup &&
+        widget.afterLoginRoute == '/painel') {
+      return 'Entrar com conta existente';
+    }
+    return widget.title;
+  }
+
+  /// iOS: aviso para novos gestores — cadastro da igreja no site.
+  bool get _showIosNewGestorSiteHint =>
+      _showIgrejaPainelExtras && IosPaymentsGate.hideOrganizationSignup;
 
   /// Callout “cadastrar igreja” e resumo de planos: não exibir no fluxo **membro** (evita cadastro duplicado).
   bool get _showGestorMarketingBlocks =>
+      !_simplifiedGoogleOnlyLogin &&
       _showIgrejaPainelExtras &&
+      !IosPaymentsGate.hideOrganizationSignup &&
       (!_useSmartFlow ||
           _smartStep != _SmartStep.credentials ||
           !_credentialsAsMembro);
@@ -1184,8 +1279,11 @@ class _LoginPageState extends State<LoginPage> {
         setState(() {
           _errorMessage = null;
           _autoBiometricSessionAttempted = false;
-          _smartStep =
-              _credentialsAsMembro ? _SmartStep.choosePersona : _SmartStep.gestorBranch;
+          _smartStep = _credentialsAsMembro
+              ? _SmartStep.choosePersona
+              : (IosPaymentsGate.hideOrganizationSignup
+                  ? _SmartStep.choosePersona
+                  : _SmartStep.gestorBranch);
         });
         return;
       }
@@ -1203,7 +1301,26 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// Cadastro gestor: leva e-mail digitado no login, se válido, para pré-preencher `/signup`.
+  Future<void> _openOrganizationSignupOnWeb() async {
+    try {
+      await IosPaymentsGate.openOrganizationSignupExternally();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Abra gestaoyahweh.com.br no navegador para cadastrar sua igreja.',
+          ),
+        ),
+      );
+    }
+  }
+
   void _openGestorSignup() {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      unawaited(_openOrganizationSignupOnWeb());
+      return;
+    }
     final e = _emailController.text.trim();
     if (AuthCpfService.looksLikeEmail(e)) {
       Navigator.pushNamed(
@@ -1213,6 +1330,140 @@ class _LoginPageState extends State<LoginPage> {
     } else {
       Navigator.pushNamed(context, '/signup');
     }
+  }
+
+  Widget _buildSimplifiedGoogleOnlyBody(Color theme, {required bool usePoppins}) {
+    final titleStyle = usePoppins
+        ? GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: ThemeCleanPremium.onSurface,
+          )
+        : const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+          );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Entrar com Google',
+          textAlign: TextAlign.center,
+          style: titleStyle,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Use a conta Google do e-mail cadastrado na igreja. '
+          'Membro ou gestor: o sistema reconhece automaticamente após entrar.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade700,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _buildChurchOAuthButtons(theme),
+        if (!IosPaymentsGate.hideOrganizationSignup) ...[
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _loading
+                ? null
+                : () => Navigator.pushNamed(
+                      context,
+                      '/signup/completar-dados',
+                    ),
+            icon: const Icon(Icons.add_business_rounded),
+            label: const Text('Primeira vez? Vincular minha igreja'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ] else ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _loading ? null : _openOrganizationSignupOnWeb,
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Cadastrar igreja no site'),
+          ),
+        ],
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: _loading
+              ? null
+              : () => setState(
+                    () => _showExpandedEmailLogin = !_showExpandedEmailLogin,
+                  ),
+          child: Text(
+            _showExpandedEmailLogin
+                ? 'Ocultar e-mail e senha'
+                : 'Problemas? Entrar com e-mail e senha',
+            style: TextStyle(fontWeight: FontWeight.w600, color: theme),
+          ),
+        ),
+        if (_showExpandedEmailLogin) ...[
+          const SizedBox(height: 8),
+          TextField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'E-mail',
+              hintText: 'seu@email.com',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _senhaController,
+            obscureText: _obscure,
+            decoration: InputDecoration(
+              labelText: 'Senha',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(_obscure
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: theme,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _loading ? null : _onEntrar,
+            child: _loading
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Entrar com e-mail'),
+          ),
+          Center(
+            child: TextButton(
+              onPressed: _loading ? null : _onResetSenha,
+              child: const Text('Esqueci a senha'),
+            ),
+          ),
+        ],
+        if (_errorMessage != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 13),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildChurchOAuthButtons(Color theme) {
@@ -1419,7 +1670,9 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Assim evitamos que um membro abra o cadastro de nova igreja por engano.',
+          IosPaymentsGate.hideOrganizationSignup
+              ? 'Entrar com conta existente. Nova igreja? Cadastre-se em gestaoyahweh.com.br.'
+              : 'Assim evitamos que um membro abra o cadastro de nova igreja por engano.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
@@ -1449,19 +1702,63 @@ class _LoginPageState extends State<LoginPage> {
         card(
           icon: Icons.manage_accounts_rounded,
           accent: ChurchShellAccentTokens.loginGestor,
-          title: 'Sou gestor ou quero conhecer o sistema',
-          subtitle:
-              'Primeiro crie a conta (Google ou e-mail). Depois seu perfil e os dados da igreja em etapas — ou entre se já tiver conta.',
-          onTap: () => setState(() {
-            _errorMessage = null;
-            _smartStep = _SmartStep.gestorBranch;
-          }),
+          title: IosPaymentsGate.hideOrganizationSignup
+              ? 'Sou gestor da igreja'
+              : 'Sou gestor ou quero conhecer o sistema',
+          subtitle: IosPaymentsGate.hideOrganizationSignup
+              ? 'Entre com Google, Apple ou e-mail e senha da conta já cadastrada. Para alterar plano, use o menu no painel.'
+              : 'Primeiro crie a conta (Google ou e-mail). Depois seu perfil e os dados da igreja em etapas — ou entre se já tiver conta.',
+          onTap: () {
+            setState(() {
+              _errorMessage = null;
+              _credentialsAsMembro = false;
+              if (IosPaymentsGate.hideOrganizationSignup) {
+                _smartStep = _SmartStep.credentials;
+              } else {
+                _smartStep = _SmartStep.gestorBranch;
+              }
+            });
+            if (IosPaymentsGate.hideOrganizationSignup) {
+              _scheduleMaybeAutoBiometricLogin(
+                delay: const Duration(milliseconds: 420),
+              );
+            }
+          },
         ),
       ],
     );
   }
 
   Widget _buildSmartGestorBranchBody(Color theme, {required bool usePoppins}) {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildIosNewGestorSiteBanner(theme, usePoppins: usePoppins),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _loading
+                ? null
+                : () {
+                    setState(() {
+                      _credentialsAsMembro = false;
+                      _smartStep = _SmartStep.credentials;
+                      _errorMessage = null;
+                    });
+                  },
+            style: FilledButton.styleFrom(
+              backgroundColor: theme,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            icon: const Icon(Icons.login_rounded),
+            label: const Text(
+              'Já tenho conta — entrar',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      );
+    }
     TextStyle titleStyle() => usePoppins
         ? GoogleFonts.poppins(
             fontSize: 20,
@@ -1575,6 +1872,7 @@ class _LoginPageState extends State<LoginPage> {
 
   /// App nativo: biometria ativa + credenciais salvas — só botão "Entrar" (uma leitura biométrica).
   bool get _painelBiometricCompact =>
+      !_simplifiedGoogleOnlyLogin &&
       _nativeChurchLogin &&
       _quickBiometricReady &&
       !_showManualCredentialFields &&
@@ -1584,7 +1882,77 @@ class _LoginPageState extends State<LoginPage> {
   bool get _showIgrejaPainelExtras =>
       widget.afterLoginRoute == '/painel' && !_isMasterAdminLogin;
 
+  /// Apple 3.1.1 — sem «Criar/Cadastrar igreja» no app; cadastro só no site.
+  Widget _buildIosNewGestorSiteBanner(Color theme, {bool usePoppins = false}) {
+    TextStyle titleStyle() => usePoppins
+        ? GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: ThemeCleanPremium.onSurface,
+          )
+        : TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade900,
+          );
+
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFEFF6FF),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: theme.withValues(alpha: 0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, color: theme, size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Primeira vez como gestor?',
+                    style: titleStyle(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'No iPhone e iPad este app é apenas para login com conta já '
+              'cadastrada (e recuperar senha). Para abrir uma nova igreja no '
+              'sistema, faça o cadastro completo no site gestaoyahweh.com.br.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade800,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _openOrganizationSignupOnWeb,
+              icon: const Icon(Icons.open_in_browser_rounded),
+              label: const Text('Cadastrar igreja no site'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme,
+                side: BorderSide(color: theme.withValues(alpha: 0.65)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGestorCadastroCallout(Color theme) {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return _buildIosNewGestorSiteBanner(theme);
+    }
     return Card(
       elevation: 0,
       color: Color.lerp(
@@ -2034,20 +2402,25 @@ class _LoginPageState extends State<LoginPage> {
                             border: Border.all(color: const Color(0xFFE4E7EF)),
                           ),
                           padding: const EdgeInsets.all(18),
-                          child: _useSmartFlow &&
-                                  _smartStep != _SmartStep.credentials
-                              ? _smartStep == _SmartStep.choosePersona
-                                  ? _buildSmartChoosePersonaBody(theme,
-                                      usePoppins: false)
-                                  : _buildSmartGestorBranchBody(theme,
-                                      usePoppins: false)
-                              : _painelBiometricCompact
-                                  ? _buildNativeBiometricOnlyBody(theme)
-                                  : Column(
+                          child: _simplifiedGoogleOnlyLogin
+                              ? _buildSimplifiedGoogleOnlyBody(
+                                  theme,
+                                  usePoppins: false,
+                                )
+                              : _useSmartFlow &&
+                                      _smartStep != _SmartStep.credentials
+                                  ? _smartStep == _SmartStep.choosePersona
+                                      ? _buildSmartChoosePersonaBody(theme,
+                                          usePoppins: false)
+                                      : _buildSmartGestorBranchBody(theme,
+                                          usePoppins: false)
+                                  : _painelBiometricCompact
+                                      ? _buildNativeBiometricOnlyBody(theme)
+                                      : Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
-                                widget.title,
+                                _displayLoginTitle,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
@@ -2059,8 +2432,11 @@ class _LoginPageState extends State<LoginPage> {
                                     ? 'Membro: use o mesmo e-mail cadastrado na igreja. '
                                         'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha. '
                                         'No painel: Chat Igreja, eventos e escalas — Super Premium.'
-                                    : 'Gestor: use o e-mail da conta da igreja. '
-                                        'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.',
+                                    : (IosPaymentsGate.hideOrganizationSignup
+                                        ? 'Gestor com conta já cadastrada: entre com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha. '
+                                            'Nova igreja? Cadastre-se no site (botão abaixo). Recuperar senha: «Esqueci a senha».'
+                                        : 'Gestor: use o e-mail da conta da igreja. '
+                                            'Pode entrar com Google${_showAppleSignInButton ? ', Apple (iPhone)' : ''} ou e-mail e senha.'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey.shade700,
@@ -2178,7 +2554,12 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                         _buildNativeStoreDownloadSection(theme),
                       ],
-                      if (_nativeChurchLogin && !_showGestorMarketingBlocks) ...[
+                      if (_showIosNewGestorSiteHint) ...[
+                        const SizedBox(height: 14),
+                        _buildIosNewGestorSiteBanner(theme),
+                        const SizedBox(height: 12),
+                        const YahwehOfficialSocialChannelsBar(compact: true),
+                      ] else if (_nativeChurchLogin && !_showGestorMarketingBlocks) ...[
                         const SizedBox(height: 14),
                         const YahwehOfficialSocialChannelsBar(compact: true),
                       ],
@@ -2467,7 +2848,12 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ],
                       const SizedBox(height: 18),
-                      if (_useSmartFlow &&
+                      if (_simplifiedGoogleOnlyLogin)
+                        _buildSimplifiedGoogleOnlyBody(
+                          theme,
+                          usePoppins: true,
+                        )
+                      else if (_useSmartFlow &&
                           _smartStep != _SmartStep.credentials)
                         (_smartStep == _SmartStep.choosePersona
                             ? _buildSmartChoosePersonaBody(theme,
@@ -2476,7 +2862,7 @@ class _LoginPageState extends State<LoginPage> {
                                 usePoppins: true))
                       else ...[
                         Text(
-                          widget.title,
+                          _displayLoginTitle,
                           style: GoogleFonts.poppins(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
@@ -2496,7 +2882,9 @@ class _LoginPageState extends State<LoginPage> {
                                     'Após entrar, escolha o plano e pague na mesma página.'
                                 : (_credentialsAsMembro
                                     ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
-                                    : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.'),
+                                    : (IosPaymentsGate.hideOrganizationSignup
+                                        ? 'Gestor: entre com a conta já cadastrada. Nova igreja? Use o cadastro no site abaixo. Recuperar senha: «Esqueci a senha».'
+                                        : 'Gestor: e-mail da conta da igreja. Google, Apple ou e-mail e senha.')),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,
@@ -2614,7 +3002,12 @@ class _LoginPageState extends State<LoginPage> {
                           child: const Text('Esqueci a senha'),
                         ),
                       ],
-                      if (_nativeChurchLogin && !_showGestorMarketingBlocks) ...[
+                      if (_showIosNewGestorSiteHint) ...[
+                        const SizedBox(height: 16),
+                        _buildIosNewGestorSiteBanner(theme, usePoppins: true),
+                        const SizedBox(height: 12),
+                        const YahwehOfficialSocialChannelsBar(compact: true),
+                      ] else if (_nativeChurchLogin && !_showGestorMarketingBlocks) ...[
                         const SizedBox(height: 16),
                         const YahwehOfficialSocialChannelsBar(compact: true),
                       ],

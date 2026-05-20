@@ -399,22 +399,23 @@ class _ChurchPublicMuralStreamSliverState
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    FilledButton.tonalIcon(
-                      onPressed: () {
-                        widget.onChurchPublicAction
-                            ?.call('signup_church_empty_mural');
-                        Navigator.pushNamed(context, '/signup');
-                      },
-                      icon: const Icon(Icons.church_rounded),
-                      label: const Text('Cadastrar igreja'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                    if (!IosPaymentsGate.hideOrganizationSignup)
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          widget.onChurchPublicAction
+                              ?.call('signup_church_empty_mural');
+                          Navigator.pushNamed(context, '/signup');
+                        },
+                        icon: const Icon(Icons.church_rounded),
+                        label: const Text('Cadastrar igreja'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
-                    ),
                     OutlinedButton(
                       onPressed: () {
                         widget.onChurchPublicAction
@@ -4233,11 +4234,12 @@ class _HeroCard extends StatelessWidget {
                         icon: const Icon(Icons.app_registration),
                         label: const Text('Cadastro de membro'),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: onCadastro,
-                        icon: const Icon(Icons.app_registration),
-                        label: const Text('Cadastrar igreja'),
-                      ),
+                      if (!IosPaymentsGate.hideOrganizationSignup)
+                        OutlinedButton.icon(
+                          onPressed: onCadastro,
+                          icon: const Icon(Icons.app_registration),
+                          label: const Text('Cadastrar igreja'),
+                        ),
                       TextButton(
                         onPressed: onAdmin,
                         child: const Text('Sou administrador'),
@@ -5584,12 +5586,13 @@ class _NotFound extends StatelessWidget {
                     runSpacing: 10,
                     alignment: WrapAlignment.center,
                     children: [
-                      FilledButton.icon(
-                        onPressed: () =>
-                            Navigator.pushNamed(context, '/signup'),
-                        icon: const Icon(Icons.app_registration),
-                        label: const Text('Cadastrar igreja (teste grátis)'),
-                      ),
+                      if (!IosPaymentsGate.hideOrganizationSignup)
+                        FilledButton.icon(
+                          onPressed: () =>
+                              Navigator.pushNamed(context, '/signup'),
+                          icon: const Icon(Icons.app_registration),
+                          label: const Text('Cadastrar igreja (teste grátis)'),
+                        ),
                       OutlinedButton.icon(
                         onPressed: () =>
                             Navigator.pushNamed(context, '/igreja/login'),

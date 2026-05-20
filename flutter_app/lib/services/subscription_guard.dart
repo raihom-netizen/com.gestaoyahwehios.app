@@ -44,7 +44,8 @@ class SubscriptionGuard {
     final c = church ?? const <String, dynamic>{};
     final lic = c['license'] is Map ? Map<String, dynamic>.from(c['license'] as Map) : const <String, dynamic>{};
 
-    final isFree = c['plano']?.toString().toLowerCase() == 'free' || lic['isFree'] == true;
+    final planKey = (c['plano'] ?? c['planId'] ?? '').toString().toLowerCase();
+    final isFree = planKey == 'free' || lic['isFree'] == true;
     final adminBlocked = c['adminBlocked'] == true || lic['adminBlocked'] == true;
     /// Master / documento: igreja desligada no ecossistema (site público + bloqueio alinhado ao painel).
     final ecosystemOff = adminBlocked ||
@@ -78,13 +79,14 @@ class SubscriptionGuard {
         (dataVencimento != null ? dataVencimento.add(const Duration(days: AppConstants.subscriptionGraceDays)) : null);
 
     if (isFree) {
+      // FREE = acesso liberado; só bloqueia se o master ligou «Bloquear igreja».
       return SubscriptionGuardState(
         statusAssinatura: 'active',
         dataVencimento: dataVencimento,
-        dataBloqueio: dataBloqueio,
+        dataBloqueio: null,
         isFree: true,
         adminBlocked: adminBlocked,
-        blocked: ecosystemOff,
+        blocked: adminBlocked,
         inGrace: false,
         graceDaysLeft: 0,
       );

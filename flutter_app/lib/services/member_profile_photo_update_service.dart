@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/painting.dart';
+import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
@@ -176,10 +180,98 @@ class MemberProfilePhotoUpdateService {
       storagePath: upload.storagePath,
     );
 
+    final mergedMember = Map<String, dynamic>.from(memberData)..addAll(updates);
+    await syncChatPeerProfilesAfterPhotoUpdate(
+      primaryTenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: mergedMember,
+      photoUrl: photoUrl,
+      cacheRevision: revision,
+    );
+
     return MemberProfilePhotoUpdateResult(
       downloadUrl: photoUrl,
       storagePath: upload.storagePath,
       cacheRevision: revision,
+    );
+  }
+
+  /// Espelha foto/nome em `chat_peer_profiles` (chat instantâneo; CF mantém consistência).
+  static Future<void> syncChatPeerProfilesAfterPhotoUpdate({
+    required String primaryTenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required String photoUrl,
+    required int cacheRevision,
+  }) async {
+    final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+        .toString()
+        .trim();
+    if (authUid.isEmpty) return;
+
+    final displayName = (memberData['NOME_COMPLETO'] ??
+            memberData['nome'] ??
+            memberData['name'] ??
+            'Membro')
+        .toString()
+        .trim();
+    final url = sanitizeImageUrl(photoUrl);
+
+    var tenantIds =
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
+            primaryTenantId);
+    if (tenantIds.isEmpty) tenantIds = [primaryTenantId];
+
+    final db = FirebaseFirestore.instance;
+    final peerPayload = <String, dynamic>{
+      'authUid': authUid,
+      'memberDocId': memberDocId,
+      'displayName': displayName.isEmpty ? 'Membro' : displayName,
+      'photoUrl': url.isEmpty ? null : url,
+      'fotoUrlCacheRevision': cacheRevision,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    final memberRefData = Map<String, dynamic>.from(memberData)
+      ..['authUid'] = authUid
+      ..['firebaseUid'] = authUid
+      ..['fotoUrlCacheRevision'] = cacheRevision;
+    if (url.isNotEmpty) {
+      memberRefData['fotoUrl'] = url;
+      memberRefData['foto_url'] = url;
+      memberRefData['photoURL'] = url;
+    }
+    final chatRef = ChurchChatMemberRef(
+      memberId: memberDocId,
+      data: memberRefData,
+      authUid: authUid,
+      photoUrl: url.isEmpty ? null : url,
+    );
+
+    for (final tid in tenantIds) {
+      ChurchChatPeerProfileService.invalidateAuthUid(tid, authUid);
+      ChurchChatPeerProfileService.patchCachedMemberRef(tid, chatRef);
+    }
+    // `chat_peer_profiles` é escrito pelo Admin SDK (CF onIgrejaMembroWriteChatPeerProfile).
+    unawaited(
+      Future.wait(
+        tenantIds.map((tid) async {
+          try {
+            await db
+                .collection('igrejas')
+                .doc(tid)
+                .collection('chat_peer_profiles')
+                .doc(authUid)
+                .set(peerPayload, SetOptions(merge: true));
+          } catch (_) {}
+        }),
+      ),
+    );
+
+    MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
+      tenantId: primaryTenantId,
+      authUid: authUid,
+      cacheRevision: cacheRevision,
     );
   }
 
