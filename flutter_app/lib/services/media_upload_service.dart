@@ -145,6 +145,7 @@ class MediaUploadService {
     void Function(UploadTask task)? onUploadTaskCreated,
     bool skipClientPrepare = false,
     bool useOfflineQueue = true,
+    bool chatJpegFast = false,
   }) async {
     final url = await uploadBytesWithRetry(
       storagePath: storagePath,
@@ -157,6 +158,7 @@ class MediaUploadService {
       onUploadTaskCreated: onUploadTaskCreated,
       skipClientPrepare: skipClientPrepare,
       useOfflineQueue: useOfflineQueue,
+      chatJpegFast: chatJpegFast,
     );
     return _result(
       downloadUrl: url,

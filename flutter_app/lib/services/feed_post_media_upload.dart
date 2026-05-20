@@ -79,6 +79,7 @@ abstract final class FeedPostMediaUpload {
       bytes: prepared,
       contentType: webp ? 'image/webp' : 'image/jpeg',
       skipClientPrepare: webp,
+      chatJpegFast: !webp,
       maxAttempts: 4,
       onProgress: onProgress,
     );
@@ -96,6 +97,7 @@ abstract final class FeedPostMediaUpload {
       bytes: prepared,
       contentType: webp ? 'image/webp' : 'image/jpeg',
       skipClientPrepare: webp,
+      chatJpegFast: !webp,
       maxAttempts: 4,
       onProgress: onProgress,
     );

@@ -396,6 +396,14 @@ Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
+  } else {
+    // App autenticado: getData no SDK — URL tokenizada do Firestore costuma bastar.
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {}
+    if (firebaseStorageDownloadUrlLooksTokenized(u)) {
+      return u;
+    }
   }
   try {
     if (u.toLowerCase().startsWith('gs://')) {
@@ -1107,7 +1115,8 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
         } catch (_) {}
       }
       if (!isValidImageUrl(cleaned) && !isDataImageUrl(cleaned)) return s;
-      return appendFirebaseMediaCacheBust(cleaned);
+      // Não adicionar gy_cb em listas — invalida cache e força novo GET sem renovar token.
+      return cleaned;
     } catch (_) {
       return s;
     }
@@ -1157,6 +1166,8 @@ class ResilientNetworkImage extends StatelessWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final void Function(String url, Object? error)? onLoadError;
+  /// `true` quando [AppStorageImageService]/[StableStorageImage] já renovou o token.
+  final bool skipFreshDisplayUrl;
 
   const ResilientNetworkImage({
     super.key,
@@ -1169,6 +1180,7 @@ class ResilientNetworkImage extends StatelessWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.onLoadError,
+    this.skipFreshDisplayUrl = false,
   });
 
   @override
@@ -1179,6 +1191,20 @@ class ResilientNetworkImage extends StatelessWidget {
     if (!isValidImageUrl(u) && !isDataImageUrl(u)) {
       if (firebaseStorageMediaUrlLooksLike(u) ||
           u.toLowerCase().startsWith('gs://')) {
+        if (skipFreshDisplayUrl) {
+          return SafeNetworkImage(
+            imageUrl: u,
+            fit: fit,
+            width: width,
+            height: height,
+            memCacheWidth: memCacheWidth,
+            memCacheHeight: memCacheHeight,
+            placeholder: ph,
+            errorWidget: err,
+            skipFreshDisplayUrl: true,
+            onLoadError: onLoadError,
+          );
+        }
         return FreshFirebaseStorageImage(
           imageUrl: u,
           fit: fit,
@@ -1198,6 +1224,20 @@ class ResilientNetworkImage extends StatelessWidget {
             firebaseStorageMediaUrlLooksLike(u) &&
             (u.startsWith('http://') || u.startsWith('https://')));
     if (useFresh) {
+      if (skipFreshDisplayUrl) {
+        return SafeNetworkImage(
+          imageUrl: u,
+          fit: fit,
+          width: width,
+          height: height,
+          memCacheWidth: memCacheWidth,
+          memCacheHeight: memCacheHeight,
+          placeholder: ph,
+          errorWidget: err,
+          skipFreshDisplayUrl: true,
+          onLoadError: onLoadError,
+        );
+      }
       return FreshFirebaseStorageImage(
         imageUrl: u,
         fit: fit,
@@ -1219,7 +1259,7 @@ class ResilientNetworkImage extends StatelessWidget {
       memCacheHeight: memCacheHeight,
       placeholder: ph,
       errorWidget: err,
-      skipFreshDisplayUrl: false,
+      skipFreshDisplayUrl: skipFreshDisplayUrl,
       onLoadError: onLoadError,
     );
   }
@@ -1592,7 +1632,13 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
 
   if (kIsWeb && firebaseStorageMediaUrlLooksLike(url)) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    // Painel (gestor logado): garante token fresco para getData/ref — evita falha silenciosa na lista de membros.
+  }
+  // Painel / chat (chat_media exige auth): token Firebase antes de getData/http.
+  if (!kIsWeb && firebaseStorageMediaUrlLooksLike(url)) {
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {}
+  } else if (kIsWeb && firebaseStorageMediaUrlLooksLike(url)) {
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
@@ -1657,6 +1703,13 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
       return null;
     }
 
+    // Android/iOS: SDK autenticado — getData primeiro (HTTP com token expirado falha em listas).
+    try {
+      final b = await ref
+          .getData(maxBytes)
+          .timeout(const Duration(seconds: 18), onTimeout: () => null);
+      if (b != null && b.length > 32) return b;
+    } catch (_) {}
     if (freshUrl.isNotEmpty) {
       try {
         final fromFresh = await tryHttpUri(Uri.parse(freshUrl));
@@ -1668,16 +1721,19 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
       if (fromOriginal != null) return fromOriginal;
     } catch (_) {}
     try {
-      final b = await ref
-          .getData(maxBytes)
-          .timeout(const Duration(seconds: 22), onTimeout: () => null);
-      if (b != null && b.length > 32) return b;
-    } catch (_) {}
-    try {
       final again = await ref
           .getDownloadURL()
           .timeout(const Duration(seconds: 12), onTimeout: () => '');
-      if (again.isNotEmpty) return await tryHttpUri(Uri.parse(again));
+      if (again.isNotEmpty) {
+        final fromAgain = await tryHttpUri(Uri.parse(again));
+        if (fromAgain != null) return fromAgain;
+        try {
+          final b2 = await ref
+              .getData(maxBytes)
+              .timeout(const Duration(seconds: 14), onTimeout: () => null);
+          if (b2 != null && b2.length > 32) return b2;
+        } catch (_) {}
+      }
     } catch (_) {}
 
     return null;
@@ -2542,6 +2598,7 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
           height: widget.radius * 2,
           memCacheWidth: cache,
           memCacheHeight: cache,
+          skipFreshDisplayUrl: true,
           placeholder: _placeholder,
           errorWidget: _errorIcon,
         );
@@ -2567,6 +2624,7 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
         height: widget.radius * 2,
         memCacheWidth: cache,
         memCacheHeight: cache,
+        skipFreshDisplayUrl: true,
         placeholder: _placeholder,
         errorWidget: _errorIcon,
       );
@@ -2613,8 +2671,20 @@ Future<void> preloadNetworkImages(
   await Future.wait(cleaned.map((u) async {
     await _mediaPreloadLimiter.run(() async {
       try {
+        if (firebaseStorageMediaUrlLooksLike(u) || isFirebaseStorageHttpUrl(u)) {
+          final bytes = await firebaseStorageBytesFromDownloadUrl(
+            u,
+            maxBytes: 4 * 1024 * 1024,
+            skipFreshDisplayUrl: true,
+          ).timeout(const Duration(seconds: 20), onTimeout: () => null);
+          if (bytes != null && bytes.length > 32) {
+            MemberProfilePhotoBytesCache.put(u, bytes);
+            _preloadedMediaUrls.add(u);
+          }
+          return;
+        }
         var use = u;
-        if (kIsWeb && firebaseStorageMediaUrlLooksLike(u)) {
+        if (kIsWeb) {
           use = await freshFirebaseStorageDisplayUrl(u);
         }
         if (!isValidImageUrl(use)) return;

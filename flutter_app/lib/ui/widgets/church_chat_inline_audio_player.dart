@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show firebaseStorageDownloadUrlLooksTokenized, sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -67,7 +70,10 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
   }
 
   Future<String?> _resolveUrl() async {
-    final m = widget.mediaUrl.trim();
+    final m = sanitizeImageUrl(widget.mediaUrl.trim());
+    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(m)) {
+      return m;
+    }
     final sp = widget.storagePath?.trim() ?? '';
     for (final candidate in <String>[m, sp]) {
       if (candidate.isEmpty) continue;
@@ -75,6 +81,11 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
         final u = await StorageMediaService.freshPlayableMediaUrl(candidate);
         if (u.trim().isNotEmpty) return u.trim();
       } catch (_) {}
+      if (!kIsWeb &&
+          firebaseStorageDownloadUrlLooksTokenized(
+              sanitizeImageUrl(candidate))) {
+        return sanitizeImageUrl(candidate);
+      }
       try {
         final u = await StorageMediaService.downloadUrlFromPathOrUrl(candidate);
         if (u != null && u.trim().isNotEmpty) return u.trim();

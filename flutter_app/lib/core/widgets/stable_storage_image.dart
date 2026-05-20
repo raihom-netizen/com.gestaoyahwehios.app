@@ -138,6 +138,7 @@ class _StableStorageImageState extends State<StableStorageImage> {
             memCacheHeight: widget.memCacheHeight,
             placeholder: ph,
             errorWidget: err,
+            skipFreshDisplayUrl: widget.skipFreshDisplayUrl,
             onLoadError: widget.onLoadError,
           );
           if (widget.borderRadius != null) {

@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
@@ -1312,8 +1313,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final picker = ImagePicker();
-    final x = await picker.pickImage(source: source, imageQuality: 88);
+    final x = await MediaHandlerService.instance.pickAndProcessImage(
+      source: source,
+      imageQuality: 64,
+      minWidth: 1000,
+      minHeight: 750,
+    );
     if (x == null) return;
     final bytes = await x.readAsBytes();
     if (!mounted) return;
@@ -3094,6 +3099,7 @@ class _MessageBody extends StatelessWidget {
               imageUrl: surl,
               fit: BoxFit.contain,
               height: 168,
+              skipFreshDisplayUrl: true,
             ),
           ),
         ],
@@ -3139,6 +3145,7 @@ class _MessageBody extends StatelessWidget {
                               imageUrl: url,
                               fit: BoxFit.cover,
                               width: w,
+                              skipFreshDisplayUrl: true,
                               memCacheWidth: (MediaQuery.devicePixelRatioOf(
                                           context) *
                                       w)

@@ -7074,3 +7074,5 @@ export {
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
 
+export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
+

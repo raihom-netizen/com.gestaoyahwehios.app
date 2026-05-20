@@ -153,6 +153,7 @@ class _ItemAniversariante extends StatelessWidget {
             cpfDigits: cpfDigits.length >= 9 ? cpfDigits : null,
             memberData: data,
             size: 44,
+            preferListThumbnail: true,
             backgroundColor: avatarColor(data),
           ),
           const SizedBox(width: 14),

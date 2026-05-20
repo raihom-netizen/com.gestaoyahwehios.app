@@ -1841,6 +1841,7 @@ class _AniversariantesCard extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: cachePx,
                   memCacheHeight: cachePx,
+                  preferListThumbnail: true,
                   placeholder: letterFallback,
                   errorChild: letterFallback,
                 );
@@ -2288,6 +2289,7 @@ class _AniversariantesCard extends StatelessWidget {
                   fit: BoxFit.cover,
                   memCacheWidth: cachePx,
                   memCacheHeight: cachePx,
+                  preferListThumbnail: true,
                   placeholder: letterFallback,
                   errorChild: letterFallback,
                 );

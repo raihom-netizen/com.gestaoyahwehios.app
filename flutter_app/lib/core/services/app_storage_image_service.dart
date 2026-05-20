@@ -90,6 +90,8 @@ class AppStorageImageService {
       } catch (_) {}
     }
     if (firebaseStorageDownloadUrlLooksTokenized(norm)) {
+      // App: bytes via getData — evita 2× getDownloadURL por miniatura em listas.
+      if (!kIsWeb) return norm;
       final path = firebaseStorageObjectPathFromHttpUrl(norm);
       if (path != null && path.isNotEmpty) {
         final byPath = await _twice(() async {

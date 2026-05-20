@@ -158,6 +158,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _showExpandedEmailLogin = false;
   /// Evita disparar varias vezes o prompt nativo na mesma visita a esta tela.
   bool _autoBiometricSessionAttempted = false;
+  /// Login automatico com e-mail/senha salvos quando biometria nao esta activa.
+  bool _autoCredentialLoginAttempted = false;
   String? _errorMessage;
   /// Indicador só no botão «Continuar com Google» durante o diálogo nativo / popup.
   bool _oauthGoogleInFlight = false;
@@ -183,12 +185,9 @@ class _LoginPageState extends State<LoginPage> {
 
   String get _painelLoginRoute => widget.afterLoginRoute.split('?').first;
 
-  /// Web + Android: um único botão Google; membro/gestor detectados após login.
-  bool get _simplifiedGoogleOnlyLogin =>
-      _painelLoginRoute == '/painel' &&
-      !_isMasterAdminLogin &&
-      !widget.churchWebAppleIosRenewEntry &&
-      (kIsWeb || defaultTargetPlatform == TargetPlatform.android);
+  /// Desactivado: Android/Web painel usam fluxo Controle Total (credenciais + biometria + planos).
+  /// iOS Reader mantém-se em [IosPaymentsGate], nao nesta flag.
+  bool get _simplifiedGoogleOnlyLogin => false;
 
   /// Chaves por contexto: Painel Igreja e Painel Master guardam usuário/senha separados.
   String get _prefPrefix {
@@ -256,7 +255,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (!kIsWeb && (_simplifiedGoogleOnlyLogin || _nativeChurchLogin)) {
+    if (!kIsWeb && _nativeChurchLogin) {
       final restored = await ChurchAutoSessionService.trySilentGoogleRestore();
       if (!mounted) return;
       if (restored && FirebaseAuth.instance.currentUser != null) {
@@ -286,7 +285,7 @@ class _LoginPageState extends State<LoginPage> {
       }
       return;
     }
-    if (kIsWeb || _nativeChurchLogin || _simplifiedGoogleOnlyLogin) {
+    if (kIsWeb || _nativeChurchLogin) {
       Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
     }
   }
@@ -372,20 +371,110 @@ class _LoginPageState extends State<LoginPage> {
     }
     await _refreshQuickBiometricState();
     _scheduleMaybeAutoBiometricLogin();
+    _scheduleMaybeAutoWebCredentialLogin();
   }
 
   /// Apos carregar prefs: no painel nativo, tenta Face ID/digital automaticamente
   /// (com atraso para nao competir com reconexao Google silenciosa).
-  void _scheduleMaybeAutoBiometricLogin({
-    Duration delay = const Duration(milliseconds: 1100),
-  }) {
+  void _scheduleMaybeAutoBiometricLogin({Duration? delay}) {
     if (kIsWeb || !_nativeChurchLogin) return;
+    final effectiveDelay = delay ??
+        (defaultTargetPlatform == TargetPlatform.iOS
+            ? const Duration(milliseconds: 650)
+            : const Duration(milliseconds: 1000));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future<void>.delayed(delay, () {
+      Future<void>.delayed(effectiveDelay, () {
         if (!mounted) return;
-        unawaited(_tryAutoBiometricLoginOnce());
+        unawaited(_tryAutoQuickLoginOnce());
       });
     });
+  }
+
+  /// Web painel: com «Lembrar» activo, entra directo (sem escolher conta Google).
+  void _scheduleMaybeAutoWebCredentialLogin() {
+    if (!kIsWeb || _painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
+    if (!_rememberLogin || !_hasSavedCredentials) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        unawaited(_tryAutoWebCredentialLoginOnce());
+      });
+    });
+  }
+
+  Future<void> _tryAutoWebCredentialLoginOnce() async {
+    if (!kIsWeb || _autoCredentialLoginAttempted) return;
+    if (_painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+    if (FirebaseAuth.instance.currentUser != null) return;
+    if (!_rememberLogin || !_hasSavedCredentials) return;
+
+    _autoCredentialLoginAttempted = true;
+    setState(() => _loading = true);
+    try {
+      await AuthCpfService().signInWithEmail(
+        email: _emailController.text.trim(),
+        senha: _senhaController.text,
+      );
+      if (!mounted) return;
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: true);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = switch (e.code) {
+        'user-not-found' => 'E-mail não encontrado.',
+        'invalid-email' => 'E-mail inválido.',
+        'wrong-password' => 'Senha incorreta.',
+        'invalid-credential' => 'Credenciais inválidas.',
+        _ => 'Falha no login: ${e.code}',
+      });
+    } catch (_) {
+      // Mantém campos visíveis para login manual.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Biometria activa → so digital/Face ID; senao entra directo com credenciais salvas.
+  Future<void> _tryAutoQuickLoginOnce() async {
+    await _tryAutoBiometricLoginOnce();
+    if (!mounted) return;
+    await _tryAutoCredentialLoginOnce();
+  }
+
+  Future<void> _tryAutoCredentialLoginOnce() async {
+    if (kIsWeb || !_nativeChurchLogin) return;
+    if (_autoCredentialLoginAttempted) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+    if (FirebaseAuth.instance.currentUser != null) return;
+    if (!_hasSavedCredentials) return;
+    if (_showManualCredentialFields) return;
+    if (await BiometricService().canUseQuickBiometricLogin()) return;
+
+    _autoCredentialLoginAttempted = true;
+    setState(() => _loading = true);
+    try {
+      await AuthCpfService().signInWithEmail(
+        email: _emailController.text.trim(),
+        senha: _senhaController.text,
+      );
+      if (!mounted) return;
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: true);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = switch (e.code) {
+        'user-not-found' => 'E-mail não encontrado.',
+        'invalid-email' => 'E-mail inválido.',
+        'wrong-password' => 'Senha incorreta. Use e-mail e senha ou Google.',
+        'invalid-credential' => 'Credenciais inválidas.',
+        _ => 'Falha no login: ${e.code}',
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _showManualCredentialFields = true);
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _tryAutoBiometricLoginOnce() async {
@@ -1221,18 +1310,12 @@ class _LoginPageState extends State<LoginPage> {
   bool get _isMasterAdminLogin => widget.afterLoginRoute == '/admin';
 
   bool get _useSmartFlow {
-    if (_simplifiedGoogleOnlyLogin) return false;
     if (_isMasterAdminLogin) return false;
     if (widget.churchWebAppleIosRenewEntry) return false;
     if (_painelLoginRoute != '/painel') return false;
     if (widget.showSmartLoginFlow != null) return widget.showSmartLoginFlow!;
-    // App iOS/Android: membro e gestor usam o mesmo login — sem escolha «Sou membro / gestor».
-    if (!kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS)) {
-      return false;
-    }
-    return true;
+    // Painel igreja (web/Android/iOS): login unificado — sem wizard «Sou membro / gestor».
+    return false;
   }
 
   /// Web + Android/iOS/macOS — o plugin `google_sign_in` não implementa Windows/Linux.
@@ -1263,6 +1346,12 @@ class _LoginPageState extends State<LoginPage> {
   /// iOS: aviso para novos gestores — cadastro da igreja no site.
   bool get _showIosNewGestorSiteHint =>
       _showIgrejaPainelExtras && IosPaymentsGate.hideOrganizationSignup;
+
+  /// Android painel: sempre mostrar resumo de planos (como antes do fluxo «só Google»).
+  bool get _showAndroidPainelPlanos =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      _nativeChurchLogin &&
+      _showIgrejaPainelExtras;
 
   /// Callout “cadastrar igreja” e resumo de planos: não exibir no fluxo **membro** (evita cadastro duplicado).
   bool get _showGestorMarketingBlocks =>
@@ -2177,8 +2266,8 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Nas proximas aberturas o app pode pedir digital ou Face ID sozinho, '
-          'mais rapido. Use Entrar para pedir agora, ou abaixo para e-mail e senha.',
+          'Credenciais deste aparelho ja estao salvas. Nas proximas vezes o app pede '
+          'digital ou Face ID sozinho (como Controle Total). Toque em Entrar ou aguarde o pedido automatico.',
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade700,
@@ -2567,6 +2656,11 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 14),
                         _buildGestorCadastroCallout(theme),
                         const SizedBox(height: 12),
+                        const YahwehOfficialSocialChannelsBar(compact: true),
+                        const SizedBox(height: 12),
+                        _buildPlanosResumoCard(theme),
+                      ] else if (_showAndroidPainelPlanos) ...[
+                        const SizedBox(height: 14),
                         const YahwehOfficialSocialChannelsBar(compact: true),
                         const SizedBox(height: 12),
                         _buildPlanosResumoCard(theme),

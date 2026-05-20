@@ -1,10 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show ResilientNetworkImage, isValidImageUrl, sanitizeImageUrl;
+    show
+        ResilientNetworkImage,
+        firebaseStorageDownloadUrlLooksTokenized,
+        isValidImageUrl,
+        sanitizeImageUrl;
 
 /// Para [ValueKey] e atualização visual após troca de foto ([fotoUrlCacheRevision] ou timestamps).
 int? memberPhotoDisplayCacheRevision(Map<String, dynamic> data) {
@@ -123,6 +128,11 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       });
     }
     if (!needsFresh) return;
+    // App: URL com token do Firestore — getData no decode; evita getDownloadURL em listas.
+    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(norm)) {
+      if (mounted) setState(() => _resolving = false);
+      return;
+    }
     String out = norm;
     try {
       out = sanitizeImageUrl(
@@ -228,6 +238,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         fit: widget.fit,
         memCacheWidth: mcW,
         memCacheHeight: mcH,
+        skipFreshDisplayUrl: true,
         placeholder: widget.placeholder ?? err,
         errorWidget: canStorage
             ? _MemberPhotoStorageFallback(
@@ -390,6 +401,9 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
       final s = sanitizeImageUrl(raw);
       if (s.isNotEmpty) {
         if (isValidImageUrl(s)) {
+          if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(s)) {
+            return s;
+          }
           try {
             final fresh = await StorageMediaService.freshPlayableMediaUrl(s);
             final out = sanitizeImageUrl(fresh);
@@ -445,6 +459,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
             fit: widget.fit,
             memCacheWidth: widget.memCacheW,
             memCacheHeight: widget.memCacheH,
+            skipFreshDisplayUrl: true,
             placeholder: widget.placeholder,
             errorWidget: widget.errorChild,
           );
