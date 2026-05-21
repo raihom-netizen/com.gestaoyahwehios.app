@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'firestore_stream_utils.dart';
+
 /// Entrada leve em `igrejas/{tid}/_panel_cache/members_directory`.
 class MemberDirectoryEntry {
   const MemberDirectoryEntry({
@@ -153,9 +155,9 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const MembersDirectorySnapshot());
     }
-    return cacheRef(tid).snapshots().map((snap) {
-      return MembersDirectorySnapshot.fromMap(snap.data());
-    });
+    return FirestoreStreamUtils.resilientQuery(cacheRef(tid).snapshots()).map(
+      (snap) => MembersDirectorySnapshot.fromMap(snap.data()),
+    );
   }
 
   static Future<MembersDirectorySnapshot> readOnce(String tenantId) async {

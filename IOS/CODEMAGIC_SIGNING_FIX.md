@@ -1,0 +1,56 @@
+# Codemagic iOS — corrigir assinatura (PEM / P12 / 409)
+
+## Erro típico (build 1589+)
+
+```
+PEM não corresponde a nenhum certificado IOS_DISTRIBUTION
+POST certificates returned 409 (já existe certificado Distribution)
+```
+
+## Causa
+
+O secret `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM` no Codemagic **não é o par** do certificado «Apple Distribution» activo na equipa Apple (82RC6YL7KL).
+
+## Solução A — Recomendada (estável, igual Controle Total)
+
+1. No Mac: exportar **Apple Distribution** como `.p12` + descarregar perfil **App Store** de `com.gestaoyahwehios.app`.
+2. Na raiz do repo (PowerShell):
+
+```powershell
+.\scripts\encode_ios_codemagic_secrets.ps1
+```
+
+3. Codemagic → **Environment variables** → grupo `appstore_credentials`:
+   - `CERTIFICATE_PRIVATE_KEY` ou `CM_CERTIFICATE` = Base64 do P12 (uma linha)
+   - `CM_PROVISIONING_PROFILE` = Base64 do `.mobileprovision` (uma linha)
+   - `CM_CERTIFICATE_PASSWORD` = senha do P12 (se tiver)
+4. **Remover** ou deixar vazio `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM` (evita modo API-only com PEM errado).
+5. `codemagic.yaml`: `CM_FORCE_API_ONLY_SIGNING: "0"` (já é o padrão).
+6. Novo build → modo **manual** instala P12 + perfil.
+
+## Solução B — Só API (.p8) com PEM correcto
+
+1. Gerar PEM + CSR:
+
+```powershell
+.\scripts\gen_ios_distribution_csr_private_key_pem.ps1
+```
+
+2. Apple Developer → Certificates → **Apple Distribution** → upload do `.csr`.
+3. Codemagic: `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM` = conteúdo **completo** do `distribution_private_key.pem`.
+4. Perfil App Store: editar e marcar **esse** certificado Distribution.
+
+## Solução C — Bootstrap automático na CI (sem Mac)
+
+Se aparecer **409** (limite de 3 certificados Distribution):
+
+1. Revogar um certificado antigo: https://developer.apple.com/account/resources/certificates/list
+2. Push + build; com `CM_AUTO_BOOTSTRAP_PEM_MISMATCH=1` o CI cria par novo e grava PEM em `bootstrap_signing_output/`.
+3. Copiar `distribution_private_key.pem` para o secret `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM`.
+4. Builds seguintes: estável com esse PEM.
+
+## O que o repositório faz agora (scripts)
+
+- Valida PEM antes do `fetch-signing-files --create` (evita 409 desnecessário).
+- PEM inválido → tenta **P12** nos secrets → senão **bootstrap** ASC.
+- Remove permissões `READ_MEDIA_*` no Android (build Play separado).

@@ -38,6 +38,7 @@ import 'ui/admin_panel_page.dart';
 import 'ui/landing_page.dart';
 import 'ui/signup_page.dart';
 import 'ui/pages/signup_completar_gestor_page.dart';
+import 'ui/widgets/ios_organization_signup_web_page.dart';
 import 'ui/pages/plans/express_renew_gate_page.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -621,8 +622,11 @@ void main() async {
               defaultTargetPlatform == TargetPlatform.iOS)) {
         // Android/iOS: sem rota salva — com sessão Firebase persistida abre direto o painel.
         final cu = FirebaseAuth.instance.currentUser;
-        initialRoute =
-            (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
+        initialRoute = (cu != null && !cu.isAnonymous)
+            ? '/painel'
+            : (defaultTargetPlatform == TargetPlatform.iOS
+                ? '/igreja/login'
+                : '/login');
       }
       if (kIsWeb) {
         final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
@@ -639,8 +643,11 @@ void main() async {
             defaultTargetPlatform == TargetPlatform.iOS) &&
         (initialRoute == '/' || initialRoute.isEmpty)) {
       final cu = FirebaseAuth.instance.currentUser;
-      initialRoute =
-          (cu != null && !cu.isAnonymous) ? '/painel' : '/login';
+      initialRoute = (cu != null && !cu.isAnonymous)
+          ? '/painel'
+          : (defaultTargetPlatform == TargetPlatform.iOS
+              ? '/igreja/login'
+              : '/login');
     }
     if (kIsWeb) {
       final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
@@ -868,24 +875,18 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   ),
                 );
               }
-              if (path == '/planos' || path == '/pagamento') {
+              if (path == '/planos' ||
+                  path == '/pagamento' ||
+                  path == '/atualizar-plano') {
                 return MaterialPageRoute(
                   settings: settings,
                   builder: (_) => const IosPaymentUnavailableView(),
                 );
               }
               if (IosPaymentsGate.isOrganizationSignupPath(path, pathSegments)) {
-                final em = uri.queryParameters['email']?.trim();
                 return MaterialPageRoute(
                   settings: settings,
-                  builder: (_) => LoginPage(
-                    title: 'Entrar com conta existente',
-                    afterLoginRoute: '/painel',
-                    showFleetBranding: false,
-                    backRoute: '/',
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
-                  ),
+                  builder: (_) => const IosOrganizationSignupWebPage(),
                 );
               }
             }
@@ -932,11 +933,12 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 );
               } else if (pathSegments.length >= 3 &&
                   pathSegments[2] == 'cadastro') {
-                final em = uri.queryParameters['email']?.trim();
-                pagina = SignupPage(
-                  initialEmail:
-                      (em != null && em.isNotEmpty) ? em : null,
-                );
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : SignupPage(
+                        initialEmail:
+                            uri.queryParameters['email']?.trim(),
+                      );
               } else {
                 pagina = ChurchPublicPage(slug: slug);
               }
@@ -961,18 +963,21 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   protocolo: uri.queryParameters['protocolo'] ?? '',
                 );
               } else if (low == 'cadastro') {
-                final em = uri.queryParameters['email']?.trim();
-                pagina = SignupPage(
-                  initialEmail:
-                      (em != null && em.isNotEmpty) ? em : null,
-                );
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : SignupPage(
+                        initialEmail:
+                            uri.queryParameters['email']?.trim(),
+                      );
               } else {
                 pagina = ChurchPublicPage(slug: slug, openNoticiaId: second);
               }
             } else {
               switch (path) {
                 case '/cadastro':
-                  pagina = const CadastroUsuarioPage();
+                  pagina = IosPaymentsGate.isIosNative
+                      ? const IosOrganizationSignupWebPage()
+                      : const CadastroUsuarioPage();
                   break;
                 case '/usuarios_permissoes':
                   pagina = const UsuariosPermissoesPage(
@@ -1002,9 +1007,14 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 }
                 case '/igreja/login': {
                   final em = uri.queryParameters['email']?.trim();
-                  final afterLogin = _resolveIgrejaLoginAfterRoute(uri);
+                  // App iOS nativo: só login → painel; plano/licença no Safari (3.1.1).
+                  final afterLogin = IosPaymentsGate.isIosNative
+                      ? '/painel'
+                      : _resolveIgrejaLoginAfterRoute(uri);
                   pagina = LoginPage(
-                    title: 'Entrar — Painel da Igreja',
+                    title: IosPaymentsGate.isIosNative
+                        ? 'Entrar com conta existente'
+                        : 'Entrar — Painel da Igreja',
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
@@ -1016,15 +1026,20 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 }
                 case '/igreja/login/apple': {
                   final em = uri.queryParameters['email']?.trim();
-                  final afterLogin = _resolveIgrejaLoginAfterRoute(uri);
+                  final afterLogin = IosPaymentsGate.isIosNative
+                      ? '/painel'
+                      : _resolveIgrejaLoginAfterRoute(uri);
                   pagina = LoginPage(
-                    title: 'Entrar — Painel da Igreja',
+                    title: IosPaymentsGate.isIosNative
+                        ? 'Entrar com conta existente'
+                        : 'Entrar — Painel da Igreja',
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
                     prefillEmail:
                         (em != null && em.isNotEmpty) ? em : null,
-                    churchWebAppleIosRenewEntry: true,
+                    // Só na web (Safari): fluxo expresso pós-login em /atualizar-plano.
+                    churchWebAppleIosRenewEntry: kIsWeb,
                   );
                   break;
                 }
@@ -1050,15 +1065,18 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   break;
                 }
                 case '/signup': {
-                  final em = uri.queryParameters['email']?.trim();
-                  pagina = SignupPage(
-                    initialEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
-                  );
+                  pagina = IosPaymentsGate.isIosNative
+                      ? const IosOrganizationSignupWebPage()
+                      : SignupPage(
+                          initialEmail:
+                              uri.queryParameters['email']?.trim(),
+                        );
                   break;
                 }
                 case '/signup/completar-dados':
-                  pagina = const SignupCompletarGestorPage();
+                  pagina = IosPaymentsGate.isIosNative
+                      ? const IosOrganizationSignupWebPage()
+                      : const SignupCompletarGestorPage();
                   break;
                 case '/painel': {
                   final openMember =

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'firestore_stream_utils.dart';
+
 /// Membro leve no cache do painel (`_panel_cache/dashboard_summary`).
 class PanelHomeMemberLite {
   const PanelHomeMemberLite({
@@ -192,9 +194,9 @@ class PanelDashboardSnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const PanelDashboardSnapshot());
     }
-    return cacheRef(tid).snapshots().map((snap) {
-      return PanelDashboardSnapshot.fromMap(snap.data());
-    });
+    return FirestoreStreamUtils.resilientQuery(cacheRef(tid).snapshots()).map(
+      (snap) => PanelDashboardSnapshot.fromMap(snap.data()),
+    );
   }
 
   /// Leitura única (1 doc) — pintura instantânea antes dos streams pesados.

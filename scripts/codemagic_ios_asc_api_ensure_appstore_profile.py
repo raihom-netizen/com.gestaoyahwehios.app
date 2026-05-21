@@ -495,6 +495,73 @@ def _write_mobileprovision_and_plist(mp_bytes: bytes, bundle: str) -> None:
     print(f"OK: perfil escrito (API). name={name} uuid={uuid} team={team}")
 
 
+def pem_matches_distribution_main() -> int:
+    """Exit 0 se não há PEM Distribution nos secrets ou se o PEM casa com IOS_DISTRIBUTION na ASC."""
+    priv = _load_distribution_private_key_from_env()
+    if priv is None:
+        print("OK: sem PEM Distribution nos secrets (validação ignorada).")
+        return 0
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"ERRO: JWT para validar PEM: {e}", file=sys.stderr)
+        return 1
+    certs = _list_distribution_certificates(token)
+    cert_id = _find_cert_id_for_privkey(priv, certs)
+    if cert_id:
+        print(f"OK: PEM corresponde ao certificado IOS_DISTRIBUTION id={cert_id}.")
+        return 0
+    print(
+        "ERRO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM não corresponde a nenhum certificado "
+        "IOS_DISTRIBUTION desta equipa na App Store Connect.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def import_distribution_identity_from_p12_main() -> int:
+    """Importa identidade Distribution a partir de CM_CERTIFICATE / CERTIFICATE_PRIVATE_KEY (P12 Base64)."""
+    raw = (os.environ.get("CM_CERTIFICATE") or os.environ.get("CERTIFICATE_PRIVATE_KEY") or "").strip()
+    if not raw:
+        print("AVISO: CM_CERTIFICATE ausente — saltar import P12.", file=sys.stderr)
+        return 1
+    if re.search(r"BEGIN (EC |RSA )?PRIVATE KEY", raw):
+        print("AVISO: secret parece PEM RSA, não P12 — saltar import P12.", file=sys.stderr)
+        return 1
+    b64 = "".join(raw.split())
+    try:
+        p12_bytes = base64.b64decode(b64, validate=False)
+    except Exception as e:
+        print(f"ERRO: CM_CERTIFICATE não é Base64 válido: {e}", file=sys.stderr)
+        return 1
+    if not p12_bytes:
+        print("ERRO: CM_CERTIFICATE decodifica vazio.", file=sys.stderr)
+        return 1
+    p12_path = "/tmp/cm_api_only_from_secret.p12"
+    with open(p12_path, "wb") as f:
+        f.write(p12_bytes)
+    os.chmod(p12_path, 0o600)
+    pw = _resolve_p12_password()
+    try:
+        _p12_leaf_der(p12_path, pw)
+    except Exception as e:
+        print(f"ERRO: P12 não abre (senha CM_CERTIFICATE_PASSWORD?): {e}", file=sys.stderr)
+        return 1
+    kc = shutil.which("keychain")
+    if not kc:
+        print("ERRO: comando keychain ausente.", file=sys.stderr)
+        return 1
+    cmd = [kc, "add-certificates", "--certificate", p12_path]
+    if pw:
+        cmd.extend(["--certificate-password", pw])
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        print((p.stderr or p.stdout or "").strip(), file=sys.stderr)
+        return 1
+    print("OK: identidade Apple Distribution importada a partir de CM_CERTIFICATE (P12).")
+    return 0
+
+
 def import_distribution_identity_to_keychain_main() -> int:
     """
     PEM (CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM ou CERTIFICATE_PRIVATE_KEY) + leaf DER na ASC
@@ -688,8 +755,17 @@ def bootstrap_distribution_cert_ci_main() -> int:
             break
         print(f"AVISO: POST certificates com CSR {label} falhou {code}: {json.dumps(data)[:1200]}", file=sys.stderr)
     if not data_ok:
+        n_dist = len(_list_distribution_certificates(token))
         print(
-            "ERRO: não foi possível criar IOS_DISTRIBUTION (403/409?). Revogue um Distribution antigo se exceder 3.",
+            "ERRO: não foi possível criar IOS_DISTRIBUTION (403/409?). "
+            f"Certificados Distribution na equipa (API): {n_dist} (máximo Apple: 3 ativos).",
+            file=sys.stderr,
+        )
+        print(
+            "  Revogue um certificado «Apple Distribution» expirado ou duplicado em:\n"
+            "  https://developer.apple.com/account/resources/certificates/list\n"
+            "  Depois volte a correr o build com CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 "
+            "ou atualize CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM com o PEM correcto.",
             file=sys.stderr,
         )
         return 1
@@ -875,6 +951,18 @@ def matches_only_main() -> int:
 def main() -> int:
     if "--matches-only" in sys.argv:
         return matches_only_main()
+    if "--pem-matches-distribution" in sys.argv:
+        try:
+            return pem_matches_distribution_main()
+        except Exception as e:
+            print(f"ERRO: validar PEM Distribution: {e}", file=sys.stderr)
+            return 1
+    if "--import-distribution-identity-from-p12" in sys.argv:
+        try:
+            return import_distribution_identity_from_p12_main()
+        except Exception as e:
+            print(f"ERRO: import P12: {e}", file=sys.stderr)
+            return 1
     if "--import-distribution-identity-to-keychain" in sys.argv:
         try:
             return import_distribution_identity_to_keychain_main()

@@ -7257,18 +7257,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       await _shareWalletPng(context);
       return;
     }
-    try {
-      final permitted = await Gal.hasAccess(toAlbum: true);
-      if (!permitted && !await Gal.requestAccess(toAlbum: true)) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Permissão da galeria necessária para salvar.')),
-          );
-        }
-        return;
-      }
-    } catch (_) {}
     if (!context.mounted) return;
     final pr = MediaQuery.devicePixelRatioOf(context).clamp(2.0, 4.0);
     final bytes = await _walletScreenshotController.capture(pixelRatio: pr);

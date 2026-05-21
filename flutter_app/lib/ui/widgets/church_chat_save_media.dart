@@ -29,19 +29,7 @@ Future<void> churchChatSaveImageUrl(BuildContext context, String rawUrl) async {
     );
     return;
   }
-  try {
-    final permitted = await Gal.hasAccess(toAlbum: true);
-    if (!permitted && !await Gal.requestAccess(toAlbum: true)) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Permita o acesso à galeria para guardar.',
-        ),
-      );
-      return;
-    }
-  } catch (_) {}
-
+  // Gravação na galeria via MediaStore (gal) — sem READ_MEDIA_* no manifest.
   final resolved = await _resolveMediaUrl(rawUrl);
   if (!context.mounted) return;
   if (resolved.isEmpty) {

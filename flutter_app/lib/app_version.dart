@@ -1,4 +1,10 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1594: iOS login/planos — sem checkout in-app; cadastro e licença só no site (3.1.1).
+/// 11.2.295+1593: App Store 3.1.1 — iOS sem cadastro de igreja no app; só link web (Safari).
+/// 11.2.295+1592: deploy completo — web, AAB Play, ZIP iOS Codemagic (push).
+/// 11.2.295+1591: Play Store — remove READ_MEDIA_*; Photo Picker (image_picker); AAB conforme política fotos/vídeos.
+/// 11.2.295+1590: Firestore — streams broadcast/resilientes (dashboard dept, chat, _panel_cache);
+/// menos Crashlytics `permission-denied` e «Stream already listened».
 /// 11.2.295+1589: deploy completo — login Controle Total, mídia rápida (fotos/vídeos/chat/membros), web, AAB, iOS.
 /// 11.2.295+1588: deploy completo produção — web, AAB Play, ZIP iOS Codemagic (push).
 /// 11.2.295+1587: deploy completo — Command Center master, login auto-sessão, chat 2ª entrega.
@@ -113,7 +119,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1589';
+const String appBuildNumber = '1594';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -4,7 +4,9 @@ import 'dart:io' show Platform;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Controla se o app pode exibir UI de cobranca direta (Mercado Pago / cartao / PIX)
@@ -46,6 +48,7 @@ class IosPaymentsGate {
     if (!hideOrganizationSignup) return false;
     final low = path.toLowerCase();
     if (low == '/signup' || low.startsWith('/signup/')) return true;
+    if (low == '/cadastro') return true;
     if (pathSegments.length >= 3 &&
         pathSegments[0] == 'igreja' &&
         pathSegments[1] != 'login' &&
@@ -194,6 +197,19 @@ class IosPaymentsGate {
       organizationSignupWebUri(),
       mode: LaunchMode.externalApplication,
     );
+  }
+
+  /// Navegação unificada: iOS → ecrã/link web; demais plataformas → `/signup`.
+  static void navigateToOrganizationSignup(BuildContext context) {
+    if (hideOrganizationSignup) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const IosOrganizationSignupWebPage(),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).pushNamed('/signup');
   }
 
   /// Abre o site da igreja no Safari (botão «Doação» / dízimos e ofertas).

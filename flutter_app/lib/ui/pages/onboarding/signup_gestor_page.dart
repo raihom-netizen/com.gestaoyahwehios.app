@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
+
 import '../../../models/plan.dart';
 import '../../../services/onboarding_service.dart';
 import '../../widgets/app_shell.dart';
@@ -70,6 +73,9 @@ class _SignupGestorPageState extends State<SignupGestorPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return const IosOrganizationSignupWebPage();
+    }
     final p = widget.selectedPlan;
     final price = p.monthlyPrice.toStringAsFixed(2).replaceAll('.', ',');
 

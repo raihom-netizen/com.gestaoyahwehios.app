@@ -44,6 +44,74 @@ _has_fixed_distribution_key() {
   return 1
 }
 
+_has_p12_secret() {
+  local c
+  c="$(printf '%s' "${CM_CERTIFICATE:-${CERTIFICATE_PRIVATE_KEY:-}}" | tr -d '\n\r\t ')"
+  [ -n "$c" ] && ! printf '%s' "$c" | grep -qE "BEGIN (EC |RSA )?PRIVATE KEY"
+}
+
+_pem_matches_distribution() {
+  python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --pem-matches-distribution
+}
+
+_print_distribution_cert_limit_help() {
+  echo ""
+  echo "Limite Apple: máximo 3 certificados «Apple Distribution» activos por equipa."
+  echo "  Revogue um certificado antigo/expirado:"
+  echo "  https://developer.apple.com/account/resources/certificates/list"
+  echo "  Ou use modo manual estável no Codemagic:"
+  echo "    CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE (Base64)"
+  echo "  PC: .\\scripts\\encode_ios_codemagic_secrets.ps1"
+  echo ""
+}
+
+_repair_signing_if_pem_invalid() {
+  if ! _has_fixed_distribution_key; then
+    return 0
+  fi
+  if _pem_matches_distribution; then
+    return 0
+  fi
+  echo ""
+  echo "=== Reparo assinatura: PEM Distribution NÃO corresponde a nenhum certificado na Apple ==="
+  if _has_p12_secret; then
+    echo "Fallback: P12 + perfil nos secrets (modo manual — recomendado)."
+    exec bash "$SCRIPT_DIR/codemagic_ios_install_p12_profile_exportoptions.sh"
+  fi
+  _auto="${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-1}"
+  _boot="${CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM:-0}"
+  if [ "$_auto" = "1" ] || [ "$_auto" = "true" ] || [ "$_boot" = "1" ] || [ "$_boot" = "true" ]; then
+    echo "A criar novo par chave + certificado Distribution na CI (bootstrap ASC)…"
+    ROOT_BOOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-}}"
+    if python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --bootstrap-distribution-cert-ci; then
+      _pem_f="${ROOT_BOOT}/bootstrap_signing_output/distribution_private_key.pem"
+      if [ -f "$_pem_f" ]; then
+        export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$_pem_f")"
+        echo "OK: PEM do bootstrap carregado nesta sessão."
+        echo "AVISO: Copie distribution_private_key.pem para o secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM no Codemagic."
+        if _run_select_profile_python; then
+          _persist_asc_pem_to_cm_env
+          if _has_distribution_signing_identity; then
+            echo "OK: assinatura pronta após bootstrap (perfil + keychain)."
+            exit 0
+          fi
+        fi
+      fi
+    fi
+    echo "ERRO: bootstrap não concluiu (frequentemente HTTP 409 = limite de certificados Distribution)."
+    _print_distribution_cert_limit_help
+    exit 1
+  fi
+  echo "ERRO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido ou desactualizado."
+  echo "  Opções:"
+  echo "    A) Corrigir o secret com o PEM do par do certificado Apple Distribution actual"
+  echo "       (scripts/gen_ios_distribution_csr_private_key_pem.ps1 + certificado na Apple)"
+  echo "    B) Modo manual: CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE — .\\scripts\\encode_ios_codemagic_secrets.ps1"
+  echo "    C) CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 após revogar um cert Distribution antigo (se 409)"
+  _print_distribution_cert_limit_help
+  exit 1
+}
+
 _prepare_cert_key_file() {
   CERT_KEY_FILE="/tmp/cm_distribution_rsa_for_fetch.pem"
   rm -f "$CERT_KEY_FILE"
@@ -81,10 +149,26 @@ _finalize_api_only_keychain() {
     security find-identity -v -p codesigning 2>/dev/null | grep -E 'Apple Distribution:|iPhone Distribution:|iOS Distribution:' | head -6 || true
     return 0
   fi
+  if _has_p12_secret; then
+    echo "Keychain vazio — a importar CM_CERTIFICATE (P12) …"
+    if python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --import-distribution-identity-from-p12; then
+      :
+    else
+      echo "AVISO: import P12 via API falhou; tentando PEM ASC se existir."
+    fi
+  fi
+  if _has_distribution_signing_identity; then
+    echo "OK: identidade de distribuição via P12."
+    return 0
+  fi
   if _has_fixed_distribution_key; then
+    if ! _pem_matches_distribution; then
+      echo "ERRO: PEM Distribution não corresponde ao certificado na Apple (devia ter sido reparado antes)."
+      return 1
+    fi
     echo "Keychain vazio para Distribution — a importar PEM + certificado da App Store Connect (ASC) …"
     if ! python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --import-distribution-identity-to-keychain; then
-      echo "ERRO: import da identidade a partir do PEM falhou (PEM não casa com cert IOS_DISTRIBUTION na equipa?)."
+      echo "ERRO: import da identidade a partir do PEM falhou."
       return 1
     fi
   else
@@ -275,6 +359,8 @@ if [[ -n "$ROOT_BOOT" ]] && { [[ "${CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM:-0}" 
 fi
 
 # --- Fluxo principal ---
+_repair_signing_if_pem_invalid
+
 FETCH_EXIT=0
 REST_EXIT=0
 if _has_fixed_distribution_key; then

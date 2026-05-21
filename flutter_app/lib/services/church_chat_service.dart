@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_member_prefs.dart';
+import 'firestore_stream_utils.dart';
 import 'media_upload_service.dart';
 
 /// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
@@ -124,8 +125,12 @@ class ChurchChatService {
             if (!controller.isClosed) controller.add(event);
           },
           onError: (Object error, StackTrace stack) {
-            wireAttempts++;
             if (controller.isClosed) return;
+            if (FirestoreStreamUtils.isPermissionDenied(error)) {
+              controller.add(const MergedFirestoreQuerySnapshot([]));
+              return;
+            }
+            wireAttempts++;
             if (wireAttempts > 14) {
               controller.addError(error, stack);
               return;
@@ -145,14 +150,16 @@ class ChurchChatService {
       }
     }
 
-    controller = StreamController<QuerySnapshot<Map<String, dynamic>>>(
+    controller = StreamController<QuerySnapshot<Map<String, dynamic>>>.broadcast(
       onListen: () {
         wireAttempts = 0;
         unawaited(wire());
       },
       onCancel: () {
-        sub?.cancel();
-        sub = null;
+        if (!controller.hasListener) {
+          sub?.cancel();
+          sub = null;
+        }
       },
     );
     return controller.stream;

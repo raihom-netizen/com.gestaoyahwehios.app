@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -46,13 +47,6 @@ class _SignupPageState extends State<SignupPage> {
   @override
   void initState() {
     super.initState();
-    if (IosPaymentsGate.hideOrganizationSignup) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        Navigator.pushNamedAndRemoveUntil(context, '/igreja/login', (_) => false);
-      });
-      return;
-    }
     final init = widget.initialEmail?.trim();
     if (init != null && init.isNotEmpty) {
       _email.text = init;
@@ -303,6 +297,9 @@ class _SignupPageState extends State<SignupPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return const IosOrganizationSignupWebPage();
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Criar conta - teste grátis 30 dias'),

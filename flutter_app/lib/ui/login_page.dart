@@ -2971,9 +2971,13 @@ class _LoginPageState extends State<LoginPage> {
                           const SizedBox(height: 8),
                           Text(
                             widget.churchWebAppleIosRenewEntry
-                                ? 'Entrada para renovar ou alterar o plano no iPhone. '
-                                    'Use o mesmo e-mail da igreja: Google, Apple ou e-mail e senha. '
-                                    'Após entrar, escolha o plano e pague na mesma página.'
+                                ? (IosPaymentsGate.isIosNative
+                                    ? 'Entre com a conta já cadastrada (Google, Apple ou e-mail). '
+                                        'Para contratar ou alterar plano, use o menu no painel — '
+                                        'o pagamento é feito no site (Safari), não neste app.'
+                                    : 'Entrada para renovar ou alterar o plano. '
+                                        'Use o mesmo e-mail da igreja: Google, Apple ou e-mail e senha. '
+                                        'Após entrar, escolha o plano e conclua no site.')
                                 : (_credentialsAsMembro
                                     ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
                                     : (IosPaymentsGate.hideOrganizationSignup

@@ -421,18 +421,6 @@ Future<void> saveNoticiaCoverToGallery(
     );
     return;
   }
-  try {
-    final permitted = await Gal.hasAccess(toAlbum: true);
-    if (!permitted && !await Gal.requestAccess(toAlbum: true)) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Permita o acesso à galeria para guardar a imagem.',
-        ),
-      );
-      return;
-    }
-  } catch (_) {}
   final bytes = await fetchNoticiaCoverImageBytes(post);
   if (!context.mounted) return;
   if (bytes == null) {

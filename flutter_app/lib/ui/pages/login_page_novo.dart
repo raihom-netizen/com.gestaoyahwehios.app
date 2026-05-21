@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+
 import '../login_page.dart';
 
 /// Rota de login (alias para LoginPage). [prefillEmail] via `/login?email=`.
@@ -9,11 +11,13 @@ class LoginPageNovo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iosReader = IosPaymentsGate.hideOrganizationSignup;
     return LoginPage(
-      title: 'Entrar',
+      title: iosReader ? 'Entrar com conta existente' : 'Entrar',
       afterLoginRoute: '/painel',
       prefillEmail: prefillEmail,
-      backRoute: '/',
+      backRoute: iosReader ? '/igreja/login' : '/',
+      showSmartLoginFlow: false,
     );
   }
 }

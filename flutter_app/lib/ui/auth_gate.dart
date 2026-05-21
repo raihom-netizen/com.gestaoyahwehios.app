@@ -155,6 +155,18 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
+                    ] else ...[
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () => unawaited(
+                            IosPaymentsGate.openOrganizationSignupExternally()),
+                        icon: const Icon(Icons.open_in_browser_rounded),
+                        label: const Text('Cadastrar igreja no site'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 12),
                     OutlinedButton.icon(

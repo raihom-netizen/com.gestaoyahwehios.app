@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
+
 import '../../../models/plan.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/primary_button.dart';
@@ -49,6 +52,9 @@ class _PlanSelectPageState extends State<PlanSelectPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return const IosOrganizationSignupWebPage();
+    }
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(

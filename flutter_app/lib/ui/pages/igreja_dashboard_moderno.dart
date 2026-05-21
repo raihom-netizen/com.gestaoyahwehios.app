@@ -33,6 +33,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
@@ -162,6 +163,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   /// Cache `_panel_cache/dashboard_summary` — pintura instantânea do topo do painel.
   PanelDashboardSnapshot _panelCache = const PanelDashboardSnapshot();
 
+  bool _initialAuthTokenForced = false;
+
   DateTimeRange get _resolvedDashFinanceRange =>
       ChurchDashboardFinancePeriod.resolve(
         preset: _dashFinancePreset,
@@ -222,8 +225,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     Future<void>.delayed(const Duration(milliseconds: 1600), () {
       if (!mounted) return;
       setState(() {
-        _membersStream = _createMembersSnapshotStream(allIds);
-        _deptStream = _createDepartmentsSnapshotStream(allIds);
+        _membersStream = FirestoreStreamUtils.resilientQuery(
+          _createMembersSnapshotStream(allIds),
+        );
+        _deptStream = FirestoreStreamUtils.resilientQuery(
+          _createDepartmentsSnapshotStream(allIds),
+        );
       });
     });
   }
@@ -268,11 +275,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Future<void> _loadStreams() async {
     // Refresca o token antes dos snapshots — regras Firestore com auth costumam falhar
     // com token velho (painel “perde” dados até novo login sem isto).
-    try {
-      // Sem `true`: evita round-trip forçado ao servidor em cada pull-to-refresh
-      // (token ainda válido = resposta imediata; `true` só quando regras falharem com 403).
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {}
+    final forceToken = !_initialAuthTokenForced;
+    if (forceToken) _initialAuthTokenForced = true;
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken);
     final resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
     final tenantRef = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
@@ -314,16 +319,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       _panelCache = cache;
       _membersStream = null;
       _deptStream = null;
-      _avisosStream = tenantRef
-          .collection(ChurchTenantPostsCollections.avisos)
-          .orderBy('createdAt', descending: true)
-          .limit(10)
-          .snapshots();
-      _noticiasPainelStream = tenantRef
-          .collection(ChurchTenantPostsCollections.noticias)
-          .orderBy('startAt', descending: true)
-          .limit(32)
-          .snapshots();
+      _avisosStream = FirestoreStreamUtils.resilientQuery(
+        tenantRef
+            .collection(ChurchTenantPostsCollections.avisos)
+            .orderBy('createdAt', descending: true)
+            .limit(10)
+            .snapshots(),
+      );
+      _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
+        tenantRef
+            .collection(ChurchTenantPostsCollections.noticias)
+            .orderBy('startAt', descending: true)
+            .limit(32)
+            .snapshots(),
+      );
     });
     _scheduleHeavyDashboardStreams(allIds);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -347,7 +356,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final db = FirebaseFirestore.instance;
     final lim = _dashboardMembersLimit;
     if (allIds.isEmpty) {
-      return Stream<QuerySnapshot<Map<String, dynamic>>>.value(_MergedQuerySnapshot([]));
+      return Stream<QuerySnapshot<Map<String, dynamic>>>.value(
+        const MergedFirestoreQuerySnapshot([]),
+      );
     }
     if (allIds.length == 1) {
       return _membersStreamForTenant(db, allIds.first, lim);
@@ -364,7 +375,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
             if (seen.add(d.id)) merged.add(d);
           }
         }
-        ctrl.addSync(_MergedQuerySnapshot(merged));
+        ctrl.addSync(MergedFirestoreQuerySnapshot(merged));
       }
 
       for (final id in allIds) {
@@ -409,7 +420,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   ) {
     final db = FirebaseFirestore.instance;
     if (allIds.isEmpty) {
-      return Stream<QuerySnapshot<Map<String, dynamic>>>.value(_MergedQuerySnapshot([]));
+      return Stream<QuerySnapshot<Map<String, dynamic>>>.value(
+        const MergedFirestoreQuerySnapshot([]),
+      );
     }
     if (allIds.length == 1) {
       return db
@@ -431,7 +444,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
             if (seen.add(d.id)) merged.add(d);
           }
         }
-        ctrl.addSync(_MergedQuerySnapshot(merged));
+        ctrl.addSync(MergedFirestoreQuerySnapshot(merged));
       }
 
       for (final id in allIds) {
@@ -475,11 +488,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     }
     final membersStream = _membersStream ??
         Stream<QuerySnapshot<Map<String, dynamic>>>.value(
-          _MergedQuerySnapshot([]),
+          const MergedFirestoreQuerySnapshot([]),
         );
     final deptStream = _deptStream ??
         Stream<QuerySnapshot<Map<String, dynamic>>>.value(
-          _MergedQuerySnapshot([]),
+          const MergedFirestoreQuerySnapshot([]),
         );
     return SafeArea(child: LayoutBuilder(
       builder: (context, constraints) {
@@ -8615,22 +8628,3 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
   }
 }
 
-class _MergedQuerySnapshot implements QuerySnapshot<Map<String, dynamic>> {
-  @override
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-  _MergedQuerySnapshot(this.docs);
-
-  @override
-  List<DocumentChange<Map<String, dynamic>>> get docChanges => [];
-  @override
-  SnapshotMetadata get metadata => docs.isNotEmpty ? docs.first.metadata : _DummyMeta();
-  @override
-  int get size => docs.length;
-}
-
-class _DummyMeta implements SnapshotMetadata {
-  @override
-  bool get hasPendingWrites => false;
-  @override
-  bool get isFromCache => false;
-}

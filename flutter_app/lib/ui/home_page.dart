@@ -1,4 +1,7 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -77,10 +80,12 @@ class HomePage extends StatelessWidget {
                             onPressed: () => Navigator.pushNamed(context, '/planos'),
                             child: const Text('Planos'),
                           ),
-                          TextButton(
-                            onPressed: () => Navigator.pushNamed(context, '/signup'),
-                            child: const Text('Cadastrar igreja'),
-                          ),
+                          if (!IosPaymentsGate.hideOrganizationSignup)
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/signup'),
+                              child: const Text('Cadastrar igreja'),
+                            ),
                           TextButton(
                             onPressed: () => _openChurchDialog(context),
                             child: const Text('Igrejas'),
@@ -228,13 +233,28 @@ class _HeroLeft extends StatelessWidget {
               child: const Text('Login Administrador'),
             ),
             TextButton(
-              onPressed: () => Navigator.pushNamed(context, '/planos'),
-              child: const Text('Ver planos'),
+              onPressed: () {
+                if (IosPaymentsGate.isIosNative) {
+                  unawaited(IosPaymentsGate.openUpgradePlansExternally());
+                } else {
+                  Navigator.pushNamed(context, '/planos');
+                }
+              },
+              child: Text(
+                IosPaymentsGate.isIosNative ? 'Planos no site' : 'Ver planos',
+              ),
             ),
-            TextButton(
-              onPressed: () => Navigator.pushNamed(context, '/signup'),
-              child: const Text('Cadastrar igreja'),
-            ),
+            if (!IosPaymentsGate.hideOrganizationSignup)
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/signup'),
+                child: const Text('Cadastrar igreja'),
+              )
+            else
+              TextButton(
+                onPressed: () =>
+                    IosPaymentsGate.openOrganizationSignupExternally(),
+                child: const Text('Cadastrar no site'),
+              ),
           ],
         ),
         const SizedBox(height: 16),

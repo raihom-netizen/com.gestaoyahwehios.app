@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 // ✅ Evita o erro do "R$"
@@ -107,11 +108,21 @@ class _LandingPageState extends State<LandingPage> {
             width: double.infinity,
             height: ThemeCleanPremium.minTouchTarget,
             child: FilledButton(
-              onPressed: () => Navigator.pushNamed(context, '/signup'),
+              onPressed: () {
+                if (IosPaymentsGate.hideOrganizationSignup) {
+                  unawaited(IosPaymentsGate.openOrganizationSignupExternally());
+                } else {
+                  Navigator.pushNamed(context, '/signup');
+                }
+              },
               style: FilledButton.styleFrom(
                 backgroundColor: ThemeCleanPremium.primary,
               ),
-              child: const Text('Iniciar teste grátis'),
+              child: Text(
+                IosPaymentsGate.hideOrganizationSignup
+                    ? 'Cadastrar no site'
+                    : 'Iniciar teste grátis',
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -286,8 +297,19 @@ class _LandingPageState extends State<LandingPage> {
                         ),
                         const SizedBox(width: 10),
                         FilledButton.tonal(
-                          onPressed: () => Navigator.pushNamed(context, '/signup'),
-                          child: const Text('Começar agora'),
+                          onPressed: () {
+                            if (IosPaymentsGate.hideOrganizationSignup) {
+                              unawaited(IosPaymentsGate
+                                  .openOrganizationSignupExternally());
+                            } else {
+                              Navigator.pushNamed(context, '/signup');
+                            }
+                          },
+                          child: Text(
+                            IosPaymentsGate.hideOrganizationSignup
+                                ? 'Cadastrar no site'
+                                : 'Começar agora',
+                          ),
                         ),
                       ],
                     ),
