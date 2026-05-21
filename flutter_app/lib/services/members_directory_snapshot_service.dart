@@ -155,7 +155,7 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const MembersDirectorySnapshot());
     }
-    return FirestoreStreamUtils.resilientQuery(cacheRef(tid).snapshots()).map(
+    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
       (snap) => MembersDirectorySnapshot.fromMap(snap.data()),
     );
   }

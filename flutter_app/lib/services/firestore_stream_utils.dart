@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -41,6 +43,29 @@ class FirestoreStreamUtils {
     return broadcast ? wired.asBroadcastStream() : wired;
   }
 
+  /// Documento único (`DocumentReference.snapshots`) — ex.: `_panel_cache`.
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> resilientDocument(
+    Stream<DocumentSnapshot<Map<String, dynamic>>> source, {
+    bool broadcast = true,
+  }) {
+    final wired = source.transform<DocumentSnapshot<Map<String, dynamic>>>(
+      StreamTransformer.fromHandlers(
+        handleData: (data, sink) => sink.add(data),
+        handleError: (error, stackTrace, sink) {
+          if (isPermissionDenied(error)) {
+            sink.add(_emptyDocumentSnapshot);
+            return;
+          }
+          sink.addError(error, stackTrace);
+        },
+      ),
+    );
+    return broadcast ? wired.asBroadcastStream() : wired;
+  }
+
+  static final DocumentSnapshot<Map<String, dynamic>> _emptyDocumentSnapshot =
+      _EmptyDocumentSnapshot();
+
   /// Atualiza o token JWT antes de queries sensíveis a regras (claims desatualizados).
   static Future<void> refreshAuthTokenIfNeeded({bool force = false}) async {
     try {
@@ -75,4 +100,29 @@ class _EmptySnapshotMetadata implements SnapshotMetadata {
 
   @override
   bool get isFromCache => false;
+}
+
+// ignore: subtype_of_sealed_class — placeholder só para permission-denied em cache doc.
+class _EmptyDocumentSnapshot implements DocumentSnapshot<Map<String, dynamic>> {
+  @override
+  Map<String, dynamic>? data() => null;
+
+  @override
+  dynamic get(Object field) => null;
+
+  @override
+  dynamic operator [](Object field) => null;
+
+  @override
+  bool get exists => false;
+
+  @override
+  String get id => '';
+
+  @override
+  SnapshotMetadata get metadata => const _EmptySnapshotMetadata();
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference =>
+      throw UnsupportedError('empty document snapshot has no reference');
 }

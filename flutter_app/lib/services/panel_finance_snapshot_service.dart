@@ -73,7 +73,7 @@ class PanelFinanceSnapshotService {
   static Stream<PanelFinanceSnapshot> watch(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return Stream.value(const PanelFinanceSnapshot());
-    return FirestoreStreamUtils.resilientQuery(cacheRef(tid).snapshots()).map(
+    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
       (s) => PanelFinanceSnapshot.fromMap(s.data()),
     );
   }

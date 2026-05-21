@@ -194,7 +194,7 @@ class PanelDashboardSnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const PanelDashboardSnapshot());
     }
-    return FirestoreStreamUtils.resilientQuery(cacheRef(tid).snapshots()).map(
+    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
       (snap) => PanelDashboardSnapshot.fromMap(snap.data()),
     );
   }
