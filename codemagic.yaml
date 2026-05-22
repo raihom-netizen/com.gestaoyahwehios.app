@@ -1,18 +1,13 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 # Pipeline iOS: keychain → PEM → Sign In with Apple (API) → limpar perfis → assinatura → CocoaPods → …
 #
-# ─── Modo API-only (sem P12 no secret) ───
-#   Obrigatorio: APP_STORE_CONNECT_PRIVATE_KEY (.p8), APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
-#   Nao defina CM_CERTIFICATE nem CM_PROVISIONING_PROFILE (nem CERTIFICATE_PRIVATE_KEY em Base64 de .p12).
-#   O CLI fetch-signing-files --create exige chave RSA do certificado Distribution (nao e a .p8):
-#   - Opcional: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM = PEM completo (openssl genrsa 2048),
-#     a MESMA em todos os builds — TEM de ser o par do certificado «Apple Distribution» activo na Apple.
-#     Se o PEM não casar, o CI tenta P12 (CM_CERTIFICATE) ou bootstrap (CM_AUTO_BOOTSTRAP_PEM_MISMATCH=1).
-#   - Recomendado estável: CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE — encode_ios_codemagic_secrets.ps1
-#   - Se omitir PEM e P12: o CI gera RSA nova por build (pode falhar 409 após 3 certificados na equipa).
-#   Chave API: permissoes Admin (ou equivalente) para certificados/perfis na App Store Connect.
+# ─── Modo padrão (CM_DISALLOW_API_ONLY_SIGNING=1) ───
+#   APP_STORE_CONNECT_* + CERTIFICATE_PRIVATE_KEY ou CM_CERTIFICATE (P12 Base64) +
+#   CM_PROVISIONING_PROFILE + senha P12. NÃO usar CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.
+#   encode_ios_codemagic_secrets.ps1 → D:\Temporarios\gestao_yahweh_codemagic\
+#   Passo 11: codemagic_ios_install_signing.sh (só P12; ignora PEM).
 #
-# ─── Modo manual (P12 + perfil nos secrets) ───
+# ─── Modo manual (P12 + perfil nos secrets) — OBRIGATÓRIO neste repo ───
 #   CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (Base64 do .p12 Apple Distribution, uma linha)
 #   CM_PROVISIONING_PROFILE — .mobileprovision App Store em Base64
 #   CM_CERTIFICATE_PASSWORD ou CERTIFICATE_PASSWORD — senha do export .p12 (se tiver senha)
