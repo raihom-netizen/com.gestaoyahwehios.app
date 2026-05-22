@@ -76,17 +76,13 @@ GESTAO YAHWEH — Colar na Codemagic (grupo: appstore_credentials)
 Pasta gerada: $outRoot
 ================================================================================
 
-A) OBRIGATORIO para API-only / import da chave Distribution no CI
-   Variavel:  CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM  (tipo: Secret)
-   Valor:     Abra o ficheiro 01_CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.txt
-              Copie TUDO (desde -----BEGIN ate -----END inclusive).
-              Cole no campo do secret na Codemagic (aceita multilinhas).
+A) RECOMENDADO — modo estável (P12 + perfil; apague CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM)
+   CERTIFICATE_PRIVATE_KEY ou CM_CERTIFICATE = uma linha do ficheiro 02_...BASE64...
+   CM_PROVISIONING_PROFILE = uma linha do ficheiro 04_... (se existir)
+   CM_CERTIFICATE_PASSWORD = ficheiro 03_... (uma linha)
 
-B) OPCIONAL — modo manual (alternativa ao PEM + API)
-   Se preferir P12 + perfil em vez de depender do PEM na API:
-   CM_CERTIFICATE  = conteudo UMA linha do ficheiro 02_...BASE64...
-   CM_CERTIFICATE_PASSWORD = conteudo do ficheiro 03_... (uma linha)
-   CM_PROVISIONING_PROFILE = Base64 do .mobileprovision App Store (se ainda nao tiver no grupo)
+B) NÃO usar — PEM API-only (erros recorrentes)
+   01_CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.txt — ignorar salvo emergência
 
 C) Depois de guardar os secrets
    Codemagic → Start new build → workflow  iOS Build - Gestao YAHWEH (TestFlight)
