@@ -29,6 +29,18 @@ _persist_asc_pem_to_cm_env() {
   } >> "$CM_ENV"
 }
 
+_persist_distribution_pem_to_cm_env() {
+  local pem_f="$1"
+  [ -n "${CM_ENV:-}" ] && [ -f "$pem_f" ] || return 0
+  _DIST_DELIM="CMGYWDISTPEM594E2F1END"
+  {
+    echo "CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM<<${_DIST_DELIM}"
+    cat "$pem_f"
+    printf '\n%s\n' "${_DIST_DELIM}"
+  } >> "$CM_ENV"
+  export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$pem_f")"
+}
+
 if ! command -v app-store-connect >/dev/null 2>&1; then
   echo "A instalar codemagic-cli-tools (app-store-connect)..."
   python3 -m pip install --user -q "codemagic-cli-tools>=0.52.0"
@@ -92,14 +104,18 @@ _repair_signing_if_pem_invalid() {
       _pem_f="${ROOT_BOOT}/bootstrap_signing_output/distribution_private_key.pem"
       if [ -f "$_pem_f" ]; then
         export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$_pem_f")"
-        echo "OK: PEM do bootstrap carregado nesta sessão."
-        echo "AVISO: Copie distribution_private_key.pem para o secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM no Codemagic."
+        _persist_distribution_pem_to_cm_env "$_pem_f"
+        echo "OK: PEM do bootstrap carregado nesta sessão (e CM_ENV se disponível)."
         if _run_select_profile_python; then
           _persist_asc_pem_to_cm_env
           if _has_distribution_signing_identity; then
             echo "OK: assinatura pronta após bootstrap (perfil + keychain)."
             exit 0
           fi
+        fi
+        if _finalize_api_only_keychain && _has_distribution_signing_identity; then
+          echo "OK: assinatura pronta após bootstrap + import keychain."
+          exit 0
         fi
       fi
     fi
@@ -435,11 +451,11 @@ if python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --boot
   _pem_f="${ROOT_BOOT}/bootstrap_signing_output/distribution_private_key.pem"
   if [ -f "$_pem_f" ]; then
     export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$_pem_f")"
+    _persist_distribution_pem_to_cm_env "$_pem_f"
   fi
   if _run_select_profile_python; then
     _persist_asc_pem_to_cm_env
-    _finalize_api_only_keychain || true
-    if _has_distribution_signing_identity; then
+    if _finalize_api_only_keychain && _has_distribution_signing_identity; then
       echo "OK: assinatura pronta após bootstrap de último recurso."
       exit 0
     fi

@@ -106,6 +106,8 @@ workflows:
         CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "1"
         # 0 = modo automático API-only quando só APP_STORE_CONNECT_* (como antes).
         CM_DISALLOW_API_ONLY_SIGNING: "0"
+        # 1 = revoga certificados Distribution expirados/antigos via API antes de criar novo (evita HTTP 409).
+        CM_AUTO_REVOKE_STALE_DISTRIBUTION_CERTS: "1"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"

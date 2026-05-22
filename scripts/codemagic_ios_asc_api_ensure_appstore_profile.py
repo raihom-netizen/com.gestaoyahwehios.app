@@ -220,6 +220,8 @@ def _certificates_paginated(token: str, query_suffix: str) -> list[dict]:
                         "serial_local": ser_local,
                         "serial_api": serial_api,
                         "name": attr.get("displayName") or attr.get("name") or "",
+                        "expiration": str(attr.get("expirationDate") or ""),
+                        "cert_type": str(attr.get("certificateType") or ""),
                     }
                 )
         next_url = (data.get("links") or {}).get("next")
@@ -235,8 +237,75 @@ def _list_distribution_certificates(token: str) -> list[dict]:
         "?limit=200",
     ):
         for row in _certificates_paginated(token, suffix):
+            ctype = (row.get("cert_type") or "").upper()
+            if ctype and ctype not in ("IOS_DISTRIBUTION", "DISTRIBUTION"):
+                continue
             seen[row["id"]] = row
     return list(seen.values())
+
+
+def _cert_expiration_epoch(row: dict) -> float:
+    raw = (row.get("expiration") or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        from datetime import datetime
+
+        if raw.endswith("Z"):
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(raw[:26])
+        return dt.timestamp()
+    except Exception:
+        return 0.0
+
+
+def _revoke_certificate(token: str, cert_id: str) -> bool:
+    url = f"https://api.appstoreconnect.apple.com/v1/certificates/{cert_id}/revoke"
+    code, data = _request("POST", url, token, None)
+    if code in (200, 201, 204):
+        print(f"OK: certificado Distribution revogado (id={cert_id}).")
+        return True
+    print(f"AVISO: revoke cert {cert_id} falhou {code}: {json.dumps(data)[:800]}", file=sys.stderr)
+    return False
+
+
+def _prune_distribution_certificates_for_room(
+    token: str,
+    *,
+    keep_ids: set[str] | None = None,
+    target_max: int = 2,
+) -> int:
+    """
+    Revoga certificados IOS_DISTRIBUTION antigos/expirados para libertar slot (Apple: máx. 3 activos).
+    Não revoga IDs em keep_ids (ex.: par do PEM nos secrets).
+    """
+    keep_ids = keep_ids or set()
+    target_max = max(0, int(target_max))
+    certs = _list_distribution_certificates(token)
+    now = time.time()
+    if len(certs) <= target_max:
+        return 0
+
+    def revoke_priority(c: dict) -> tuple[int, float]:
+        exp = _cert_expiration_epoch(c)
+        expired = 1 if exp > 0 and exp < now else 0
+        return (expired, exp if exp > 0 else 9e18)
+
+    revoked = 0
+    for c in sorted(certs, key=revoke_priority):
+        if len(certs) - revoked <= target_max:
+            break
+        cid = str(c.get("id") or "")
+        if not cid or cid in keep_ids:
+            continue
+        name = str(c.get("name") or cid)
+        print(f"A revogar certificado Distribution antigo/expirado: {name} ({cid})…")
+        if _revoke_certificate(token, cid):
+            revoked += 1
+    if revoked:
+        print(f"OK: {revoked} certificado(s) Distribution revogado(s); restantes ~{len(certs) - revoked}.")
+    return revoked
 
 
 def _spki_der_from_pubkey(pub) -> bytes:
@@ -328,6 +397,15 @@ def download_app_store_profile_api_only_main() -> int:
         if not cert_id:
             print(
                 "AVISO: PEM local não corresponde a nenhum certificado IOS_DISTRIBUTION na API.",
+                file=sys.stderr,
+            )
+    elif certs:
+        newest = max(certs, key=_cert_expiration_epoch)
+        cert_id = str(newest.get("id") or "") or None
+        if cert_id:
+            print(
+                f"AVISO: sem PEM/P12 — perfil REST usará certificado Distribution id={cert_id} "
+                "(identidade no keychain exige bootstrap).",
                 file=sys.stderr,
             )
     profiles = _profiles_for_bundle(token, bundle_rid)
@@ -717,6 +795,29 @@ def bootstrap_distribution_cert_ci_main() -> int:
         print(f"ERRO: JWT: {e}", file=sys.stderr)
         return 1
 
+    certs_existing = _list_distribution_certificates(token)
+    keep_ids: set[str] = set()
+    priv_existing = _load_distribution_private_key_from_env()
+    if priv_existing is not None:
+        matched = _find_cert_id_for_privkey(priv_existing, certs_existing)
+        if matched:
+            keep_ids.add(matched)
+            print(f"OK: PEM nos secrets corresponde ao certificado Distribution id={matched} — sem criar novo.")
+    _auto_revoke = (os.environ.get("CM_AUTO_REVOKE_STALE_DISTRIBUTION_CERTS") or "1").strip().lower()
+    if _auto_revoke in ("1", "true", "yes") and len(certs_existing) >= 3:
+        _prune_distribution_certificates_for_room(
+            token,
+            keep_ids=keep_ids,
+            target_max=2 if keep_ids else 1,
+        )
+
+    if keep_ids and priv_existing is not None:
+        bundle = os.environ.get("IOS_BUNDLE_ID", "com.gestaoyahwehios.app").strip()
+        if import_distribution_identity_to_keychain_main() == 0:
+            if download_app_store_profile_api_only_main() == 0:
+                print("OK: bootstrap com PEM existente (import keychain + perfil REST).")
+                return 0
+
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     csr = (
         x509.CertificateSigningRequestBuilder()
@@ -755,6 +856,26 @@ def bootstrap_distribution_cert_ci_main() -> int:
             break
         print(f"AVISO: POST certificates com CSR {label} falhou {code}: {json.dumps(data)[:1200]}", file=sys.stderr)
     if not data_ok:
+        print("AVISO: POST certificate falhou — a revogar certificados Distribution antigos via API e repetir…")
+        _prune_distribution_certificates_for_room(token, keep_ids=keep_ids, target_max=0)
+        for csr_content, label in ((csr_pem, "PEM-retry"), (csr_b64, "base64-DER-retry")):
+            body = {
+                "data": {
+                    "type": "certificates",
+                    "attributes": {
+                        "certificateType": "IOS_DISTRIBUTION",
+                        "csrContent": csr_content,
+                    },
+                }
+            }
+            code, data = _request("POST", "https://api.appstoreconnect.apple.com/v1/certificates", token, body)
+            if code in (200, 201):
+                data_ok = data
+                used_label = label
+                print(f"OK: POST certificates após prune (CSR {label}).")
+                break
+            print(f"AVISO: retry POST {label} falhou {code}: {json.dumps(data)[:800]}", file=sys.stderr)
+    if not data_ok:
         n_dist = len(_list_distribution_certificates(token))
         print(
             "ERRO: não foi possível criar IOS_DISTRIBUTION (403/409?). "
@@ -762,10 +883,8 @@ def bootstrap_distribution_cert_ci_main() -> int:
             file=sys.stderr,
         )
         print(
-            "  Revogue um certificado «Apple Distribution» expirado ou duplicado em:\n"
-            "  https://developer.apple.com/account/resources/certificates/list\n"
-            "  Depois volte a correr o build com CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 "
-            "ou atualize CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM com o PEM correcto.",
+            "  A API revogou automaticamente certificados antigos; se persistir, revogue manualmente em:\n"
+            "  https://developer.apple.com/account/resources/certificates/list",
             file=sys.stderr,
         )
         return 1
