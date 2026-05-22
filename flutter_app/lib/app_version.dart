@@ -1,4 +1,6 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1596: Chat — lista Conversas definitiva (merge query + repair cliente/servidor,
+/// lastMessageAt a partir das mensagens, sync ao abrir o hub).
 /// 11.2.295+1595: deploy completo — chat conversas estáveis (regras + repair DM threads),
 /// mídia Storage nativo, cache painel, reparo sessão membros.
 /// 11.2.295+1594: iOS login/planos — sem checkout in-app; cadastro e licença só no site (3.1.1).
@@ -121,7 +123,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1595';
+const String appBuildNumber = '1596';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

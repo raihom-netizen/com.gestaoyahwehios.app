@@ -4,8 +4,9 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_member_prefs.dart';
@@ -101,47 +102,209 @@ class ChurchChatService {
         .limit(220);
   }
 
-  /// Stream de conversas com **reconexão** após falhas transitórias (rede / troca de app),
-  /// para o hub não ficar preso em `hasError` nem mostrar «instabilidade» por cada rutura breve.
+  /// Varredura ampla (regras devolvem DM legíveis pelo id `dm_{uid}_…` mesmo sem índice).
+  static Query<Map<String, dynamic>> chatThreadsBroadScanQuery(String tenantId) {
+    return _db
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection('chat_threads')
+        .limit(320);
+  }
+
+  static bool userInDmThreadId(String threadId, String uid) {
+    if (!threadId.startsWith('dm_') || uid.isEmpty) return false;
+    return threadId.startsWith('dm_${uid}_') || threadId.endsWith('_$uid');
+  }
+
+  static Map<String, dynamic>? dmThreadIndexPatch(
+    String threadId,
+    Map<String, dynamic> data,
+  ) {
+    if (!threadId.startsWith('dm_')) return null;
+    final body = threadId.substring(3);
+    final i = body.indexOf('_');
+    if (i <= 0 || i >= body.length - 1) return null;
+    final u1 = body.substring(0, i);
+    final u2 = body.substring(i + 1);
+    if (u1.isEmpty || u2.isEmpty || u1 == u2) return null;
+
+    final patch = <String, dynamic>{};
+    final current = data['participantUids'];
+    final hasBoth = current is List &&
+        current.map((e) => e.toString()).contains(u1) &&
+        current.map((e) => e.toString()).contains(u2);
+    if (!hasBoth) patch['participantUids'] = [u1, u2];
+    if (data['type'] != 'dm') patch['type'] = 'dm';
+    if (data['lastMessageAt'] == null) {
+      patch['lastMessageAt'] =
+          data['updatedAt'] ?? data['createdAt'] ?? FieldValue.serverTimestamp();
+    }
+    return patch.isEmpty ? null : patch;
+  }
+
+  /// Reparo no dispositivo + callable (threads antigos sem `participantUids` / `lastMessageAt`).
+  static Future<int> syncDmThreadsIndex(String tenantId) async {
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+    var n = await repairDmThreadsClient(tenantId);
+    try {
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'repairChurchChatDmThreads',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 50)),
+      );
+      await fn
+          .call(<String, dynamic>{'tenantId': tenantId})
+          .timeout(const Duration(seconds: 52));
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('syncDmThreadsIndex callable: $e');
+      }
+    }
+    n += await repairDmThreadsClient(tenantId);
+    return n;
+  }
+
+  static Future<int> repairDmThreadsClient(String tenantId) async {
+    final snap = await chatThreadsBroadScanQuery(tenantId).get();
+    var n = 0;
+    WriteBatch? batch = _db.batch();
+    var batchCount = 0;
+    for (final doc in snap.docs) {
+      if (!doc.id.startsWith('dm_')) continue;
+      final patch = dmThreadIndexPatch(doc.id, doc.data());
+      if (patch == null) continue;
+      batch!.set(doc.reference, patch, SetOptions(merge: true));
+      batchCount++;
+      n++;
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = _db.batch();
+        batchCount = 0;
+      }
+    }
+    if (batchCount > 0 && batch != null) await batch.commit();
+    return n;
+  }
+
+  static int _threadActivityMs(Map<String, dynamic> data) {
+    final lm = data['lastMessageAt'];
+    if (lm is Timestamp) return lm.millisecondsSinceEpoch;
+    final up = data['updatedAt'];
+    if (up is Timestamp) return up.millisecondsSinceEpoch;
+    final cr = data['createdAt'];
+    if (cr is Timestamp) return cr.millisecondsSinceEpoch;
+    return 0;
+  }
+
+  static QuerySnapshot<Map<String, dynamic>> _mergeThreadSnapshots(
+    String uid,
+    QuerySnapshot<Map<String, dynamic>>? indexed,
+    QuerySnapshot<Map<String, dynamic>>? broad,
+  ) {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    void absorb(QuerySnapshot<Map<String, dynamic>>? snap) {
+      if (snap == null) return;
+      for (final doc in snap.docs) {
+        if (_docIsDmForUserList(doc, uid)) {
+          byId[doc.id] = doc;
+        }
+      }
+    }
+
+    absorb(indexed);
+    absorb(broad);
+    final merged = byId.values.toList()
+      ..sort(
+        (a, b) =>
+            _threadActivityMs(b.data()).compareTo(_threadActivityMs(a.data())),
+      );
+    return MergedFirestoreQuerySnapshot(merged);
+  }
+
+  static bool _docIsDmForUserList(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String uid,
+  ) {
+    final t = (doc.data()['type'] ?? '').toString();
+    if (t == 'department' || doc.id.startsWith('dept_')) return false;
+    if (t == 'dm' || doc.id.startsWith('dm_')) {
+      final parts = doc.data()['participantUids'];
+      if (parts is List && parts.map((e) => e.toString()).contains(uid)) {
+        return true;
+      }
+      return userInDmThreadId(doc.id, uid);
+    }
+    final parts = doc.data()['participantUids'];
+    return parts is List && parts.map((e) => e.toString()).contains(uid);
+  }
+
+  /// Stream de conversas: query indexada + varredura ampla (DM legados) fundidas.
   static Stream<QuerySnapshot<Map<String, dynamic>>> chatThreadsSnapshotsForUser(
     String tenantId,
     String uid,
   ) {
     late StreamController<QuerySnapshot<Map<String, dynamic>>> controller;
-    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subIndexed;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subBroad;
+    QuerySnapshot<Map<String, dynamic>>? lastIndexed;
+    QuerySnapshot<Map<String, dynamic>>? lastBroad;
     var wireAttempts = 0;
     var wiring = false;
+
+    void emitMerged() {
+      if (controller.isClosed) return;
+      controller.add(_mergeThreadSnapshots(uid, lastIndexed, lastBroad));
+    }
 
     Future<void> wire() async {
       if (wiring) return;
       wiring = true;
       try {
-        await sub?.cancel();
-        sub = null;
+        await subIndexed?.cancel();
+        await subBroad?.cancel();
+        subIndexed = null;
+        subBroad = null;
         if (controller.isClosed) return;
-        sub = chatThreadsQueryForUser(tenantId, uid).snapshots().listen(
+
+        subIndexed = chatThreadsQueryForUser(tenantId, uid).snapshots().listen(
           (event) {
             wireAttempts = 0;
-            if (!controller.isClosed) controller.add(event);
+            lastIndexed = event;
+            emitMerged();
           },
           onError: (Object error, StackTrace stack) {
             if (controller.isClosed) return;
-            if (FirestoreStreamUtils.isPermissionDenied(error)) {
-              controller.add(const MergedFirestoreQuerySnapshot([]));
-              return;
+            if (!FirestoreStreamUtils.isPermissionDenied(error)) {
+              wireAttempts++;
+              if (wireAttempts > 14) {
+                controller.addError(error, stack);
+                return;
+              }
             }
-            wireAttempts++;
-            if (wireAttempts > 14) {
-              controller.addError(error, stack);
-              return;
-            }
-            sub?.cancel();
-            sub = null;
+            lastIndexed = null;
+            emitMerged();
+            subIndexed?.cancel();
+            subIndexed = null;
             final delayMs = 260 + 110 * wireAttempts.clamp(1, 12);
             Future<void>.delayed(Duration(milliseconds: delayMs)).then((_) {
               if (controller.isClosed) return;
               unawaited(wire());
             });
+          },
+          cancelOnError: false,
+        );
+
+        subBroad = chatThreadsBroadScanQuery(tenantId).snapshots().listen(
+          (event) {
+            lastBroad = event;
+            emitMerged();
+          },
+          onError: (Object error, StackTrace stack) {
+            if (controller.isClosed) return;
+            if (!FirestoreStreamUtils.isPermissionDenied(error)) {
+              controller.addError(error, stack);
+            }
           },
           cancelOnError: false,
         );
@@ -157,8 +320,10 @@ class ChurchChatService {
       },
       onCancel: () {
         if (!controller.hasListener) {
-          sub?.cancel();
-          sub = null;
+          subIndexed?.cancel();
+          subBroad?.cancel();
+          subIndexed = null;
+          subBroad = null;
         }
       },
     );

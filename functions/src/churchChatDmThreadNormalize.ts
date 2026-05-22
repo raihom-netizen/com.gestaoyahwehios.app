@@ -15,10 +15,38 @@ export function parseDmThreadParticipants(threadId: string): [string, string] | 
   return [u1, u2];
 }
 
-function patchesForDmThread(
+async function lastMessageAtForThread(
+  threadRef: FirebaseFirestore.DocumentReference,
+  data: FirebaseFirestore.DocumentData,
+): Promise<FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue> {
+  if (data.lastMessageAt) {
+    return data.lastMessageAt as FirebaseFirestore.Timestamp;
+  }
+  try {
+    const last = await threadRef
+      .collection("messages")
+      .orderBy("createdAt", "desc")
+      .limit(1)
+      .get();
+    if (!last.empty) {
+      const created = last.docs[0].data().createdAt;
+      if (created) return created as FirebaseFirestore.Timestamp;
+    }
+  } catch (e) {
+    functions.logger.warn("lastMessageAtForThread", { threadId: threadRef.id, e });
+  }
+  return (
+    data.updatedAt ||
+    data.createdAt ||
+    admin.firestore.FieldValue.serverTimestamp()
+  ) as FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue;
+}
+
+async function patchesForDmThread(
   threadId: string,
   data: FirebaseFirestore.DocumentData,
-): FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> | null {
+  threadRef: FirebaseFirestore.DocumentReference,
+): Promise<FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> | null> {
   const parsed = parseDmThreadParticipants(threadId);
   if (!parsed) return null;
 
@@ -37,8 +65,30 @@ function patchesForDmThread(
     patches.type = "dm";
   }
   if (!data.lastMessageAt) {
-    patches.lastMessageAt =
-      data.updatedAt || data.createdAt || admin.firestore.FieldValue.serverTimestamp();
+    patches.lastMessageAt = await lastMessageAtForThread(threadRef, data);
+  }
+  if (!data.lastMessagePreview) {
+    try {
+      const last = await threadRef
+        .collection("messages")
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+      if (!last.empty) {
+        const msg = last.docs[0].data();
+        const t = String(msg.type || "text");
+        let preview = String(msg.text || "").trim();
+        if (t === "image") preview = "📷 Foto";
+        else if (t === "video") preview = "🎬 Vídeo";
+        else if (t === "audio") preview = "🎤 Áudio";
+        else if (t === "sticker") preview = "🎨 Figurinha";
+        if (preview.length > 120) preview = `${preview.slice(0, 117)}…`;
+        if (preview) patches.lastMessagePreview = preview;
+        if (msg.senderUid) patches.lastSenderUid = String(msg.senderUid);
+      }
+    } catch (e) {
+      functions.logger.warn("patchesForDmThread preview", { threadId, e });
+    }
   }
   return Object.keys(patches).length > 0 ? patches : null;
 }
@@ -55,7 +105,7 @@ export async function repairDmThreadsForTenant(tenantId: string): Promise<number
   for (const doc of snap.docs) {
     if (!doc.id.startsWith("dm_")) continue;
     const data = doc.data();
-    const patches = patchesForDmThread(doc.id, data);
+    const patches = await patchesForDmThread(doc.id, data, doc.ref);
     if (!patches) continue;
     batch.update(doc.ref, patches);
     batchCount++;
@@ -77,7 +127,7 @@ export const onChurchChatDmThreadWrite = functions.firestore
     if (!threadId.startsWith("dm_")) return;
     const after = change.after.exists ? change.after.data() : null;
     if (!after) return;
-    const patches = patchesForDmThread(threadId, after);
+    const patches = await patchesForDmThread(threadId, after, change.after.ref);
     if (!patches) return;
     await change.after.ref.update(patches);
   });

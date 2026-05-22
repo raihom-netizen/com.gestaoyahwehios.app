@@ -194,14 +194,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       await _bootstrap();
       return;
     }
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    } catch (_) {}
-    if (!mounted) return;
-    setState(() {
-      _chatThreadsStream =
-          ChurchChatService.chatThreadsSnapshotsForUser(tid, uid);
-    });
+    await _repairChatThreadsIndex(tid);
   }
 
   void _requestConversasResync() {
@@ -417,18 +410,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
-  /// Repara threads DM antigos no servidor (`participantUids` + `lastMessageAt`).
+  bool _syncingChatThreads = false;
+
+  /// Repara índice DM (cliente + Cloud Function) antes de mostrar lista vazia.
   Future<void> _repairChatThreadsIndex(String tenantId) async {
+    if (_syncingChatThreads) return;
+    _syncingChatThreads = true;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable(
-        'repairChurchChatDmThreads',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
-      );
-      await fn
-          .call(<String, dynamic>{'tenantId': tenantId})
-          .timeout(const Duration(seconds: 46));
+      await ChurchChatService.syncDmThreadsIndex(tenantId);
       if (mounted) {
         setState(() {
           final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -440,8 +429,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('repairChurchChatDmThreads: $e\n$st');
+        debugPrint('syncDmThreadsIndex: $e\n$st');
       }
+    } finally {
+      _syncingChatThreads = false;
     }
   }
 
@@ -464,7 +455,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
     unawaited(_loadChatNotifPrefs());
     await _syncMemberDepartments(tid);
-    unawaited(_repairChatThreadsIndex(tid));
+    await _repairChatThreadsIndex(tid);
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
@@ -1272,7 +1263,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                 ? 'Sem favoritas. Toque numa conversa e use «Favoritar».'
                                 : _conversasFilter == _HubConversasFilter.unread
                                     ? 'Sem mensagens não lidas nas conversas diretas.'
-                                    : 'Sem conversas diretas ainda. Use o botão + ou a aba Membros.',
+                                    : _syncingChatThreads
+                                        ? 'A sincronizar conversas…'
+                                        : 'Sem conversas diretas ainda. Use o botão + ou a aba Membros.',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,
