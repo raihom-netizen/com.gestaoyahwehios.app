@@ -107,9 +107,9 @@ workflows:
         #     importa no keychain e gera PEM em bootstrap_signing_output/ (artefacto). Depois copie o PEM para o
         #     secret e volte a 0 — cada run=1 novo certificado (limite 3 Distribution na equipa Apple).
         CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM: "0"
-        # 1 = se CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM não casar com cert Apple OU faltar PEM,
-        #     tenta bootstrap (RSA novo + cert ASC). Em 409 revogue 1 cert Distribution antigo.
-        CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "1"
+        # 0 = não criar certificado novo na CI quando o PEM estiver errado (evita HTTP 409).
+        # Corrija secrets: CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE ou PEM correcto.
+        CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "0"
         # 0 = permite API-only sem exigir P12/perfil nos secrets.
         CM_DISALLOW_API_ONLY_SIGNING: "0"
         APP_STORE_APPLE_ID: 6761656626

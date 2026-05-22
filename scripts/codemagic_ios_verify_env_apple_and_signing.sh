@@ -42,6 +42,31 @@ if [ "$_force_api" = "1" ] || [ "$_force_api" = "true" ]; then
 fi
 
 _CM_CERT_COMPACT="$(printf '%s' "${CM_CERTIFICATE:-}" | tr -d '\n\r\t ')"
+# P12 + perfil nos secrets = modo estável (ignora PEM errado que forçaria API-only + 409).
+if [ -n "$_CM_CERT_COMPACT" ] && [ -n "${CM_PROVISIONING_PROFILE:-}${PROVISIONING_PROFILE:-}" ]; then
+  if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
+    echo "AVISO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM definido mas CM_CERTIFICATE+perfil existem."
+    echo "       Modo manual (P12) — apague ou deixe vazio o secret PEM na Codemagic para evitar 409."
+  fi
+  echo "manual" > /tmp/cm_yw_signing_mode
+  echo "OK: modo manual — P12 + perfil (recomendado; evita bootstrap Distribution)."
+  : "${CM_CERTIFICATE:?CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY}"
+  : "${CM_PROVISIONING_PROFILE:?CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE}"
+  _CM_PROV_COMPACT="$(printf '%s' "${CM_PROVISIONING_PROFILE}" | tr -d '\n\r\t ')"
+  [ -n "$_CM_PROV_COMPACT" ] || { echo "ERRO: perfil vazio."; exit 1; }
+  printf '%s' "$_CM_PROV_COMPACT" | base64 -D > /tmp/_cm_verify_prov.bin 2>/dev/null || { echo "ERRO: perfil Base64."; exit 1; }
+  [ -s /tmp/_cm_verify_prov.bin ] || { echo "ERRO: perfil vazio."; exit 1; }
+  printf '%s' "$_CM_CERT_COMPACT" | base64 -D > /tmp/_cm_verify_p12.bin 2>/dev/null || { echo "ERRO: P12 Base64."; exit 1; }
+  [ -s /tmp/_cm_verify_p12.bin ] || { echo "ERRO: P12 vazio."; exit 1; }
+  codemagic_normalize_p12_password_from_env
+  codemagic_verify_p12_opens_with_password /tmp/_cm_verify_p12.bin /tmp/_early_p12.err || {
+    echo "ERRO: senha P12 invalida (CM_CERTIFICATE_PASSWORD)."
+    exit 1
+  }
+  echo "OK: P12 + provisioning validados."
+  exit 0
+fi
+
 if [ -z "$_CM_CERT_COMPACT" ]; then
   _ts="${CM_USE_CODEMAGIC_TEAM_SIGNING:-0}"
   if [ "$_ts" = "1" ] || [ "$_ts" = "true" ]; then

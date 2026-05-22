@@ -98,9 +98,12 @@ _repair_signing_if_pem_invalid() {
         fi
       fi
     fi
-    echo "ERRO: bootstrap não concluiu (frequentemente HTTP 409 = limite de certificados Distribution)."
+    echo "AVISO: bootstrap não concluiu (frequentemente HTTP 409 = limite de certificados Distribution)."
     _print_distribution_cert_limit_help
-    exit 1
+    echo "A continuar SEM PEM fixo: fetch-signing-files sem --create (reutiliza certificados existentes na Apple)…"
+    unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
+    export CM_SKIP_INVALID_PEM_BOOTSTRAP=1
+    return 0
   fi
   echo "ERRO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido ou desactualizado."
   echo "  Opções:"

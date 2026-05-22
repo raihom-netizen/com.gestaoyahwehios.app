@@ -11,6 +11,29 @@ POST certificates returned 409 (já existe certificado Distribution)
 
 O secret `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM` no Codemagic **não é o par** do certificado «Apple Distribution» activo na equipa Apple (82RC6YL7KL).
 
+## Erro actual (build Codemagic — passo 11)
+
+```
+CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM não corresponde ao certificado
+bootstrap HTTP 409 — já existe certificado Distribution (5 na API, máx. 3 activos)
+```
+
+**Correcção imediata (sem nova versão Android/web):**
+
+1. **Codemagic** → `appstore_credentials`:
+   - **Apague** ou deixe **vazio** `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM` (está errado e dispara 409).
+   - **Preencha** `CM_CERTIFICATE` (ou `CERTIFICATE_PRIVATE_KEY`) = Base64 do `.p12` Apple Distribution.
+   - **Preencha** `CM_PROVISIONING_PROFILE` = Base64 do `.mobileprovision` App Store de `com.gestaoyahwehios.app`.
+   - `CM_CERTIFICATE_PASSWORD` = senha do P12 (ou vazio).
+2. **Apple** → revogue 1–2 certificados «Apple Distribution» **expirados/duplicados**:  
+   https://developer.apple.com/account/resources/certificates/list  
+   (deixe no máximo **2** activos até estabilizar.)
+3. No Mac: exporte **novo** `.p12` + baixe **novo** perfil App Store (perfil deve incluir **esse** certificado).
+4. PC: `.\scripts\encode_ios_codemagic_secrets.ps1` → colar os `.txt` em `D:\Temporarios\gestao_yahweh_codemagic\`.
+5. **Novo build** Codemagic (mesma versão 11.2.295+1595).
+
+O `codemagic.yaml` no repo tem `CM_AUTO_BOOTSTRAP_PEM_MISMATCH=0` para **não** tentar criar certificado novo na CI.
+
 ## Solução A — Recomendada (estável, igual Controle Total)
 
 1. No Mac: exportar **Apple Distribution** como `.p12` + descarregar perfil **App Store** de `com.gestaoyahwehios.app`.
