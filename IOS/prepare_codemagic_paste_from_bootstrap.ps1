@@ -16,6 +16,10 @@ $p12Candidates = @(
     (Join-Path $BootstrapDir "bootstrap_identity.p12"),
     (Join-Path $BootstrapDir "bootstrap_identity")
 )
+$provCandidates = @(
+    (Join-Path $BootstrapDir "bootstrap_appstore.mobileprovision"),
+    (Join-Path $BootstrapDir "bootstrap_appstore")
+)
 $pemPath = Join-Path $BootstrapDir "distribution_private_key.pem"
 
 if (-not (Test-Path $pemPath)) {
@@ -32,6 +36,11 @@ if (-not $p12Path) {
     Write-Host "AVISO: P12 nao encontrado (bootstrap_identity.p12). So sera gerado o PEM." -ForegroundColor Yellow
 }
 
+$provPath = $null
+foreach ($c in $provCandidates) {
+    if (Test-Path $c) { $provPath = $c; break }
+}
+
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $outRoot = Join-Path $env:TEMP "GestaoYahweh_codemagic_paste_$stamp"
 New-Item -ItemType Directory -Path $outRoot -Force | Out-Null
@@ -40,12 +49,20 @@ New-Item -ItemType Directory -Path $outRoot -Force | Out-Null
 $destPem = Join-Path $outRoot "01_CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.txt"
 Copy-Item -LiteralPath $pemPath -Destination $destPem -Force
 
-# 2) P12 Base64 uma linha (opcional: modo manual CM_CERTIFICATE)
+# 2) P12 Base64 uma linha (modo manual CM_CERTIFICATE / CERTIFICATE_PRIVATE_KEY)
 if ($p12Path) {
     $bytes = [System.IO.File]::ReadAllBytes($p12Path)
     $b64 = [Convert]::ToBase64String($bytes)
-    $destB64 = Join-Path $outRoot "02_CM_CERTIFICATE_bootstrap_identity_BASE64_uma_linha.txt"
+    $destB64 = Join-Path $outRoot "02_CERTIFICATE_PRIVATE_KEY_BASE64_uma_linha.txt"
     Set-Content -Path $destB64 -Value $b64 -Encoding ASCII -NoNewline
+}
+
+# 2b) Perfil App Store Base64 uma linha
+if ($provPath) {
+    $provBytes = [System.IO.File]::ReadAllBytes($provPath)
+    $provB64 = [Convert]::ToBase64String($provBytes)
+    $destProv = Join-Path $outRoot "04_CM_PROVISIONING_PROFILE_BASE64_uma_linha.txt"
+    Set-Content -Path $destProv -Value $provB64 -Encoding ASCII -NoNewline
 }
 
 # 3) Senha do P12 gerado pelo bootstrap (fixo no script Python se nao mudou CM_API_ONLY_IMPORT_P12_PASSWORD)

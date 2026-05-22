@@ -895,20 +895,30 @@ def bootstrap_distribution_cert_ci_main() -> int:
         print(f"OK: perfil IOS_APP_STORE criado ({unique}).")
 
     _write_mobileprovision_and_plist(raw_mp, bundle)
+    mp_out = os.path.join(out_dir, "bootstrap_appstore.mobileprovision")
+    if os.path.isfile("/tmp/cm_raw.mobileprovision"):
+        shutil.copyfile("/tmp/cm_raw.mobileprovision", mp_out)
+        os.chmod(mp_out, 0o600)
 
     with open(os.path.join(out_dir, "README_BOOTSTRAP.txt"), "w", encoding="utf-8") as f:
         f.write(
-            "1) Codemagic: descarregue distribution_private_key.pem deste artefacto.\n"
-            "2) Environment variables (appstore_credentials): CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM = "
-            "conteudo COMPLETO do PEM (Secret, multilinha).\n"
-            "3) Desligue CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM ou nao use o workflow ios-distribution-bootstrap "
-            "para nao criar mais certificados Distribution (maximo 3 na equipa).\n"
-            f"4) CSR enviado como: {used_label}\n"
+            "Modo estável (recomendado) — P12 + perfil nos secrets (sem PEM):\n"
+            "1) Descarregue bootstrap_identity.p12 e bootstrap_appstore.mobileprovision deste artefacto.\n"
+            "2) PC: copie para IOS\\ e execute .\\scripts\\encode_ios_codemagic_secrets.ps1\n"
+            "   Ou: .\\IOS\\prepare_codemagic_paste_from_bootstrap.ps1 -BootstrapDir <pasta extraida>\n"
+            "3) Codemagic → appstore_credentials:\n"
+            "   CERTIFICATE_PRIVATE_KEY = Base64 uma linha do P12\n"
+            "   CM_PROVISIONING_PROFILE = Base64 uma linha do .mobileprovision\n"
+            "   CM_CERTIFICATE_PASSWORD = cm_yw_bootstrap_dist_1 (ou a que definiu em CM_API_ONLY_IMPORT_P12_PASSWORD)\n"
+            "   APAGUE CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM se existir.\n"
+            "4) Build normal: iOS Build - Gestao YAHWEH (TestFlight). Nao repita bootstrap (max 3 certs Distribution).\n"
+            f"\nCSR: {used_label}\n"
         )
 
     print("")
-    print("OK: bootstrap CI concluido — PEM em:", key_path)
-    print("    Copie o ficheiro para o secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM e desligue o bootstrap.")
+    print("OK: bootstrap CI concluido.")
+    print("    Artefactos:", key_path, p12_path, mp_out if os.path.isfile(mp_out) else "(sem mobileprovision)")
+    print("    Use encode_ios_codemagic_secrets.ps1 ou prepare_codemagic_paste_from_bootstrap.ps1 → secrets P12+perfil.")
     return 0
 
 

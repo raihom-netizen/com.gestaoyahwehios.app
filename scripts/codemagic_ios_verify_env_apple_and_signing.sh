@@ -87,9 +87,15 @@ if [ -z "$_CM_CERT_COMPACT" ]; then
     echo "    CM_PROVISIONING_PROFILE   = Base64 uma linha do .mobileprovision App Store (bundle com.gestaoyahwehios.app)"
     echo "    CM_CERTIFICATE_PASSWORD   = senha do .p12 (ou vazio)"
     echo "  PC (repo):  .\\scripts\\encode_ios_codemagic_secrets.ps1"
+    echo "    (coloque .p12 + .mobileprovision em IOS\\ antes de correr)"
+    echo ""
+    echo "  Sem Mac — uma vez na Codemagic:"
+    echo "    Workflow «iOS Bootstrap Distribution PEM (sem Mac)» → descarregar artefactos"
+    echo "    → .\\IOS\\prepare_codemagic_paste_from_bootstrap.ps1 -BootstrapDir <pasta>"
+    echo "    → colar 02_CERTIFICATE_PRIVATE_KEY + 04_CM_PROVISIONING_PROFILE + 03_CM_CERTIFICATE_PASSWORD"
+    echo "    (revogue certs Distribution antigos na Apple se der HTTP 409)"
     echo ""
     echo "  No Apple Developer: perfil App Store deve incluir o MESMO certificado Distribution que está no .p12."
-    echo "  Para voltar a tentar só API (chave Admin): defina CM_DISALLOW_API_ONLY_SIGNING=0 no codemagic.yaml."
     echo ""
     exit 1
   fi
