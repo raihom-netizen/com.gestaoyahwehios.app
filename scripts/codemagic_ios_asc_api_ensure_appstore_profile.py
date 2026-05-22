@@ -261,12 +261,22 @@ def _cert_expiration_epoch(row: dict) -> float:
 
 
 def _revoke_certificate(token: str, cert_id: str) -> bool:
-    url = f"https://api.appstoreconnect.apple.com/v1/certificates/{cert_id}/revoke"
-    code, data = _request("POST", url, token, None)
+    base = f"https://api.appstoreconnect.apple.com/v1/certificates/{cert_id}"
+    code, data = _request("DELETE", base, token)
     if code in (200, 201, 204):
-        print(f"OK: certificado Distribution revogado (id={cert_id}).")
+        print(f"OK: certificado Distribution revogado DELETE (id={cert_id}).")
         return True
-    print(f"AVISO: revoke cert {cert_id} falhou {code}: {json.dumps(data)[:800]}", file=sys.stderr)
+    code2, data2 = _request("POST", f"{base}/revoke", token, {})
+    if code2 in (200, 201, 204):
+        print(f"OK: certificado Distribution revogado POST (id={cert_id}).")
+        return True
+    err = json.dumps(data2 if code2 >= 400 else data)[:900]
+    print(f"ERRO: revoke {cert_id} falhou DELETE={code} POST={code2}: {err}", file=sys.stderr)
+    if code in (403, 401) or code2 in (403, 401):
+        print(
+            "  A chave API (.p8) precisa de papel Admin ou Account Holder para revogar certificados.",
+            file=sys.stderr,
+        )
     return False
 
 
@@ -294,7 +304,8 @@ def _prune_distribution_certificates_for_room(
 
     revoked = 0
     for c in sorted(certs, key=revoke_priority):
-        if len(certs) - revoked <= target_max:
+        remaining = len(_list_distribution_certificates(token))
+        if remaining <= target_max:
             break
         cid = str(c.get("id") or "")
         if not cid or cid in keep_ids:
@@ -303,8 +314,14 @@ def _prune_distribution_certificates_for_room(
         print(f"A revogar certificado Distribution antigo/expirado: {name} ({cid})…")
         if _revoke_certificate(token, cid):
             revoked += 1
+    remaining_final = len(_list_distribution_certificates(token))
     if revoked:
-        print(f"OK: {revoked} certificado(s) Distribution revogado(s); restantes ~{len(certs) - revoked}.")
+        print(f"OK: {revoked} certificado(s) revogado(s); restantes na API: {remaining_final}.")
+    elif remaining_final > target_max:
+        print(
+            f"AVISO: nenhum certificado revogado; ainda há {remaining_final} na API (alvo <= {target_max}).",
+            file=sys.stderr,
+        )
     return revoked
 
 
@@ -767,6 +784,33 @@ def import_distribution_identity_to_keychain_main() -> int:
     return 0
 
 
+def prune_distribution_for_ci_main() -> int:
+    """Revoga certificados IOS_DISTRIBUTION até haver slot para POST --create / bootstrap."""
+    if not os.path.isfile("/tmp/_asc_ok.pem"):
+        print("ERRO: /tmp/_asc_ok.pem ausente.", file=sys.stderr)
+        return 1
+    try:
+        token = _ensure_jwt()
+    except Exception as e:
+        print(f"ERRO: JWT: {e}", file=sys.stderr)
+        return 1
+    keep_ids: set[str] = set()
+    priv = _load_distribution_private_key_from_env()
+    if priv is not None:
+        matched = _find_cert_id_for_privkey(priv, _list_distribution_certificates(token))
+        if matched:
+            keep_ids.add(matched)
+    before = len(_list_distribution_certificates(token))
+    revoked = _prune_distribution_certificates_for_room(
+        token,
+        keep_ids=keep_ids,
+        target_max=0 if not keep_ids else 1,
+    )
+    after = len(_list_distribution_certificates(token))
+    print(f"OK: prune CI — antes={before} revogados={revoked} depois={after}.")
+    return 0 if after < 3 or revoked > 0 else 1
+
+
 def bootstrap_distribution_cert_ci_main() -> int:
     """
     Sem Mac: gera RSA+CSR na CI, POST IOS_DISTRIBUTION na ASC, importa no keychain,
@@ -1103,6 +1147,12 @@ def main() -> int:
             return bootstrap_distribution_cert_ci_main()
         except Exception as e:
             print(f"ERRO: bootstrap Distribution CI: {e}", file=sys.stderr)
+            return 1
+    if "--prune-distribution-for-ci" in sys.argv:
+        try:
+            return prune_distribution_for_ci_main()
+        except Exception as e:
+            print(f"ERRO: prune Distribution CI: {e}", file=sys.stderr)
             return 1
     if "--download-app-store-profile-api-only" in sys.argv:
         try:

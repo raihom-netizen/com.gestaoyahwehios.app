@@ -119,14 +119,12 @@ _repair_signing_if_pem_invalid() {
         fi
       fi
     fi
-    echo "AVISO: bootstrap não concluiu (frequentemente HTTP 409 = limite de certificados Distribution)."
-    _print_distribution_cert_limit_help
-    echo "A continuar SEM PEM fixo: fetch-signing-files sem --create (reutiliza certificados existentes na Apple)…"
+    echo "AVISO: bootstrap não concluiu — a seguir prune + fetch COM --create (chave RSA nova)."
     unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
     export CM_SKIP_INVALID_PEM_BOOTSTRAP=1
     return 0
   fi
-  echo "AVISO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido — ignorado; fetch sem --create."
+  echo "AVISO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido — ignorado."
   unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
   if [ "${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-1}" = "1" ] || [ "${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-}" = "true" ]; then
     echo "A tentar alinhar perfil/certificado via REST ASC…"
@@ -335,6 +333,19 @@ _log_suggests_409() {
   [ -f /tmp/cm_api_only_fetch.log ] && grep -E "returned 409|current Distribution certificate|pending certificate request" /tmp/cm_api_only_fetch.log >/dev/null 2>&1
 }
 
+_prune_and_fetch_create() {
+  echo "=== Revogar certs Distribution antigos (API) + fetch-signing-files --create ==="
+  python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --prune-distribution-for-ci || true
+  unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
+  local cert_key_file
+  cert_key_file="$(_prepare_cert_key_file)"
+  set +e
+  _fetch_with_create "$cert_key_file"
+  local ex=$?
+  set -eu
+  return "$ex"
+}
+
 _fetch_with_create() {
   local cert_key_file="$1"
   set +e
@@ -404,20 +415,15 @@ if _has_fixed_distribution_key; then
     tail -40 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
   fi
 else
-  echo "=== Modo API-only (só API .p8): fetch SEM --create e SEM --delete-stale-profiles (evita 409 e limpezas agressivas) ==="
   set +e
-  app-store-connect fetch-signing-files "$BUNDLE" \
-    --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-    --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-    --private-key "@file:/tmp/_asc_ok.pem" \
-    --type IOS_APP_STORE \
-    --profiles-dir "$PROFILE_DIR" 2>&1 | tee /tmp/cm_api_only_fetch.log
+  _prune_and_fetch_create
   FETCH_EXIT=$?
   set -eu
   if [[ "$FETCH_EXIT" -ne 0 ]]; then
     echo ""
-    echo "AVISO: fetch sem --create terminou com codigo $FETCH_EXIT (ver log)."
+    echo "AVISO: fetch --create terminou com codigo $FETCH_EXIT (ver log)."
     tail -40 /tmp/cm_api_only_fetch.log 2>/dev/null || true
+    tail -40 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
   fi
 fi
 
@@ -465,8 +471,11 @@ _print_distribution_cert_limit_help
 
 echo ""
 echo "ERRO: nenhum perfil App Store adequado após CLI (codigo ${FETCH_EXIT}) + REST (codigo ${REST_EXIT}) + bootstrap."
-echo "  Confirme chave API (papel Admin) e APP_STORE_CONNECT_*."
-echo "  Se HTTP 409: revogue 1 certificado «Apple Distribution» antigo na Apple Developer."
+echo "  Confirme chave API (.p8) com papel Admin (revogar certs + criar Distribution)."
+echo "  Se no log aparecer ERRO revoke ... 403: revogue manualmente em developer.apple.com (Certificates)"
+echo "     e volte a correr o build, OU coloque CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE nos secrets."
+echo "  Apos um bootstrap com sucesso: descarregue artefacto bootstrap_signing_output/distribution_private_key.pem"
+echo "     e cole no secret CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (multilinha)."
 tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
 tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
 exit 1
