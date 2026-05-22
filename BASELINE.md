@@ -35,6 +35,7 @@ Esta base foi validada em produção: web online, AAB Play, push GitHub, correç
 - CI valida IPA: `scripts/codemagic_ios_validate_ipa_before_upload.sh`
 - Guia: `IOS/CODEMAGIC_INVALID_BINARY.md`
 - IPA no CI: sempre **`GestaoYahweh.ipa`** após `codemagic_ios_normalize_ipa_for_asc.sh` (evita falha Publishing com «Gestão Yahweh - Igrejas.ipa»).
+- Upload rápido (chat/avisos/eventos): regras Firestore `chatTenantMemberFast`, `muralPostPublishFinalizeAllowed` — deploy `.\scripts\deploy_firebase_rules.ps1` (sem nova versão do app).
 
 ## Dart — evitar regressão de compilação
 

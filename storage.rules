@@ -187,10 +187,12 @@ service firebase.storage {
       allow write: if authMediaWriteMax(120 * 1024 * 1024);
     }
 
-    // Chat interno — retenção curta no cliente + limpeza Cloud Function (expiresAt).
+    // Chat interno — áudio/vídeo/foto; MIME explícito evita rejeição lenta + retries no cliente.
     match /igrejas/{igrejaId}/chat_media/{path=**} {
       allow read: if request.auth != null;
-      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+      allow write: if request.auth != null
+        && request.resource.size < 120 * 1024 * 1024
+        && chatMediaOrBlob();
     }
 
     // Biblioteca de figurinhas do chat (imagens — pasta por igreja).

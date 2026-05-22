@@ -403,6 +403,30 @@ service cloud.firestore {
           || hasTenantMuralEventosPermission(tenantId)
         ));
     }
+
+    /// Membro da igreja — caminho rápido (exists/claims, sem cadeia CPF/get em `membros`).
+    function chatTenantMemberFast(tenantId) {
+      return isSignedIn() && (
+        isMaster()
+        || sameChurch(tenantId)
+        || emailMatchesTenant(tenantId)
+        || request.auth.token.igrejaId == tenantId
+        || request.auth.token.tenantId == tenantId
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid))
+      );
+    }
+
+    /// Finalização de fotos em segundo plano (`publishState` uploading → published/failed) — evita `canWriteMuralFeed` (vários get).
+    function muralPostPublishFinalizeAllowed(tenantId) {
+      return chatTenantMemberFast(tenantId)
+        && resource.data.publishState == 'uploading'
+        && request.resource.data.publishState is string
+        && (request.resource.data.publishState == 'published'
+          || request.resource.data.publishState == 'failed')
+        && (!('createdByUid' in resource.data)
+          || resource.data.createdByUid == request.auth.uid);
+    }
     // Fallback: usuário autenticado pode ler/gravar (evita permission-denied em Departamentos, Presença, etc.)
     function canWriteTenantIfSignedIn(tenantId) {
       return isSignedIn();
@@ -703,7 +727,8 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id)
           || noticiaDocPublicSiteReadable();
         allow create, delete: if canWriteMuralFeed(id);
-        allow update: if canWriteMuralFeed(id)
+        allow update: if muralPostPublishFinalizeAllowed(id)
+          || canWriteMuralFeed(id)
           || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
         match /comentarios/{commentId} {
           allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
@@ -736,7 +761,8 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id)
           || avisoDocPublicSiteReadable();
         allow create, delete: if canWriteMuralFeed(id);
-        allow update: if canWriteMuralFeed(id)
+        allow update: if muralPostPublishFinalizeAllowed(id)
+          || canWriteMuralFeed(id)
           || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
         match /comentarios/{commentId} {
           allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
@@ -976,7 +1002,7 @@ service cloud.firestore {
         return exists(path) && canReadChatThreadData(tenantId, threadId, get(path).data);
       }
 
-      /// Envio de mensagem: participante explícito OU regra de leitura do thread (DM/dept).
+      /// Envio de mensagem — um `get(thread)`; sem `canReadChatThreadData` (menos latência no create).
       function chatSenderMayPostToThread(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
         let t = exists(path) ? get(path).data : {};
@@ -984,9 +1010,7 @@ service cloud.firestore {
         return exists(path) && (
           (t.participantUids is list && request.auth.uid in t.participantUids)
           || dmThreadAuthUserInThreadId(threadId)
-          || canReadChatThreadData(tenantId, threadId, t)
-          || (isDept && memberLinkedToTenant(tenantId))
-          || (isDept && canAccessTenant(tenantId))
+          || (isDept && chatTenantMemberFast(tenantId))
         );
       }
 
@@ -1103,10 +1127,9 @@ service cloud.firestore {
           && request.resource.data.reactionsByUid.size() <= 48;
       }
 
-      /// Mídia: stub «uploading» no create → o remetente completa `mediaUrl` após Storage (estilo WhatsApp).
+      /// Mídia: stub «uploading» → `sent` após Storage — sem segundo `get(thread)` (só valida remetente).
       function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
-        return (canAccessTenant(tenantId) || memberLinkedToTenant(tenantId))
-          && canReadChatThreadDoc(tenantId, threadId)
+        return chatTenantMemberFast(tenantId)
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'uploading'
           && request.resource.data.deliveryStatus == 'sent'
@@ -1118,8 +1141,7 @@ service cloud.firestore {
       }
 
       function chatMessageUploadProgressOnly(tenantId, threadId) {
-        return (canAccessTenant(tenantId) || memberLinkedToTenant(tenantId))
-          && canReadChatThreadDoc(tenantId, threadId)
+        return chatTenantMemberFast(tenantId)
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'uploading'
           && request.resource.data.deliveryStatus == 'uploading'
@@ -1192,11 +1214,13 @@ service cloud.firestore {
                 || memberLinkedToTenant(id)
               ))
           );
-        allow update: if (canAccessTenant(id) || memberLinkedToTenant(id)) && (
-          canReadChatThreadData(id, threadId, resource.data)
-          || (resource.data.participantUids is list
+        allow update: if (
+          (resource.data.participantUids is list
             && request.auth.uid in resource.data.participantUids
             && chatThreadLastMessagePatchAllowed())
+          || (chatTenantMemberFast(id) && chatThreadLastMessagePatchAllowed())
+          || ((canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadData(id, threadId, resource.data))
           || dmThreadAuthUserInThreadId(threadId)
         );
         allow delete: if chatThreadDeleteAllowed(id, threadId);
@@ -1219,7 +1243,7 @@ service cloud.firestore {
         match /messages/{msgId} {
           allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
             && canReadChatThreadDoc(id, threadId);
-          allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          allow create: if chatTenantMemberFast(id)
             && chatSenderMayPostToThread(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
             && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])
@@ -1243,10 +1267,10 @@ service cloud.firestore {
               && request.resource.data.replyTo.messageId.size() > 0
               && request.resource.data.replyTo.preview.size() <= 240
             ));
-          allow update: if chatMessageHideForMeOnly(id, threadId)
-            || chatMessageReactionsByUidOnly(id, threadId)
-            || chatMessageMediaDeliveryPatchAllowed(id, threadId)
-            || chatMessageUploadProgressOnly(id, threadId);
+          allow update: if chatMessageMediaDeliveryPatchAllowed(id, threadId)
+            || chatMessageUploadProgressOnly(id, threadId)
+            || chatMessageHideForMeOnly(id, threadId)
+            || chatMessageReactionsByUidOnly(id, threadId);
           allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
             && chatMessageDeleteForEveryoneAllowed(id, threadId);
         }
