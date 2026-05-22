@@ -314,7 +314,8 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
-  static const int _membersPageSize = 20;
+  static const int _membersPageSize = 40;
+  static const int _membersListInstantCap = 100;
   int _membersVisibleCount = _membersPageSize;
 
   /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
@@ -739,12 +740,12 @@ class _MembersPageState extends State<MembersPage> {
     final cache = await MembersDirectorySnapshotService.readOnce(tid);
     if (!mounted) return;
     if (cache.hasEntries) {
-      setState(() => _directoryCache = cache);
+      _applyDirectoryCacheState(cache);
     }
     unawaited(
       MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((warmed) {
         if (!mounted || !warmed.hasEntries) return;
-        setState(() => _directoryCache = warmed);
+        _applyDirectoryCacheState(warmed);
       }),
     );
   }
@@ -757,7 +758,19 @@ class _MembersPageState extends State<MembersPage> {
     _directoryCacheSub =
         MembersDirectorySnapshotService.watch(tid).listen((snap) {
       if (!mounted || !snap.hasEntries) return;
-      setState(() => _directoryCache = snap);
+      _applyDirectoryCacheState(snap);
+    });
+  }
+
+  void _applyDirectoryCacheState(MembersDirectorySnapshot cache) {
+    setState(() {
+      _directoryCache = cache;
+      if (cache.hasEntries) {
+        _membersVisibleCount = cache.entries.length.clamp(
+          _membersPageSize,
+          _membersListInstantCap,
+        );
+      }
     });
   }
 
@@ -5026,7 +5039,13 @@ class _MembersPageState extends State<MembersPage> {
 
   // ─── Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) ─
   Widget _buildMembersListSliver(List<_MemberDoc> docs) {
-    final visibleCount = _membersVisibleCount.clamp(0, docs.length);
+    final instantList = docs.length <= _membersListInstantCap;
+    final visibleCount = instantList
+        ? docs.length
+        : _membersVisibleCount.clamp(0, docs.length);
+    final itemCount = instantList
+        ? docs.length
+        : visibleCount + (visibleCount < docs.length ? 2 : 0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final tid = _effectiveTenantId.trim();
@@ -5054,18 +5073,20 @@ class _MembersPageState extends State<MembersPage> {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, i) {
-          if (i >= visibleCount) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(
+          if (!instantList && i >= visibleCount) {
+            return const Padding(
+              padding: EdgeInsets.fromLTRB(
                 ThemeCleanPremium.spaceMd,
                 8,
                 ThemeCleanPremium.spaceMd,
                 12,
               ),
-              child: const SkeletonLoader(
-                itemCount: 1,
-                itemHeight: 72,
-                padding: EdgeInsets.zero,
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
             );
           }
@@ -5078,8 +5099,11 @@ class _MembersPageState extends State<MembersPage> {
           final status = _str(data, 'STATUS', 'status').isEmpty
               ? 'ativo'
               : _str(data, 'STATUS', 'status');
-          final photo = _photoUrlForMember(docs[i].id, data);
-          final optimisticBytes = _optimisticProfilePhotoBytes[docs[i].id];
+          final loadPhotoNow = instantList && i < 48;
+          final photo = loadPhotoNow ? _photoUrlForMember(docs[i].id, data) : '';
+          final optimisticBytes = loadPhotoNow
+              ? _optimisticProfilePhotoBytes[docs[i].id]
+              : null;
           final isInativo = status.toLowerCase().contains('inativ');
           final isPendingRow = _memberDocIsPending(data);
           final avatarColor =
@@ -5408,7 +5432,7 @@ class _MembersPageState extends State<MembersPage> {
             ),
           );
           },
-          childCount: visibleCount + (visibleCount < docs.length ? 1 : 0),
+          childCount: itemCount,
         ),
       ),
     );
@@ -6728,6 +6752,13 @@ class _MembersPageState extends State<MembersPage> {
             .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
             .toList();
         final docs = _aplicarFiltros(allDocs);
+        if (docs.length <= _membersListInstantCap &&
+            _membersVisibleCount < docs.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _membersVisibleCount = docs.length);
+          });
+        }
         final bootDocId = widget.initialOpenMemberDocId?.trim() ?? '';
         if (bootDocId.isNotEmpty && !_didBootstrapOpenMemberSheet) {
           _didBootstrapOpenMemberSheet = true;
@@ -7087,6 +7118,34 @@ class _MembersPageState extends State<MembersPage> {
       future: _membersDataFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
+          if (_directoryCache.hasEntries) {
+            final docsForStats = _aplicarFiltros(
+              _memberDocsFromDirectoryCache(),
+              applySearch: false,
+            );
+            if (docsForStats.isNotEmpty) {
+              return _MembersPremiumStatsPanel(
+                padding: padding,
+                allDocs: docsForStats,
+                searchQuery: _q,
+                limitResult: limitResult,
+                canManage: _canManage,
+                canApprovePending: _canApprovePending,
+                pendQueryCount: 0,
+                buildMemberTile: (ctx, m) => _buildMemberDrillListTile(ctx, m),
+                onExportPdf: () => _exportPdf(context),
+                onExportCsv: () => _exportCsv(context),
+                onRelatorioAvancado: _canManage
+                    ? () => openRelatorioMembrosAvancado(
+                          context,
+                          tenantId: _effectiveTenantId,
+                          role: widget.role,
+                        )
+                    : null,
+                onOpenAprovar: null,
+              );
+            }
+          }
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {

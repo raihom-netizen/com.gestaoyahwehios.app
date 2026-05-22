@@ -134,6 +134,7 @@ bool _churchPublicDocIsNoticiaEvento(
 
 /// Site público: oculta após validade ou expiração de aviso (documento excluído some do stream).
 bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
+  if ((m['publishState'] ?? '').toString() == 'uploading') return false;
   // Eventos marcados para galeria permanente continuam visíveis no site público
   // via seção de arquivo, mesmo quando já passaram da validade padrão.
   if (eventShouldMoveToGalleryArchive(m, now)) return true;

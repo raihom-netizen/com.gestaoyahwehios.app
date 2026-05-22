@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1335,7 +1335,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       isVideo: false,
     );
     if (!send || !mounted) return;
-    await _uploadAndSend(bytes, name, mime, kind);
+    unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
   Future<void> _pickVideo(ImageSource source) async {
@@ -1349,26 +1349,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
-      try {
-        final prepared =
-            await ChurchChatVideoPrepare.preparePathForUpload(x.path!);
-        final outName = prepared.split(Platform.pathSeparator).last;
-        if (outName.isNotEmpty) name = outName;
-        await _uploadAndSendFromPath(prepared, name, mime, kind);
-        return;
-      } on StateError catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
-        return;
-      } catch (_) {
-        await _uploadAndSendFromPath(x.path!, name, mime, kind);
-        return;
-      }
+      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
+      return;
     }
     final bytes = await x.readAsBytes();
-    await _uploadAndSend(bytes, name, mime, kind);
+    unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
   void _onMemberProfilePhotoSynced() {
@@ -1472,16 +1457,55 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     final replyPayload = _replyDraft?.toReplyPayload();
+    var uploadPath = localPath;
+    String? messageId = pending.firestoreMessageId;
+    String? storagePath = pending.storagePath;
     try {
       unawaited(FeedPostMediaUpload.warmAuthToken());
+      if (pending.kind == 'video' &&
+          uploadPath != null &&
+          uploadPath.isNotEmpty &&
+          !kIsWeb) {
+        try {
+          uploadPath =
+              await ChurchChatVideoPrepare.preparePathForUpload(uploadPath);
+          pending.localPath = uploadPath;
+        } on StateError catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(e.message)),
+            );
+          }
+          rethrow;
+        }
+      }
+      if (messageId == null || messageId.isEmpty) {
+        final begun = await ChurchChatService.beginMediaUploadMessage(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          kind: pending.kind,
+          fileName: pending.kind == 'document' ? pending.fileName : null,
+          replyTo: replyPayload,
+          senderDisplayName:
+              ChurchChatService.senderDisplayNameForNewMessage(),
+        );
+        messageId = begun.messageId;
+        storagePath = begun.storagePath;
+        pending.firestoreMessageId = messageId;
+        pending.storagePath = storagePath;
+        if (mounted) {
+          setState(() => _replyDraft = null);
+        }
+      }
       final ({String url, String path}) up;
-      if (localPath != null && localPath.isNotEmpty && !kIsWeb) {
+      if (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb) {
         up = await ChurchChatService.uploadChatFile(
           tenantId: widget.tenantId,
           threadId: widget.threadId,
-          localPath: localPath,
+          localPath: uploadPath,
           fileName: pending.fileName,
           contentType: pending.mime,
+          storagePathOverride: storagePath,
           onProgress: (p) => _setPendingProgress(pending.localId, p),
         );
       } else if (bytes != null && bytes.isNotEmpty) {
@@ -1491,43 +1515,53 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           bytes: bytes,
           fileName: pending.fileName,
           contentType: pending.mime,
+          storagePathOverride: storagePath,
           onProgress: (p) => _setPendingProgress(pending.localId, p),
         );
       } else {
         throw StateError('Sem dados para enviar.');
       }
-      final ok = await ChurchChatService.sendMediaMessage(
+      await ChurchChatService.completeMediaUploadMessage(
         tenantId: widget.tenantId,
         threadId: widget.threadId,
+        messageId: messageId!,
         downloadUrl: up.url,
         storagePath: up.path,
-        kind: pending.kind,
         fileName: pending.kind == 'document' ? pending.fileName : null,
-        replyTo: replyPayload,
-        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
       );
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Envio bloqueado para este contacto.')),
-        );
-      } else if (ok && mounted) {
-        setState(() => _replyDraft = null);
-      }
       _removePending(pending.localId);
     } on FirebaseException catch (e) {
+      if (messageId != null && messageId.isNotEmpty) {
+        unawaited(ChurchChatService.abandonMediaUploadMessage(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          messageId: messageId,
+        ));
+      }
       final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
       if (i >= 0) {
         _pendingOutbound[i].failed = true;
         _pendingOutbound[i].errorMessage = e.message ?? e.code;
+        _pendingOutbound[i].firestoreMessageId = null;
+        _pendingOutbound[i].storagePath = null;
         if (mounted) {
           setState(() => _sending = false);
         }
       }
     } catch (e) {
+      if (messageId != null && messageId.isNotEmpty) {
+        unawaited(ChurchChatService.abandonMediaUploadMessage(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          messageId: messageId,
+        ));
+      }
       final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
       if (i >= 0) {
         _pendingOutbound[i].failed = true;
         _pendingOutbound[i].errorMessage = '$e';
+        _pendingOutbound[i].firestoreMessageId = null;
+        _pendingOutbound[i].storagePath = null;
         if (mounted) {
           setState(() => _sending = false);
         }
@@ -1608,11 +1642,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (f.path ?? '').isNotEmpty) {
-      await _uploadAndSendFromPath(f.path!, name, mime, kind);
+      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
       return;
     }
     if (f.bytes == null) return;
-    await _uploadAndSend(f.bytes!, name, mime, kind);
+    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
   }
 
   Future<void> _pickAudioFile() async {
@@ -1638,11 +1672,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (f.path ?? '').isNotEmpty) {
-      await _uploadAndSendFromPath(f.path!, name, mime, kind);
+      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
       return;
     }
     if (f.bytes == null) return;
-    await _uploadAndSend(f.bytes!, name, mime, kind);
+    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
   }
 
   Future<void> _uploadAndSend(
@@ -1673,7 +1707,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: widget.tenantId,
       threadId: widget.threadId,
     );
-    final preview = (kind == 'image' || kind == 'video')
+    final preview = kind == 'image'
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : null;
     final pending = ChurchChatOutboundPending(
@@ -1705,6 +1739,36 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           p.previewBytes!,
           width: 200,
           fit: BoxFit.cover,
+        ),
+      );
+    } else if (!kIsWeb &&
+        p.localPath != null &&
+        p.localPath!.isNotEmpty &&
+        (p.kind == 'image' || p.kind == 'video')) {
+      final f = File(p.localPath!);
+      body = ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Image.file(
+              f,
+              width: 200,
+              height: p.kind == 'video' ? 140 : 200,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox(
+                width: 200,
+                height: 120,
+                child: Icon(Icons.broken_image_outlined),
+              ),
+            ),
+            if (p.kind == 'video')
+              Icon(
+                Icons.play_circle_fill_rounded,
+                size: 48,
+                color: Colors.white.withValues(alpha: 0.92),
+              ),
+          ],
         ),
       );
     } else {
@@ -2441,10 +2505,25 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                               uid,
                             ))
                         .toList();
+                    final hideFirestoreMsgIds = _pendingOutbound
+                        .map((p) => p.firestoreMessageId?.trim() ?? '')
+                        .where((id) => id.isNotEmpty)
+                        .toSet();
+                    final hasActivePending = _pendingOutbound.any(
+                      (p) => !p.failed && !p.cancelled,
+                    );
+                    var streamDocs = visibleDocs.where((d) {
+                      if (hideFirestoreMsgIds.contains(d.id)) return false;
+                      if (!hasActivePending) return true;
+                      final m = d.data();
+                      return !((m['senderUid'] ?? '').toString() == uid &&
+                          (m['deliveryStatus'] ?? '').toString() ==
+                              'uploading');
+                    }).toList();
                     final q = _msgSearchCtrl.text.trim().toLowerCase();
                     final docs = q.isEmpty
-                        ? visibleDocs
-                        : visibleDocs
+                        ? streamDocs
+                        : streamDocs
                             .where((d) =>
                                 _messageHaystack(d.data()).contains(q))
                             .toList();
@@ -3106,7 +3185,50 @@ class _MessageBody extends StatelessWidget {
       );
     }
     final url = (data['mediaUrl'] ?? '').toString();
+    final delivery = (data['deliveryStatus'] ?? '').toString();
     if (url.isEmpty) {
+      if (delivery == 'uploading') {
+        final progress = (data['uploadProgress'] is num)
+            ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
+            : null;
+        return Column(
+          crossAxisAlignment:
+              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ..._quotePrefix(context),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    type == 'video'
+                        ? 'A enviar vídeo…'
+                        : type == 'audio'
+                            ? 'A enviar áudio…'
+                            : 'A enviar…',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+            if (progress != null && progress > 0 && progress < 1) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 3,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ],
+          ],
+        );
+      }
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,

@@ -1,4 +1,13 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1600: Membros — lista instantânea via `_panel_cache/members_directory`
+/// (sem skeletons falsos; fotos progressivas); aba Painel & números com cache;
+/// dashboard igreja — líderes/corpo administrativo do cache sem esperar 1,6s.
+/// 11.2.295+1599: Módulo Eventos — publicação instantânea (Firestore primeiro, fotos em
+/// segundo plano; push FCM ao concluir mídia; vídeo não bloqueia Publicar).
+/// 11.2.295+1598: Mural avisos/eventos — publicação instantânea (Firestore primeiro, fotos em
+/// segundo plano; upload direto sem fila offline; push FCM ao concluir mídia).
+/// 11.2.295+1597: Chat — envio de foto/vídeo/áudio instantâneo (stub Firestore + upload paralelo,
+/// sem fila offline; compressão de vídeo em background; regras patch mediaUrl).
 /// 11.2.295+1596: Chat — lista Conversas definitiva (merge query + repair cliente/servidor,
 /// lastMessageAt a partir das mensagens, sync ao abrir o hub).
 /// 11.2.295+1595: deploy completo — chat conversas estáveis (regras + repair DM threads),
@@ -123,7 +132,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1596';
+const String appBuildNumber = '1600';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

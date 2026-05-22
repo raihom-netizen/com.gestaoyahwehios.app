@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -1476,6 +1477,8 @@ class _PostCardState extends State<_PostCard>
     final videoEntries = eventNoticiaVideosFromDoc(data);
     final photoCount = muralPhotos.length;
     final videoCount = videoEntries.length;
+    final publishState = (data['publishState'] ?? '').toString();
+    final mediaUploading = publishState == MuralFastPublishService.stateUploading;
     final carouselLen = photoCount + videoCount;
     final mediaChipLabel = carouselLen > 0
         ? (photoCount == 0
@@ -1637,6 +1640,42 @@ class _PostCardState extends State<_PostCard>
             _buildCompactTitleStrip(title, eventDateStr, isEvento),
           if (!isEvento && carouselLen == 0 && title.isNotEmpty)
             _buildCompactTitleStrip(title, '', isEvento),
+
+          if (mediaUploading && carouselLen == 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      YahwehPremiumFeedShimmer.mediaCover(),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'A publicar fotos…',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // Mídia — carrossel 1:1 (Instagram): N fotos + M vídeos (deslizar)
           if (carouselLen > 0)
@@ -3267,6 +3306,108 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     );
   }
 
+  Map<String, dynamic> _mediaFieldsForPayload({
+    required List<String> allUrls,
+    required double aspectRatio,
+    required bool hasVideo,
+    required bool allowDeleteSentinels,
+  }) {
+    final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
+    final patch = <String, dynamic>{};
+    patch['imageUrl'] = firstUrl;
+    patch['imageUrls'] = allUrls;
+    patch['defaultImageUrl'] = firstUrl;
+    if (firstUrl.isNotEmpty) {
+      patch['imagemUrl'] = firstUrl;
+      patch['imagem_url'] = firstUrl;
+    } else if (allowDeleteSentinels) {
+      patch['imagemUrl'] = FieldValue.delete();
+      patch['imagem_url'] = FieldValue.delete();
+    }
+    if (allUrls.isNotEmpty) {
+      patch['media_info'] = <String, dynamic>{
+        'url_original': firstUrl,
+        'aspect_ratio': aspectRatio,
+        'tipo': hasVideo ? 'video' : 'image',
+      };
+    } else if (allowDeleteSentinels) {
+      patch['media_info'] = FieldValue.delete();
+    }
+    if (allUrls.isEmpty) {
+      if (allowDeleteSentinels) {
+        patch['imageStoragePath'] = FieldValue.delete();
+        patch['imageStoragePaths'] = FieldValue.delete();
+      }
+    } else {
+      final paths = _muralPathsFromImageUrls(allUrls);
+      if (paths != null && paths.isNotEmpty) {
+        patch['imageStoragePath'] = paths.first;
+        patch['imageStoragePaths'] = paths;
+      }
+    }
+    return patch;
+  }
+
+  Map<String, dynamic> _buildCorePayload({
+    required List<String> allUrls,
+    required double aspectRatio,
+    required bool isNewDoc,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final displayName =
+        FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
+    final now = FieldValue.serverTimestamp();
+    final hasVideo = _videoUrl.text.trim().isNotEmpty;
+    final plainBody = _bodyDescription.text.trim();
+    final payload = <String, dynamic>{
+      'type': widget.type,
+      'title': _title.text.trim(),
+      'text': plainBody,
+      kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
+      'videoUrl': _videoUrl.text.trim(),
+      'updatedAt': now,
+      ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
+      ..._mediaFieldsForPayload(
+        allUrls: allUrls,
+        aspectRatio: aspectRatio,
+        hasVideo: hasVideo,
+        allowDeleteSentinels: !isNewDoc,
+      ),
+    };
+    if (widget.type == 'evento' && _date != null && _time != null) {
+      final dt = DateTime(
+          _date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
+      payload['startAt'] = Timestamp.fromDate(dt);
+      payload['generated'] = false;
+    }
+    if (_validUntil != null) {
+      payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+    }
+    if (widget.type == 'aviso') {
+      final refDate = _validUntil ?? DateTime.now();
+      final expiresAt = refDate.add(const Duration(days: 1));
+      payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
+    }
+    payload['publicSite'] = _publicSite;
+    if (widget.type == 'evento' && !isNewDoc) {
+      payload['imageVariants'] = FieldValue.delete();
+    }
+    if (isNewDoc) {
+      payload['createdAt'] = now;
+      payload['createdByUid'] = uid;
+      payload['createdByName'] = displayName;
+      payload['likes'] = <String>[];
+      payload['likedBy'] = <String>[];
+      payload['rsvp'] = <String>[];
+      payload['likesCount'] = 0;
+      payload['rsvpCount'] = 0;
+      payload['commentsCount'] = 0;
+    } else if (widget.type == 'evento') {
+      payload['templateId'] = FieldValue.delete();
+    }
+    return payload;
+  }
+
   Future<void> _save() async {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
@@ -3275,148 +3416,96 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
     final postId = docRef.id;
+    final isNewDoc = widget.doc == null;
+    final hasNewImages = _newImages.isNotEmpty;
     setState(() => _saving = true);
     try {
       await FeedPostMediaUpload.warmAuthToken();
-      var allUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      if (_newImages.isNotEmpty) {
-        final startSlot = allUrls.length;
-        final n = _newImages.length;
-        final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
-          count: n,
-          progressLabel: 'A enviar imagens…',
-          uploadOne: (i, report) => _upload(
-            _newImages[i],
-            postId,
-            startSlot + i,
-            onProgress: report,
-          ),
-        );
-        allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
-      }
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
-      if (_newImages.isNotEmpty) {
-        final ar = await imageAspectRatioFromBytes(_newImages.first);
-        if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
-      }
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final displayName =
-          FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
-      final now = FieldValue.serverTimestamp();
-
-      final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
-      if (_newImages.isEmpty && allUrls.isNotEmpty) {
+      if (!hasNewImages && existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) {
-            aspectRatio = oar.toDouble().clamp(0.4, 2.3);
-          }
-        }
-      }
-      final hasVideo = _videoUrl.text.trim().isNotEmpty;
-
-      final plainBody = _bodyDescription.text.trim();
-      final payload = <String, dynamic>{
-        'type': widget.type,
-        'title': _title.text.trim(),
-        'text': plainBody,
-        kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
-        'imageUrl': firstUrl,
-        'imageUrls': allUrls,
-        'defaultImageUrl': firstUrl,
-        'videoUrl': _videoUrl.text.trim(),
-        'updatedAt': now,
-        ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
-      };
-      if (firstUrl.isNotEmpty) {
-        payload['imagemUrl'] = firstUrl;
-        payload['imagem_url'] = firstUrl;
-      } else if (widget.doc != null) {
-        payload['imagemUrl'] = FieldValue.delete();
-        payload['imagem_url'] = FieldValue.delete();
-      }
-
-      /// Só [url_original]: miniatura no Storage não é mais referenciada (evita confusão com `thumb_*` da extensão).
-      if (allUrls.isNotEmpty) {
-        payload['media_info'] = <String, dynamic>{
-          'url_original': firstUrl,
-          'aspect_ratio': aspectRatio,
-          'tipo': hasVideo ? 'video' : 'image',
-        };
-      } else if (widget.doc != null) {
-        payload['media_info'] = FieldValue.delete();
-      }
-
-      if (allUrls.isEmpty) {
-        if (widget.doc != null) {
-          payload['imageStoragePath'] = FieldValue.delete();
-          payload['imageStoragePaths'] = FieldValue.delete();
-        }
-      } else {
-        final paths = _muralPathsFromImageUrls(allUrls);
-        if (paths != null && paths.isNotEmpty) {
-          payload['imageStoragePath'] = paths.first;
-          payload['imageStoragePaths'] = paths;
+          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
         }
       }
 
-      if (widget.type == 'evento' && _date != null && _time != null) {
-        final dt = DateTime(
-            _date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
-        payload['startAt'] = Timestamp.fromDate(dt);
-        payload['generated'] = false;
+      if (hasNewImages) {
+        final payload = _buildCorePayload(
+          allUrls: existingUrls,
+          aspectRatio: aspectRatio,
+          isNewDoc: isNewDoc,
+        );
+        payload['publishState'] = MuralFastPublishService.stateUploading;
+        payload['pendingImageCount'] = _newImages.length;
+        if (isNewDoc) {
+          await docRef.set(payload);
+        } else {
+          await docRef.set(payload, SetOptions(merge: true));
+        }
+        final imagesCopy = List<Uint8List>.from(_newImages);
+        final startSlot = existingUrls.length;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              isNewDoc
+                  ? 'Publicado! As fotos terminam de subir em segundo plano.'
+                  : 'Atualizado! As fotos terminam de subir em segundo plano.',
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+        unawaited(
+          MuralFastPublishService.uploadImagesAndFinalizePost(
+            docRef: docRef,
+            tenantId: widget.tenantId,
+            postId: postId,
+            postType: widget.type,
+            newImages: imagesCopy,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            uploadSlot: (bytes, slot, report) => _upload(
+              bytes,
+              postId,
+              slot,
+              onProgress: report,
+            ),
+            buildMediaFields: ({
+              required allUrls,
+              required aspectRatio,
+              required hasVideo,
+            }) =>
+                _mediaFieldsForPayload(
+              allUrls: allUrls,
+              aspectRatio: aspectRatio,
+              hasVideo: hasVideo || _videoUrl.text.trim().isNotEmpty,
+              allowDeleteSentinels: true,
+            ),
+          ),
+        );
+        return;
       }
-      if (_validUntil != null) {
-        payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-      }
-      // Avisos são temporários: no site público só aparecem até 1 dia após a data predeterminada (ou criação).
-      if (widget.type == 'aviso') {
-        final refDate = _validUntil ?? DateTime.now();
-        final expiresAt = refDate.add(const Duration(days: 1));
-        payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
-      }
-      payload['publicSite'] = _publicSite;
 
-      if (widget.type == 'evento' && widget.doc != null) {
-        payload['imageVariants'] = FieldValue.delete();
-      }
-      if (widget.doc == null) {
-        payload['createdAt'] = now;
-        payload['createdByUid'] = uid;
-        payload['createdByName'] = displayName;
-        payload['likes'] = <String>[];
-        payload['likedBy'] = <String>[];
-        payload['rsvp'] = <String>[];
-        payload['likesCount'] = 0;
-        payload['rsvpCount'] = 0;
-        payload['commentsCount'] = 0;
+      final payload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      payload['publishState'] = MuralFastPublishService.statePublished;
+      payload['pendingImageCount'] = FieldValue.delete();
+      payload['publishError'] = FieldValue.delete();
+      if (isNewDoc) {
         await docRef.set(payload);
       } else {
-        if (widget.type == 'evento') {
-          payload['templateId'] = FieldValue.delete();
-        }
-        await widget.doc!.reference.set(payload, SetOptions(merge: true));
+        await docRef.set(payload, SetOptions(merge: true));
       }
-
-      if (_newImages.isNotEmpty) {
-        if (widget.type == 'aviso') {
-          FirebaseStorageCleanupService.scheduleCleanupAfterAvisoPostImageUpload(
-            tenantId: widget.tenantId,
-            postDocId: postId,
-          );
-        } else if (widget.type == 'evento') {
-          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
-            tenantId: widget.tenantId,
-            postDocId: postId,
-          );
-        }
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                widget.doc == null ? 'Publicado!' : 'Atualizado!'));
+          ThemeCleanPremium.successSnackBar(
+            isNewDoc ? 'Publicado!' : 'Atualizado!',
+          ),
+        );
         Navigator.pop(context, true);
       }
     } catch (e) {

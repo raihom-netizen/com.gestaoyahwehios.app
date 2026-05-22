@@ -195,6 +195,7 @@ export const onChurchChatMessageCreated = functions
     const msg = snap.data() || {};
     const senderUid = String(msg.senderUid || "").trim();
     if (!senderUid) return null;
+    if (String(msg.deliveryStatus || "") === "uploading") return null;
 
     const threadSnap = await db
       .collection("igrejas")

@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -5743,7 +5744,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<MediaUploadResult> _upload(
-      Uint8List bytes, String postDocId, int slotIndex) async {
+    Uint8List bytes,
+    String postDocId,
+    int slotIndex, {
+    void Function(double progress)? onProgress,
+  }) async {
     final storagePath = ChurchStorageLayout.eventPostPhotoPath(
       widget.tenantId,
       postDocId,
@@ -5752,7 +5757,120 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return FeedPostMediaUpload.uploadFeedPhotoDetailed(
       storagePath: storagePath,
       bytes: bytes,
+      onProgress: onProgress,
     );
+  }
+
+  List<String> _safePhotoUrls(List<String> urls) => urls
+      .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
+      .toList();
+
+  List<Map<String, dynamic>> _videosPayload() => _eventVideos
+      .map((e) => <String, dynamic>{
+            'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+            'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+          })
+      .where((m) => (m['videoUrl'] as String).isNotEmpty)
+      .toList();
+
+  Map<String, dynamic> _eventMediaFields({
+    required List<String> allUrlsSafe,
+    double? aspectRatio,
+    required bool allowDeleteSentinels,
+  }) {
+    final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
+    final firstVideoUrl = _eventVideos.isNotEmpty
+        ? (_eventVideos.first['videoUrl'] ?? '')
+        : _videoUrl.text.trim();
+    final firstThumbUrl =
+        _eventVideos.isNotEmpty ? (_eventVideos.first['thumbUrl'] ?? '') : '';
+    final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
+    final patch = <String, dynamic>{
+      'imageUrl': firstUrl,
+      'imageUrls': allUrlsSafe,
+      'defaultImageUrl': firstUrl,
+      'videoUrl': firstVideoUrl,
+      'thumbUrl': firstThumbUrl,
+      'videos': _videosPayload(),
+    };
+    if (derivedPaths != null && derivedPaths.isNotEmpty) {
+      patch['imageStoragePaths'] = derivedPaths;
+      patch['imageStoragePath'] = derivedPaths.first;
+    } else if (allowDeleteSentinels) {
+      patch['imageStoragePath'] = FieldValue.delete();
+      patch['imageStoragePaths'] = FieldValue.delete();
+    }
+    if (firstUrl.isNotEmpty) {
+      patch['imagemUrl'] = firstUrl;
+      patch['imagem_url'] = firstUrl;
+    } else if (allowDeleteSentinels) {
+      patch['imagemUrl'] = FieldValue.delete();
+      patch['imagem_url'] = FieldValue.delete();
+    }
+    if (aspectRatio != null) {
+      patch['media_info'] = {
+        'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+      };
+    } else if (allowDeleteSentinels) {
+      patch['media_info'] = FieldValue.delete();
+    }
+    return patch;
+  }
+
+  Map<String, dynamic> _buildEventFirestorePayload({
+    required List<String> allUrlsSafe,
+    double? aspectRatio,
+    required bool isNewDoc,
+    String? publishState,
+    int? pendingImageCount,
+  }) {
+    final payload = <String, dynamic>{
+      'type': 'evento',
+      'title': _title.text.trim(),
+      ..._eventBodyFirestoreFields(),
+      ..._eventMediaFields(
+        allUrlsSafe: allUrlsSafe,
+        aspectRatio: aspectRatio,
+        allowDeleteSentinels: !isNewDoc,
+      ),
+      'active': true,
+      'likes': widget.doc?.data()?['likes'] ?? <String>[],
+      'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
+      'updatedAt': FieldValue.serverTimestamp(),
+      'generated': false,
+      'publicSite': _publicSite,
+      'galleryPermanent': _galleryPermanent,
+      ..._schedulingAndCategoryFields(merge: !isNewDoc),
+      ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
+    };
+    if (publishState != null) {
+      payload['publishState'] = publishState;
+      if (pendingImageCount != null) {
+        payload['pendingImageCount'] = pendingImageCount;
+      }
+    }
+    if (publishState == MuralFastPublishService.statePublished) {
+      payload['pendingImageCount'] = FieldValue.delete();
+      payload['publishError'] = FieldValue.delete();
+    }
+    if (!isNewDoc) {
+      payload['imageVariants'] = FieldValue.delete();
+      payload['templateId'] = FieldValue.delete();
+    }
+    if (_validUntil != null) {
+      payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+    }
+    if (!isNewDoc && widget.doc!.data()?['createdAt'] == null) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+    }
+    if (isNewDoc) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+      payload['likesCount'] = 0;
+      payload['rsvpCount'] = 0;
+      payload['commentsCount'] = 0;
+    }
+    return payload;
   }
 
   Widget _videoPlaceholder() => Container(
@@ -6090,7 +6208,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         ? null
                         : () {
                             Navigator.pop(ctx);
-                            _pickAndUploadVideo();
+                            unawaited(_pickAndUploadVideo());
                           },
                   ),
                 ],
@@ -6108,307 +6226,137 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
+    if (_uploadingVideo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Aguarde o vídeo terminar de enviar ou cancele antes de publicar.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
     final docRef = _eventDocRef;
     final postId = docRef.id;
+    final isNewDoc = widget.doc == null;
     try {
       await FeedPostMediaUpload.warmAuthToken();
-      final allUrls = List<String>.from(_existingUrls);
-      final initialLen = allUrls.length;
-      final room = (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
-      if (room > 0) {
-        final uploadResults = await FeedPostMediaUpload.uploadParallel(
-          count: room,
-          uploadOne: (i, report) async {
-            return _upload(
-              _newImages[i],
-              postId,
-              initialLen + i,
-            );
-          },
-        );
-        for (final up in uploadResults) {
-          allUrls.add(up.downloadUrl);
+      final allUrlsSafe = _safePhotoUrls(List<String>.from(_existingUrls));
+      final hasNewImages = _newImages.isNotEmpty;
+      double? aspectRatio;
+      if (!hasNewImages && allUrlsSafe.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble();
         }
       }
-      if (allUrls.length > _maxPhotosPerEvent) {
-        allUrls.removeRange(_maxPhotosPerEvent, allUrls.length);
+
+      if (hasNewImages) {
+        final payload = _buildEventFirestorePayload(
+          allUrlsSafe: allUrlsSafe,
+          aspectRatio: aspectRatio,
+          isNewDoc: isNewDoc,
+          publishState: MuralFastPublishService.stateUploading,
+          pendingImageCount: _newImages.length,
+        );
+        if (isNewDoc) {
+          await docRef.set(payload);
+        } else {
+          await widget.doc!.reference.set(payload, SetOptions(merge: true));
+        }
+        await _applyAgendaSyncAfterSave(postId);
+
+        final initialLen = allUrlsSafe.length;
+        final room =
+            (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
+        final imagesCopy = List<Uint8List>.from(_newImages.take(room));
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              isNewDoc
+                  ? 'Evento publicado! As fotos terminam de subir em segundo plano.'
+                  : 'Evento atualizado! As fotos terminam de subir em segundo plano.',
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+
+        if (imagesCopy.isNotEmpty) {
+          unawaited(
+            MuralFastPublishService.uploadImagesAndFinalizePost(
+              docRef: docRef,
+              tenantId: widget.tenantId,
+              postId: postId,
+              postType: 'evento',
+              newImages: imagesCopy,
+              existingUrls: allUrlsSafe,
+              startSlotIndex: initialLen,
+              uploadSlot: (bytes, slot, report) async {
+                final r = await _upload(
+                  bytes,
+                  postId,
+                  slot,
+                  onProgress: report,
+                );
+                return r.downloadUrl;
+              },
+              buildMediaFields: ({
+                required allUrls,
+                required aspectRatio,
+                required hasVideo,
+              }) =>
+                  _eventMediaFields(
+                allUrlsSafe: allUrls,
+                aspectRatio: aspectRatio,
+                allowDeleteSentinels: true,
+              ),
+            ),
+          );
+        } else {
+          unawaited(
+            docRef.set(
+              {
+                'publishState': MuralFastPublishService.statePublished,
+                'pendingImageCount': FieldValue.delete(),
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true),
+            ),
+          );
+        }
+        return;
       }
-      final allUrlsSafe =
-          allUrls.where((u) => !looksLikeHostedVideoFileUrl(u.trim())).toList();
-      final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
-      final firstVideoUrl = _eventVideos.isNotEmpty
-          ? (_eventVideos.first['videoUrl'] ?? '')
-          : _videoUrl.text.trim();
-      final firstThumbUrl =
-          _eventVideos.isNotEmpty ? (_eventVideos.first['thumbUrl'] ?? '') : '';
-      final videosClean = _eventVideos
-          .map((e) => <String, dynamic>{
-                'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-              })
-          .where((m) => (m['videoUrl'] as String).isNotEmpty)
-          .toList();
-      final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
-      final arFromNew = _newImages.isNotEmpty
-          ? await imageAspectRatioFromBytes(_newImages.first)
-          : null;
-      final payload = <String, dynamic>{
-        'type': 'evento',
-        'title': _title.text.trim(),
-        ..._eventBodyFirestoreFields(),
-        'imageUrl': firstUrl,
-        'imageUrls': allUrlsSafe,
-        'defaultImageUrl': firstUrl,
-        if (derivedPaths != null && derivedPaths.isNotEmpty) ...{
-          'imageStoragePaths': derivedPaths,
-          'imageStoragePath': derivedPaths.first,
-        },
-        'videoUrl': firstVideoUrl,
-        'thumbUrl': firstThumbUrl,
-        'videos': videosClean,
-        'active': true,
-        'likes': widget.doc?.data()?['likes'] ?? <String>[],
-        'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
-        'updatedAt': FieldValue.serverTimestamp(),
-        'generated': false,
-        'publicSite': _publicSite,
-        'galleryPermanent': _galleryPermanent,
-        ..._schedulingAndCategoryFields(merge: widget.doc != null),
-        ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
-        if (arFromNew != null)
-          'media_info': {
-            'aspect_ratio': arFromNew.clamp(0.45, 1.9),
-          },
-      };
-      if (firstUrl.isNotEmpty) {
-        payload['imagemUrl'] = firstUrl;
-        payload['imagem_url'] = firstUrl;
-      } else if (widget.doc != null) {
-        payload['imagemUrl'] = FieldValue.delete();
-        payload['imagem_url'] = FieldValue.delete();
-      }
-      // Só em merge/update: remove mapas legados (thumb/card). Em `add()` não usar delete sentinel.
-      if (widget.doc != null) {
-        payload['imageVariants'] = FieldValue.delete();
-      }
-      if (_validUntil != null)
-        payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-      if (widget.doc != null && widget.doc!.data()?['createdAt'] == null) {
-        payload['createdAt'] = FieldValue.serverTimestamp();
-      }
-      if (widget.doc == null) {
-        payload['createdAt'] = FieldValue.serverTimestamp();
-        payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
-        payload['likesCount'] = 0;
-        payload['rsvpCount'] = 0;
-        payload['commentsCount'] = 0;
+
+      final payload = _buildEventFirestorePayload(
+        allUrlsSafe: allUrlsSafe,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+        publishState: MuralFastPublishService.statePublished,
+      );
+      if (isNewDoc) {
         await docRef.set(payload);
       } else {
-        payload['templateId'] = FieldValue.delete();
         await widget.doc!.reference.set(payload, SetOptions(merge: true));
-      }
-      if (_newImages.isNotEmpty) {
-        FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
-          tenantId: widget.tenantId,
-          postDocId: postId,
-        );
       }
       await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(widget.doc == null
-                ? 'Evento publicado!'
-                : 'Evento atualizado!'));
+          ThemeCleanPremium.successSnackBar(
+            isNewDoc ? 'Evento publicado!' : 'Evento atualizado!',
+          ),
+        );
         Navigator.pop(context, true);
       }
     } catch (e) {
-      final msg = e.toString();
-      final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
-          msg.contains('permission-denied');
-      if (mounted && isAssertionOrPerm) {
-        try {
-          await FeedPostMediaUpload.warmAuthToken();
-          await Future.delayed(const Duration(milliseconds: 150));
-          if (widget.doc == null) {
-            final retryUrls = List<String>.from(_existingUrls);
-            final rInit = retryUrls.length;
-            final rRoom =
-                (_maxPhotosPerEvent - rInit).clamp(0, _newImages.length);
-            if (rRoom > 0) {
-              final rUp = await FeedPostMediaUpload.uploadParallel(
-                count: rRoom,
-                uploadOne: (i, _) =>
-                    _upload(_newImages[i], postId, rInit + i),
-              );
-              for (final up in rUp) {
-                retryUrls.add(up.downloadUrl);
-              }
-            }
-            if (retryUrls.length > _maxPhotosPerEvent)
-              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
-            final retrySafe = retryUrls
-                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-                .toList();
-            final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
-            final retryDerived = _pathsFromImageUrls(retrySafe);
-            final arRetry = _newImages.isNotEmpty
-                ? await imageAspectRatioFromBytes(_newImages.first)
-                : null;
-            final firstVideoUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['videoUrl'] ?? '')
-                : _videoUrl.text.trim();
-            final firstThumbUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['thumbUrl'] ?? '')
-                : '';
-            final vClean = _eventVideos
-                .map((e) => <String, dynamic>{
-                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-                    })
-                .where((m) => (m['videoUrl'] as String).isNotEmpty)
-                .toList();
-            final payload = <String, dynamic>{
-              'type': 'evento',
-              'title': _title.text.trim(),
-              ..._eventBodyFirestoreFields(),
-              'imageUrl': retryFirst,
-              'imageUrls': retrySafe,
-              'defaultImageUrl': retryFirst,
-              if (retryDerived != null && retryDerived.isNotEmpty) ...{
-                'imageStoragePaths': retryDerived,
-                'imageStoragePath': retryDerived.first,
-              },
-              if (retryFirst.isNotEmpty) 'imagemUrl': retryFirst,
-              if (retryFirst.isNotEmpty) 'imagem_url': retryFirst,
-              'videoUrl': firstVideoUrl,
-              'thumbUrl': firstThumbUrl,
-              'videos': vClean,
-              'active': true,
-              'updatedAt': FieldValue.serverTimestamp(),
-              'createdAt': FieldValue.serverTimestamp(),
-              'createdByUid': FirebaseAuth.instance.currentUser?.uid ?? '',
-              'generated': false,
-              'publicSite': _publicSite,
-              'galleryPermanent': _galleryPermanent,
-              'likes': <String>[],
-              'rsvp': <String>[],
-              'likesCount': 0,
-              'rsvpCount': 0,
-              'commentsCount': 0,
-              ..._schedulingAndCategoryFields(merge: false),
-              ..._locationFieldsForSave(allowDeleteSentinels: false),
-              if (arRetry != null)
-                'media_info': {
-                  'aspect_ratio': arRetry.clamp(0.45, 1.9),
-                },
-            };
-            if (_validUntil != null)
-              payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-            await docRef.set(payload);
-            if (_newImages.isNotEmpty) {
-              FirebaseStorageCleanupService
-                  .scheduleCleanupAfterEventPostImageUpload(
-                tenantId: widget.tenantId,
-                postDocId: postId,
-              );
-            }
-          } else {
-            final retryUrls = List<String>.from(_existingUrls);
-            final mInit = retryUrls.length;
-            final mRoom =
-                (_maxPhotosPerEvent - mInit).clamp(0, _newImages.length);
-            if (mRoom > 0) {
-              final mUp = List<Future<MediaUploadResult>>.generate(
-                mRoom,
-                (i) => _upload(_newImages[i], postId, mInit + i),
-              );
-              for (final up in await Future.wait(mUp)) {
-                retryUrls.add(up.downloadUrl);
-              }
-            }
-            if (retryUrls.length > _maxPhotosPerEvent)
-              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
-            final mergeSafe = retryUrls
-                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-                .toList();
-            final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
-            final mergeDerived = _pathsFromImageUrls(mergeSafe);
-            final arMerge = _newImages.isNotEmpty
-                ? await imageAspectRatioFromBytes(_newImages.first)
-                : null;
-            final firstVideoUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['videoUrl'] ?? '')
-                : _videoUrl.text.trim();
-            final firstThumbUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['thumbUrl'] ?? '')
-                : '';
-            final vClean2 = _eventVideos
-                .map((e) => <String, dynamic>{
-                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-                    })
-                .where((m) => (m['videoUrl'] as String).isNotEmpty)
-                .toList();
-            final merge = <String, dynamic>{
-              'type': 'evento',
-              'title': _title.text.trim(),
-              ..._eventBodyFirestoreFields(),
-              'imageUrl': mergeFirst,
-              'imageUrls': mergeSafe,
-              'defaultImageUrl': mergeFirst,
-              if (mergeDerived != null && mergeDerived.isNotEmpty) ...{
-                'imageStoragePaths': mergeDerived,
-                'imageStoragePath': mergeDerived.first,
-              },
-              if (mergeFirst.isNotEmpty) 'imagemUrl': mergeFirst,
-              if (mergeFirst.isNotEmpty) 'imagem_url': mergeFirst,
-              'videoUrl': firstVideoUrl,
-              'thumbUrl': firstThumbUrl,
-              'videos': vClean2,
-              'updatedAt': FieldValue.serverTimestamp(),
-              'generated': false,
-              'publicSite': _publicSite,
-              'galleryPermanent': _galleryPermanent,
-              'imageVariants': FieldValue.delete(),
-              ..._schedulingAndCategoryFields(merge: true),
-              ..._locationFieldsForSave(allowDeleteSentinels: true),
-              if (arMerge != null)
-                'media_info': {
-                  'aspect_ratio': arMerge.clamp(0.45, 1.9),
-                },
-            };
-            if (_validUntil != null)
-              merge['validUntil'] = Timestamp.fromDate(_validUntil!);
-            if (widget.doc!.data()?['createdAt'] == null) {
-              merge['createdAt'] = FieldValue.serverTimestamp();
-            }
-            merge['templateId'] = FieldValue.delete();
-            await widget.doc!.reference.set(merge, SetOptions(merge: true));
-            if (_newImages.isNotEmpty) {
-              FirebaseStorageCleanupService
-                  .scheduleCleanupAfterEventPostImageUpload(
-                tenantId: widget.tenantId,
-                postDocId: postId,
-              );
-            }
-          }
-          await _applyAgendaSyncAfterSave(postId);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Evento publicado!'));
-            Navigator.pop(context, true);
-          }
-        } catch (e2) {
-          if (mounted)
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text('Erro: $e2'),
-                backgroundColor: ThemeCleanPremium.error));
-        }
-      } else if (mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erro: $e'),
-            backgroundColor: ThemeCleanPremium.error));
+          content: Text('Erro: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
       }
     } finally {
       if (mounted) setState(() => _saving = false);

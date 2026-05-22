@@ -17,7 +17,7 @@ class ChurchChatOutboundPending {
   final String fileName;
   final String mime;
   final Uint8List? previewBytes;
-  final String? localPath;
+  String? localPath;
   final String? replyPreview;
   final DateTime createdAt;
 
@@ -25,4 +25,8 @@ class ChurchChatOutboundPending {
   bool failed = false;
   String? errorMessage;
   bool cancelled = false;
+
+  /// Mensagem stub no Firestore (envio otimista).
+  String? firestoreMessageId;
+  String? storagePath;
 }

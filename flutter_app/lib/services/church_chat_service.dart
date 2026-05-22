@@ -1087,6 +1087,115 @@ class ChurchChatService {
     return true;
   }
 
+  /// Caminho Storage determinístico (stub Firestore + upload usam o mesmo path).
+  static String buildChatMediaStoragePath({
+    required String tenantId,
+    required String threadId,
+    required String fileName,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    return 'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
+  }
+
+  /// Cria mensagem no thread sem `mediaUrl` (lista e thread atualizam na hora).
+  static Future<({String messageId, String storagePath})> beginMediaUploadMessage({
+    required String tenantId,
+    required String threadId,
+    required String kind,
+    String? fileName,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+    String? senderDisplayName,
+  }) async {
+    if (!await ChurchChatMemberPrefs.canSendToDmThread(
+      tenantId: tenantId,
+      threadId: threadId,
+    )) {
+      throw StateError('Envio bloqueado para este contacto.');
+    }
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final storagePath = buildChatMediaStoragePath(
+      tenantId: tenantId,
+      threadId: threadId,
+      fileName: fileName ?? 'media',
+    );
+    final expiresAt =
+        Timestamp.fromDate(DateTime.now().add(mediaRetention));
+    final msgRef = messagesCol(tenantId, threadId).doc();
+    var preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
+      kind: kind,
+      fileName: fileName,
+    );
+    final nr = normalizeReplyTo(replyTo);
+    final nf = normalizeForwardedFrom(forwardedFrom);
+    if (nf != null) {
+      preview = '↪ ${nf['preview']}';
+    }
+    final label = (senderDisplayName ?? '').trim();
+    await msgRef.set({
+      'senderUid': uid,
+      'type': kind,
+      'deliveryStatus': 'uploading',
+      'uploadProgress': 0,
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': expiresAt,
+      if (fileName != null && fileName.trim().isNotEmpty)
+        'fileName': fileName.trim(),
+      if (nr != null) 'replyTo': nr,
+      if (nf != null) 'forwardedFrom': nf,
+      if (label.isNotEmpty)
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
+    });
+    await threadRef(tenantId, threadId).set(
+      {
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'lastMessagePreview': preview.length > 120
+            ? '${preview.substring(0, 117)}…'
+            : preview,
+        'lastSenderUid': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return (messageId: msgRef.id, storagePath: storagePath);
+  }
+
+  /// Completa o stub após upload no Storage.
+  static Future<bool> completeMediaUploadMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required String downloadUrl,
+    required String storagePath,
+    String? fileName,
+  }) async {
+    final patch = <String, dynamic>{
+      'mediaUrl': downloadUrl,
+      'storagePath': storagePath,
+      'deliveryStatus': 'sent',
+      'uploadProgress': 1,
+    };
+    if (fileName != null && fileName.trim().isNotEmpty) {
+      patch['fileName'] = fileName.trim();
+    }
+    await messagesCol(tenantId, threadId).doc(messageId).update(patch);
+    return true;
+  }
+
+  /// Remove stub se o upload falhar de forma irrecuperável.
+  static Future<void> abandonMediaUploadMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    try {
+      await messagesCol(tenantId, threadId).doc(messageId).delete();
+    } catch (_) {}
+  }
+
   /// Upload para `chat_media/` — compressão JPEG/PNG leve (via [MediaUploadService]),
   /// sem fila offline (envio imediato). [onUploadTaskCreated] permite cancelar o [UploadTask].
   static Future<({String url, String path})> uploadChatBytes({
@@ -1095,14 +1204,16 @@ class ChurchChatService {
     required List<int> bytes,
     required String fileName,
     required String contentType,
+    String? storagePathOverride,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    final path =
-        'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
+    final path = storagePathOverride ??
+        buildChatMediaStoragePath(
+          tenantId: tenantId,
+          threadId: threadId,
+          fileName: fileName,
+        );
     final ubytes =
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final ct = contentType.toLowerCase();
@@ -1112,7 +1223,7 @@ class ChurchChatService {
       storagePath: path,
       bytes: ubytes,
       contentType: contentType,
-      useOfflineQueue: true,
+      useOfflineQueue: false,
       maxAttempts: 4,
       chatJpegFast: chatJpegFast,
       onProgress: onProgress,
@@ -1128,22 +1239,24 @@ class ChurchChatService {
     required String localPath,
     required String fileName,
     required String contentType,
+    String? storagePathOverride,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     if (kIsWeb) {
       throw UnsupportedError('uploadChatFile não suportado na web.');
     }
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    final path =
-        'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
+    final path = storagePathOverride ??
+        buildChatMediaStoragePath(
+          tenantId: tenantId,
+          threadId: threadId,
+          fileName: fileName,
+        );
     final url = await MediaUploadService.uploadFileWithRetry(
       storagePath: path,
       file: File(localPath),
       contentType: contentType,
-      useOfflineQueue: true,
+      useOfflineQueue: false,
       maxAttempts: 4,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,

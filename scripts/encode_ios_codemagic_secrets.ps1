@@ -107,11 +107,11 @@ if (Test-Path -LiteralPath $issuerSrc) {
 $keyIdLine = "85X9UNAT43"
 
 $readme = @"
-Codemagic → grupo appstore_credentials (copiar o CONTEUDO de cada .txt para o secret com o mesmo nome):
+Codemagic - grupo appstore_credentials (copiar o CONTEUDO de cada .txt para o secret com o mesmo nome):
 
-  APP_STORE_CONNECT_PRIVATE_KEY.txt     → APP_STORE_CONNECT_PRIVATE_KEY (multilinha)
-  CM_PROVISIONING_PROFILE_base64.txt    → CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE (uma linha)
-  CM_CERTIFICATE_base64.txt            → CERTIFICATE_PRIVATE_KEY ou CM_CERTIFICATE (uma linha; so se existir .p12)
+  APP_STORE_CONNECT_PRIVATE_KEY.txt     -> APP_STORE_CONNECT_PRIVATE_KEY (multilinha)
+  CM_PROVISIONING_PROFILE_base64.txt  -> CM_PROVISIONING_PROFILE ou PROVISIONING_PROFILE (uma linha)
+  CM_CERTIFICATE_base64.txt           -> CERTIFICATE_PRIVATE_KEY ou CM_CERTIFICATE (uma linha, so se existir .p12)
 
   APP_STORE_CONNECT_KEY_IDENTIFIER ou KEY_ID na UI:  $keyIdLine
   APP_STORE_CONNECT_ISSUER_ID:  $issuerLine

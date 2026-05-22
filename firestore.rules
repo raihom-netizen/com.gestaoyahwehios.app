@@ -1103,6 +1103,30 @@ service cloud.firestore {
           && request.resource.data.reactionsByUid.size() <= 48;
       }
 
+      /// Mídia: stub «uploading» no create → o remetente completa `mediaUrl` após Storage (estilo WhatsApp).
+      function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
+        return (canAccessTenant(tenantId) || memberLinkedToTenant(tenantId))
+          && canReadChatThreadDoc(tenantId, threadId)
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus == 'uploading'
+          && request.resource.data.deliveryStatus == 'sent'
+          && request.resource.data.mediaUrl is string
+          && request.resource.data.mediaUrl.size() > 8
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress'
+          ]);
+      }
+
+      function chatMessageUploadProgressOnly(tenantId, threadId) {
+        return (canAccessTenant(tenantId) || memberLinkedToTenant(tenantId))
+          && canReadChatThreadDoc(tenantId, threadId)
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus == 'uploading'
+          && request.resource.data.deliveryStatus == 'uploading'
+          && request.resource.data.uploadProgress is number
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['uploadProgress']);
+      }
+
       match /users_profile_chat/{uid} {
         allow read: if isSignedIn() && request.auth.uid == uid
           && (canAccessTenant(id) || memberLinkedToTenant(id));
@@ -1220,7 +1244,9 @@ service cloud.firestore {
               && request.resource.data.replyTo.preview.size() <= 240
             ));
           allow update: if chatMessageHideForMeOnly(id, threadId)
-            || chatMessageReactionsByUidOnly(id, threadId);
+            || chatMessageReactionsByUidOnly(id, threadId)
+            || chatMessageMediaDeliveryPatchAllowed(id, threadId)
+            || chatMessageUploadProgressOnly(id, threadId);
           allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
             && chatMessageDeleteForEveryoneAllowed(id, threadId);
         }

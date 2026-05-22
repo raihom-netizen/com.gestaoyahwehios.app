@@ -7077,7 +7077,12 @@ export {
   onIgrejaChatMessageDeleteCleanupStorage,
 } from "./storageCleanupOnFirestoreDelete";
 
-export { onNovoAvisoMuralPush, onNovoEventoNoticiaPush } from "./pushNovoConteudo";
+export {
+  onNovoAvisoMuralPush,
+  onNovoAvisoMuralPublishedPush,
+  onNovoEventoNoticiaPush,
+  onNovoEventoNoticiaPublishedPush,
+} from "./pushNovoConteudo";
 export { scheduledFornecedorAgendaReminders } from "./fornecedorAgendaReminders";
 
 export {

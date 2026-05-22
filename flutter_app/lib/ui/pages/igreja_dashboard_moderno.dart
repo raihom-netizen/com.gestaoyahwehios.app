@@ -103,6 +103,17 @@ import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
+/// Painel: usa cache `_panel_cache` enquanto o stream de `membros` ainda não trouxe docs.
+bool dashboardPreferPanelCacheMembers(
+  bool sectionHasCache,
+  AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap,
+) {
+  if (!sectionHasCache) return false;
+  if (membersSnap.hasError) return false;
+  if (!membersSnap.hasData) return true;
+  return membersSnap.data!.docs.isEmpty;
+}
+
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
 /// Membros em tempo real via `snapshots()` (um stream ou merge de vários tenants com mesmo slug).
 class IgrejaDashboardModerno extends StatefulWidget {
@@ -222,7 +233,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   void _scheduleHeavyDashboardStreams(List<String> allIds) {
     if (_heavyDashboardStreamsScheduled || !mounted) return;
     _heavyDashboardStreamsScheduled = true;
-    Future<void>.delayed(const Duration(milliseconds: 1600), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
         _membersStream = FirestoreStreamUtils.resilientQuery(
@@ -3070,10 +3081,10 @@ class _LideresGaleria extends StatelessWidget {
         ),
       );
     }
-    final showCacheOnly = panelCache.hasHomeLeaders &&
-        membersSnap.connectionState == ConnectionState.waiting &&
-        !membersSnap.hasData;
-    if (showCacheOnly) {
+    if (dashboardPreferPanelCacheMembers(
+      panelCache.hasHomeLeaders,
+      membersSnap,
+    )) {
       return _CleanCard(
         title: 'Galeria de Líderes',
         icon: Icons.leaderboard_rounded,
@@ -3473,10 +3484,10 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showCacheOnly = panelCache.hasHomeCorpo &&
-        membersSnap.connectionState == ConnectionState.waiting &&
-        !membersSnap.hasData;
-    if (showCacheOnly) {
+    if (dashboardPreferPanelCacheMembers(
+      panelCache.hasHomeCorpo,
+      membersSnap,
+    )) {
       return _CleanCard(
         title: 'Corpo Administrativo',
         icon: Icons.badge_rounded,
