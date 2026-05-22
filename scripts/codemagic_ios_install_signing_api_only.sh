@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Assinatura iOS só com App Store Connect API (padrão «Controle Total»: 3 variáveis).
+# Assinatura iOS só com App Store Connect API (opcional — não usar em produção Gestão YAHWEH).
 # Pré-requisitos: keychain initialize + /tmp/_asc_ok.pem
 #
-# Sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM: primeiro descarrega perfis/certificados
-# já existentes na Apple (sem --create), para não gerar chave RSA aleatória nem bater no 409.
-# Com CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (mesmo PEM em todos os builds): pode usar --create.
+# Preferir sempre codemagic_ios_install_signing.sh (P12+perfil). Este script só corre com CM_FORCE_API_ONLY_SIGNING=1.
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${CM_CERTIFICATE:-}" ] && [ -n "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+  export CM_CERTIFICATE="$CERTIFICATE_PRIVATE_KEY"
+fi
+if [ -z "${CM_PROVISIONING_PROFILE:-}" ] && [ -n "${PROVISIONING_PROFILE:-}" ]; then
+  export CM_PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+fi
 
 if [ ! -f /tmp/_asc_ok.pem ]; then
   echo "ERRO: /tmp/_asc_ok.pem ausente — execute antes: Preparar PEM App Store Connect."
@@ -76,9 +81,10 @@ _repair_signing_if_pem_invalid() {
   echo "=== Reparo assinatura: PEM Distribution NÃO corresponde a nenhum certificado na Apple ==="
   if _has_p12_secret; then
     echo "Fallback: P12 + perfil nos secrets (modo manual — recomendado)."
+    unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
     exec bash "$SCRIPT_DIR/codemagic_ios_install_p12_profile_exportoptions.sh"
   fi
-  _auto="${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-1}"
+  _auto="${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-0}"
   _boot="${CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM:-0}"
   if [ "$_auto" = "1" ] || [ "$_auto" = "true" ] || [ "$_boot" = "1" ] || [ "$_boot" = "true" ]; then
     echo "A criar novo par chave + certificado Distribution na CI (bootstrap ASC)…"
@@ -105,14 +111,10 @@ _repair_signing_if_pem_invalid() {
     export CM_SKIP_INVALID_PEM_BOOTSTRAP=1
     return 0
   fi
-  echo "ERRO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido ou desactualizado."
-  echo "  Opções:"
-  echo "    A) Corrigir o secret com o PEM do par do certificado Apple Distribution actual"
-  echo "       (scripts/gen_ios_distribution_csr_private_key_pem.ps1 + certificado na Apple)"
-  echo "    B) Modo manual: CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE — .\\scripts\\encode_ios_codemagic_secrets.ps1"
-  echo "    C) CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 após revogar um cert Distribution antigo (se 409)"
+  echo "AVISO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido — ignorado; fetch sem --create."
+  unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
   _print_distribution_cert_limit_help
-  exit 1
+  return 0
 }
 
 _prepare_cert_key_file() {

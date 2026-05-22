@@ -75,7 +75,7 @@ if [ -z "$_CM_CERT_COMPACT" ]; then
     echo "    (Nao usa CERTIFICATE_PRIVATE_KEY nos secrets; evita POST /certificates 403.)"
     exit 0
   fi
-  _noapi="${CM_DISALLOW_API_ONLY_SIGNING:-0}"
+  _noapi="${CM_DISALLOW_API_ONLY_SIGNING:-1}"
   if [ "$_noapi" = "1" ] || [ "$_noapi" = "true" ]; then
     echo ""
     echo "ERRO: Falta CERTIFICATE_PRIVATE_KEY (ou CM_CERTIFICATE) + CM_PROVISIONING_PROFILE nos secrets."
@@ -93,10 +93,27 @@ if [ -z "$_CM_CERT_COMPACT" ]; then
     echo ""
     exit 1
   fi
-  echo "api_only" > /tmp/cm_yw_signing_mode
-  echo "OK: modo API-only — fetch-signing-files (com --certificate-key RSA)."
-  echo "AVISO: Com chave API sem permissao para criar certificados, o passo 11 pode dar 403."
-  exit 0
+  if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
+    echo ""
+    echo "ERRO: Definiu CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM mas NÃO definiu CM_CERTIFICATE (P12)."
+    echo "  Este PEM causa falha recorrente se não for o par exacto do certificado na Apple."
+    echo ""
+    echo "  Correcção definitiva na Codemagic (grupo appstore_credentials):"
+    echo "    • APAGUE CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM"
+    echo "    • ADICIONE CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — .\\scripts\\encode_ios_codemagic_secrets.ps1"
+    echo ""
+    exit 1
+  fi
+  _force_api="${CM_FORCE_API_ONLY_SIGNING:-0}"
+  if [ "$_force_api" = "1" ] || [ "$_force_api" = "true" ]; then
+    echo "api_only" > /tmp/cm_yw_signing_mode
+    echo "OK: modo API-only FORCADO (CM_FORCE_API_ONLY_SIGNING=1)."
+    exit 0
+  fi
+  echo ""
+  echo "ERRO: Falta assinatura manual (P12 + perfil). API-only está desactivado por defeito (estável)."
+  echo "  Defina CM_CERTIFICATE + CM_PROVISIONING_PROFILE ou active CM_FORCE_API_ONLY_SIGNING=1 (não recomendado)."
+  exit 1
 fi
 
 echo "manual" > /tmp/cm_yw_signing_mode

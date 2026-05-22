@@ -1,4 +1,11 @@
-# Codemagic iOS — corrigir assinatura (PEM / P12 / 409)
+# Codemagic iOS — assinatura estável (definitivo)
+
+## Política do repositório (a partir de 2026-05)
+
+- **Por defeito:** só modo **manual** — `CM_CERTIFICATE` (P12 Base64) + `CM_PROVISIONING_PROFILE`.
+- **`CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM`:** não usar na Codemagic (apagar). Causa erro em todo push se não for o par exacto do certificado Apple.
+- **`CM_DISALLOW_API_ONLY_SIGNING: "1"`** no `codemagic.yaml` — o passo «Verificar variáveis» falha cedo com instruções claras se faltar P12.
+- Passo 11 usa **`scripts/codemagic_ios_install_signing.sh`** (entrada única).
 
 ## Erro típico (build 1589+)
 

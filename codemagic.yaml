@@ -110,8 +110,8 @@ workflows:
         # 0 = não criar certificado novo na CI quando o PEM estiver errado (evita HTTP 409).
         # Corrija secrets: CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE ou PEM correcto.
         CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "0"
-        # 0 = permite API-only sem exigir P12/perfil nos secrets.
-        CM_DISALLOW_API_ONLY_SIGNING: "0"
+        # 1 = exige P12+perfil (estável). Só use 0 se souber usar API-only sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM errado.
+        CM_DISALLOW_API_ONLY_SIGNING: "1"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
@@ -175,14 +175,7 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          _mode="$(tr -d '\r\n' < /tmp/cm_yw_signing_mode 2>/dev/null || echo "")"
-          if [ "$_mode" = "team_signing" ]; then
-            bash "$ROOT/scripts/codemagic_ios_team_signing_prepare_exportoptions.sh"
-          elif [ "$_mode" = "api_only" ]; then
-            bash "$ROOT/scripts/codemagic_ios_install_signing_api_only.sh"
-          else
-            bash "$ROOT/scripts/codemagic_ios_install_p12_profile_exportoptions.sh"
-          fi
+          bash "$ROOT/scripts/codemagic_ios_install_signing.sh"
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e
