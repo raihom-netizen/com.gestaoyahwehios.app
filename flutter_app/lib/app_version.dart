@@ -1,4 +1,5 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1601: Deploy completo produção (regras, functions, índices, web, AAB, push Codemagic).
 /// 11.2.295+1600: Membros — lista instantânea via `_panel_cache/members_directory`
 /// (sem skeletons falsos; fotos progressivas); aba Painel & números com cache;
 /// dashboard igreja — líderes/corpo administrativo do cache sem esperar 1,6s.
@@ -132,7 +133,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1600';
+const String appBuildNumber = '1601';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
