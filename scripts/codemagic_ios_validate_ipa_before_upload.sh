@@ -16,6 +16,14 @@ if [[ -z "$IPA" ]]; then
 fi
 
 if [[ -z "$IPA" ]] || [[ ! -f "$IPA" ]]; then
+  for cand in \
+    "$ROOT/flutter_app/build/ios/ipa/GestaoYahweh.ipa" \
+    "$ROOT/build/ios/ipa/GestaoYahweh.ipa" \
+    "$ROOT/GestaoYahweh.ipa"; do
+    if [[ -f "$cand" ]]; then IPA="$cand"; break; fi
+  done
+fi
+if [[ -z "$IPA" ]] || [[ ! -f "$IPA" ]]; then
   IPA="$(find "$ROOT" -name "*.ipa" -type f -not -path "*/.git/*" 2>/dev/null | head -n 1 || true)"
 fi
 

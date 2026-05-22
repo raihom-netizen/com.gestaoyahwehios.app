@@ -337,7 +337,8 @@ workflows:
           mkdir -p "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
           bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$ROOT/build/ios/ipa"
           bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$FLUTTER_PWD/build/ios/ipa"
-          echo "IPA: $ABS_IPA"
+          bash "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh"
+          echo "IPA: $ABS_IPA (normalizado para GestaoYahweh.ipa no passo seguinte)"
           echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
           ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
       # O publicador ASC da Codemagic procura *.ipa nos artefactos; em monorepo o IPA fica
@@ -492,17 +493,22 @@ workflows:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
+      - name: Renomear IPA para App Store Connect (nome ASCII)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh"
       - name: Validar IPA (evitar Binário inválido no TestFlight)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_validate_ipa_before_upload.sh"
-      # Upload TestFlight: integração nativa Codemagic (mesmo padrão que flutter_app/codemagic.yaml / Controle Total).
+      # Upload TestFlight: integração nativa Codemagic — só GestaoYahweh.ipa (sem ã/espaços no path).
       # Evita o passo lento «app-store-connect publish» (CLI) que faz polling 30 em 30 s e falha com timeout.
     artifacts:
-      - flutter_app/build/ios/ipa/*.ipa
-      - build/ios/ipa/*.ipa
-      - "*.ipa"
+      - flutter_app/build/ios/ipa/GestaoYahweh.ipa
+      - build/ios/ipa/GestaoYahweh.ipa
+      - GestaoYahweh.ipa
       - /tmp/xcodebuild_logs/*.log
       # Se CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 num build, o PEM fica aqui para copiar ao secret.
       - bootstrap_signing_output/**

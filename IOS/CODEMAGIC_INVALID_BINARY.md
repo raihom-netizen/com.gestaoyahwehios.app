@@ -33,3 +33,9 @@ Para voltar a notificações push:
 ## CI
 
 O passo `Validar IPA (evitar Binário inválido no TestFlight)` corre `scripts/codemagic_ios_validate_ipa_before_upload.sh` antes do upload.
+
+## Publicação Codemagic falhou («Gestão Yahweh - Igrejas.ipa»)
+
+O export do Xcode usa o **nome visível** do app (`CFBundleDisplayName` com «ã» e espaços). O publicador ASC quebra no upload.
+
+**Correção:** `scripts/codemagic_ios_normalize_ipa_for_asc.sh` renomeia para **`GestaoYahweh.ipa`** (ASCII) antes do passo Publishing. O nome na home screen do iPhone **não** muda — só o ficheiro `.ipa` no CI.

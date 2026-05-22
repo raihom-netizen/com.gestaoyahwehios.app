@@ -266,6 +266,11 @@ workflows:
             find build/ios/ipa -maxdepth 1 -name "*.ipa" -type f -exec cp -f {} "$ROOT/" \; 2>/dev/null || true
           fi
           for f in build/ios/ipa/*.ipa; do [ -f "$f" ] && cp -f "$f" "$ROOT/" && break; done
+          if [ -f "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh" ]; then
+            bash "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh"
+          elif [ -f "../scripts/codemagic_ios_normalize_ipa_for_asc.sh" ]; then
+            CM_BUILD_DIR="$ROOT" bash "../scripts/codemagic_ios_normalize_ipa_for_asc.sh"
+          fi
           ls -la "$ROOT"/*.ipa 2>/dev/null || ls -la build/ios/ipa/ || true
       - name: Firebase App Distribution (FIREBASE_SERVICE_ACCOUNT_JSON)
         script: |
@@ -285,8 +290,8 @@ workflows:
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
     artifacts:
-      - build/ios/ipa/*.ipa
-      - "*.ipa"
+      - build/ios/ipa/GestaoYahweh.ipa
+      - GestaoYahweh.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
