@@ -37,6 +37,7 @@ exports.getChurchMembersDirectory = void 0;
 exports.recomputeMembersDirectoryFromDocs = recomputeMembersDirectoryFromDocs;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const DIRECTORY_MAX = 800;
 function pickString(data, keys) {
     for (const k of keys) {
@@ -156,13 +157,12 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
 /** Callable: 1 round-trip para lista leve de membros (módulo Membros). */
 exports.getChurchMembersDirectory = functions
     .region("us-central1")
-    .https.onCall(async (_data, context) => {
+    .https.onCall(async (request, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Login necessario");
     }
-    const token = await admin.auth().getUser(context.auth.uid);
-    const claims = (token.customClaims || {});
-    const tenantId = String(claims.igrejaId || claims.tenantId || "").trim();
+    const body = (request || {});
+    const tenantId = await (0, tenantCallableResolve_1.resolveTenantIdForCallable)({ uid: context.auth.uid, token: context.auth.token }, String(body.tenantId || ""));
     if (!tenantId) {
         throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
@@ -174,8 +174,8 @@ exports.getChurchMembersDirectory = functions
         .doc("members_directory");
     const snap = await ref.get();
     const staleMs = 8 * 60 * 1000;
-    let data = snap.data();
-    const updated = data?.updatedAt;
+    let directory = snap.data();
+    const updated = directory?.updatedAt;
     const isStale = !snap.exists ||
         !updated ||
         Date.now() - updated.toMillis() > staleMs;
@@ -201,8 +201,8 @@ exports.getChurchMembersDirectory = functions
             /* count opcional */
         }
         await recomputeMembersDirectoryFromDocs(tenantId, membrosSnap.docs, total);
-        data = (await ref.get()).data();
+        directory = (await ref.get()).data();
     }
-    return { ok: true, tenantId, directory: data ?? {} };
+    return { ok: true, tenantId, directory: directory ?? {} };
 });
 //# sourceMappingURL=membersDirectoryCache.js.map

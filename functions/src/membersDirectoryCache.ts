@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 const DIRECTORY_MAX = 800;
 
@@ -138,13 +139,15 @@ export async function recomputeMembersDirectoryFromDocs(
 /** Callable: 1 round-trip para lista leve de membros (módulo Membros). */
 export const getChurchMembersDirectory = functions
   .region("us-central1")
-  .https.onCall(async (_data, context) => {
+  .https.onCall(async (request, context) => {
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Login necessario");
     }
-    const token = await admin.auth().getUser(context.auth.uid);
-    const claims = (token.customClaims || {}) as Record<string, unknown>;
-    const tenantId = String(claims.igrejaId || claims.tenantId || "").trim();
+    const body = (request || {}) as Record<string, unknown>;
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: context.auth.token as Record<string, unknown> },
+      String(body.tenantId || ""),
+    );
     if (!tenantId) {
       throw new functions.https.HttpsError(
         "failed-precondition",
@@ -161,8 +164,8 @@ export const getChurchMembersDirectory = functions
 
     const snap = await ref.get();
     const staleMs = 8 * 60 * 1000;
-    let data = snap.data();
-    const updated = data?.updatedAt as admin.firestore.Timestamp | undefined;
+    let directory = snap.data();
+    const updated = directory?.updatedAt as admin.firestore.Timestamp | undefined;
     const isStale =
       !snap.exists ||
       !updated ||
@@ -189,8 +192,8 @@ export const getChurchMembersDirectory = functions
         /* count opcional */
       }
       await recomputeMembersDirectoryFromDocs(tenantId, membrosSnap.docs, total);
-      data = (await ref.get()).data();
+      directory = (await ref.get()).data();
     }
 
-    return { ok: true, tenantId, directory: data ?? {} };
+    return { ok: true, tenantId, directory: directory ?? {} };
   });

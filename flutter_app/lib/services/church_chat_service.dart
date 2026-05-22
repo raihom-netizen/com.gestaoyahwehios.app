@@ -678,6 +678,8 @@ class ChurchChatService {
         'titlesByUid': {uidA: titleA, uidB: titleB},
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'lastMessagePreview': '',
       },
       SetOptions(merge: true),
     );

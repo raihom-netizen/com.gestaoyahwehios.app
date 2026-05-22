@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
+import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 const RECOMPUTE_MIN_INTERVAL_MS = 45_000;
 const RECENT_AVISOS = 8;
@@ -534,9 +535,63 @@ export const onChurchAvisoWritePanelDashboard = functions
     }
     return null;
   });
-export const onChurchNoticiaWritePanelDashboard = dashboardTrigger(
-  "igrejas/{tenantId}/noticias/{docId}",
-);
+/** Atualiza só blocos de eventos no cache (rápido) — publicar evento no app nativo não dispara recompute pesado. */
+async function patchRecentEventosInDashboard(tenantId: string): Promise<void> {
+  const tid = String(tenantId || "").trim();
+  if (!tid) return;
+  const db = admin.firestore();
+  const churchRef = db.collection("igrejas").doc(tid);
+  const noticiasCol = churchRef.collection("noticias");
+  const summaryRef = churchRef.collection("_panel_cache").doc("dashboard_summary");
+
+  const [eventosSnap, eventosProximosSnap] = await Promise.all([
+    noticiasCol.orderBy("startAt", "desc").limit(RECENT_EVENTOS).get(),
+    noticiasCol
+      .where("type", "==", "evento")
+      .orderBy("startAt", "asc")
+      .limit(24)
+      .get(),
+  ]);
+
+  const recentEventos = eventosSnap.docs.map((d) => lightPost(d, "evento"));
+  const nowMsEvt = Date.now();
+  const upcomingEventos = eventosProximosSnap.docs
+    .filter((d) => {
+      const st = d.data().startAt;
+      if (st instanceof admin.firestore.Timestamp) {
+        return st.toMillis() >= nowMsEvt - 86_400_000;
+      }
+      return true;
+    })
+    .slice(0, 12)
+    .map((d) => lightPost(d, "evento"));
+
+  await summaryRef.set(
+    {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      recentEventos,
+      upcomingEventos,
+    },
+    { merge: true },
+  );
+}
+
+export const onChurchNoticiaWritePanelDashboard = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/noticias/{docId}")
+  .onWrite(async (_, context) => {
+    const tenantId = context.params.tenantId as string;
+    try {
+      await patchRecentEventosInDashboard(tenantId);
+    } catch (e) {
+      functions.logger.warn("panelDashboardCache: patch eventos, fallback recompute", {
+        tenantId,
+        e,
+      });
+      scheduleRecompute(tenantId);
+    }
+    return null;
+  });
 export const onChurchDepartamentoWritePanelDashboard = dashboardTrigger(
   "igrejas/{tenantId}/departamentos/{docId}",
 );
@@ -550,13 +605,15 @@ export const onChurchPedidoOracaoWritePanelDashboard = dashboardTrigger(
 /** Leitura rápida do painel (1 round-trip). Recalcula se o cache estiver ausente ou velho. */
 export const getChurchPanelSnapshot = functions
   .region("us-central1")
-  .https.onCall(async (_data, context) => {
+  .https.onCall(async (request, context) => {
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Login necessario");
     }
-    const token = await admin.auth().getUser(context.auth.uid);
-    const claims = (token.customClaims || {}) as Record<string, unknown>;
-    const tenantId = String(claims.igrejaId || claims.tenantId || "").trim();
+    const body = (request || {}) as Record<string, unknown>;
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: context.auth.token as Record<string, unknown> },
+      String(body.tenantId || ""),
+    );
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
@@ -570,8 +627,8 @@ export const getChurchPanelSnapshot = functions
 
     const snap = await summaryRef.get();
     const staleMs = 6 * 60 * 1000;
-    let data = snap.data();
-    const updated = data?.updatedAt as admin.firestore.Timestamp | undefined;
+    let summary = snap.data();
+    const updated = summary?.updatedAt as admin.firestore.Timestamp | undefined;
     const isStale =
       !snap.exists ||
       !updated ||
@@ -579,8 +636,60 @@ export const getChurchPanelSnapshot = functions
 
     if (isStale) {
       await recomputePanelDashboardSummary(tenantId);
-      data = (await summaryRef.get()).data();
+      summary = (await summaryRef.get()).data();
     }
 
-    return { ok: true, tenantId, summary: data ?? {} };
+    return { ok: true, tenantId, summary: summary ?? {} };
+  });
+
+/** Pré-aquece caches do painel (mobile: 1 chamada em vez de dezenas de queries). */
+export const warmChurchTenantCaches = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 120, memory: "512MB" })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+    const body = (data || {}) as Record<string, unknown>;
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: context.auth.token as Record<string, unknown> },
+      String(body.tenantId || ""),
+    );
+    if (!tenantId) {
+      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+    }
+    await recomputePanelDashboardSummary(tenantId);
+    return { ok: true, tenantId, warmed: true };
+  });
+
+/** Mantém `_panel_cache` fresco para apps nativos (leitura de 1 documento). */
+export const scheduledRefreshPanelCaches = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 540, memory: "1GB" })
+  .pubsub.schedule("every 20 minutes")
+  .onRun(async () => {
+    const snap = await admin.firestore().collection("igrejas").select().get();
+    let n = 0;
+    for (const doc of snap.docs) {
+      try {
+        const cacheRef = doc.ref.collection("_panel_cache").doc("dashboard_summary");
+        const cache = await cacheRef.get();
+        const updated = cache.data()?.updatedAt as admin.firestore.Timestamp | undefined;
+        const staleMs = 18 * 60 * 1000;
+        const isStale =
+          !cache.exists ||
+          !updated ||
+          Date.now() - updated.toMillis() > staleMs;
+        if (isStale) {
+          await recomputePanelDashboardSummary(doc.id);
+          n++;
+        }
+      } catch (e) {
+        functions.logger.warn("scheduledRefreshPanelCaches", { tenantId: doc.id, e });
+      }
+    }
+    if (n > 0) {
+      functions.logger.info(`scheduledRefreshPanelCaches: ${n} igreja(s)`);
+    }
+    return null;
   });

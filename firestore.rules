@@ -173,6 +173,74 @@ service cloud.firestore {
       return (exists(rootU) && muralRolesArrayMatches(get(rootU).data.roles))
         || (exists(tenantU) && muralRolesArrayMatches(get(tenantU).data.roles));
     }
+    /// Papel singular em `membros/{doc}` — quem só tem ficha membro (sem `users.role`) edita mural.
+    function muralSingleRoleAllowsMural(r) {
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'Secretário' || r == 'SECRETÁRIO' || r == 'Secretario' || r == 'secretária' || r == 'Secretaria' ||
+        r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera' || r == 'Presbitero' || r == 'Presbitera' ||
+        r == 'lider' || r == 'LIDER' || r == 'Lider' || r == 'líder' || r == 'LÍDER' || r == 'Líder' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO' || r == 'lider_de_departamento' || r == 'lider_ministerio' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'Líder de grupo' || r == 'líder de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' || r == 'lider de grupo' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
+        r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
+        r == 'evangelista' || r == 'EVANGELISTA' || r == 'Evangelista' ||
+        r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
+        r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria' ||
+        r == 'GESTOR' || r == 'gestor' || r == 'Gestor' ||
+        r == 'ADMIN' || r == 'ADM' || r == 'admin' || r == 'adm' || r == 'Adm' || r == 'Admin' ||
+        r == 'administrador' || r == 'administradora' || r == 'Administrador' || r == 'Administradora'
+      );
+    }
+    function muralRoleFromMemberDoc(tenantId) {
+      let byUid = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      return (exists(byUid) && memberMembroDataAllowsMural(get(byUid).data))
+        || (exists(rootUser) && cpf11MembroDocLinksAuthMural(tenantId, get(rootUser).data));
+    }
+    /// Papel/permissões em `igrejas/{tenant}/users/{uid}` (sem depender só de `users/{uid}.role`).
+    function muralRoleFromTenantUserDoc(tenantId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return exists(p) && memberMembroDataAllowsMural(get(p).data);
+    }
+    function muralRoleFromLinkedMemberDoc(tenantId) {
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(rootUser) && (
+        memberDocIdLinksAuthToMembroMural(tenantId, get(rootUser).data)
+        || cpf11MembroDocLinksAuthMural(tenantId, get(rootUser).data)
+      );
+    }
+    function memberDocIdLinksAuthToMembroMural(tenantId, d) {
+      let chosen = ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(chosen);
+      return chosen.size() > 0 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid)
+        && memberMembroDataAllowsMural(get(p).data);
+    }
+    function cpf11MembroDocLinksAuthMural(tenantId, d) {
+      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
+      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
+      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
+      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
+      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
+      let cpf = c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
+        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
+        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
+        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
+        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
+      return cpf.size() == 11 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid)
+        && memberMembroDataAllowsMural(get(p).data);
+    }
     /// Igual ao critério de líder no app, mas lendo só `roles[]` (quem não tem `role` singular preenchido).
     function deptLeaderRolesArrayMatches(roles) {
       return roles is list && roles.hasAny([
@@ -213,10 +281,27 @@ service cloud.firestore {
           && get(rootUserPath).data.permissions.hasAny([moduleKey]))
       );
     }
-    /// Igual a [AppPermissions.hasModulePermission] para mural/eventos: aceita `eventos` ou `eventos_avisos_edicao`.
+    /// Igual a [AppPermissions.hasModulePermission] para mural/eventos/avisos no app.
     function hasTenantMuralEventosPermission(tenantId) {
       return hasTenantModulePermission(tenantId, 'eventos')
-        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao');
+        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao')
+        || hasTenantModulePermission(tenantId, 'mural_avisos_edicao');
+    }
+    function muralPermissionKeysMatch(perms) {
+      return perms is list && perms.hasAny([
+        'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
+      ]);
+    }
+    function memberMembroRoleString(d) {
+      return ('role' in d && d.role is string) ? d.role
+        : (('FUNCAO' in d && d.FUNCAO is string) ? d.FUNCAO
+        : (('funcao' in d && d.funcao is string) ? d.funcao : ''));
+    }
+    function memberMembroDataAllowsMural(d) {
+      return muralSingleRoleAllowsMural(memberMembroRoleString(d))
+        || (d.roles is list && muralRolesArrayMatches(d.roles))
+        || ('permissions' in d && muralPermissionKeysMatch(d.permissions))
+        || ('PERMISSIONS' in d && muralPermissionKeysMatch(d.PERMISSIONS));
     }
     /// Edição de fichas / diretório: `membros` (legado) ou `membros_edicao` — não usar só `membros_ver` (leitura).
     function hasTenantMembrosDirectoryEditPermission(tenantId) {
@@ -277,6 +362,9 @@ service cloud.firestore {
       let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
       let r = exists(p) && get(p).data.role is string ? get(p).data.role : '';
       return [
+        'GESTOR', 'gestor', 'Gestor',
+        'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
         'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
         'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
         'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'secretária', 'Secretaria',
@@ -293,10 +381,21 @@ service cloud.firestore {
         'tesouraria', 'TESOURARIA', 'Tesouraria'
       ].hasAny([r]);
     }
-    /// Mural: eventos (noticias) e avisos — pastoral + permissão granular `eventos` / `eventos_avisos_edicao` + papéis de edição no app.
+    /// Mural: eventos (`noticias`) e avisos — alinhado ao botão Publicar no app (sem exigir só gestor).
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
+        || muralRoleFromMemberDoc(tenantId)
+        || muralRoleFromLinkedMemberDoc(tenantId)
+        || muralRoleFromTenantUserDoc(tenantId)
+        || (isSignedIn() && memberLinkedToTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
         || (canAccessTenant(tenantId) && (
+          isPastoralOrSecretariatRole()
+          || isEventosMuralEditorRole()
+          || muralRoleFromRolesArrays(tenantId)
+          || tenantUserRoleAllowsMural(tenantId)
+          || hasTenantMuralEventosPermission(tenantId)
+        ))
+        || (emailMatchesTenant(tenantId) && (
           isPastoralOrSecretariatRole()
           || isEventosMuralEditorRole()
           || muralRoleFromRolesArrays(tenantId)
@@ -439,7 +538,7 @@ service cloud.firestore {
       }
       // Resumo do painel (totais por mês) — escrita só Firebase Admin (Cloud Function); leitura gestão.
       match /_panel_cache/{docId} {
-        allow read: if isMaster() || canAccessTenant(id);
+        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
         allow write: if false;
       }
       match /finance_mp_notifications/{docId} {
@@ -844,6 +943,15 @@ service cloud.firestore {
           ? get(p).data.departmentIds
           : [];
       }
+      /// DM pelo id `dm_{uidA}_{uidB}` — legado sem `participantUids` ainda pode listar/ler.
+      function dmThreadAuthUserInThreadId(threadId) {
+        return threadId.matches('^dm_[^_]+_[^_]+$')
+          && (
+            threadId.matches('^dm_' + request.auth.uid + '_')
+            || threadId.matches('_' + request.auth.uid + '$')
+          );
+      }
+
       /// Leitura do doc do thread — usa `resource.data` + [threadId] (sem `get(thread)` em listagens).
       /// Fallback `dm_` / `dept_` no id quando `type` em falta (dados antigos / merge parcial).
       /// Importante: em queries `where participantUids arrayContains uid`, se **um** documento
@@ -853,18 +961,40 @@ service cloud.firestore {
         let inParticipants = d.participantUids is list && request.auth.uid in d.participantUids;
         let asDm = d.type == 'dm' || threadId.matches('^dm_.+');
         let asDept = d.type == 'department' || threadId.matches('^dept_.+');
-        return (asDm && inParticipants)
+        return (asDm && (inParticipants || dmThreadAuthUserInThreadId(threadId)))
           || (asDept && (
             inParticipants
             || (d.departmentId is string && chatUserDeptIds(tenantId).hasAny([d.departmentId]))
           ))
-          || inParticipants;
+          || inParticipants
+          || dmThreadAuthUserInThreadId(threadId);
       }
 
       /// Mensagens / typing / helpers — leem o doc pai via `get()`.
       function canReadChatThreadDoc(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
         return exists(path) && canReadChatThreadData(tenantId, threadId, get(path).data);
+      }
+
+      /// Envio de mensagem: participante explícito OU regra de leitura do thread (DM/dept).
+      function chatSenderMayPostToThread(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let t = exists(path) ? get(path).data : {};
+        let isDept = t.type == 'department' || threadId.matches('^dept_.+');
+        return exists(path) && (
+          (t.participantUids is list && request.auth.uid in t.participantUids)
+          || dmThreadAuthUserInThreadId(threadId)
+          || canReadChatThreadData(tenantId, threadId, t)
+          || (isDept && memberLinkedToTenant(tenantId))
+          || (isDept && canAccessTenant(tenantId))
+        );
+      }
+
+      /// Após enviar mensagem o app faz merge só nestes campos do thread.
+      function chatThreadLastMessagePatchAllowed() {
+        return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'lastMessageAt', 'lastMessagePreview', 'lastSenderUid', 'updatedAt'
+        ]);
       }
 
       /// Pastores / pastoral auxiliar — moderar remoção de mensagens (alinhado ao app).
@@ -974,8 +1104,10 @@ service cloud.firestore {
       }
 
       match /users_profile_chat/{uid} {
-        allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
-        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow read: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
+        allow create, update: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
         allow delete: if false;
       }
 
@@ -1008,7 +1140,7 @@ service cloud.firestore {
           && request.resource.data.mediaUrl is string
           && request.resource.data.storagePath is string
           && request.resource.data.source == 'upload'
-          && request.resource.data.keys().hasOnly(['createdAt', 'createdByUid', 'mediaUrl', 'storagePath', 'source', 'label'])
+          && request.resource.data.keys().size() <= 10
           && (!('label' in request.resource.data) || request.resource.data.label is string);
         allow update: if false;
         allow delete: if canAccessTenant(id) && isSignedIn()
@@ -1016,42 +1148,55 @@ service cloud.firestore {
       }
 
       match /chat_threads/{threadId} {
-        // Lista/query: `resource.data` + threadId (sem `get()` no próprio doc em listagens).
-        // Alinhar com `where participantUids arrayContains uid` — condição explícita no mesmo campo
-        // evita permission-denied em queries de lista (ex.: definições de alertas por conversa).
-        allow read: if canAccessTenant(id) && (
-            ('participantUids' in resource.data
-              && resource.data.participantUids is list
+        // Lista/query: `where participantUids arrayContains uid` — cada doc devolvido tem de passar `read`.
+        // `memberLinkedToTenant`: nativo sem `igrejaId` no token (só ficha em `membros/{cpf}`).
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id)) && (
+            (resource.data.participantUids is list
               && request.auth.uid in resource.data.participantUids)
+            || dmThreadAuthUserInThreadId(threadId)
             || canReadChatThreadData(id, threadId, resource.data)
           );
-        allow create: if canAccessTenant(id)
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
           && (
             (request.resource.data.type == 'dm'
               && request.resource.data.participantUids is list
               && request.auth.uid in request.resource.data.participantUids)
             || (request.resource.data.type == 'department'
               && request.resource.data.departmentId is string
-              && chatUserDeptIds(id).hasAny([request.resource.data.departmentId]))
+              && (
+                chatUserDeptIds(id).hasAny([request.resource.data.departmentId])
+                || memberLinkedToTenant(id)
+              ))
           );
-        allow update: if canAccessTenant(id) && canReadChatThreadData(id, threadId, resource.data);
+        allow update: if (canAccessTenant(id) || memberLinkedToTenant(id)) && (
+          canReadChatThreadData(id, threadId, resource.data)
+          || (resource.data.participantUids is list
+            && request.auth.uid in resource.data.participantUids
+            && chatThreadLastMessagePatchAllowed())
+          || dmThreadAuthUserInThreadId(threadId)
+        );
         allow delete: if chatThreadDeleteAllowed(id, threadId);
 
         match /typing/{typingUid} {
-          allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
-          allow create, update: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+          allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId);
+          allow create, update: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId)
             && request.auth.uid == typingUid
             && request.resource.data.keys().hasAll(['updatedAt'])
             && request.resource.data.updatedAt is timestamp
             && request.resource.data.keys().hasOnly(['updatedAt', 'label'])
             && (!('label' in request.resource.data) || request.resource.data.label is string);
-          allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+          allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId)
             && request.auth.uid == typingUid;
         }
 
         match /messages/{msgId} {
-          allow read: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId);
-          allow create: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+          allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId);
+          allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && chatSenderMayPostToThread(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
             && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])
             && (!('senderDisplayName' in request.resource.data) || (

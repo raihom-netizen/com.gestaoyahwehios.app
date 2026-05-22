@@ -2511,6 +2511,38 @@ export const repairMyChurchBinding = functions
       { merge: true }
     );
 
+    try {
+      const membroSnap = await db
+        .collectionGroup("membros")
+        .where("authUid", "==", uid)
+        .limit(3)
+        .get();
+      for (const m of membroSnap.docs) {
+        const parts = m.ref.path.split("/");
+        if (parts[0] !== "igrejas" || parts[2] !== "membros" || parts[1] !== tenantId) {
+          continue;
+        }
+        const { syncSessionFromMembroDoc } = await import("./membroSessionSync");
+        await syncSessionFromMembroDoc(tenantId, m.id, m.data() as Record<string, unknown>);
+        break;
+      }
+    } catch (e) {
+      functions.logger.warn("repairMyChurchBinding: sync chat profile", { uid, tenantId, e });
+    }
+
+    try {
+      const { repairDmThreadsForTenant } = await import("./churchChatDmThreadNormalize");
+      const repaired = await repairDmThreadsForTenant(tenantId);
+      if (repaired > 0) {
+        functions.logger.info("repairMyChurchBinding: DM threads reparados", {
+          tenantId,
+          repaired,
+        });
+      }
+    } catch (e) {
+      functions.logger.warn("repairMyChurchBinding: repair DM threads", { uid, tenantId, e });
+    }
+
     return {
       ok: true,
       tenantId,
@@ -7060,6 +7092,17 @@ export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
 export { onIgrejaMembroWriteChatPeerProfile } from "./churchChatPeerProfileSync";
 
+export {
+  onMembroWriteSyncSession,
+  scheduledSyncMembroSessions,
+} from "./membroSessionSync";
+export {
+  onChurchChatDmThreadWrite,
+  onChurchChatMessageIndexThread,
+  backfillChurchChatDmThreads,
+  repairChurchChatDmThreads,
+} from "./churchChatDmThreadNormalize";
+
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
 
 export {
@@ -7070,6 +7113,8 @@ export {
   onChurchVisitanteWritePanelDashboard,
   onChurchPedidoOracaoWritePanelDashboard,
   getChurchPanelSnapshot,
+  warmChurchTenantCaches,
+  scheduledRefreshPanelCaches,
 } from "./panelDashboardCache";
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";

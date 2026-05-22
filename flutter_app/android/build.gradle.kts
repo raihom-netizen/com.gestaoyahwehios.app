@@ -1,5 +1,7 @@
 allprojects {
     repositories {
+        // Fallback local quando Maven Central falha (Tag mismatch / rede instável).
+        maven { url = uri("${rootProject.projectDir}/local-maven") }
         google()
         mavenCentral()
     }

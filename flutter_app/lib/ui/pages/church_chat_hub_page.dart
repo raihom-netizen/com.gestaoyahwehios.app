@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
@@ -415,6 +417,34 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
+  /// Repara threads DM antigos no servidor (`participantUids` + `lastMessageAt`).
+  Future<void> _repairChatThreadsIndex(String tenantId) async {
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'repairChurchChatDmThreads',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      await fn
+          .call(<String, dynamic>{'tenantId': tenantId})
+          .timeout(const Duration(seconds: 46));
+      if (mounted) {
+        setState(() {
+          final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+          if (uid.isNotEmpty) {
+            _chatThreadsStream =
+                ChurchChatService.chatThreadsSnapshotsForUser(tenantId, uid);
+          }
+        });
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('repairChurchChatDmThreads: $e\n$st');
+      }
+    }
+  }
+
   Future<void> _bootstrap() async {
     final tid = await TenantResolverService
         .resolveEffectiveTenantIdPreferringUserBinding(
@@ -434,6 +464,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
     unawaited(_loadChatNotifPrefs());
     await _syncMemberDepartments(tid);
+    unawaited(_repairChatThreadsIndex(tid));
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
