@@ -1,4 +1,5 @@
-# Dispara build iOS na Codemagic via API (quando a UI fica "Branches are loading").
+# OPCIONAL — dispara build via API (o normal é Start new build na UI, manual).
+# Uso quando a UI fica "Branches are loading" ou prefere linha de comando.
 # Uso:
 #   $env:CODEMAGIC_API_TOKEN = "..."   # Codemagic → User settings → Integrations → Codemagic API
 #   .\scripts\trigger_codemagic_ios_build.ps1

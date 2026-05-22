@@ -46,8 +46,9 @@
 # IMPORTANTE: no Codemagic, use "codemagic.yaml no repositório" (não duplicar estes passos no editor
 # da web); senão o CI corre scripts antigos e falha com "nenhum .ipa em flutter_app/build/ios/ipa".
 #
-# Builds automáticos (scheduled): desative em Codemagic → Application settings → Scheduled builds,
-# se não quiser que o pipeline arranque sozinho ao fazer push ou por cron.
+# Builds iOS: APENAS MANUAIS (Start new build na Codemagic). Sem secção «triggering» = push não inicia CI.
+# Scheduled builds: desligar em Codemagic → Application settings → Scheduled builds.
+# Exportação local (secrets + guia): .\scripts\exportar_codemagic_proximos_builds.ps1 → D:\Temporarios\GESTAO_YAHWEH_CODEMAGIC_MANUAL
 #
 # ─── Erro: exportArchive Provisioning profile "..." doesn't include signing certificate "Apple Distribution: ..." ───
 # Não é bug de versão Flutter: o .mobileprovision foi gerado sem o mesmo certificado "Apple Distribution"

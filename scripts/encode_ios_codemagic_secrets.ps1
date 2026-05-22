@@ -120,6 +120,9 @@ Codemagic → grupo appstore_credentials (copiar o CONTEUDO de cada .txt para o 
 
 Pasta: $OutDir
 Nao commite estes ficheiros.
+
+Build iOS: dispare MANUALMENTE na Codemagic (push Git nao inicia o workflow).
+Guia completo: .\scripts\exportar_codemagic_proximos_builds.ps1
 "@
 [IO.File]::WriteAllText($readmeOut, $readme.TrimStart(), [Text.UTF8Encoding]::new($false))
 
