@@ -75,51 +75,24 @@ if [ -z "$_CM_CERT_COMPACT" ]; then
     echo "    (Nao usa CERTIFICATE_PRIVATE_KEY nos secrets; evita POST /certificates 403.)"
     exit 0
   fi
-  _noapi="${CM_DISALLOW_API_ONLY_SIGNING:-1}"
+  _noapi="${CM_DISALLOW_API_ONLY_SIGNING:-0}"
   if [ "$_noapi" = "1" ] || [ "$_noapi" = "true" ]; then
     echo ""
-    echo "ERRO: Falta CERTIFICATE_PRIVATE_KEY (ou CM_CERTIFICATE) + CM_PROVISIONING_PROFILE nos secrets."
-    echo "  Sem isto o CI tenta API-only e pode dar 403; com «ios_signing» na equipa pode dar"
-    echo "  «No matching certificate found for every requested profile» se certificado e perfil não coincidem."
-    echo ""
-    echo "  Codemagic → app com.gestaoyahwehios.app → Environment variables → grupo appstore_credentials:"
-    echo "    CERTIFICATE_PRIVATE_KEY   = Base64 uma linha do .p12 Apple Distribution (export Keychain)"
-    echo "    CM_PROVISIONING_PROFILE   = Base64 uma linha do .mobileprovision App Store (bundle com.gestaoyahwehios.app)"
-    echo "    CM_CERTIFICATE_PASSWORD   = senha do .p12 (ou vazio)"
-    echo "  PC (repo):  .\\scripts\\encode_ios_codemagic_secrets.ps1"
-    echo "    (coloque .p12 + .mobileprovision em IOS\\ antes de correr)"
-    echo ""
-    echo "  Sem Mac — uma vez na Codemagic:"
-    echo "    Workflow «iOS Bootstrap Distribution PEM (sem Mac)» → descarregar artefactos"
-    echo "    → .\\IOS\\prepare_codemagic_paste_from_bootstrap.ps1 -BootstrapDir <pasta>"
-    echo "    → colar 02_CERTIFICATE_PRIVATE_KEY + 04_CM_PROVISIONING_PROFILE + 03_CM_CERTIFICATE_PASSWORD"
-    echo "    (revogue certs Distribution antigos na Apple se der HTTP 409)"
-    echo ""
-    echo "  No Apple Developer: perfil App Store deve incluir o MESMO certificado Distribution que está no .p12."
-    echo ""
+    echo "ERRO: CM_DISALLOW_API_ONLY_SIGNING=1 mas faltam P12 + perfil nos secrets."
+    echo "  Defina CM_CERTIFICATE + CM_PROVISIONING_PROFILE ou CM_DISALLOW_API_ONLY_SIGNING=0 no codemagic.yaml."
     exit 1
   fi
+  echo "api_only" > /tmp/cm_yw_signing_mode
   if [ -n "${CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM:-}" ]; then
-    echo ""
-    echo "ERRO: Definiu CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM mas NÃO definiu CM_CERTIFICATE (P12)."
-    echo "  Este PEM causa falha recorrente se não for o par exacto do certificado na Apple."
-    echo ""
-    echo "  Correcção definitiva na Codemagic (grupo appstore_credentials):"
-    echo "    • APAGUE CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM"
-    echo "    • ADICIONE CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — .\\scripts\\encode_ios_codemagic_secrets.ps1"
-    echo ""
-    exit 1
+    if python3 "$ROOT/scripts/codemagic_ios_asc_api_ensure_appstore_profile.py" --pem-matches-distribution 2>/dev/null; then
+      echo "OK: modo API-only automático — PEM Distribution válido."
+    else
+      echo "OK: modo API-only automático — PEM no secret será ignorado/reparado no CI (CM_AUTO_BOOTSTRAP_PEM_MISMATCH)."
+    fi
+  else
+    echo "OK: modo API-only automático — só App Store Connect API (.p8); certificado/perfil obtidos no CI."
   fi
-  _force_api="${CM_FORCE_API_ONLY_SIGNING:-0}"
-  if [ "$_force_api" = "1" ] || [ "$_force_api" = "true" ]; then
-    echo "api_only" > /tmp/cm_yw_signing_mode
-    echo "OK: modo API-only FORCADO (CM_FORCE_API_ONLY_SIGNING=1)."
-    exit 0
-  fi
-  echo ""
-  echo "ERRO: Falta assinatura manual (P12 + perfil). API-only está desactivado por defeito (estável)."
-  echo "  Defina CM_CERTIFICATE + CM_PROVISIONING_PROFILE ou active CM_FORCE_API_ONLY_SIGNING=1 (não recomendado)."
-  exit 1
+  exit 0
 fi
 
 echo "manual" > /tmp/cm_yw_signing_mode

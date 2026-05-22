@@ -1,11 +1,11 @@
 # Codemagic iOS — assinatura estável (definitivo)
 
-## Política do repositório (a partir de 2026-05)
+## Política do repositório (automático)
 
-- **Por defeito:** só modo **manual** — `CM_CERTIFICATE` (P12 Base64) + `CM_PROVISIONING_PROFILE`.
-- **`CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM`:** não usar na Codemagic (apagar). Causa erro em todo push se não for o par exacto do certificado Apple.
-- **`CM_DISALLOW_API_ONLY_SIGNING: "1"`** no `codemagic.yaml` — o passo «Verificar variáveis» falha cedo com instruções claras se faltar P12.
-- Passo 11 usa **`scripts/codemagic_ios_install_signing.sh`** (entrada única).
+- **Por defeito:** modo **API-only** — só `APP_STORE_CONNECT_*` (.p8) nos secrets (como antes).
+- **`CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM`:** opcional; se estiver errado, o CI **ignora/repara** (`CM_AUTO_BOOTSTRAP_PEM_MISMATCH=1`).
+- **Opcional estável:** `CM_CERTIFICATE` + `CM_PROVISIONING_PROFILE` (P12 + perfil Base64).
+- Passo 11: **`scripts/codemagic_ios_install_signing.sh`** → API-only ou manual conforme secrets.
 
 ## Erro típico (build 1589+)
 

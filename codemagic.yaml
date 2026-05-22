@@ -1,11 +1,10 @@
 # Codemagic - Gestao YAHWEH (Flutter em flutter_app/)
 # Pipeline iOS: keychain → PEM → Sign In with Apple (API) → limpar perfis → assinatura → CocoaPods → …
 #
-# ─── Modo padrão (CM_DISALLOW_API_ONLY_SIGNING=1) ───
-#   APP_STORE_CONNECT_* + CERTIFICATE_PRIVATE_KEY ou CM_CERTIFICATE (P12 Base64) +
-#   CM_PROVISIONING_PROFILE + senha P12. NÃO usar CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM.
-#   encode_ios_codemagic_secrets.ps1 → D:\Temporarios\gestao_yahweh_codemagic\
-#   Passo 11: codemagic_ios_install_signing.sh (só P12; ignora PEM).
+# ─── Modo padrão (automático, só secrets App Store Connect API) ───
+#   APP_STORE_CONNECT_* (.p8) — o CI obtém certificado + perfil (fetch-signing-files / REST).
+#   PEM inválido em CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM é ignorado/reparado no CI (CM_AUTO_BOOTSTRAP_PEM_MISMATCH).
+#   Opcional estável: P12 + CM_PROVISIONING_PROFILE (encode_ios_codemagic_secrets.ps1).
 #
 # ─── Modo manual (P12 + perfil nos secrets) — OBRIGATÓRIO neste repo ───
 #   CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY (Base64 do .p12 Apple Distribution, uma linha)
@@ -101,12 +100,12 @@ workflows:
         # 1 = só se NÃO existir CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM: cria certificado Distribution na CI (sem Mac),
         #     importa no keychain e gera PEM em bootstrap_signing_output/ (artefacto). Depois copie o PEM para o
         #     secret e volte a 0 — cada run=1 novo certificado (limite 3 Distribution na equipa Apple).
+        # 0 = não criar cert novo em todo build; o CI faz bootstrap só se PEM inválido (CM_AUTO_BOOTSTRAP_PEM_MISMATCH).
         CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM: "0"
-        # 0 = não criar certificado novo na CI quando o PEM estiver errado (evita HTTP 409).
-        # Corrija secrets: CM_CERTIFICATE (P12) + CM_PROVISIONING_PROFILE ou PEM correcto.
-        CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "0"
-        # 1 = exige P12+perfil (estável). Só use 0 se souber usar API-only sem CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM errado.
-        CM_DISALLOW_API_ONLY_SIGNING: "1"
+        # 1 = PEM antigo/errado no secret → unset + bootstrap ou fetch sem --create (automático).
+        CM_AUTO_BOOTSTRAP_PEM_MISMATCH: "1"
+        # 0 = modo automático API-only quando só APP_STORE_CONNECT_* (como antes).
+        CM_DISALLOW_API_ONLY_SIGNING: "0"
         APP_STORE_APPLE_ID: 6761656626
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"

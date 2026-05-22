@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Assinatura iOS só com App Store Connect API (opcional — não usar em produção Gestão YAHWEH).
+# Assinatura iOS com App Store Connect API (.p8) — modo automático (sem P12 nos secrets).
 # Pré-requisitos: keychain initialize + /tmp/_asc_ok.pem
-#
-# Preferir sempre codemagic_ios_install_signing.sh (P12+perfil). Este script só corre com CM_FORCE_API_ONLY_SIGNING=1.
+# PEM inválido: CM_AUTO_BOOTSTRAP_PEM_MISMATCH=1 → unset + bootstrap ou fetch sem --create.
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -113,6 +112,10 @@ _repair_signing_if_pem_invalid() {
   fi
   echo "AVISO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM inválido — ignorado; fetch sem --create."
   unset CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM || true
+  if [ "${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-1}" = "1" ] || [ "${CM_AUTO_BOOTSTRAP_PEM_MISMATCH:-}" = "true" ]; then
+    echo "A tentar alinhar perfil/certificado via REST ASC…"
+    python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --download-app-store-profile-api-only || true
+  fi
   _print_distribution_cert_limit_help
   return 0
 }
@@ -177,13 +180,16 @@ _finalize_api_only_keychain() {
       return 1
     fi
   else
-    echo "ERRO: sem certificado Apple/iPhone/iOS Distribution no keychain."
-    echo "       Só o .mobileprovision não basta: é preciso a chave privada do certificado de distribuição."
-    echo "       No Codemagic (grupo appstore_credentials) defina CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (PEM RSA/EC)"
-    echo "       que seja o par do certificado «Apple Distribution» usado no perfil App Store, ou use modo manual:"
-    echo "       CM_CERTIFICATE (P12 Base64) + CM_PROVISIONING_PROFILE (Base64)."
-    security find-identity -v -p codesigning 2>/dev/null | head -20 || true
-    return 1
+    echo "Keychain sem Distribution — a tentar import via REST ASC (certificado existente na equipa)…"
+    if python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --download-app-store-profile-api-only; then
+      :
+    fi
+    if ! _has_distribution_signing_identity; then
+      echo "ERRO: sem certificado Apple/iPhone/iOS Distribution no keychain após fetch/import."
+      echo "       O CI tentou fetch-signing-files e REST; verifique chave API (papel Admin) e limite de 3 certs Distribution."
+      security find-identity -v -p codesigning 2>/dev/null | head -20 || true
+      return 1
+    fi
   fi
   if ! _has_distribution_signing_identity; then
     echo "ERRO: após import, ainda não há identidade de distribuição visível no keychain."
@@ -424,10 +430,27 @@ if _run_select_profile_python; then
 fi
 
 echo ""
-echo "ERRO: nenhum perfil App Store adequado após CLI (codigo ${FETCH_EXIT}) + REST (codigo ${REST_EXIT})."
-echo "  Confirme chave API (Admin) e APP_STORE_CONNECT_*."
-echo "  Recomendado: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM (mesmo PEM em todos os builds) — scripts/gen_ios_distribution_csr_private_key_pem.ps1"
-echo "  Ou modo manual: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64)."
+echo "=== Último recurso: bootstrap Distribution na CI (certificado + perfil + PEM) ==="
+if python3 "$SCRIPT_DIR/codemagic_ios_asc_api_ensure_appstore_profile.py" --bootstrap-distribution-cert-ci; then
+  _pem_f="${ROOT_BOOT}/bootstrap_signing_output/distribution_private_key.pem"
+  if [ -f "$_pem_f" ]; then
+    export CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM="$(cat "$_pem_f")"
+  fi
+  if _run_select_profile_python; then
+    _persist_asc_pem_to_cm_env
+    _finalize_api_only_keychain || true
+    if _has_distribution_signing_identity; then
+      echo "OK: assinatura pronta após bootstrap de último recurso."
+      exit 0
+    fi
+  fi
+fi
+_print_distribution_cert_limit_help
+
+echo ""
+echo "ERRO: nenhum perfil App Store adequado após CLI (codigo ${FETCH_EXIT}) + REST (codigo ${REST_EXIT}) + bootstrap."
+echo "  Confirme chave API (papel Admin) e APP_STORE_CONNECT_*."
+echo "  Se HTTP 409: revogue 1 certificado «Apple Distribution» antigo na Apple Developer."
 tail -80 /tmp/cm_api_only_fetch.log 2>/dev/null || true
 tail -80 /tmp/cm_api_only_fetch_fallback.log 2>/dev/null || true
 exit 1

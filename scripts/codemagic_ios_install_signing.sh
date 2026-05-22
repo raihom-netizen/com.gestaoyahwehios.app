@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Entrada única de assinatura iOS no CI — evita alternar API-only/PEM errado a cada push.
-# Ordem: P12+perfil (manual, estável) → team_signing → API-only só se CM_FORCE_API_ONLY_SIGNING=1.
+# Entrada única de assinatura iOS no CI.
+# Ordem: P12+perfil (se secrets) → team_signing → API-only automático (só .p8, como antes).
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -52,26 +52,16 @@ if [ "$_mode" = "team_signing" ]; then
   exec bash "${SCRIPT_DIR}/codemagic_ios_team_signing_prepare_exportoptions.sh"
 fi
 
-_force_api="${CM_FORCE_API_ONLY_SIGNING:-0}"
-if [ "$_force_api" = "1" ] || [ "$_force_api" = "true" ]; then
-  echo "=== Assinatura iOS: API-only (CM_FORCE_API_ONLY_SIGNING=1) ==="
+if [ "$_mode" = "api_only" ]; then
+  echo "=== Assinatura iOS: API-only automático (App Store Connect API) ==="
   exec bash "${SCRIPT_DIR}/codemagic_ios_install_signing_api_only.sh"
 fi
 
-echo ""
-echo "ERRO DEFINITIVO — faltam secrets de assinatura estável (P12 + perfil App Store)."
-echo ""
-echo "Codemagic → Environment variables → grupo appstore_credentials:"
-echo "  1) APAGUE ou deixe VAZIO: CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM"
-echo "     (este secret causa falha em todo build se não for o par exacto do certificado Apple)"
-echo "  2) OBRIGATÓRIO: CM_CERTIFICATE ou CERTIFICATE_PRIVATE_KEY = Base64 do .p12 Apple Distribution (uma linha)"
-echo "  3) OBRIGATÓRIO: CM_PROVISIONING_PROFILE = Base64 do .mobileprovision App Store (com.gestaoyahwehios.app)"
-echo "  4) CM_CERTIFICATE_PASSWORD = senha do .p12 (ou vazio)"
-echo ""
-echo "PC (após colocar .p12 e .mobileprovision em pasta IOS/):"
-echo "  .\\scripts\\encode_ios_codemagic_secrets.ps1"
-echo "  Saída: D:\\Temporarios\\gestao_yahweh_codemagic\\"
-echo ""
-echo "Documentação: IOS\\CODEMAGIC_SIGNING_FIX.md | IOS\\ATUALIZAR_APOS_NOVO_CERTIFICADO.txt"
-echo ""
-exit 1
+_disallow="${CM_DISALLOW_API_ONLY_SIGNING:-0}"
+if [ "$_disallow" = "1" ] || [ "$_disallow" = "true" ]; then
+  echo "ERRO: CM_DISALLOW_API_ONLY_SIGNING=1 e faltam P12+perfil. Ver passo «Verificar variaveis»."
+  exit 1
+fi
+
+echo "=== Assinatura iOS: API-only automático (fallback) ==="
+exec bash "${SCRIPT_DIR}/codemagic_ios_install_signing_api_only.sh"
