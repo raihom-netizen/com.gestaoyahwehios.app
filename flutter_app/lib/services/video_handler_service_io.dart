@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
@@ -59,7 +60,7 @@ class VideoHandlerService implements IVideoHandlerService {
       } else {
         final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
           path,
-          quality: VideoQuality.Res1280x720Quality,
+          quality: mediaVideoCompressQuality,
           deleteOrigin: false,
           includeAudio: true,
         );

@@ -13,7 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show kPremiumMuralFeedWebpQuality;
+    show kEffectiveMuralFeedWebpQuality, kMaxAvisoFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
@@ -3235,20 +3235,46 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _pickImages() async {
+    if (widget.type == 'aviso') {
+      final cap = kMaxAvisoFeedPhotosPerPost - _newImages.length;
+      if (cap <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
+            ),
+          );
+        }
+        return;
+      }
+    }
     setState(() => _mediaPicking = true);
     try {
       final files = await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
-        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
       );
-      for (final f in files) {
-        final bytes = await f.readAsBytes();
-        if (!mounted) return;
-        setState(() {
-          _newImages.add(bytes);
-          _newNames.add(f.name);
-        });
+      if (files.isEmpty || !mounted) return;
+      final cap = widget.type == 'aviso'
+          ? (kMaxAvisoFeedPhotosPerPost - _newImages.length).clamp(0, files.length)
+          : files.length;
+      final slice = files.take(cap).toList();
+      final bytesList =
+          await Future.wait(slice.map((f) => f.readAsBytes()));
+      if (!mounted) return;
+      setState(() {
+        for (var i = 0; i < slice.length; i++) {
+          _newImages.add(bytesList[i]);
+          _newNames.add(slice[i].name);
+        }
+      });
+      if (widget.type == 'aviso' && files.length > cap && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Só mais $cap foto(s) — limite de $kMaxAvisoFeedPhotosPerPost por aviso.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
@@ -3261,9 +3287,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
-        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
       );
       if (file != null) {
+        if (widget.type == 'aviso' &&
+            _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar(
+                'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
+              ),
+            );
+          }
+          return;
+        }
         final bytes = await file.readAsBytes();
         if (!mounted) return;
         setState(() {

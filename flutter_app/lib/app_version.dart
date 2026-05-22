@@ -1,4 +1,8 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1603: iOS TestFlight — corrige Binário inválido (Info.plist push/LSApplicationQueriesSchemes).
+/// 11.2.295+1602: Chat, avisos e eventos — upload de fotos/vídeos definitivamente mais rápido
+/// (turbo mobile release, WebP menor, vídeo 540p/sem transcode até 42MB, uploads em lote limitados,
+/// stub chat antes de transcode, menos retries).
 /// 11.2.295+1601: Deploy completo produção (regras, functions, índices, web, AAB, push Codemagic).
 /// 11.2.295+1600: Membros — lista instantânea via `_panel_cache/members_directory`
 /// (sem skeletons falsos; fotos progressivas); aba Painel & números com cache;
@@ -133,7 +137,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1601';
+const String appBuildNumber = '1603';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

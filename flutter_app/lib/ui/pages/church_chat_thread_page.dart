@@ -1461,24 +1461,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String? messageId = pending.firestoreMessageId;
     String? storagePath = pending.storagePath;
     try {
-      unawaited(FeedPostMediaUpload.warmAuthToken());
-      if (pending.kind == 'video' &&
-          uploadPath != null &&
-          uploadPath.isNotEmpty &&
-          !kIsWeb) {
-        try {
-          uploadPath =
-              await ChurchChatVideoPrepare.preparePathForUpload(uploadPath);
-          pending.localPath = uploadPath;
-        } on StateError catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(e.message)),
-            );
-          }
-          rethrow;
-        }
-      }
       if (messageId == null || messageId.isEmpty) {
         final begun = await ChurchChatService.beginMediaUploadMessage(
           tenantId: widget.tenantId,
@@ -1495,6 +1477,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         pending.storagePath = storagePath;
         if (mounted) {
           setState(() => _replyDraft = null);
+        }
+      }
+      await FeedPostMediaUpload.warmAuthToken();
+      if (pending.kind == 'video' &&
+          uploadPath != null &&
+          uploadPath.isNotEmpty &&
+          !kIsWeb) {
+        try {
+          uploadPath =
+              await ChurchChatVideoPrepare.preparePathForUpload(uploadPath);
+          pending.localPath = uploadPath;
+        } on StateError catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(e.message)),
+            );
+          }
+          rethrow;
         }
       }
       final ({String url, String path}) up;

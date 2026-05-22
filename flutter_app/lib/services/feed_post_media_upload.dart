@@ -2,12 +2,13 @@ import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 
-/// Uploads rápidos de fotos em avisos/eventos (paralelo + token único).
+/// Uploads rápidos de fotos em avisos/eventos (paralelo limitado + token único).
 abstract final class FeedPostMediaUpload {
   FeedPostMediaUpload._();
 
@@ -16,14 +17,14 @@ abstract final class FeedPostMediaUpload {
     await FirebaseAuth.instance.currentUser?.getIdToken();
   }
 
-  /// Limita WebP do feed (~1MB) sem reconverter para JPEG.
+  /// Limita WebP do feed (~900KB) sem reconverter para JPEG.
   static Future<Uint8List> prepareFeedWebpBytes(Uint8List bytes) async {
     if (!bytesLookLikeWebp(bytes)) return bytes;
-    if (bytes.length <= 1100000) return bytes;
+    if (bytes.length <= 900000) return bytes;
     return ImageHelper.compressWebpUnderMaxBytes(bytes);
   }
 
-  /// Várias fotos em paralelo; [onBatchProgress] recebe 0..1 do lote.
+  /// Várias fotos com paralelismo limitado (evita saturar rede móvel).
   static Future<List<T>> uploadParallel<T>({
     required int count,
     required Future<T> Function(
@@ -33,6 +34,7 @@ abstract final class FeedPostMediaUpload {
         uploadOne,
     String? progressLabel,
     void Function(double progress)? onBatchProgress,
+    int? maxConcurrent,
   }) async {
     if (count <= 0) return [];
     final slotProgress = List<double>.filled(count, 0);
@@ -51,14 +53,24 @@ abstract final class FeedPostMediaUpload {
       GlobalUploadProgress.instance.start(progressLabel);
     }
     try {
-      return Future.wait(
-        List.generate(count, (i) {
-          return uploadOne(i, (p) {
+      final workers =
+          (maxConcurrent ?? mediaFeedUploadMaxConcurrent).clamp(1, count);
+      final results = List<T?>.filled(count, null);
+      var nextIndex = 0;
+
+      Future<void> runWorker() async {
+        while (true) {
+          final i = nextIndex++;
+          if (i >= count) return;
+          results[i] = await uploadOne(i, (p) {
             slotProgress[i] = p.clamp(0.0, 1.0);
             report();
           });
-        }),
-      );
+        }
+      }
+
+      await Future.wait(List.generate(workers, (_) => runWorker()));
+      return results.cast<T>();
     } finally {
       if (startedProgress) {
         GlobalUploadProgress.instance.end();
@@ -66,7 +78,7 @@ abstract final class FeedPostMediaUpload {
     }
   }
 
-  /// [MediaUploadService.uploadBytesWithRetry] com preset do feed (WebP cap + 4 tentativas).
+  /// [MediaUploadService.uploadBytesWithRetry] com preset do feed (WebP cap + 2 tentativas).
   static Future<String> uploadFeedPhotoBytes({
     required String storagePath,
     required Uint8List bytes,
@@ -81,7 +93,7 @@ abstract final class FeedPostMediaUpload {
       skipClientPrepare: webp,
       chatJpegFast: !webp,
       useOfflineQueue: false,
-      maxAttempts: 4,
+      maxAttempts: 2,
       onProgress: onProgress,
     );
   }
@@ -100,7 +112,7 @@ abstract final class FeedPostMediaUpload {
       skipClientPrepare: webp,
       chatJpegFast: !webp,
       useOfflineQueue: false,
-      maxAttempts: 4,
+      maxAttempts: 2,
       onProgress: onProgress,
     );
   }

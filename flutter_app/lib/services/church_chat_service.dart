@@ -1224,7 +1224,7 @@ class ChurchChatService {
       bytes: ubytes,
       contentType: contentType,
       useOfflineQueue: false,
-      maxAttempts: 4,
+      maxAttempts: 2,
       chatJpegFast: chatJpegFast,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
@@ -1257,7 +1257,7 @@ class ChurchChatService {
       file: File(localPath),
       contentType: contentType,
       useOfflineQueue: false,
-      maxAttempts: 4,
+      maxAttempts: 2,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
     );

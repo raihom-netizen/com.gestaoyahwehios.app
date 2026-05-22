@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:video_compress/video_compress.dart';
 
 /// Comprime vídeo da galeria/câmara antes do upload no Chat Igreja (mobile).
@@ -29,7 +30,7 @@ class ChurchChatVideoPrepare {
 
     final info = await VideoCompress.compressVideo(
       inputPath,
-      quality: VideoQuality.Res1280x720Quality,
+      quality: mediaVideoCompressQuality,
       deleteOrigin: false,
       includeAudio: true,
     );

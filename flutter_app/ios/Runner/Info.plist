@@ -63,10 +63,9 @@
 	<string>Se você permitir localização em segundo plano, usamos apenas para funcionalidades que você ativar (alertas ou rotas). Pode alterar nas Configurações do iPhone.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Usado apenas se você optar por importar contatos para o cadastro de membros — nada é enviado sem sua confirmação.</string>
+	<!-- Não incluir http/https (ITMS-90048). url_launcher usa canOpenURL só para esquemas abaixo. -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
-		<string>https</string>
-		<string>http</string>
 		<string>mailto</string>
 		<string>tel</string>
 		<string>sms</string>
@@ -78,10 +77,10 @@
 	<true/>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDefault</string>
+	<!-- Sem aps-environment no Runner.entitlements: não declarar remote-notification (binário inválido no ASC). -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
-		<string>remote-notification</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<false/>

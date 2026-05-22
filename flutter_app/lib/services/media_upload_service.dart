@@ -28,19 +28,19 @@ class MediaUploadService {
   }) async {
     // JPEGs pequenos (thumbs / ícones): evita compressão dupla — upload mais rápido.
     if (_shouldCompressJpeg(contentType)) {
-      if (chatJpegFast && bytes.length < 520 * 1024) {
+      if (chatJpegFast && bytes.length < 900 * 1024) {
         return bytes;
       }
-      if (!chatJpegFast && bytes.length < 420 * 1024) {
+      if (!chatJpegFast && bytes.length < 520 * 1024) {
         return bytes;
       }
     }
     if (!_shouldCompressJpeg(contentType)) return bytes;
     var prepared = await ImageHelper.compressImage(
       bytes,
-      minWidth: chatJpegFast ? 1000 : 800,
-      minHeight: chatJpegFast ? 750 : 600,
-      quality: chatJpegFast ? 64 : 70,
+      minWidth: chatJpegFast ? 960 : 800,
+      minHeight: chatJpegFast ? 720 : 600,
+      quality: chatJpegFast ? 58 : 68,
     );
     if (prepared.length > mediaImagePreferredMaxBytesEffective) {
       prepared = await ImageHelper.compressImageUnderMaxBytes(

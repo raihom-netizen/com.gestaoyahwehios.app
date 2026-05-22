@@ -48,7 +48,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show kPremiumMuralFeedWebpQuality;
+    show kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -5672,26 +5672,29 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final files = await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
-        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
       );
-      for (final f in files) {
-        if (_existingUrls.length + _newImages.length >= _maxPhotosPerEvent) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
-              backgroundColor: ThemeCleanPremium.error,
-              behavior: SnackBarBehavior.floating,
-            ));
-          }
-          break;
+      if (files.isEmpty || !mounted) return;
+      final room = _maxPhotosPerEvent - _existingUrls.length - _newImages.length;
+      final cap = room.clamp(0, files.length);
+      final slice = files.take(cap).toList();
+      if (slice.isEmpty) return;
+      final bytesList =
+          await Future.wait(slice.map((f) => f.readAsBytes()));
+      if (!mounted) return;
+      setState(() {
+        for (var i = 0; i < slice.length; i++) {
+          _newImages.add(bytesList[i]);
+          _newNames.add(slice[i].name);
         }
-        final bytes = await f.readAsBytes();
-        if (!mounted) return;
-        setState(() {
-          _newImages.add(bytes);
-          _newNames.add(f.name);
-        });
+      });
+      if (files.length > cap && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
       }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
@@ -5716,7 +5719,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
-        webpOutputQuality: kPremiumMuralFeedWebpQuality,
+        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
       );
       if (file != null && mounted) {
         final bytes = await file.readAsBytes();

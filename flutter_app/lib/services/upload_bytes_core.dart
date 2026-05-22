@@ -12,7 +12,7 @@ Future<String> uploadStoragePutDataWithRetry({
   required Uint8List bytes,
   required String contentType,
   String cacheControl = 'public, max-age=31536000',
-  int maxAttempts = 3,
+  int maxAttempts = 2,
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
@@ -47,7 +47,7 @@ Future<String> uploadStoragePutDataWithRetry({
       if (isCanceled) break;
       if (attempt >= maxAttempts) break;
       await Future.delayed(
-          Duration(milliseconds: 180 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 80 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');
@@ -59,7 +59,7 @@ Future<String> uploadStoragePutFileWithRetry({
   required File file,
   required String contentType,
   String cacheControl = 'public, max-age=31536000',
-  int maxAttempts = 3,
+  int maxAttempts = 2,
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
@@ -93,7 +93,7 @@ Future<String> uploadStoragePutFileWithRetry({
       if (isCanceled) break;
       if (attempt >= maxAttempts) break;
       await Future.delayed(
-          Duration(milliseconds: 180 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 80 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');

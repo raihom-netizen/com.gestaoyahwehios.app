@@ -492,6 +492,11 @@ workflows:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
+      - name: Validar IPA (evitar Binário inválido no TestFlight)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_validate_ipa_before_upload.sh"
       # Upload TestFlight: integração nativa Codemagic (mesmo padrão que flutter_app/codemagic.yaml / Controle Total).
       # Evita o passo lento «app-store-connect publish» (CLI) que faz polling 30 em 30 s e falha com timeout.
     artifacts:

@@ -70,11 +70,21 @@ class MediaHandlerService {
       maxHeight: kIsWeb ? maxHeight.toDouble() : null,
     );
     if (list.isEmpty) return [];
+    const batch = 4;
     final out = <XFile>[];
-    for (final x in list) {
-      final processed = await impl.processPickedImage(x,
-          quality: quality, minWidth: maxWidth, minHeight: maxHeight);
-      out.add(processed);
+    for (var start = 0; start < list.length; start += batch) {
+      final chunk = list.skip(start).take(batch).toList();
+      final processed = await Future.wait(
+        chunk.map(
+          (x) => impl.processPickedImage(
+            x,
+            quality: quality,
+            minWidth: maxWidth,
+            minHeight: maxHeight,
+          ),
+        ),
+      );
+      out.addAll(processed);
     }
     return out;
   }
@@ -103,7 +113,7 @@ class MediaHandlerService {
   Future<XFile?> pickCropEncodeFeedImageWebp({
     required ImageSource source,
     BuildContext? webCropContext,
-    int webpOutputQuality = kHighResWebpQuality,
+    int webpOutputQuality = kPremiumMuralFeedWebpQuality,
   }) =>
       pickCropEncodeWebp(
         source: source,
@@ -126,7 +136,7 @@ class MediaHandlerService {
   /// Várias imagens da galeria (mural) — recorte por foto + WebP.
   Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
     BuildContext? webCropContext, {
-    int webpOutputQuality = kHighResWebpQuality,
+    int webpOutputQuality = kPremiumMuralFeedWebpQuality,
   }) async {
     final list = await _picker.pickMultiImage(
       imageQuality: 100,

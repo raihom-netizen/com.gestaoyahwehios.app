@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -32,7 +33,21 @@ const int kMemberCropWebpMaxEdgePx = 768;
 const int kCropperCompressQuality = 100;
 
 /// WebP do feed — equilíbrio nitidez/velocidade de upload (avisos + eventos).
-const int kPremiumMuralFeedWebpQuality = 86;
+const int kPremiumMuralFeedWebpQuality = 80;
+
+/// Qualidade WebP em release mobile (turbo — ficheiros menores, upload mais rápido).
+const int kPremiumMuralFeedWebpQualityTurbo = 74;
+
+int get kEffectiveMuralFeedWebpQuality =>
+    kMediaTurboMobilePreset
+        ? kPremiumMuralFeedWebpQualityTurbo
+        : kPremiumMuralFeedWebpQuality;
+
+int get kEffectiveFeedEncodeMaxEdgePx =>
+    kMediaTurboMobilePreset ? 1280 : kPremiumFeedFullHdMaxWidth;
+
+/// Máximo de fotos novas no editor de avisos (evita lotes enormes em 4G).
+const int kMaxAvisoFeedPhotosPerPost = 15;
 
 /// WebP final — retrocompat (igual ao premium mural).
 const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;
@@ -73,12 +88,12 @@ Future<XFile?> pickCropEncodeWebp({
 Future<List<XFile>> pickMultiCropEncodeFeedWebp(
   List<XFile> picked, {
   BuildContext? webCropContext,
-  int webpOutputQuality = kHighResWebpQuality,
-  int parallel = 3,
+  int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+  int parallel = 5,
 }) async {
   if (picked.isEmpty) return const [];
   final out = <XFile>[];
-  final batch = parallel.clamp(1, 4);
+  final batch = parallel.clamp(1, 6);
   for (var start = 0; start < picked.length; start += batch) {
     final chunk = picked.skip(start).take(batch).toList();
     final encoded = await Future.wait(
@@ -122,11 +137,12 @@ Future<XFile?> cropEncodePickedToWebp(
       ),
     );
     if (croppedBytes == null || croppedBytes.isEmpty) return null;
+    final edge = kEffectiveFeedEncodeMaxEdgePx;
     return _bytesToWebpXFile(
       croppedBytes,
       quality: webpOutputQuality,
-      encodeMaxWidth: kPremiumFeedFullHdMaxWidth,
-      encodeMaxHeight: kPremiumFeedFullHdMaxHeight,
+      encodeMaxWidth: edge,
+      encodeMaxHeight: edge,
     );
   }
 
@@ -228,13 +244,12 @@ Future<XFile?> cropEncodePickedToWebp(
   final pathIn = cropped?.path ?? picked.path;
   final rawBytes = await XFile(pathIn).readAsBytes();
   final feed = profile == HighResCropProfile.feedFree;
+  final feedEdge = kEffectiveFeedEncodeMaxEdgePx;
   return _bytesToWebpXFile(
     rawBytes,
     quality: webpOutputQuality,
-    encodeMaxWidth:
-        feed ? kPremiumFeedFullHdMaxWidth : kMemberCropWebpMaxEdgePx,
-    encodeMaxHeight:
-        feed ? kPremiumFeedFullHdMaxHeight : kMemberCropWebpMaxEdgePx,
+    encodeMaxWidth: feed ? feedEdge : kMemberCropWebpMaxEdgePx,
+    encodeMaxHeight: feed ? feedEdge : kMemberCropWebpMaxEdgePx,
   );
 }
 
