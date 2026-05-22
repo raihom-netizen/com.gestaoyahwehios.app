@@ -37,6 +37,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+. (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 
 $Project = "gestaoyahweh-21e23"
 $rc = Join-Path $RepoRoot ".firebaserc"

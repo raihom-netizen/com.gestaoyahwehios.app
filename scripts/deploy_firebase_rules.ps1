@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+. (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 
 if (-not (Test-Path (Join-Path $RepoRoot "firebase.json"))) {
     Write-Host "Erro: firebase.json nao encontrado na raiz: $RepoRoot" -ForegroundColor Red
