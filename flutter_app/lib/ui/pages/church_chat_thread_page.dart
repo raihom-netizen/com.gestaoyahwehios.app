@@ -1478,40 +1478,54 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String? messageId = pending.firestoreMessageId;
     String? storagePath = pending.storagePath;
     try {
+      final compressFuture = pending.kind == 'video' &&
+              uploadPath != null &&
+              uploadPath.isNotEmpty &&
+              !kIsWeb
+          ? ChurchChatVideoPrepare.preparePathForUpload(uploadPath)
+          : null;
+
       if (messageId == null || messageId.isEmpty) {
-        final begun = await ChurchChatService.beginMediaUploadMessage(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          kind: pending.kind,
-          fileName: pending.kind == 'document' ? pending.fileName : null,
-          replyTo: replyPayload,
-          senderDisplayName:
-              ChurchChatService.senderDisplayNameForNewMessage(),
-        );
+        final parallel = await Future.wait<Object?>([
+          ChurchChatService.beginMediaUploadMessage(
+            tenantId: widget.tenantId,
+            threadId: widget.threadId,
+            kind: pending.kind,
+            fileName: pending.kind == 'document' ? pending.fileName : null,
+            replyTo: replyPayload,
+            senderDisplayName:
+                ChurchChatService.senderDisplayNameForNewMessage(),
+          ),
+          FeedPostMediaUpload.warmAuthToken(),
+          if (compressFuture != null) compressFuture else Future<String?>.value(null),
+        ]);
+        final begun = parallel[0]! as ({
+          String messageId,
+          String storagePath,
+        });
         messageId = begun.messageId;
         storagePath = begun.storagePath;
         pending.firestoreMessageId = messageId;
         pending.storagePath = storagePath;
+        if (compressFuture != null) {
+          uploadPath = parallel[2] as String?;
+          if (uploadPath != null && uploadPath.isNotEmpty) {
+            pending.localPath = uploadPath;
+          }
+        }
         if (mounted) {
           setState(() => _replyDraft = null);
         }
-      }
-      await FeedPostMediaUpload.warmAuthToken();
-      if (pending.kind == 'video' &&
-          uploadPath != null &&
-          uploadPath.isNotEmpty &&
-          !kIsWeb) {
-        try {
-          uploadPath =
-              await ChurchChatVideoPrepare.preparePathForUpload(uploadPath);
-          pending.localPath = uploadPath;
-        } on StateError catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(e.message)),
-            );
+      } else {
+        await Future.wait<Object?>([
+          FeedPostMediaUpload.warmAuthToken(),
+          if (compressFuture != null) compressFuture else Future<String?>.value(null),
+        ]);
+        if (compressFuture != null) {
+          uploadPath = await compressFuture;
+          if (uploadPath != null && uploadPath.isNotEmpty) {
+            pending.localPath = uploadPath;
           }
-          rethrow;
         }
       }
       final ({String url, String path}) up;

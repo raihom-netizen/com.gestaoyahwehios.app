@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,6 +19,60 @@ abstract final class MuralFastPublishService {
   static const String stateFailed = 'failed';
 
   static const Duration _batchTimeout = Duration(minutes: 12);
+
+  /// Após stub no Firestore: cache local + outbox + upload (não bloquear fecho do editor).
+  static void scheduleBackgroundImageFinalize({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String tenantId,
+    required String postId,
+    required String postType,
+    required List<Uint8List> newImages,
+    required List<String> existingUrls,
+    required int startSlotIndex,
+    required Future<String> Function(
+      Uint8List bytes,
+      int slotIndex,
+      void Function(double progress) report,
+    )
+        uploadSlot,
+    required Map<String, dynamic> Function({
+      required List<String> allUrls,
+      required double aspectRatio,
+      required bool hasVideo,
+    })
+        buildMediaFields,
+    bool hasVideo = false,
+  }) {
+    unawaited(Future<void>(() async {
+      try {
+        await MuralPostPendingMediaCache.put(
+          tenantId: tenantId,
+          postId: postId,
+          images: newImages,
+        );
+        await MuralPublishOutboxService.registerJob(
+          tenantId: tenantId,
+          postId: postId,
+          postType: postType,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlotIndex,
+          hasVideo: hasVideo,
+        );
+      } catch (_) {}
+      await uploadImagesAndFinalizePost(
+        docRef: docRef,
+        tenantId: tenantId,
+        postId: postId,
+        postType: postType,
+        newImages: newImages,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlotIndex,
+        hasVideo: hasVideo,
+        uploadSlot: uploadSlot,
+        buildMediaFields: buildMediaFields,
+      );
+    }));
+  }
 
   /// Sobe fotos em paralelo e faz merge no post; push FCM só após `published` (Function).
   static Future<void> uploadImagesAndFinalizePost({

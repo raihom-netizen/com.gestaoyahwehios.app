@@ -18,4 +18,13 @@ abstract class IVideoHandlerService {
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
   });
+
+  /// Comprime (se necessário) e envia vídeo já escolhido — permite pick rápido + upload em background.
+  Future<VideoUploadResult?> compressAndUploadFromPath({
+    required String localPath,
+    required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
+    void Function(double uploadProgress01)? onUploadProgress,
+  });
 }

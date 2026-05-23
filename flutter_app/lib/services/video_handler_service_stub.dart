@@ -18,25 +18,15 @@ class VideoHandlerService implements IVideoHandlerService {
   static final VideoHandlerService instance = VideoHandlerService._();
 
   final ImagePicker _picker = ImagePicker();
-  @override
-  Future<VideoUploadResult?> pickCompressAndUpload({
+
+  Future<VideoUploadResult?> _uploadVideoBytes({
+    required Uint8List bytes,
     required String tenantId,
     required String eventPostDocId,
     required int videoSlotIndex,
-    Duration maxDuration = kMediaVideoMaxDuration,
+    required String mime,
     void Function(double uploadProgress01)? onUploadProgress,
   }) async {
-    final effectiveMaxDuration =
-        maxDuration < mediaVideoMaxDurationEffective
-            ? maxDuration
-            : mediaVideoMaxDurationEffective;
-    final xfile = await _picker.pickVideo(
-      source: ImageSource.gallery,
-      maxDuration: effectiveMaxDuration,
-    );
-    if (xfile == null) return null;
-
-    final bytes = await xfile.readAsBytes();
     final hardLimitBytes = mediaVideoHardMaxBytesEffective;
     if (bytes.length > hardLimitBytes) {
       final limitMb = (hardLimitBytes / (1024 * 1024)).round();
@@ -56,8 +46,6 @@ class VideoHandlerService implements IVideoHandlerService {
     final thumbPath =
         ChurchStorageLayout.eventHostedVideoThumbPath(tenantId, eventPostDocId, slot);
 
-    final mime = xfile.mimeType ?? 'video/mp4';
-    // Envio do vídeo e extração da miniatura em paralelo (web não comprime no cliente).
     final videoFuture = MediaUploadService.uploadBytesWithRetry(
       storagePath: videoPath,
       bytes: bytes,
@@ -83,5 +71,54 @@ class VideoHandlerService implements IVideoHandlerService {
     }
 
     return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
+  }
+
+  @override
+  Future<VideoUploadResult?> pickCompressAndUpload({
+    required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
+    Duration maxDuration = kMediaVideoMaxDuration,
+    void Function(double uploadProgress01)? onUploadProgress,
+  }) async {
+    final effectiveMaxDuration =
+        maxDuration < mediaVideoMaxDurationEffective
+            ? maxDuration
+            : mediaVideoMaxDurationEffective;
+    final xfile = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: effectiveMaxDuration,
+    );
+    if (xfile == null) return null;
+
+    final bytes = await xfile.readAsBytes();
+    return _uploadVideoBytes(
+      bytes: bytes,
+      tenantId: tenantId,
+      eventPostDocId: eventPostDocId,
+      videoSlotIndex: videoSlotIndex,
+      mime: xfile.mimeType ?? 'video/mp4',
+      onUploadProgress: onUploadProgress,
+    );
+  }
+
+  @override
+  Future<VideoUploadResult?> compressAndUploadFromPath({
+    required String localPath,
+    required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
+    void Function(double uploadProgress01)? onUploadProgress,
+  }) async {
+    if (localPath.isEmpty) return null;
+    final bytes = await XFile(localPath).readAsBytes();
+    return _uploadVideoBytes(
+      bytes: bytes,
+      tenantId: tenantId,
+      eventPostDocId: eventPostDocId,
+      videoSlotIndex: videoSlotIndex,
+      mime: 'video/mp4',
+      onUploadProgress: onUploadProgress,
+    );
   }
 }

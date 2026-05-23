@@ -141,8 +141,10 @@
 /// bloquear DM (`chat_member_prefs`), regras Firestore + FCM respeita mute/block por conversa.
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
+/// 11.2.295+1607: Avisos/eventos/chat — publicação instantânea (Firestore primeiro;
+/// compressão + upload em paralelo; vídeo evento em background no mobile).
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1606';
+const String appBuildNumber = '1607';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

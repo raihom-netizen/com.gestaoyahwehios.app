@@ -5997,53 +5997,137 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
+
+    if (kIsWeb) {
+      setState(() {
+        _uploadingVideo = true;
+        _videoUploadFraction = null;
+      });
+      try {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              'A preparar vídeo. Máx. ${_maxVideoSeconds}s.',
+            ),
+          );
+        }
+        final result = await VideoHandlerService.instance.pickCompressAndUpload(
+          tenantId: widget.tenantId,
+          eventPostDocId: _eventDocRef.id,
+          videoSlotIndex: slot,
+          maxDuration: const Duration(seconds: 60),
+          onUploadProgress: (p) {
+            if (!mounted) return;
+            setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
+          },
+        );
+        if (result == null || !mounted) {
+          setState(() {
+            _uploadingVideo = false;
+            _videoUploadFraction = null;
+          });
+          return;
+        }
+        setState(() {
+          _eventVideos.add({
+            'videoUrl': result.videoUrl,
+            'thumbUrl': result.thumbUrl,
+          });
+          _uploadingVideo = false;
+          _videoUploadFraction = null;
+        });
+        unawaited(_mergeEventVideosToFirestoreIfPublished());
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _uploadingVideo = false;
+            _videoUploadFraction = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Erro ao enviar vídeo: $e'),
+              backgroundColor: ThemeCleanPremium.error));
+        }
+      }
+      return;
+    }
+
+    final xfile = await ImagePicker().pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(seconds: 60),
+    );
+    if (xfile == null || xfile.path.isEmpty || !mounted) return;
+
+    final listIndex = _eventVideos.length;
     setState(() {
+      _eventVideos.add({'videoUrl': '', 'thumbUrl': ''});
       _uploadingVideo = true;
       _videoUploadFraction = null;
     });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Vídeo anexado — compressão e envio em segundo plano.',
+        ),
+      );
+    }
+    unawaited(_uploadEventVideoInBackground(
+      localPath: xfile.path,
+      slot: slot,
+      listIndex: listIndex,
+    ));
+  }
+
+  Future<void> _uploadEventVideoInBackground({
+    required String localPath,
+    required int slot,
+    required int listIndex,
+  }) async {
     try {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 720p HD). Máx. ${_maxVideoSeconds}s.'));
-      final result = await VideoHandlerService.instance.pickCompressAndUpload(
+      final result = await VideoHandlerService.instance.compressAndUploadFromPath(
+        localPath: localPath,
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
         videoSlotIndex: slot,
-        maxDuration: const Duration(seconds: 60),
         onUploadProgress: (p) {
           if (!mounted) return;
           setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
         },
       );
-      if (result == null || !mounted) {
+      if (!mounted) return;
+      if (result == null) {
         setState(() {
+          if (listIndex >= 0 && listIndex < _eventVideos.length) {
+            _eventVideos.removeAt(listIndex);
+          }
           _uploadingVideo = false;
           _videoUploadFraction = null;
         });
         return;
       }
       setState(() {
-        _eventVideos
-            .add({'videoUrl': result.videoUrl, 'thumbUrl': result.thumbUrl});
+        if (listIndex >= 0 && listIndex < _eventVideos.length) {
+          _eventVideos[listIndex] = {
+            'videoUrl': result.videoUrl,
+            'thumbUrl': result.thumbUrl,
+          };
+        }
         _uploadingVideo = false;
         _videoUploadFraction = null;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Vídeo anexado (máx. ${_maxVideoSeconds}s, até $_maxVideosPerEvent por evento).'));
-      }
       unawaited(_mergeEventVideosToFirestoreIfPublished());
     } catch (e) {
       if (mounted) {
         setState(() {
+          if (listIndex >= 0 && listIndex < _eventVideos.length) {
+            _eventVideos.removeAt(listIndex);
+          }
           _uploadingVideo = false;
           _videoUploadFraction = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erro ao enviar vídeo: $e'),
-            backgroundColor: ThemeCleanPremium.error));
+          content: Text('Erro ao enviar vídeo: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
       }
     }
   }
@@ -6255,7 +6339,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     try {
-      await FeedPostMediaUpload.warmAuthToken();
       final allUrlsSafe = _safePhotoUrls(List<String>.from(_existingUrls));
       final hasNewImages = _newImages.isNotEmpty;
       double? aspectRatio;
@@ -6280,7 +6363,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         } else {
           await widget.doc!.reference.set(payload, SetOptions(merge: true));
         }
-        await _applyAgendaSyncAfterSave(postId);
 
         final initialLen = allUrlsSafe.length;
         final room =
@@ -6297,24 +6379,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
+        unawaited(_applyAgendaSyncAfterSave(postId));
 
         if (imagesCopy.isNotEmpty) {
-          final hasVideo = _eventVideos.isNotEmpty;
-          await MuralPostPendingMediaCache.put(
-            tenantId: widget.tenantId,
-            postId: postId,
-            images: imagesCopy,
+          final hasVideo = _eventVideos.any(
+            (v) => (v['videoUrl'] ?? '').toString().trim().isNotEmpty,
           );
-          await MuralPublishOutboxService.registerJob(
-            tenantId: widget.tenantId,
-            postId: postId,
-            postType: 'evento',
-            existingUrls: allUrlsSafe,
-            startSlotIndex: initialLen,
-            hasVideo: hasVideo,
-          );
-          unawaited(
-            MuralFastPublishService.uploadImagesAndFinalizePost(
+          MuralFastPublishService.scheduleBackgroundImageFinalize(
               docRef: docRef,
               tenantId: widget.tenantId,
               postId: postId,
@@ -6342,7 +6413,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 aspectRatio: aspectRatio,
                 allowDeleteSentinels: true,
               ),
-            ),
           );
         } else {
           unawaited(
@@ -6370,7 +6440,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       } else {
         await widget.doc!.reference.set(payload, SetOptions(merge: true));
       }
-      await _applyAgendaSyncAfterSave(postId);
+      unawaited(_applyAgendaSyncAfterSave(postId));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
@@ -6646,20 +6716,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: (_uploadingVideo || _mediaPicking)
-                              ? null
-                              : _openAddMediaSheet,
+                          onTap: _mediaPicking ? null : _openAddMediaSheet,
                           borderRadius: BorderRadius.circular(12),
                           child: Container(
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
-                              color: (_uploadingVideo || _mediaPicking)
+                              color: _mediaPicking
                                   ? Colors.grey.withValues(alpha: 0.15)
                                   : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: (_uploadingVideo || _mediaPicking)
+                                color: _mediaPicking
                                     ? Colors.grey.shade300
                                     : ThemeCleanPremium.primary
                                         .withValues(alpha: 0.35),

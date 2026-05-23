@@ -3584,7 +3584,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final hasNewImages = _newImages.isNotEmpty;
     setState(() => _saving = true);
     try {
-      await FeedPostMediaUpload.warmAuthToken();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (!hasNewImages && existingUrls.isNotEmpty) {
@@ -3611,19 +3610,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         final imagesCopy = List<Uint8List>.from(_newImages);
         final startSlot = existingUrls.length;
         final hasVideo = _videoUrl.text.trim().isNotEmpty;
-        await MuralPostPendingMediaCache.put(
-          tenantId: widget.tenantId,
-          postId: postId,
-          images: imagesCopy,
-        );
-        await MuralPublishOutboxService.registerJob(
-          tenantId: widget.tenantId,
-          postId: postId,
-          postType: widget.type,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3634,35 +3620,33 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           );
           Navigator.pop(context, true);
         }
-        unawaited(
-          MuralFastPublishService.uploadImagesAndFinalizePost(
-            docRef: docRef,
+        MuralFastPublishService.scheduleBackgroundImageFinalize(
+          docRef: docRef,
+          tenantId: widget.tenantId,
+          postId: postId,
+          postType: widget.type,
+          newImages: imagesCopy,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          uploadSlot: (bytes, slot, report) =>
+              MuralPostMediaPayload.uploadPhotoSlot(
             tenantId: widget.tenantId,
-            postId: postId,
             postType: widget.type,
-            newImages: imagesCopy,
-            existingUrls: existingUrls,
-            startSlotIndex: startSlot,
+            postId: postId,
+            bytes: bytes,
+            slotIndex: slot,
+            onProgress: report,
+          ),
+          buildMediaFields: ({
+            required allUrls,
+            required aspectRatio,
+            required hasVideo,
+          }) =>
+              MuralPostMediaPayload.buildMediaFields(
+            allUrls: allUrls,
+            aspectRatio: aspectRatio,
             hasVideo: hasVideo,
-            uploadSlot: (bytes, slot, report) =>
-                MuralPostMediaPayload.uploadPhotoSlot(
-              tenantId: widget.tenantId,
-              postType: widget.type,
-              postId: postId,
-              bytes: bytes,
-              slotIndex: slot,
-              onProgress: report,
-            ),
-            buildMediaFields: ({
-              required allUrls,
-              required aspectRatio,
-              required hasVideo,
-            }) =>
-                MuralPostMediaPayload.buildMediaFields(
-              allUrls: allUrls,
-              aspectRatio: aspectRatio,
-              hasVideo: hasVideo,
-            ),
           ),
         );
         return;

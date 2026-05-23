@@ -37,9 +37,25 @@ class VideoHandlerService implements IVideoHandlerService {
       maxDuration: effectiveMaxDuration,
     );
     if (xfile == null || xfile.path.isEmpty) return null;
+    return compressAndUploadFromPath(
+      localPath: xfile.path,
+      tenantId: tenantId,
+      eventPostDocId: eventPostDocId,
+      videoSlotIndex: videoSlotIndex,
+      onUploadProgress: onUploadProgress,
+    );
+  }
 
-    final path = xfile.path;
-    if (!File(path).existsSync()) return null;
+  @override
+  Future<VideoUploadResult?> compressAndUploadFromPath({
+    required String localPath,
+    required String tenantId,
+    required String eventPostDocId,
+    required int videoSlotIndex,
+    void Function(double uploadProgress01)? onUploadProgress,
+  }) async {
+    final path = localPath;
+    if (path.isEmpty || !File(path).existsSync()) return null;
 
     try {
       final lower = path.toLowerCase();
@@ -55,7 +71,6 @@ class VideoHandlerService implements IVideoHandlerService {
 
       late final File compressed;
       if (useOriginal) {
-        // Evita minutos de CPU em telemóveis: envia o ficheiro já em H.264/AAC típico da galeria.
         compressed = File(path);
       } else {
         final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
