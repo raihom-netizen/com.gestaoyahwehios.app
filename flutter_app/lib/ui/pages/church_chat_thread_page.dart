@@ -23,7 +23,6 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
@@ -1330,31 +1329,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
       final path = x.path!;
-      final send = await showChurchChatMediaPreviewSheet(
-        context,
-        localPath: path,
-        title: 'Enviar foto',
-        isVideo: false,
-      );
-      if (!send || !mounted) return;
       unawaited(_uploadAndSendFromPath(path, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
-    final send = await showChurchChatMediaPreviewSheet(
-      context,
-      previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-      title: 'Enviar foto',
-      isVideo: false,
-    );
-    if (!send || !mounted) return;
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
   Future<void> _pickVideo(ImageSource source) async {
     final picker = ImagePicker();
-    final x = await picker.pickVideo(source: source);
+    final x = await picker.pickVideo(
+      source: source,
+      maxDuration: mediaVideoMaxDurationEffective,
+    );
     if (x == null) return;
     var name = x.name.isNotEmpty ? x.name : 'video.mp4';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
@@ -1512,12 +1500,25 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: widget.tenantId,
       threadId: widget.threadId,
     ));
+    Uint8List? previewBytes;
+    if (kind == 'image') {
+      try {
+        final f = File(localPath);
+        if (await f.exists()) {
+          final len = await f.length();
+          if (len > 0 && len <= 4 * 1024 * 1024) {
+            previewBytes = await f.readAsBytes();
+          }
+        }
+      } catch (_) {}
+    }
     final pending = ChurchChatOutboundPending(
       localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
       kind: kind,
       fileName: name,
       mime: mime,
       localPath: localPath,
+      previewBytes: previewBytes,
       replyPreview: _replyDraft?.preview,
     );
     _enqueuePending(pending);
@@ -2477,11 +2478,31 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     );
                     var streamDocs = visibleDocs.where((d) {
                       if (hideFirestoreMsgIds.contains(d.id)) return false;
-                      if (!hasActivePending) return true;
                       final m = d.data();
-                      return !((m['senderUid'] ?? '').toString() == uid &&
-                          (m['deliveryStatus'] ?? '').toString() ==
-                              'uploading');
+                      final delivery =
+                          (m['deliveryStatus'] ?? '').toString();
+                      if (delivery == 'uploading') {
+                        final created = m['createdAt'];
+                        if (created is Timestamp) {
+                          final age = DateTime.now()
+                              .difference(created.toDate());
+                          if (age > const Duration(minutes: 12)) {
+                            unawaited(
+                              ChurchChatService.abandonMediaUploadMessage(
+                                tenantId: widget.tenantId,
+                                threadId: widget.threadId,
+                                messageId: d.id,
+                              ),
+                            );
+                            return false;
+                          }
+                        }
+                        if (hasActivePending &&
+                            (m['senderUid'] ?? '').toString() == uid) {
+                          return false;
+                        }
+                      }
+                      return true;
                     }).toList();
                     final q = _msgSearchCtrl.text.trim().toLowerCase();
                     final docs = q.isEmpty

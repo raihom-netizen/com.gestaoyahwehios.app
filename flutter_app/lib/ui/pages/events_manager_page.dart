@@ -28,6 +28,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart'
+    show kMediaEventVideoMaxSeconds;
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -5127,6 +5129,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   final List<String> _existingUrls = [];
   final List<Uint8List> _newImages = [];
   final List<String> _newNames = [];
+  final List<bool> _newImagesProcessing = [];
 
   /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
   final List<Map<String, String>> _eventVideos = [];
@@ -5159,7 +5162,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   String? _churchAddressText;
   double? _locationLat;
   double? _locationLng;
-  static const int _maxVideoSeconds = 60;
+  static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
   static const int _maxVideosPerEvent = 2;
   static const int _maxPhotosPerEvent = 20;
 
@@ -5726,9 +5729,60 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return manual;
   }
 
+  bool _eventPhotoLimitReached() =>
+      _existingUrls.length + _newImages.length >= _maxPhotosPerEvent;
+
+  Future<void> _appendEventPhotoPreview(XFile file, int slotIndex) async {
+    if (!mounted || _eventPhotoLimitReached()) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+      setState(() {
+        if (slotIndex < _newImages.length) {
+          _newImages[slotIndex] = bytes;
+          _newNames[slotIndex] = file.name;
+          if (slotIndex < _newImagesProcessing.length) {
+            _newImagesProcessing[slotIndex] = true;
+          }
+        } else {
+          _newImages.add(bytes);
+          _newNames.add(file.name);
+          _newImagesProcessing.add(true);
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _finalizeEventPhotoSlot(XFile file, int slotIndex) async {
+    if (!mounted) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+      setState(() {
+        if (slotIndex < _newImages.length) {
+          _newImages[slotIndex] = bytes;
+          _newNames[slotIndex] = file.name;
+          if (slotIndex < _newImagesProcessing.length) {
+            _newImagesProcessing[slotIndex] = false;
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _removeEventPhotoSlot(int slotIndex) {
+    if (slotIndex < 0 || slotIndex >= _newImages.length) return;
+    setState(() {
+      _newImages.removeAt(slotIndex);
+      if (slotIndex < _newNames.length) _newNames.removeAt(slotIndex);
+      if (slotIndex < _newImagesProcessing.length) {
+        _newImagesProcessing.removeAt(slotIndex);
+      }
+    });
+  }
+
   Future<void> _pickImages() async {
-    final totalAtual = _existingUrls.length + _newImages.length;
-    if (totalAtual >= _maxPhotosPerEvent) {
+    if (_eventPhotoLimitReached()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
@@ -5745,20 +5799,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        onGalleryPicked: (_) {
+          if (mounted) setState(() => _mediaPicking = false);
+        },
+        onPickedBeforeEncode: (file, index, total) async {
+          if (!mounted || _eventPhotoLimitReached()) return;
+          await _appendEventPhotoPreview(file, index);
+        },
         onEachReady: (file, index, total) async {
-          if (!mounted) return;
-          final totalAtual = _existingUrls.length + _newImages.length;
-          if (totalAtual >= _maxPhotosPerEvent) return;
-          final bytes = await file.readAsBytes();
-          if (!mounted || bytes.isEmpty) return;
-          setState(() {
-            _newImages.add(bytes);
-            _newNames.add(file.name);
-          });
+          await _finalizeEventPhotoSlot(file, index);
+        },
+        onEncodeSkipped: (index, total) {
+          if (mounted) _removeEventPhotoSlot(index);
         },
       );
-      if ((_existingUrls.length + _newImages.length) >= _maxPhotosPerEvent &&
-          mounted) {
+      if (_eventPhotoLimitReached() && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
               'Limite de $_maxPhotosPerEvent fotos por evento. Remova alguma para adicionar mais.'),
@@ -5796,6 +5851,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         setState(() {
           _newImages.add(bytes);
           _newNames.add(file.name);
+          _newImagesProcessing.add(false);
         });
       }
     } finally {
@@ -6082,7 +6138,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           tenantId: widget.tenantId,
           eventPostDocId: _eventDocRef.id,
           videoSlotIndex: slot,
-          maxDuration: const Duration(seconds: 60),
+          maxDuration: Duration(seconds: _maxVideoSeconds),
           onUploadProgress: (p) {
             if (!mounted) return;
             setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
@@ -6120,7 +6176,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
     final xfile = await ImagePicker().pickVideo(
       source: ImageSource.gallery,
-      maxDuration: const Duration(seconds: 60),
+      maxDuration: Duration(seconds: _maxVideoSeconds),
     );
     if (xfile == null || xfile.path.isEmpty || !mounted) return;
 
@@ -6266,7 +6322,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até 60 s.',
+                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até $_maxVideoSeconds s.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -6370,7 +6426,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ? 'Aguarde o envio em andamento…'
                           : videosFull
                               ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                              : 'Até 60 s — MP4 leve envia direto; senão 720p HD',
+                              : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
                       style: TextStyle(
                         fontSize: 12,
                         color: (_uploadingVideo || videosFull)
@@ -6399,6 +6455,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
+      return;
+    }
+    if (_newImagesProcessing.any((p) => p)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text(
+            'Aguarde terminar o recorte das fotos antes de publicar.'),
+        backgroundColor: ThemeCleanPremium.error,
+        behavior: SnackBarBehavior.floating,
+      ));
       return;
     }
     setState(() => _saving = true);
@@ -6568,11 +6633,32 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     for (var i = 0; i < _newImages.length; i++) {
       final idx = i;
+      final processing =
+          idx < _newImagesProcessing.length && _newImagesProcessing[idx];
       allPreviews.add(Stack(children: [
         ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Image.memory(_newImages[idx],
                 width: 100, height: 100, fit: BoxFit.cover)),
+        if (processing)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.28),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
         Positioned(
             top: 2,
             right: 2,
@@ -6580,6 +6666,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 onTap: () => setState(() {
                       _newImages.removeAt(idx);
                       _newNames.removeAt(idx);
+                      if (idx < _newImagesProcessing.length) {
+                        _newImagesProcessing.removeAt(idx);
+                      }
                     }),
                 child: Container(
                     padding: const EdgeInsets.all(2),

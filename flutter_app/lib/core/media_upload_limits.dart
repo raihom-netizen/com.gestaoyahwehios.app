@@ -7,7 +7,13 @@ import 'package:flutter/foundation.dart';
 /// - Force ativo em debug: `--dart-define=GY_MEDIA_TURBO=true`
 const int kMediaImagePreferredMaxBytes = 1024 * 1024; // 1MB (padrão)
 const int kMediaVideoHardMaxBytes = 120 * 1024 * 1024; // 120MB (padrão)
-const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // padrão
+const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outros módulos
+
+/// Chat igreja — vídeo até 90 s (estilo WhatsApp).
+const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
+
+/// Eventos (editor + galeria) — vídeo até 90 s.
+const int kMediaEventVideoMaxSeconds = 90;
 
 bool get kMediaTurboMobilePreset {
   if (kIsWeb) return false;
@@ -32,8 +38,7 @@ int get mediaImagePreferredMaxBytesEffective =>
 int get mediaVideoHardMaxBytesEffective =>
     kMediaTurboMobilePreset ? (100 * 1024 * 1024) : kMediaVideoHardMaxBytes;
 
-Duration get mediaVideoMaxDurationEffective =>
-    kMediaTurboMobilePreset ? const Duration(seconds: 50) : kMediaVideoMaxDuration;
+Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 
 int get mediaVideoSkipTranscodeMaxBytes =>
     kMediaTurboMobilePreset ? (42 * 1024 * 1024) : (32 * 1024 * 1024);

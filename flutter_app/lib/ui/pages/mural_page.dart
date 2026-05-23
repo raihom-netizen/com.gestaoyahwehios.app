@@ -31,6 +31,26 @@ class _MuralPageState extends State<MuralPage>
     with SingleTickerProviderStateMixin {
   int _slugRetryKey = 0;
   late TabController _tab;
+  final GlobalKey<InstagramMuralState> _muralFeedKey =
+      GlobalKey<InstagramMuralState>();
+
+  bool get _canWriteAvisos {
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_somente_leitura')) {
+      return false;
+    }
+    if (AppPermissions.hasModulePermission(
+        widget.permissions, 'mural_avisos_edicao')) {
+      return true;
+    }
+    final r = widget.role.toLowerCase();
+    return r == 'adm' ||
+        r == 'admin' ||
+        r == 'gestor' ||
+        r == 'master' ||
+        r == 'lider' ||
+        r == 'lider_departamento';
+  }
 
   bool get _canModerateAvisosComments {
     if (AppPermissions.hasModulePermission(
@@ -54,6 +74,9 @@ class _MuralPageState extends State<MuralPage>
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
+    _tab.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -115,6 +138,48 @@ class _MuralPageState extends State<MuralPage>
         !widget.embeddedInShell && (!isMobile || Navigator.canPop(context));
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
+      floatingActionButton: _tab.index == 0 && _canWriteAvisos
+          ? Container(
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                gradient: LinearGradient(
+                  colors: [
+                    ThemeCleanPremium.primary,
+                    ThemeCleanPremium.primaryLight,
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                  ...ThemeCleanPremium.softUiCardShadow,
+                ],
+              ),
+              child: FloatingActionButton.extended(
+                onPressed: () =>
+                    _muralFeedKey.currentState?.openNewAvisoEditor(),
+                icon: const Icon(Icons.add_a_photo_rounded, size: 24),
+                label: const Text(
+                  'Novo aviso',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                hoverElevation: 0,
+                focusElevation: 0,
+                highlightElevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                ),
+              ),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: !showAppBar
           ? null
           : AppBar(
@@ -189,6 +254,7 @@ class _MuralPageState extends State<MuralPage>
                             physics: const AlwaysScrollableScrollPhysics(),
                             children: [
                               InstagramMural(
+                                key: _muralFeedKey,
                                 tenantId: data.firestoreTenantId,
                                 role: widget.role,
                                 churchSlug: data.churchSlug,

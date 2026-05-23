@@ -142,11 +142,14 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
   List<XFile> picked, {
   BuildContext? webCropContext,
   int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+  void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
   void Function(XFile encoded, int index, int total)? onEachReady,
+  void Function(int index, int total)? onEncodeSkipped,
 }) async {
   if (picked.isEmpty) return const [];
   final out = <XFile>[];
   for (var i = 0; i < picked.length; i++) {
+    onPickedBeforeEncode?.call(picked[i], i, picked.length);
     final encoded = await cropEncodePickedToWebp(
       picked[i],
       profile: HighResCropProfile.feedFree,
@@ -156,6 +159,8 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
     if (encoded != null) {
       out.add(encoded);
       onEachReady?.call(encoded, i, picked.length);
+    } else {
+      onEncodeSkipped?.call(i, picked.length);
     }
   }
   return out;

@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_post_hosted_video_editor.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -161,10 +162,14 @@ class InstagramMural extends StatefulWidget {
   });
 
   @override
-  State<InstagramMural> createState() => _InstagramMuralState();
+  State<InstagramMural> createState() => InstagramMuralState();
 }
 
-class _InstagramMuralState extends State<InstagramMural> {
+class InstagramMuralState extends State<InstagramMural> {
+  /// Abre o editor de novo aviso (feed / FAB do [MuralPage]).
+  void openNewAvisoEditor() {
+    unawaited(_openEditor(type: 'aviso'));
+  }
   Map<String, dynamic>? _tenantData;
   static const int _feedPageSize = 15;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _feedRawDocs = [];
@@ -3005,6 +3010,9 @@ class MuralAvisoEditorPage extends StatefulWidget {
 }
 
 class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
+  static const int _maxVideosPerPost = 2;
+  static const int _maxPhotosPerEvento = 20;
+
   late TextEditingController _title, _videoUrl, _bodyDescription;
   late TextEditingController _cep,
       _logradouro,
@@ -3017,11 +3025,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   final List<String> _existingUrls = [];
   final List<Uint8List> _newImages = [];
   final List<String> _newNames = [];
+  /// `true` enquanto a foto ainda está em recorte/WebP (preview já visível).
+  final List<bool> _newImagesProcessing = [];
   DateTime? _date;
   TimeOfDay? _time;
   DateTime? _validUntil;
   bool _saving = false;
   bool _mediaPicking = false;
+  bool _uploadingVideo = false;
+  double? _videoUploadFraction;
+  late final DocumentReference<Map<String, dynamic>> _postDocRef;
+  late final MuralPostHostedVideoEditor _hostedVideo;
 
   /// Quando false, o post não aparece no site público (painel/app continuam).
   bool _publicSite = true;
@@ -3086,8 +3100,18 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     _locationLng = lng is num
         ? lng.toDouble()
         : (lng != null ? double.tryParse(lng.toString()) : null);
+    _postDocRef = widget.doc?.reference ?? widget.postsCollection.doc();
+    _hostedVideo = MuralPostHostedVideoEditor(
+      tenantId: widget.tenantId,
+      postDocRef: _postDocRef,
+      maxVideos: _maxVideosPerPost,
+    );
+    _hostedVideo.videos
+        .addAll(MuralPostHostedVideoEditor.loadFromDoc(data));
     final urls = _PostCard.imageUrlsFromData(data);
-    _existingUrls.addAll(urls);
+    _existingUrls.addAll(
+      urls.where((u) => !looksLikeHostedVideoFileUrl(u.trim())),
+    );
     try {
       final dt = (data['startAt'] as Timestamp).toDate();
       _date = DateTime(dt.year, dt.month, dt.day);
@@ -3362,19 +3386,72 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     super.dispose();
   }
 
-  Future<void> _pickImages() async {
+  bool _muralPhotoLimitReached() {
     if (widget.type == 'aviso') {
-      final cap = kMaxAvisoFeedPhotosPerPost - _newImages.length;
-      if (cap <= 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
-            ),
-          );
+      return _newImages.length >= kMaxAvisoFeedPhotosPerPost;
+    }
+    return false;
+  }
+
+  Future<void> _appendMuralPhotoPreview(XFile file, int slotIndex) async {
+    if (!mounted || _muralPhotoLimitReached()) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+      setState(() {
+        if (slotIndex < _newImages.length) {
+          _newImages[slotIndex] = bytes;
+          _newNames[slotIndex] = file.name;
+          if (slotIndex < _newImagesProcessing.length) {
+            _newImagesProcessing[slotIndex] = true;
+          }
+        } else {
+          _newImages.add(bytes);
+          _newNames.add(file.name);
+          _newImagesProcessing.add(true);
         }
-        return;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _finalizeMuralPhotoSlot(XFile file, int slotIndex) async {
+    if (!mounted) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+      setState(() {
+        if (slotIndex < _newImages.length) {
+          _newImages[slotIndex] = bytes;
+          _newNames[slotIndex] = file.name;
+          if (slotIndex < _newImagesProcessing.length) {
+            _newImagesProcessing[slotIndex] = false;
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _removeMuralPhotoSlot(int slotIndex) {
+    if (slotIndex < 0 || slotIndex >= _newImages.length) return;
+    setState(() {
+      _newImages.removeAt(slotIndex);
+      if (slotIndex < _newNames.length) _newNames.removeAt(slotIndex);
+      if (slotIndex < _newImagesProcessing.length) {
+        _newImagesProcessing.removeAt(slotIndex);
       }
+    });
+  }
+
+  Future<void> _pickImages() async {
+    if (_muralPhotoLimitReached()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
+          ),
+        );
+      }
+      return;
     }
     setState(() => _mediaPicking = true);
     try {
@@ -3382,23 +3459,21 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        onGalleryPicked: (_) {
+          if (mounted) setState(() => _mediaPicking = false);
+        },
+        onPickedBeforeEncode: (file, index, total) async {
+          if (!mounted || _muralPhotoLimitReached()) return;
+          await _appendMuralPhotoPreview(file, index);
+        },
         onEachReady: (file, index, total) async {
-          if (!mounted) return;
-          if (widget.type == 'aviso' &&
-              _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
-            return;
-          }
-          final bytes = await file.readAsBytes();
-          if (!mounted || bytes.isEmpty) return;
-          setState(() {
-            _newImages.add(bytes);
-            _newNames.add(file.name);
-          });
+          await _finalizeMuralPhotoSlot(file, index);
+        },
+        onEncodeSkipped: (index, total) {
+          if (mounted) _removeMuralPhotoSlot(index);
         },
       );
-      if (widget.type == 'aviso' &&
-          _newImages.length >= kMaxAvisoFeedPhotosPerPost &&
-          mounted) {
+      if (_muralPhotoLimitReached() && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
@@ -3435,6 +3510,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         setState(() {
           _newImages.add(bytes);
           _newNames.add(file.name);
+          _newImagesProcessing.add(false);
         });
       }
     } finally {
@@ -3472,17 +3548,282 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     );
   }
 
+  bool get _hasVideoForPayload =>
+      _hostedVideo.hasHostedVideo || _videoUrl.text.trim().isNotEmpty;
+
+  List<String> _safePhotoUrls(List<String> urls) => urls
+      .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
+      .toList();
+
+  Widget _videoPlaceholder() => Container(
+        width: 100,
+        height: 100,
+        color: Colors.grey.shade300,
+        child: Icon(Icons.play_circle_outline_rounded,
+            size: 40, color: Colors.grey.shade600),
+      );
+
+  Future<void> _removeHostedVideoAt(int index) async {
+    if (index < 0 || index >= _hostedVideo.videos.length) return;
+    final v = _hostedVideo.videos[index];
+    final videoUrl = (v['videoUrl'] ?? '').toString();
+    final thumbUrl = (v['thumbUrl'] ?? '').toString();
+    final slot = _hostedVideo.hostedVideoStorageSlotFromUrl(videoUrl);
+    if (slot != null) {
+      await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
+        tenantId: widget.tenantId,
+        postDocId: _postDocRef.id,
+        videoSlot: slot,
+      );
+    } else {
+      await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+          [videoUrl, thumbUrl]);
+    }
+    if (mounted) setState(() => _hostedVideo.videos.removeAt(index));
+  }
+
+  Future<void> _pickAndUploadVideo() async {
+    if (_uploadingVideo ||
+        _hostedVideo.videos.length >= _maxVideosPerPost) {
+      if (_hostedVideo.videos.length >= _maxVideosPerPost && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Limite de $_maxVideosPerPost vídeo(s) por publicação.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+    if (kIsWeb) {
+      setState(() {
+        _uploadingVideo = true;
+        _videoUploadFraction = null;
+      });
+    }
+    final result = await _hostedVideo.pickAndUploadHostedVideo(
+      setState: (fn) => setState(fn),
+      mounted: () => mounted,
+      showSnack: (msg) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(msg),
+        );
+      },
+    );
+    if (kIsWeb && mounted) {
+      setState(() {
+        _uploadingVideo = false;
+        _videoUploadFraction = null;
+      });
+    }
+    if (result.added) {
+      unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
+    } else if (result.error != null &&
+        result.error != 'cancel' &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erro ao enviar vídeo: ${result.error}'),
+        backgroundColor: ThemeCleanPremium.error,
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  Future<void> _openAddMediaSheet() async {
+    final photosFull = widget.type == 'aviso'
+        ? _existingUrls.length + _newImages.length >=
+            kMaxAvisoFeedPhotosPerPost
+        : _existingUrls.length + _newImages.length >= _maxPhotosPerEvento;
+    final videosFull = _hostedVideo.videos.length >= _maxVideosPerPost;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.circular(ThemeCleanPremium.radiusMd + 4),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.workspace_premium_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Mídia premium',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          letterSpacing: -0.2,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Fotos: recorte + WebP Full HD. Vídeo em arquivo: até 60 s.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFFF0FDF4),
+                      child: Icon(Icons.photo_library_rounded,
+                          color: Colors.green.shade700, size: 24),
+                    ),
+                    title: const Text('Fotos da galeria',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull
+                          ? 'Limite de fotos atingido'
+                          : 'Várias imagens · recorte por foto',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !photosFull && !_mediaPicking,
+                    onTap: photosFull || _mediaPicking
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickImages());
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      child: Icon(Icons.camera_alt_rounded,
+                          color: ThemeCleanPremium.primary, size: 24),
+                    ),
+                    title: const Text('Tirar foto',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull ? 'Limite de fotos atingido' : 'Câmera',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !photosFull && !_mediaPicking,
+                    onTap: photosFull || _mediaPicking
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickCamera());
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      child: Icon(Icons.videocam_rounded,
+                          color: ThemeCleanPremium.primary, size: 24),
+                    ),
+                    title: const Text('Vídeo (arquivo)',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      _uploadingVideo
+                          ? 'Aguarde o envio em andamento…'
+                          : videosFull
+                              ? 'Máx. $_maxVideosPerPost vídeo(s)'
+                              : 'Até 60 s — anexa antes de publicar',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: (_uploadingVideo || videosFull)
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !_uploadingVideo && !videosFull,
+                    onTap: (_uploadingVideo || videosFull)
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickAndUploadVideo());
+                          },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Map<String, dynamic> _mediaFieldsForPayload({
     required List<String> allUrls,
     required double aspectRatio,
     required bool hasVideo,
     required bool allowDeleteSentinels,
   }) {
-    final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
+    final allUrlsSafe = _safePhotoUrls(allUrls);
+    final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
+    final firstVideoUrl = _hostedVideo.primaryVideoUrl(_videoUrl.text.trim());
+    final firstThumbUrl = _hostedVideo.primaryThumbUrl();
     final patch = <String, dynamic>{};
     patch['imageUrl'] = firstUrl;
-    patch['imageUrls'] = allUrls;
+    patch['imageUrls'] = allUrlsSafe;
     patch['defaultImageUrl'] = firstUrl;
+    patch['videoUrl'] = firstVideoUrl;
+    patch['thumbUrl'] = firstThumbUrl;
+    patch['videos'] = _hostedVideo.firestoreVideosPayload();
     if (firstUrl.isNotEmpty) {
       patch['imagemUrl'] = firstUrl;
       patch['imagem_url'] = firstUrl;
@@ -3490,7 +3831,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       patch['imagemUrl'] = FieldValue.delete();
       patch['imagem_url'] = FieldValue.delete();
     }
-    if (allUrls.isNotEmpty) {
+    if (allUrlsSafe.isNotEmpty) {
       patch['media_info'] = <String, dynamic>{
         'url_original': firstUrl,
         'aspect_ratio': aspectRatio,
@@ -3499,13 +3840,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } else if (allowDeleteSentinels) {
       patch['media_info'] = FieldValue.delete();
     }
-    if (allUrls.isEmpty) {
+    if (allUrlsSafe.isEmpty) {
       if (allowDeleteSentinels) {
         patch['imageStoragePath'] = FieldValue.delete();
         patch['imageStoragePaths'] = FieldValue.delete();
       }
     } else {
-      final paths = _muralPathsFromImageUrls(allUrls);
+      final paths = _muralPathsFromImageUrls(allUrlsSafe);
       if (paths != null && paths.isNotEmpty) {
         patch['imageStoragePath'] = paths.first;
         patch['imageStoragePaths'] = paths;
@@ -3523,14 +3864,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final displayName =
         FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
     final now = FieldValue.serverTimestamp();
-    final hasVideo = _videoUrl.text.trim().isNotEmpty;
+    final hasVideo = _hasVideoForPayload;
     final plainBody = _bodyDescription.text.trim();
     final payload = <String, dynamic>{
       'type': widget.type,
       'title': _title.text.trim(),
       'text': plainBody,
       kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
-      'videoUrl': _videoUrl.text.trim(),
       'updatedAt': now,
       ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
       ..._mediaFieldsForPayload(
@@ -3580,13 +3920,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
       return;
     }
-    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+    if (_newImagesProcessing.any((p) => p)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Aguarde terminar o recorte das fotos antes de publicar.',
+        ),
+      );
+      return;
+    }
+    final docRef = _postDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     final hasNewImages = _newImages.isNotEmpty;
     setState(() => _saving = true);
     try {
-      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      final existingUrls =
+          _safePhotoUrls(dedupeImageRefsByStorageIdentity(_existingUrls));
       var aspectRatio = 1.0;
       if (!hasNewImages && existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
@@ -3611,7 +3960,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
         final imagesCopy = List<Uint8List>.from(_newImages);
         final startSlot = existingUrls.length;
-        final hasVideo = _videoUrl.text.trim().isNotEmpty;
+        final hasVideo = _hasVideoForPayload;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3622,6 +3971,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           );
           Navigator.pop(context, true);
         }
+        unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
         MuralFastPublishService.scheduleBackgroundImageFinalize(
           docRef: docRef,
           tenantId: widget.tenantId,
@@ -3644,12 +3994,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             required allUrls,
             required aspectRatio,
             required hasVideo,
-          }) =>
-              MuralPostMediaPayload.buildMediaFields(
-            allUrls: allUrls,
-            aspectRatio: aspectRatio,
-            hasVideo: hasVideo,
-          ),
+          }) {
+            final patch = MuralPostMediaPayload.buildMediaFields(
+              allUrls: allUrls,
+              aspectRatio: aspectRatio,
+              hasVideo: hasVideo,
+              allowDeleteSentinels: false,
+            );
+            patch['videoUrl'] =
+                _hostedVideo.primaryVideoUrl(_videoUrl.text.trim());
+            patch['thumbUrl'] = _hostedVideo.primaryThumbUrl();
+            patch['videos'] = _hostedVideo.firestoreVideosPayload();
+            return patch;
+          },
         );
         return;
       }
@@ -3675,6 +4032,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         );
         Navigator.pop(context, true);
       }
+      unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -3739,11 +4097,32 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     for (var i = 0; i < _newImages.length; i++) {
       final idx = i;
+      final processing =
+          idx < _newImagesProcessing.length && _newImagesProcessing[idx];
       allPreviews.add(Stack(children: [
         ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Image.memory(_newImages[idx],
                 width: thumbSize, height: thumbSize, fit: BoxFit.cover)),
+        if (processing)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.28),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
         Positioned(
             top: 2,
             right: 2,
@@ -3751,6 +4130,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               onTap: () => setState(() {
                 _newImages.removeAt(idx);
                 _newNames.removeAt(idx);
+                if (idx < _newImagesProcessing.length) {
+                  _newImagesProcessing.removeAt(idx);
+                }
               }),
               child: Container(
                   padding: const EdgeInsets.all(2),
@@ -3878,11 +4260,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
-              AsyncUploadProgressStrip(
-                localActive: _mediaPicking,
-                localLabel: 'A preparar fotos…',
-              ),
-              // FOTOS
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -3892,98 +4269,180 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Icon(Icons.photo_library_rounded,
-                            color: ThemeCleanPremium.primary, size: 20),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.perm_media_rounded,
+                            color: ThemeCleanPremium.primary, size: 22),
                         const SizedBox(width: 8),
-                        const Text('Fotos',
+                        Expanded(
+                          child: Text(
+                            'Fotos e vídeo',
                             style: TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 14)),
-                        const Spacer(),
-                        Text(
-                          '${_existingUrls.length + _newImages.length} foto(s)',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: Colors.grey.shade900,
+                            ),
+                          ),
                         ),
-                      ]),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Recorte livre · WebP premium · até Full HD (1920 px)',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          height: 1.25,
-                          color: Colors.grey.shade600,
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Toque em «Adicionar»: fotos (recorte + WebP Full HD) ou vídeo em arquivo — já fica anexado antes de publicar. Ou cole link YouTube/Vimeo abaixo.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    AsyncUploadProgressStrip(
+                      localActive: _mediaPicking || _uploadingVideo,
+                      localLabel: _uploadingVideo
+                          ? 'A enviar vídeo…'
+                          : 'A preparar fotos…',
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      ...allPreviews,
+                      ...List.generate(_hostedVideo.videos.length, (i) {
+                        final v = _hostedVideo.videos[i];
+                        final thumbUrl = (v['thumbUrl'] ?? '').toString();
+                        final videoUrl = (v['videoUrl'] ?? '').toString();
+                        return Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: thumbUrl.isNotEmpty &&
+                                      isValidImageUrl(thumbUrl)
+                                  ? SafeNetworkImage(
+                                      imageUrl: thumbUrl,
+                                      width: thumbSize,
+                                      height: thumbSize,
+                                      fit: BoxFit.cover,
+                                      placeholder: Container(
+                                        width: thumbSize,
+                                        height: thumbSize,
+                                        color: Colors.grey.shade200,
+                                        child: const Center(
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        ),
+                                      ),
+                                      errorWidget: _videoPlaceholder(),
+                                    )
+                                  : SizedBox(
+                                      width: thumbSize,
+                                      height: thumbSize,
+                                      child: _videoPlaceholder(),
+                                    ),
+                            ),
+                            if (videoUrl.isEmpty)
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black26,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Center(
+                                    child: SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: GestureDetector(
+                                onTap: () =>
+                                    unawaited(_removeHostedVideoAt(i)),
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black54,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close,
+                                      size: 16, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: (_mediaPicking || _saving || _uploadingVideo)
+                              ? null
+                              : _openAddMediaSheet,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: thumbSize,
+                            height: thumbSize,
+                            decoration: BoxDecoration(
+                              color: (_mediaPicking || _uploadingVideo)
+                                  ? Colors.grey.withValues(alpha: 0.15)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: (_mediaPicking || _uploadingVideo)
+                                    ? Colors.grey.shade300
+                                    : ThemeCleanPremium.primary
+                                        .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: (_mediaPicking || _uploadingVideo)
+                                ? Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const SizedBox(
+                                        width: 26,
+                                        height: 26,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _uploadingVideo ? 'Vídeo…' : 'Fotos…',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.add_rounded,
+                                          color: ThemeCleanPremium.primary,
+                                          size: 32),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Adicionar',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: ThemeCleanPremium.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Wrap(spacing: 8, runSpacing: 8, children: [
-                        ...allPreviews,
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap:
-                                (_mediaPicking || _saving) ? null : _pickImages,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: thumbSize,
-                              height: thumbSize,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: Colors.green.shade400),
-                              ),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate_rounded,
-                                        color: Colors.green.shade700, size: 28),
-                                    const SizedBox(height: 4),
-                                    Text('Galeria',
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.green.shade700)),
-                                  ]),
-                            ),
-                          ),
-                        ),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap:
-                                (_mediaPicking || _saving) ? null : _pickCamera,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: thumbSize,
-                              height: thumbSize,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: Colors.green.shade400),
-                              ),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.camera_alt_rounded,
-                                        color: Colors.green.shade700, size: 28),
-                                    const SizedBox(height: 4),
-                                    Text('Câmera',
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.green.shade700)),
-                                  ]),
-                            ),
-                          ),
-                        ),
-                      ]),
                     ]),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
 

@@ -143,8 +143,10 @@
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 /// 11.2.295+1608: Chat DM — excluir conversa (⋮ + seleção múltipla); MediaService compressão;
 /// upload otimista avisos/eventos/chat; gravação áudio AAC.
+/// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
+/// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1608';
+const String appBuildNumber = '1609';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

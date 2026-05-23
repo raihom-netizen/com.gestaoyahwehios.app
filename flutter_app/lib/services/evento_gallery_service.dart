@@ -8,10 +8,13 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_compress/video_compress.dart';
 
+import 'package:gestao_yahweh/core/media_upload_limits.dart'
+    show kMediaEventVideoMaxSeconds;
+
 import 'media_upload_service.dart';
 import 'video_duration.dart';
 
-/// Regra de negócio: cada evento pode ter no máximo 2 vídeos (60s cada), 20 fotos.
+/// Regra de negócio: cada evento pode ter no máximo 2 vídeos (90s cada), 20 fotos.
 /// Vídeos: verificação de duração no upload; fotos: comprimidas em Full HD (1920x1080).
 /// Vídeo: capa estática no Storage como `video_poster_*.jpg` (sem prefixo `thumb_`); URL no Firestore.
 class EventoGalleryService {
@@ -20,7 +23,7 @@ class EventoGalleryService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const int _maxVideosPerEvent = 2;
-  static const int _maxVideoSeconds = 60;
+  static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
   static const int _maxPhotosPerEvent = 20;
   static const int _photoQuality = 90;
   static const int _photoMaxWidth = 1920;

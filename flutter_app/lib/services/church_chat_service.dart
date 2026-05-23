@@ -1217,6 +1217,20 @@ class ChurchChatService {
     return true;
   }
 
+  /// Atualiza progresso no stub (regras: só `uploadProgress` enquanto `uploading`).
+  static Future<void> patchMediaUploadProgress({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required double progress,
+  }) async {
+    try {
+      await messagesCol(tenantId, threadId).doc(messageId).update({
+        'uploadProgress': progress.clamp(0.0, 1.0),
+      });
+    } catch (_) {}
+  }
+
   /// Remove stub se o upload falhar de forma irrecuperável.
   static Future<void> abandonMediaUploadMessage({
     required String tenantId,
@@ -1272,6 +1286,7 @@ class ChurchChatService {
     required String fileName,
     required String contentType,
     String? storagePathOverride,
+    bool skipRecompress = false,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
@@ -1284,12 +1299,19 @@ class ChurchChatService {
           threadId: threadId,
           fileName: fileName,
         );
+    final ct = contentType.toLowerCase();
+    final chatJpegFast = skipRecompress ||
+        ct.contains('jpeg') ||
+        ct == 'image/jpg' ||
+        ct == 'image/pjpeg';
     final url = await MediaUploadService.uploadFileWithRetry(
       storagePath: path,
       file: File(localPath),
       contentType: contentType,
       useOfflineQueue: false,
       maxAttempts: 2,
+      skipRecompress: skipRecompress,
+      chatJpegFast: chatJpegFast,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
     );

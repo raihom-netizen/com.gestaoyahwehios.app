@@ -137,7 +137,10 @@ class MediaHandlerService {
   Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
     BuildContext? webCropContext, {
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+    void Function(List<XFile> picked)? onGalleryPicked,
+    void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
     void Function(XFile encoded, int index, int total)? onEachReady,
+    void Function(int index, int total)? onEncodeSkipped,
   }) async {
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
@@ -146,12 +149,15 @@ class MediaHandlerService {
       maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : edge,
     );
     if (list.isEmpty) return [];
+    onGalleryPicked?.call(list);
     // ignore: use_build_context_synchronously
     return pickMultiCropEncodeFeedWebpSequential(
       list,
       webCropContext: webCropContext,
       webpOutputQuality: webpOutputQuality,
+      onPickedBeforeEncode: onPickedBeforeEncode,
       onEachReady: onEachReady,
+      onEncodeSkipped: onEncodeSkipped,
     );
   }
 }

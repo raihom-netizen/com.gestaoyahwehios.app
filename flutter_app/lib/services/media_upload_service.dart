@@ -178,12 +178,15 @@ class MediaUploadService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
     bool useOfflineQueue = true,
+    bool skipRecompress = false,
+    bool chatJpegFast = false,
   }) async {
-    if (_shouldCompressJpeg(contentType)) {
+    if (_shouldCompressJpeg(contentType) && !skipRecompress) {
       final fileBytes = await file.readAsBytes();
       final preparedBytes = await _prepareBytesForUpload(
         bytes: fileBytes,
         contentType: contentType,
+        chatJpegFast: chatJpegFast,
       );
       return uploadBytesWithRetry(
         storagePath: storagePath,
@@ -195,6 +198,8 @@ class MediaUploadService {
         onProgress: onProgress,
         onUploadTaskCreated: onUploadTaskCreated,
         useOfflineQueue: useOfflineQueue,
+        skipClientPrepare: true,
+        chatJpegFast: chatJpegFast,
       );
     }
     if (deleteFirebaseDownloadUrlsBefore != null) {
