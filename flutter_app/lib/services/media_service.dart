@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
@@ -63,10 +63,25 @@ abstract final class MediaService {
         MediaImageProfile.thumb => thumbJpegQuality,
       };
 
-  static CompressFormat _formatFor(MediaImageProfile profile) =>
-      profile == MediaImageProfile.feed
-          ? CompressFormat.webp
-          : CompressFormat.jpeg;
+  static CompressFormat _formatFor(MediaImageProfile profile) {
+    if (profile == MediaImageProfile.feed &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      return CompressFormat.jpeg;
+    }
+    return profile == MediaImageProfile.feed
+        ? CompressFormat.webp
+        : CompressFormat.jpeg;
+  }
+
+  static String _fileExtFor(MediaImageProfile profile) {
+    if (profile == MediaImageProfile.feed &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      return 'jpg';
+    }
+    return profile == MediaImageProfile.feed ? 'webp' : 'jpg';
+  }
 
   /// Comprime [File] de imagem — reduz ~6 MB para <400 KB mantendo nitidez em smartphones.
   static Future<File?> compressImage(
@@ -76,7 +91,7 @@ abstract final class MediaService {
     if (kIsWeb || !file.existsSync()) return null;
     try {
       final tempDir = await getTemporaryDirectory();
-      final ext = profile == MediaImageProfile.feed ? 'webp' : 'jpg';
+      final ext = _fileExtFor(profile);
       final targetPath =
           '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
       final edge = _edgeFor(profile);

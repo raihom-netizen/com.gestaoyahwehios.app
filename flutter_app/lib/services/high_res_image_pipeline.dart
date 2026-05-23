@@ -1,6 +1,8 @@
+import 'dart:io';
+
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -87,6 +89,54 @@ Future<XFile?> pickCropEncodeWebp({
 
 int get kEffectiveFeedCropParallel => kIsWeb ? 5 : 1;
 
+/// Teto do recorte nativo no telemóvel (evita OOM no iPhone com fotos 12MP+).
+int get _mobileCropMaxDimension =>
+    kIsWeb ? kHighResCropMaxWidth : kEffectiveFeedEncodeMaxEdgePx;
+
+bool get _feedIosUsesStableJpeg =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+/// No iOS, reduz no disco antes do [ImageCropper] (HEIC/RAW → JPEG leve).
+Future<XFile> _iosPreparePickedForCrop(XFile picked) async {
+  if (!_feedIosUsesStableJpeg) return picked;
+  try {
+    final f = File(picked.path);
+    if (!f.existsSync()) return picked;
+    final pre = await MediaService.compressImage(
+      f,
+      profile: MediaImageProfile.feed,
+    );
+    if (pre != null && pre.existsSync()) {
+      return XFile(pre.path);
+    }
+  } catch (e) {
+    if (kDebugMode) debugPrint('ios pre-crop compress: $e');
+  }
+  return picked;
+}
+
+/// Codifica mural no disco (sem carregar 10MB+ em RAM no iPhone).
+Future<XFile?> _encodeFeedImageFile(String pathIn) async {
+  final f = File(pathIn);
+  if (!f.existsSync()) return null;
+  try {
+    final out = await MediaService.compressImage(
+      f,
+      profile: MediaImageProfile.feed,
+    );
+    if (out == null || !out.existsSync()) return null;
+    final lower = out.path.toLowerCase();
+    final mime = lower.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+    final name = out.path.split(Platform.pathSeparator).last;
+    return XFile(out.path, mimeType: mime, name: name);
+  } catch (e) {
+    if (kDebugMode) debugPrint('encodeFeedImageFile: $e');
+    return null;
+  }
+}
+
 /// Galeria mural — recorte + WebP **um a um** (evita OOM no iPhone).
 Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
   List<XFile> picked, {
@@ -147,13 +197,17 @@ Future<XFile?> cropEncodePickedToWebp(
   BuildContext? webCropContext,
   int webpOutputQuality = kHighResWebpQuality,
 }) async {
+  var working = picked;
+  if (profile == HighResCropProfile.feedFree && !kIsWeb) {
+    working = await _iosPreparePickedForCrop(picked);
+  }
   final square = profile == HighResCropProfile.memberSquare;
 
   /// Mural feed: recorte Flutter premium **só na web**; iOS/Android usam [image_cropper] nativo (evita OOM).
   if (profile == HighResCropProfile.feedFree &&
       webCropContext != null &&
       kIsWeb) {
-    final bytes = await picked.readAsBytes();
+    final bytes = await working.readAsBytes();
     if (bytes.isEmpty) return null;
     // ignore: use_build_context_synchronously
     if (!webCropContext.mounted) return null;
@@ -213,10 +267,12 @@ Future<XFile?> cropEncodePickedToWebp(
       );
     }
   } else {
-    cropped = await ImageCropper().cropImage(
-      sourcePath: picked.path,
-      maxWidth: kHighResCropMaxWidth,
-      maxHeight: kHighResCropMaxHeight,
+    final cropMax = _mobileCropMaxDimension;
+    try {
+      cropped = await ImageCropper().cropImage(
+        sourcePath: working.path,
+        maxWidth: cropMax,
+        maxHeight: cropMax,
       compressQuality: kCropperCompressQuality,
       compressFormat: ImageCompressFormat.jpg,
       aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
@@ -268,11 +324,20 @@ Future<XFile?> cropEncodePickedToWebp(
         ),
       ],
     );
+    } catch (e) {
+      if (kDebugMode) debugPrint('ImageCropper: $e');
+      cropped = null;
+    }
   }
 
-  final pathIn = cropped?.path ?? picked.path;
-  final rawBytes = await XFile(pathIn).readAsBytes();
+  final pathIn = cropped?.path ?? working.path;
   final feed = profile == HighResCropProfile.feedFree;
+
+  if (!kIsWeb && feed) {
+    return _encodeFeedImageFile(pathIn);
+  }
+
+  final rawBytes = await XFile(pathIn).readAsBytes();
   final feedEdge = kEffectiveFeedEncodeMaxEdgePx;
   return _bytesToWebpXFile(
     rawBytes,
@@ -295,10 +360,12 @@ Future<XFile?> _bytesToWebpXFile(
       profile: MediaImageProfile.feed,
     );
     if (out.isEmpty) return null;
-    final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.webp';
+    final ext = _feedIosUsesStableJpeg ? 'jpg' : 'webp';
+    final mime = ext == 'webp' ? 'image/webp' : 'image/jpeg';
+    final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
     return XFile.fromData(
       out,
-      mimeType: 'image/webp',
+      mimeType: mime,
       name: name,
     );
   } catch (_) {
