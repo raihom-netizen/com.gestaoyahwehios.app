@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'image_helper.dart';
+import 'media_service.dart';
 import 'storage_upload_queue_service.dart';
 import 'upload_bytes_core.dart';
 
@@ -36,11 +37,11 @@ class MediaUploadService {
       }
     }
     if (!_shouldCompressJpeg(contentType)) return bytes;
-    var prepared = await ImageHelper.compressImage(
+    var prepared = await MediaService.compressImageBytes(
       bytes,
-      minWidth: chatJpegFast ? 960 : 800,
-      minHeight: chatJpegFast ? 720 : 600,
-      quality: chatJpegFast ? 58 : 68,
+      profile: chatJpegFast
+          ? MediaImageProfile.chat
+          : MediaImageProfile.feed,
     );
     if (prepared.length > mediaImagePreferredMaxBytesEffective) {
       prepared = await ImageHelper.compressImageUnderMaxBytes(

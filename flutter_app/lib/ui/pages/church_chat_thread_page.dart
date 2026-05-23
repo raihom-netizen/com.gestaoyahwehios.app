@@ -25,7 +25,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
-import 'package:gestao_yahweh/services/church_chat_video_prepare.dart';
+import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
@@ -41,8 +41,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
+import 'package:gestao_yahweh/services/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class _ReplyDraft {
@@ -153,8 +152,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   static const int _maxVoiceSeconds = 600;
 
-  AudioRecorder? _voiceRecorder;
-  String? _voiceRecordPath;
+  final ChatAudioService _chatAudio = ChatAudioService();
   bool _voiceRecording = false;
   Timer? _voiceTicker;
   Duration _voiceElapsed = Duration.zero;
@@ -242,15 +240,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
     _voiceTicker?.cancel();
-    final vr = _voiceRecorder;
-    if (vr != null) {
-      unawaited((() async {
-        try {
-          await vr.cancel();
-        } catch (_) {}
-        await vr.dispose();
-      })());
-    }
+    unawaited(_chatAudio.dispose());
     _prefsSub?.cancel();
     _msgSearchCtrl.dispose();
     _ctrl.dispose();
@@ -1323,11 +1313,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final x = await MediaHandlerService.instance.pickAndProcessImage(
+    final picker = ImagePicker();
+    final x = await picker.pickImage(
       source: source,
-      imageQuality: mediaChatImageQuality,
-      minWidth: mediaChatImageMaxWidth,
-      minHeight: mediaChatImageMaxHeight,
+      imageQuality: 100,
+      maxWidth: mediaChatImageMaxWidth.toDouble(),
+      maxHeight: mediaChatImageMaxHeight.toDouble(),
     );
     if (x == null) return;
     if (!mounted) return;
@@ -1458,14 +1449,25 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   void _removePending(String localId) {
     if (!mounted) return;
+    final removed =
+        _pendingOutbound.where((p) => p.localId == localId).toList();
     setState(() => _pendingOutbound.removeWhere((p) => p.localId == localId));
+    for (final p in removed) {
+      p.dispose();
+    }
   }
 
   void _setPendingProgress(String localId, double progress) {
     final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
     if (i < 0) return;
-    _pendingOutbound[i].progress = progress;
-    if (mounted) setState(() {});
+    final p = _pendingOutbound[i];
+    final clamped = progress.clamp(0.0, 1.0);
+    p.progress = clamped;
+    if ((p.progressListenable.value - clamped).abs() > 0.02 ||
+        clamped >= 1 ||
+        clamped <= 0) {
+      p.progressListenable.value = clamped;
+    }
   }
 
   Future<void> _flushPendingUpload({
@@ -1474,126 +1476,28 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     final replyPayload = _replyDraft?.toReplyPayload();
-    var uploadPath = localPath;
-    String? messageId = pending.firestoreMessageId;
-    String? storagePath = pending.storagePath;
-    try {
-      final compressFuture = pending.kind == 'video' &&
-              uploadPath != null &&
-              uploadPath.isNotEmpty &&
-              !kIsWeb
-          ? ChurchChatVideoPrepare.preparePathForUpload(uploadPath)
-          : null;
-
-      if (messageId == null || messageId.isEmpty) {
-        final parallel = await Future.wait<Object?>([
-          ChurchChatService.beginMediaUploadMessage(
-            tenantId: widget.tenantId,
-            threadId: widget.threadId,
-            kind: pending.kind,
-            fileName: pending.kind == 'document' ? pending.fileName : null,
-            replyTo: replyPayload,
-            senderDisplayName:
-                ChurchChatService.senderDisplayNameForNewMessage(),
-          ),
-          FeedPostMediaUpload.warmAuthToken(),
-          if (compressFuture != null) compressFuture else Future<String?>.value(null),
-        ]);
-        final begun = parallel[0]! as ({
-          String messageId,
-          String storagePath,
-        });
-        messageId = begun.messageId;
-        storagePath = begun.storagePath;
-        pending.firestoreMessageId = messageId;
-        pending.storagePath = storagePath;
-        if (compressFuture != null) {
-          uploadPath = parallel[2] as String?;
-          if (uploadPath != null && uploadPath.isNotEmpty) {
-            pending.localPath = uploadPath;
-          }
+    await OptimisticChatMediaUpload.flush(
+      pending: pending,
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      bytes: bytes,
+      localPath: localPath,
+      replyTo: replyPayload,
+      onProgress: (p) => _setPendingProgress(pending.localId, p),
+      onReplyCleared: () {
+        if (mounted) setState(() => _replyDraft = null);
+      },
+      onSuccess: () => _removePending(pending.localId),
+      onFailed: (msg) {
+        final i =
+            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+        if (i >= 0) {
+          _pendingOutbound[i].failed = true;
+          _pendingOutbound[i].errorMessage = msg;
+          if (mounted) setState(() {});
         }
-        if (mounted) {
-          setState(() => _replyDraft = null);
-        }
-      } else {
-        await Future.wait<Object?>([
-          FeedPostMediaUpload.warmAuthToken(),
-          if (compressFuture != null) compressFuture else Future<String?>.value(null),
-        ]);
-        if (compressFuture != null) {
-          uploadPath = await compressFuture;
-          if (uploadPath != null && uploadPath.isNotEmpty) {
-            pending.localPath = uploadPath;
-          }
-        }
-      }
-      final ({String url, String path}) up;
-      if (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb) {
-        up = await ChurchChatService.uploadChatFile(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          localPath: uploadPath,
-          fileName: pending.fileName,
-          contentType: pending.mime,
-          storagePathOverride: storagePath,
-          onProgress: (p) => _setPendingProgress(pending.localId, p),
-        );
-      } else if (bytes != null && bytes.isNotEmpty) {
-        up = await ChurchChatService.uploadChatBytes(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          bytes: bytes,
-          fileName: pending.fileName,
-          contentType: pending.mime,
-          storagePathOverride: storagePath,
-          onProgress: (p) => _setPendingProgress(pending.localId, p),
-        );
-      } else {
-        throw StateError('Sem dados para enviar.');
-      }
-      await ChurchChatService.completeMediaUploadMessage(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-        messageId: messageId!,
-        downloadUrl: up.url,
-        storagePath: up.path,
-        fileName: pending.kind == 'document' ? pending.fileName : null,
-      );
-      _removePending(pending.localId);
-    } on FirebaseException catch (e) {
-      if (messageId != null && messageId.isNotEmpty) {
-        unawaited(ChurchChatService.abandonMediaUploadMessage(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          messageId: messageId,
-        ));
-      }
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-      if (i >= 0) {
-        _pendingOutbound[i].failed = true;
-        _pendingOutbound[i].errorMessage = e.message ?? e.code;
-        _pendingOutbound[i].firestoreMessageId = null;
-        _pendingOutbound[i].storagePath = null;
-        if (mounted) setState(() {});
-      }
-    } catch (e) {
-      if (messageId != null && messageId.isNotEmpty) {
-        unawaited(ChurchChatService.abandonMediaUploadMessage(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          messageId: messageId,
-        ));
-      }
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-      if (i >= 0) {
-        _pendingOutbound[i].failed = true;
-        _pendingOutbound[i].errorMessage = '$e';
-        _pendingOutbound[i].firestoreMessageId = null;
-        _pendingOutbound[i].storagePath = null;
-        if (mounted) setState(() {});
-      }
-    }
+      },
+    );
   }
 
   Future<void> _uploadAndSendFromPath(
@@ -1602,22 +1506,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String mime,
     String kind,
   ) async {
-    final can = await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: widget.tenantId,
-      threadId: widget.threadId,
-    );
-    if (!can) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não é possível enviar — desbloqueie o contacto nas opções.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -1712,22 +1600,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String mime,
     String kind,
   ) async {
-    final can = await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: widget.tenantId,
-      threadId: widget.threadId,
-    );
-    if (!can) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não é possível enviar — desbloqueie o contacto nas opções.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -1762,10 +1634,38 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (p.kind == 'image' && p.previewBytes != null) {
       body = ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: Image.memory(
-          p.previewBytes!,
-          width: 200,
-          fit: BoxFit.cover,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Image.memory(
+              p.previewBytes!,
+              width: 200,
+              fit: BoxFit.cover,
+            ),
+            if (!p.failed)
+              ValueListenableBuilder<double>(
+                valueListenable: p.progressListenable,
+                builder: (context, progress, _) {
+                  if (progress >= 1) return const SizedBox.shrink();
+                  return Container(
+                    width: 200,
+                    height: 200,
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: Center(
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          value: progress > 0 ? progress : null,
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
         ),
       );
     } else if (!kIsWeb &&
@@ -1794,6 +1694,29 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 Icons.play_circle_fill_rounded,
                 size: 48,
                 color: Colors.white.withValues(alpha: 0.92),
+              ),
+            if (!p.failed && p.kind == 'image')
+              ValueListenableBuilder<double>(
+                valueListenable: p.progressListenable,
+                builder: (context, progress, _) {
+                  if (progress >= 1) return const SizedBox.shrink();
+                  return Container(
+                    width: 200,
+                    height: 200,
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: Center(
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          value: progress > 0 ? progress : null,
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
           ],
         ),
@@ -1844,10 +1767,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             body,
             const SizedBox(height: 6),
             if (!p.failed)
-              LinearProgressIndicator(
-                value: p.progress > 0 && p.progress < 1 ? p.progress : null,
-                minHeight: 3,
-                borderRadius: BorderRadius.circular(2),
+              ValueListenableBuilder<double>(
+                valueListenable: p.progressListenable,
+                builder: (context, progress, _) => LinearProgressIndicator(
+                  value: progress > 0 && progress < 1 ? progress : null,
+                  minHeight: 3,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               )
             else
               TextButton(
@@ -1926,8 +1852,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       }
       return;
     }
-    final recorder = AudioRecorder();
-    if (!await recorder.hasPermission()) {
+    if (!await _chatAudio.hasPermission()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1939,36 +1864,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ),
         );
       }
-      await recorder.dispose();
       return;
     }
-    AudioEncoder enc = AudioEncoder.aacLc;
-    if (!await recorder.isEncoderSupported(AudioEncoder.aacLc)) {
-      enc = AudioEncoder.wav;
-    }
-    final dir = await getTemporaryDirectory();
-    final ext = enc == AudioEncoder.wav ? 'wav' : 'm4a';
-    final path =
-        '${dir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
     try {
-      await recorder.start(
-        RecordConfig(encoder: enc),
-        path: path,
-      );
+      await _chatAudio.startRecording();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Não foi possível gravar: $e')),
         );
       }
-      await recorder.dispose();
       return;
     }
 
     setState(() {
-      _voiceRecorder = recorder;
-      _voiceRecordPath = path;
       _voiceRecording = true;
       _voiceElapsed = Duration.zero;
     });
@@ -2004,39 +1914,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ),
     );
 
-    final recorder = _voiceRecorder;
-    final expectedPath = _voiceRecordPath;
-
     setState(() {
       _voiceRecording = false;
-      _voiceRecorder = null;
-      _voiceRecordPath = null;
       _voiceElapsed = Duration.zero;
     });
 
-    if (recorder == null) return;
-
     if (!send) {
-      try {
-        await recorder.cancel();
-      } catch (_) {}
-      await recorder.dispose();
-      if (expectedPath != null && !kIsWeb) {
-        await churchChatDeleteFileQuiet(expectedPath);
-      }
+      await _chatAudio.stopRecording(send: false);
       return;
     }
 
-    String? outPath;
-    try {
-      outPath = await recorder.stop();
-    } catch (_) {}
-    await recorder.dispose();
-
-    final path = outPath ?? expectedPath;
-    if (path == null || kIsWeb) return;
+    final file = await _chatAudio.stopRecording(send: true);
+    if (file == null || kIsWeb) return;
 
     try {
+      final path = file.path;
       final lower = path.toLowerCase();
       final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
       final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
@@ -2118,6 +2010,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   value: !_prefs.isMutedThread(widget.threadId),
                 );
               } else if (v == 'hide_dm') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Excluir conversa?'),
+                    content: const Text(
+                      'Remove esta conversa da sua lista. A outra pessoa '
+                      'mantém o histórico — só desaparece para si.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancelar'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.error,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Excluir'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm != true || !context.mounted) return;
                 final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
                   tenantId: widget.tenantId,
                   threadId: widget.threadId,

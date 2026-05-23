@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+
 /// Mensagem local enquanto upload/envio ao Firestore não termina (estilo WhatsApp).
 class ChurchChatOutboundPending {
   ChurchChatOutboundPending({
@@ -22,6 +24,8 @@ class ChurchChatOutboundPending {
   final DateTime createdAt;
 
   double progress = 0;
+  /// Atualiza só a bolha pendente (sem rebuild da thread inteira).
+  final ValueNotifier<double> progressListenable = ValueNotifier(0);
   bool failed = false;
   String? errorMessage;
   bool cancelled = false;
@@ -29,4 +33,8 @@ class ChurchChatOutboundPending {
   /// Mensagem stub no Firestore (envio otimista).
   String? firestoreMessageId;
   String? storagePath;
+
+  void dispose() {
+    progressListenable.dispose();
+  }
 }

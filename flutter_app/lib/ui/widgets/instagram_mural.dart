@@ -80,6 +80,7 @@ import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 
@@ -3377,29 +3378,30 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      final files = await MediaHandlerService.instance
+      await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        onEachReady: (file, index, total) async {
+          if (!mounted) return;
+          if (widget.type == 'aviso' &&
+              _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
+            return;
+          }
+          final bytes = await file.readAsBytes();
+          if (!mounted || bytes.isEmpty) return;
+          setState(() {
+            _newImages.add(bytes);
+            _newNames.add(file.name);
+          });
+        },
       );
-      if (files.isEmpty || !mounted) return;
-      final cap = widget.type == 'aviso'
-          ? (kMaxAvisoFeedPhotosPerPost - _newImages.length).clamp(0, files.length)
-          : files.length;
-      final slice = files.take(cap).toList();
-      final bytesList =
-          await Future.wait(slice.map((f) => f.readAsBytes()));
-      if (!mounted) return;
-      setState(() {
-        for (var i = 0; i < slice.length; i++) {
-          _newImages.add(bytesList[i]);
-          _newNames.add(slice[i].name);
-        }
-      });
-      if (widget.type == 'aviso' && files.length > cap && mounted) {
+      if (widget.type == 'aviso' &&
+          _newImages.length >= kMaxAvisoFeedPhotosPerPost &&
+          mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'Só mais $cap foto(s) — limite de $kMaxAvisoFeedPhotosPerPost por aviso.',
+            'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
           ),
         );
       }
@@ -3876,11 +3878,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
-              if (_mediaPicking || _saving)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: LinearProgressIndicator(minHeight: 3),
-                ),
+              AsyncUploadProgressStrip(
+                localActive: _mediaPicking,
+                localLabel: 'A preparar fotos…',
+              ),
               // FOTOS
               Container(
                 padding: const EdgeInsets.all(16),

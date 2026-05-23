@@ -133,22 +133,25 @@ class MediaHandlerService {
         webCropContext: webCropContext,
       );
 
-  /// Várias imagens da galeria (mural) — recorte por foto + WebP.
+  /// Várias imagens da galeria (mural) — recorte por foto + WebP (sequencial no mobile).
   Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
     BuildContext? webCropContext, {
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+    void Function(XFile encoded, int index, int total)? onEachReady,
   }) async {
+    final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
       imageQuality: 100,
-      maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : null,
-      maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : null,
+      maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : edge,
+      maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : edge,
     );
     if (list.isEmpty) return [];
     // ignore: use_build_context_synchronously
-    return pickMultiCropEncodeFeedWebp(
+    return pickMultiCropEncodeFeedWebpSequential(
       list,
       webCropContext: webCropContext,
       webpOutputQuality: webpOutputQuality,
+      onEachReady: onEachReady,
     );
   }
 }

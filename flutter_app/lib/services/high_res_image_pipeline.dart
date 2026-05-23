@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -71,8 +72,8 @@ Future<XFile?> pickCropEncodeWebp({
   final picked = await picker.pickImage(
     source: source,
     imageQuality: 100,
-    maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : null,
-    maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : null,
+    maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
+    maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
   );
   if (picked == null) return null;
   if (ctx != null && !ctx.mounted) return null;
@@ -84,6 +85,32 @@ Future<XFile?> pickCropEncodeWebp({
   );
 }
 
+int get kEffectiveFeedCropParallel => kIsWeb ? 5 : 1;
+
+/// Galeria mural — recorte + WebP **um a um** (evita OOM no iPhone).
+Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
+  List<XFile> picked, {
+  BuildContext? webCropContext,
+  int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+  void Function(XFile encoded, int index, int total)? onEachReady,
+}) async {
+  if (picked.isEmpty) return const [];
+  final out = <XFile>[];
+  for (var i = 0; i < picked.length; i++) {
+    final encoded = await cropEncodePickedToWebp(
+      picked[i],
+      profile: HighResCropProfile.feedFree,
+      webCropContext: webCropContext,
+      webpOutputQuality: webpOutputQuality,
+    );
+    if (encoded != null) {
+      out.add(encoded);
+      onEachReady?.call(encoded, i, picked.length);
+    }
+  }
+  return out;
+}
+
 /// Várias fotos da galeria — recorte + WebP (até [parallel] em paralelo).
 Future<List<XFile>> pickMultiCropEncodeFeedWebp(
   List<XFile> picked, {
@@ -93,7 +120,7 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebp(
 }) async {
   if (picked.isEmpty) return const [];
   final out = <XFile>[];
-  final batch = parallel.clamp(1, 6);
+  final batch = (parallel > 0 ? parallel : kEffectiveFeedCropParallel).clamp(1, 6);
   for (var start = 0; start < picked.length; start += batch) {
     final chunk = picked.skip(start).take(batch).toList();
     final encoded = await Future.wait(
@@ -122,8 +149,10 @@ Future<XFile?> cropEncodePickedToWebp(
 }) async {
   final square = profile == HighResCropProfile.memberSquare;
 
-  /// Mural feed: um único fluxo Flutter (Confirmar/Cancelar na base, iOS-like).
-  if (profile == HighResCropProfile.feedFree && webCropContext != null) {
+  /// Mural feed: recorte Flutter premium **só na web**; iOS/Android usam [image_cropper] nativo (evita OOM).
+  if (profile == HighResCropProfile.feedFree &&
+      webCropContext != null &&
+      kIsWeb) {
     final bytes = await picked.readAsBytes();
     if (bytes.isEmpty) return null;
     // ignore: use_build_context_synchronously
@@ -261,17 +290,14 @@ Future<XFile?> _bytesToWebpXFile(
 }) async {
   if (rawBytes.isEmpty) return null;
   try {
-    final out = await FlutterImageCompress.compressWithList(
+    final out = await MediaService.compressImageBytes(
       rawBytes,
-      minWidth: encodeMaxWidth,
-      minHeight: encodeMaxHeight,
-      quality: quality,
-      format: CompressFormat.webp,
+      profile: MediaImageProfile.feed,
     );
     if (out.isEmpty) return null;
     final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.webp';
     return XFile.fromData(
-      Uint8List.fromList(out),
+      out,
       mimeType: 'image/webp',
       name: name,
     );

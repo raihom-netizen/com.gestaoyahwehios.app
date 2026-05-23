@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
@@ -73,20 +73,12 @@ class VideoHandlerService implements IVideoHandlerService {
       if (useOriginal) {
         compressed = File(path);
       } else {
-        final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
-          path,
-          quality: mediaVideoCompressQuality,
-          deleteOrigin: false,
-          includeAudio: true,
-        );
+        final mediaInfo = await MediaService.compressVideo(File(path));
         if (mediaInfo == null || mediaInfo.file == null) return null;
         compressed = mediaInfo.file!;
       }
 
-      File? thumbFile;
-      try {
-        thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
-      } catch (_) {}
+      final thumbFile = await MediaService.getVideoThumbnail(compressed);
 
       await FirebaseAuth.instance.currentUser?.getIdToken();
       final slot = videoSlotIndex.clamp(0, 1);

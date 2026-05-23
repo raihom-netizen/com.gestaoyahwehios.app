@@ -115,6 +115,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Timer? _presencePollTimer;
   String? _presencePollKey;
   late final VoidCallback _photoSyncListener;
+  bool _dmSelectMode = false;
+  final Set<String> _selectedDmThreadIds = <String>{};
 
   @override
   void initState() {
@@ -178,6 +180,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void _hubTabListener() {
     _syncGruposPulse();
     if (_hubTabController.indexIsChanging) return;
+    if (_hubTabController.index != 0 && _dmSelectMode) {
+      setState(_clearDmSelectUi);
+    }
     if (_hubTabController.index == 0) {
       _requestConversasResync();
     } else if (_hubTabController.index == 2) {
@@ -719,6 +724,243 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return parts.first;
   }
 
+  void _clearDmSelectUi() {
+    _dmSelectMode = false;
+    _selectedDmThreadIds.clear();
+  }
+
+  void _toggleDmSelectMode() {
+    setState(() {
+      if (_dmSelectMode) {
+        _clearDmSelectUi();
+      } else {
+        _dmSelectMode = true;
+      }
+    });
+  }
+
+  void _toggleDmThreadSelected(String threadId) {
+    setState(() {
+      if (_selectedDmThreadIds.contains(threadId)) {
+        _selectedDmThreadIds.remove(threadId);
+      } else {
+        _selectedDmThreadIds.add(threadId);
+      }
+    });
+  }
+
+  void _selectAllDmThreads(Iterable<String> threadIds) {
+    setState(() {
+      _selectedDmThreadIds
+        ..clear()
+        ..addAll(threadIds);
+    });
+  }
+
+  Future<bool> _confirmHideConversations(int count) async {
+    final n = count.clamp(1, 999);
+    final label = n == 1 ? 'esta conversa' : 'estas $n conversas';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(n == 1 ? 'Excluir conversa?' : 'Excluir conversas?'),
+        content: Text(
+          'Remove $label da sua lista. As mensagens mantêm-se no histórico '
+          'da outra pessoa — só desaparecem para si.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(n == 1 ? 'Excluir' : 'Excluir ($n)'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _hideDmThreadWithConfirm({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    if (!await _confirmHideConversations(1)) return;
+    final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+      tenantId: tenantId,
+      threadId: threadId,
+      hide: true,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Limite de conversas ocultas '
+            '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+          ),
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Conversa removida da sua lista.')),
+    );
+  }
+
+  Future<void> _commitBulkHideSelectedDmThreads(String tenantId) async {
+    final ids = _selectedDmThreadIds.toList();
+    if (ids.isEmpty) return;
+    if (!await _confirmHideConversations(ids.length)) return;
+    final result = await ChurchChatMemberPrefs.hideDmThreadsBatch(
+      tenantId: tenantId,
+      threadIds: ids,
+    );
+    if (!mounted) return;
+    if (result.hidden <= 0 && result.hitLimit) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Limite de conversas ocultas '
+            '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(_clearDmSelectUi);
+    final msg = result.hitLimit
+        ? '${result.hidden} conversa(s) removida(s). Limite de ocultas atingido.'
+        : '${result.hidden} conversa(s) removida(s) da sua lista.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  Widget _buildDmBulkSelectBar(
+    String tenantId,
+    List<String> displayedThreadIds,
+  ) {
+    final n = _selectedDmThreadIds.length;
+    final allSelected = displayedThreadIds.isNotEmpty &&
+        displayedThreadIds.every(_selectedDmThreadIds.contains);
+    return Material(
+      elevation: 12,
+      color: ThemeCleanPremium.cardBackground,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 12, 10),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Cancelar seleção',
+                onPressed: () => setState(_clearDmSelectUi),
+                icon: const Icon(Icons.close_rounded),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      n == 0
+                          ? 'Toque nas conversas para selecionar'
+                          : '$n selecionada${n == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    Text(
+                      'Conversas diretas',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (displayedThreadIds.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    if (allSelected) {
+                      setState(_selectedDmThreadIds.clear);
+                    } else {
+                      _selectAllDmThreads(displayedThreadIds);
+                    }
+                  },
+                  child: Text(
+                    allSelected ? 'Limpar' : 'Todas',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ),
+              FilledButton(
+                onPressed: n == 0
+                    ? null
+                    : () => unawaited(_commitBulkHideSelectedDmThreads(tenantId)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                child: const Text(
+                  'Excluir',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDmSelectionToolbar(int visibleCount) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _dmSelectMode
+                  ? 'Modo seleção — toque para marcar'
+                  : 'Mantenha premido ou use ⋮ para opções',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: ThemeCleanPremium.onSurfaceVariant,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: visibleCount == 0 ? null : _toggleDmSelectMode,
+            icon: Icon(
+              _dmSelectMode ? Icons.close_rounded : Icons.checklist_rounded,
+              size: 18,
+            ),
+            label: Text(_dmSelectMode ? 'Cancelar' : 'Selecionar'),
+            style: TextButton.styleFrom(
+              foregroundColor: ThemeCleanPremium.primary,
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showThreadActionsSheet({
     required BuildContext context,
     required String tenantId,
@@ -970,27 +1212,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     ),
                     onTap: () async {
                       Navigator.pop(ctx);
-                      final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+                      await _hideDmThreadWithConfirm(
                         tenantId: tenantId,
                         threadId: threadId,
-                        hide: true,
-                      );
-                      if (!context.mounted) return;
-                      if (!ok) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Limite de conversas ocultas '
-                              '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Conversa removida da sua lista.'),
-                        ),
                       );
                     },
                   ),
@@ -1343,6 +1567,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     break;
                 }
                 final displayed = sel.toList();
+                final displayedThreadIds = displayed.map((d) => d.id).toList();
+
+                threads.add(_buildDmSelectionToolbar(displayed.length));
 
                 if (displayed.isEmpty) {
                   threads.add(
@@ -1383,13 +1610,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   ));
                 }
 
-                return RefreshIndicator(
+                final listView = RefreshIndicator(
                   onRefresh: _pullRefreshConversas,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
                     children: threads,
                   ),
+                );
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: listView),
+                    if (_dmSelectMode)
+                      _buildDmBulkSelectBar(tid, displayedThreadIds),
+                  ],
                 );
               },
             );
@@ -1775,6 +2011,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             prefs,
             photoByPeerUid,
             memberByPeerUid,
+            selectionMode: _dmSelectMode,
+            selected: _selectedDmThreadIds.contains(docs[i].id),
+            onToggleSelected: () => _toggleDmThreadSelected(docs[i].id),
           ),
         ],
       ],
@@ -1788,8 +2027,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     ChurchChatMemberPrefsModel prefs,
     Map<String, String> photoByPeerUid,
-    Map<String, ChurchChatMemberRef> memberByPeerUid,
-  ) {
+    Map<String, ChurchChatMemberRef> memberByPeerUid, {
+    bool selectionMode = false,
+    bool selected = false,
+    VoidCallback? onToggleSelected,
+  }) {
     final data = doc.data();
     final peers = (data['participantUids'] as List?)
             ?.map((e) => e.toString())
@@ -1823,13 +2065,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         memberRef: memberRef,
         radius: 24,
       ),
-      showPresence: true,
+      showPresence: !selectionMode,
       online: online,
       isUnread: isUnread,
       isFavorite: prefs.isFavorite(doc.id),
       isPinned: prefs.isPinned(doc.id),
       isMuted: prefs.isMutedThread(doc.id),
+      selectionMode: selectionMode,
+      selected: selected,
       onTap: () {
+        if (selectionMode) {
+          onToggleSelected?.call();
+          return;
+        }
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             fullscreenDialog: true,
@@ -1845,15 +2093,28 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ),
         );
       },
-      onLongPress: () => _showThreadActionsSheet(
-        context: context,
-        tenantId: tid,
-        threadId: doc.id,
-        title: fullTitle,
-        isDepartment: false,
-        peerUid: peer,
-        prefs: prefs,
-      ),
+      onLongPress: selectionMode
+          ? onToggleSelected
+          : () => _showThreadActionsSheet(
+              context: context,
+              tenantId: tid,
+              threadId: doc.id,
+              title: fullTitle,
+              isDepartment: false,
+              peerUid: peer,
+              prefs: prefs,
+            ),
+      onMoreTap: selectionMode
+          ? null
+          : () => _showThreadActionsSheet(
+              context: context,
+              tenantId: tid,
+              threadId: doc.id,
+              title: fullTitle,
+              isDepartment: false,
+              peerUid: peer,
+              prefs: prefs,
+            ),
     );
   }
 
@@ -1864,12 +2125,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     required Widget photo,
     required VoidCallback onTap,
     VoidCallback? onLongPress,
+    VoidCallback? onMoreTap,
     bool showPresence = false,
     bool online = false,
     bool isUnread = false,
     bool isFavorite = false,
     bool isPinned = false,
     bool isMuted = false,
+    bool selectionMode = false,
+    bool selected = false,
     bool subtitleIsTyping = false,
     int subtitleMaxLines = 1,
     Widget? trailing,
@@ -1898,7 +2162,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Row(
             children: [
-              if (accent != Colors.transparent)
+              if (selectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: (_) => onTap(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                )
+              else if (accent != Colors.transparent)
                 Container(
                   width: 3,
                   height: 52,
@@ -1999,6 +2273,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (!selectionMode && onMoreTap != null)
+                        IconButton(
+                          tooltip: 'Opções da conversa',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          icon: Icon(
+                            Icons.more_vert_rounded,
+                            size: 20,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                          onPressed: onMoreTap,
+                        ),
                       if (trailing != null) trailing,
                     ],
                   ),

@@ -245,8 +245,7 @@ class ChurchChatMemberPrefs {
   }) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final tid = threadId.trim();
-    if (tid.isEmpty) return false;
-    if (!tid.startsWith('dm_')) return false;
+    if (tid.isEmpty || !_canHideDmThreadId(tid)) return false;
     if (hide) {
       final cur = await load(tenantId);
       final ids = cur.hiddenDmThreadIds.toSet();
@@ -264,6 +263,46 @@ class ChurchChatMemberPrefs {
       SetOptions(merge: true),
     );
     return true;
+  }
+
+  /// Oculta várias conversas diretas de uma vez (modo seleção no hub).
+  static Future<({int hidden, bool hitLimit})> hideDmThreadsBatch({
+    required String tenantId,
+    required Iterable<String> threadIds,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ids = threadIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && _canHideDmThreadId(e))
+        .toSet();
+    if (ids.isEmpty) return (hidden: 0, hitLimit: false);
+
+    final cur = await load(tenantId);
+    final already = cur.hiddenDmThreadIds.toSet();
+    final toAdd = ids.where((id) => !already.contains(id)).toList();
+    if (toAdd.isEmpty) return (hidden: 0, hitLimit: false);
+
+    var hitLimit = false;
+    final room = maxHiddenDmThreads - already.length;
+    if (room <= 0) return (hidden: 0, hitLimit: true);
+    if (toAdd.length > room) {
+      toAdd.removeRange(room, toAdd.length);
+      hitLimit = true;
+    }
+
+    await docRef(tenantId, uid).set(
+      {
+        'hiddenDmThreadIds': FieldValue.arrayUnion(toAdd),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return (hidden: toAdd.length, hitLimit: hitLimit);
+  }
+
+  static bool _canHideDmThreadId(String threadId) {
+    if (threadId.startsWith('dept_')) return false;
+    return threadId.startsWith('dm_') || !threadId.contains('/');
   }
 
   static Future<bool> setPinnedThread({

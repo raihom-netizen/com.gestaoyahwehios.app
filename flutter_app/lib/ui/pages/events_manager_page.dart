@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -3561,6 +3562,9 @@ class _EventoPostState extends State<_EventoPost>
     final title = (data['title'] ?? '').toString();
     final allImages = _eventFeedCardPhotoUrls(data);
     final hasImages = allImages.isNotEmpty;
+    final publishState = (data['publishState'] ?? '').toString();
+    final mediaUploading =
+        publishState == MuralFastPublishService.stateUploading;
     final location = (data['location'] ?? '').toString();
     final eventVideos = _eventVideosFromData(data);
     final videoUrl = eventVideos.isNotEmpty
@@ -3863,7 +3867,72 @@ class _EventoPostState extends State<_EventoPost>
               ),
             if (!hasImages &&
                 !hasVideoRow &&
-                (title.isNotEmpty || eventDateStr.isNotEmpty))
+                mediaUploading)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                child: FutureBuilder<List<Uint8List>?>(
+                  future: MuralPostPendingMediaCache.get(
+                    tenantId: widget.tenantId,
+                    postId: widget.doc.id,
+                  ),
+                  builder: (context, pendingSnap) {
+                    final pending = pendingSnap.data;
+                    if (pending == null || pending.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusLg),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.memory(pending.first, fit: BoxFit.cover),
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 12,
+                                ),
+                                color: Colors.black.withValues(alpha: 0.45),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'A enviar ${pending.length} foto${pending.length > 1 ? 's' : ''}…',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            if (!hasImages &&
+                !hasVideoRow &&
+                (title.isNotEmpty || eventDateStr.isNotEmpty) &&
+                !mediaUploading)
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
                 child: AspectRatio(
@@ -5672,29 +5741,27 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      final files = await MediaHandlerService.instance
+      await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        onEachReady: (file, index, total) async {
+          if (!mounted) return;
+          final totalAtual = _existingUrls.length + _newImages.length;
+          if (totalAtual >= _maxPhotosPerEvent) return;
+          final bytes = await file.readAsBytes();
+          if (!mounted || bytes.isEmpty) return;
+          setState(() {
+            _newImages.add(bytes);
+            _newNames.add(file.name);
+          });
+        },
       );
-      if (files.isEmpty || !mounted) return;
-      final room = _maxPhotosPerEvent - _existingUrls.length - _newImages.length;
-      final cap = room.clamp(0, files.length);
-      final slice = files.take(cap).toList();
-      if (slice.isEmpty) return;
-      final bytesList =
-          await Future.wait(slice.map((f) => f.readAsBytes()));
-      if (!mounted) return;
-      setState(() {
-        for (var i = 0; i < slice.length; i++) {
-          _newImages.add(bytesList[i]);
-          _newNames.add(slice[i].name);
-        }
-      });
-      if (files.length > cap && mounted) {
+      if ((_existingUrls.length + _newImages.length) >= _maxPhotosPerEvent &&
+          mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-              'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
+              'Limite de $_maxPhotosPerEvent fotos por evento. Remova alguma para adicionar mais.'),
           backgroundColor: ThemeCleanPremium.error,
           behavior: SnackBarBehavior.floating,
         ));
@@ -6662,10 +6729,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           height: 1.35,
                           color: Colors.grey.shade600),
                     ),
-                    if (_mediaPicking) ...[
-                      const SizedBox(height: 10),
-                      const LinearProgressIndicator(minHeight: 3),
-                    ],
+                    AsyncUploadProgressStrip(
+                      localActive: _mediaPicking || _uploadingVideo,
+                      localLabel: _uploadingVideo
+                          ? 'A enviar vídeo em segundo plano…'
+                          : 'A preparar fotos…',
+                    ),
                     const SizedBox(height: 12),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       ...allPreviews,
