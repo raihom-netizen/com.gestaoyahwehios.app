@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/services/church_chat_church_features.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -1952,6 +1953,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'updatedAt': tsNow,
         'active': true,
       });
+      unawaited(
+        ChurchChatChurchFeatures.notifyDepartmentEscalaCreated(
+          tenantId: tid,
+          departmentId: deptId,
+          departmentName: deptName,
+          escalaTitle: title,
+          when: dt,
+          timeLabel: time,
+        ),
+      );
     }
     await batch.commit();
     if (mounted) {

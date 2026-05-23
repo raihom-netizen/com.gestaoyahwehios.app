@@ -57,6 +57,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
+import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
@@ -547,6 +548,7 @@ void main() async {
   try {
     await AppConnectivityService.instance.start();
     StorageUploadQueueService.instance.start();
+    MuralPublishOutboxService.resumePendingOnAppStart();
   } catch (_) {}
   String initialRoute =
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';

@@ -1,0 +1,190 @@
+import 'dart:async' show unawaited;
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Reenvio de publicações do mural interrompidas (app fechado, rede, etc.).
+abstract final class MuralPublishOutboxService {
+  MuralPublishOutboxService._();
+
+  static const _prefsKey = 'mural_publish_outbox_v1';
+
+  static DocumentReference<Map<String, dynamic>> _docRef(
+    String tenantId,
+    String postType,
+    String postId,
+  ) {
+    final col = postType == 'aviso'
+        ? ChurchTenantPostsCollections.avisos
+        : ChurchTenantPostsCollections.noticias;
+    return FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection(col)
+        .doc(postId);
+  }
+
+  static Future<void> registerJob({
+    required String tenantId,
+    required String postId,
+    required String postType,
+    required List<String> existingUrls,
+    required int startSlotIndex,
+    required bool hasVideo,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    final list = raw == null || raw.isEmpty
+        ? <Map<String, dynamic>>[]
+        : (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    list.removeWhere(
+      (e) =>
+          (e['tenantId'] ?? '').toString() == tenantId &&
+          (e['postId'] ?? '').toString() == postId,
+    );
+    list.add({
+      'tenantId': tenantId,
+      'postId': postId,
+      'postType': postType,
+      'existingUrls': existingUrls,
+      'startSlotIndex': startSlotIndex,
+      'hasVideo': hasVideo,
+    });
+    await prefs.setString(_prefsKey, jsonEncode(list));
+  }
+
+  static Future<void> clearJob({
+    required String tenantId,
+    required String postId,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return;
+    final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    list.removeWhere(
+      (e) =>
+          (e['tenantId'] ?? '').toString() == tenantId &&
+          (e['postId'] ?? '').toString() == postId,
+    );
+    await prefs.setString(_prefsKey, jsonEncode(list));
+  }
+
+  /// Arranque da app — conclui uploads com ficheiros ainda em cache.
+  static void resumePendingOnAppStart() {
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_prefsKey);
+        if (raw == null || raw.isEmpty) return;
+        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+        for (final m in list) {
+          await _retryFromJson(m);
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('MuralPublishOutbox resume: $e');
+        }
+      }
+    }());
+  }
+
+  static Future<void> retryFromCard({
+    required String tenantId,
+    required String postId,
+    required String postType,
+    required List<String> existingUrls,
+    required int startSlotIndex,
+    required bool hasVideo,
+  }) async {
+    await _retryFromJson({
+      'tenantId': tenantId,
+      'postId': postId,
+      'postType': postType,
+      'existingUrls': existingUrls,
+      'startSlotIndex': startSlotIndex,
+      'hasVideo': hasVideo,
+    });
+  }
+
+  static Future<void> _retryFromJson(Map<String, dynamic> json) async {
+    final tenantId = (json['tenantId'] ?? '').toString();
+    final postId = (json['postId'] ?? '').toString();
+    final postType = (json['postType'] ?? 'aviso').toString();
+    if (tenantId.isEmpty || postId.isEmpty) return;
+
+    final images = await MuralPostPendingMediaCache.get(
+      tenantId: tenantId,
+      postId: postId,
+    );
+    if (images == null || images.isEmpty) return;
+
+    final docRef = _docRef(tenantId, postType, postId);
+    final snap = await docRef.get();
+    if (!snap.exists) {
+      await clearJob(tenantId: tenantId, postId: postId);
+      await MuralPostPendingMediaCache.remove(
+        tenantId: tenantId,
+        postId: postId,
+      );
+      return;
+    }
+    final state = (snap.data()?['publishState'] ?? '').toString();
+    if (state == MuralFastPublishService.statePublished) {
+      await clearJob(tenantId: tenantId, postId: postId);
+      await MuralPostPendingMediaCache.remove(
+        tenantId: tenantId,
+        postId: postId,
+      );
+      return;
+    }
+
+    final existingUrls = (json['existingUrls'] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        <String>[];
+    final startSlot = json['startSlotIndex'] is int
+        ? json['startSlotIndex'] as int
+        : int.tryParse('${json['startSlotIndex']}') ?? 0;
+    final hasVideo = json['hasVideo'] == true;
+
+    await docRef.set(
+      {
+        'publishState': MuralFastPublishService.stateUploading,
+        'publishError': FieldValue.delete(),
+      },
+      SetOptions(merge: true),
+    );
+
+    await MuralFastPublishService.uploadImagesAndFinalizePost(
+      docRef: docRef,
+      tenantId: tenantId,
+      postId: postId,
+      postType: postType,
+      newImages: images,
+      existingUrls: existingUrls,
+      startSlotIndex: startSlot,
+      hasVideo: hasVideo,
+      uploadSlot: (bytes, slot, report) => MuralPostMediaPayload.uploadPhotoSlot(
+        tenantId: tenantId,
+        postType: postType,
+        postId: postId,
+        bytes: bytes,
+        slotIndex: slot,
+        onProgress: report,
+      ),
+      buildMediaFields: ({required allUrls, required aspectRatio, required hasVideo}) =>
+          MuralPostMediaPayload.buildMediaFields(
+        allUrls: allUrls,
+        aspectRatio: aspectRatio,
+        hasVideo: hasVideo,
+      ),
+    );
+  }
+}

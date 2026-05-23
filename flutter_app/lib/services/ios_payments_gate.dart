@@ -120,21 +120,17 @@ class IosPaymentsGate {
     }
   }
 
-  /// URL do site: login da igreja em `/igreja/login/apple` (sem `after` vai a
-  /// `/atualizar-plano` no site) e, após autenticar, fluxo de planos/checkout.
-  ///
-  /// O Safari abre o mesmo ecrã de credenciais (Google / Apple / e-mail),
-  /// com `igrejaId` nas claims antes do checkout embebido.
-  static Uri churchWebLoginThenAtualizarPlanoUri({
+  /// Rota expressa web `/atualizar-plano` — se já houver sessão no Safari, vai
+  /// direto aos planos; senão mostra Google, Apple e e-mail/senha na mesma página.
+  static Uri churchAtualizarPlanoExpressUri({
     String utmMedium = 'manage_subscription',
     String? email,
   }) {
     final base = AppConstants.publicWebBaseUrl.trim();
     final root =
         base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    return Uri.parse('$root/igreja/login/apple').replace(
+    return Uri.parse('$root/atualizar-plano').replace(
       queryParameters: <String, String>{
-        'after': '/atualizar-plano?from=ios_app',
         'from': 'ios_app',
         'utm_source': 'app_ios',
         'utm_medium': utmMedium,
@@ -142,6 +138,13 @@ class IosPaymentsGate {
       },
     );
   }
+
+  /// Compatível com chamadas antigas — mesmo destino que [churchAtualizarPlanoExpressUri].
+  static Uri churchWebLoginThenAtualizarPlanoUri({
+    String utmMedium = 'manage_subscription',
+    String? email,
+  }) =>
+      churchAtualizarPlanoExpressUri(utmMedium: utmMedium, email: email);
 
   /// Em iOS Reader/SaaS: abre o site no **login da igreja**; depois do login
   /// segue para alteração de plano (PIX/cartão na própria página web).

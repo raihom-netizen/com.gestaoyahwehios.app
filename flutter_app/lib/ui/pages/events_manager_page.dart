@@ -18,6 +18,9 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -5776,6 +5779,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       .where((m) => (m['videoUrl'] as String).isNotEmpty)
       .toList();
 
+  /// Se o evento já foi gravado no Firestore, atualiza vídeos após upload em background.
+  Future<void> _mergeEventVideosToFirestoreIfPublished() async {
+    if (_eventVideos.isEmpty) return;
+    try {
+      final snap = await _eventDocRef.get();
+      if (!snap.exists) return;
+      final data = snap.data() ?? <String, dynamic>{};
+      final patch = _eventMediaFields(
+        allUrlsSafe: _safePhotoUrls(eventNoticiaPhotoUrls(data)),
+        allowDeleteSentinels: false,
+      );
+      patch['updatedAt'] = FieldValue.serverTimestamp();
+      await _eventDocRef.set(patch, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   Map<String, dynamic> _eventMediaFields({
     required List<String> allUrlsSafe,
     double? aspectRatio,
@@ -6010,10 +6029,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _uploadingVideo = false;
         _videoUploadFraction = null;
       });
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
                 'Vídeo anexado (máx. ${_maxVideoSeconds}s, até $_maxVideosPerEvent por evento).'));
+      }
+      unawaited(_mergeEventVideosToFirestoreIfPublished());
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -6229,17 +6250,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
-    if (_uploadingVideo) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Aguarde o vídeo terminar de enviar ou cancele antes de publicar.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
     setState(() => _saving = true);
     final docRef = _eventDocRef;
     final postId = docRef.id;
@@ -6289,6 +6299,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
 
         if (imagesCopy.isNotEmpty) {
+          final hasVideo = _eventVideos.isNotEmpty;
+          await MuralPostPendingMediaCache.put(
+            tenantId: widget.tenantId,
+            postId: postId,
+            images: imagesCopy,
+          );
+          await MuralPublishOutboxService.registerJob(
+            tenantId: widget.tenantId,
+            postId: postId,
+            postType: 'evento',
+            existingUrls: allUrlsSafe,
+            startSlotIndex: initialLen,
+            hasVideo: hasVideo,
+          );
           unawaited(
             MuralFastPublishService.uploadImagesAndFinalizePost(
               docRef: docRef,
@@ -6298,15 +6322,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               newImages: imagesCopy,
               existingUrls: allUrlsSafe,
               startSlotIndex: initialLen,
-              uploadSlot: (bytes, slot, report) async {
-                final r = await _upload(
-                  bytes,
-                  postId,
-                  slot,
-                  onProgress: report,
-                );
-                return r.downloadUrl;
-              },
+              hasVideo: hasVideo,
+              uploadSlot: (bytes, slot, report) =>
+                  MuralPostMediaPayload.uploadPhotoSlot(
+                tenantId: widget.tenantId,
+                postType: 'evento',
+                postId: postId,
+                bytes: bytes,
+                slotIndex: slot,
+                onProgress: report,
+              ),
               buildMediaFields: ({
                 required allUrls,
                 required aspectRatio,

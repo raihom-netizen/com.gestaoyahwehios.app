@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
 
@@ -14,6 +17,8 @@ abstract final class MuralFastPublishService {
   static const String stateUploading = 'uploading';
   static const String statePublished = 'published';
   static const String stateFailed = 'failed';
+
+  static const Duration _batchTimeout = Duration(minutes: 12);
 
   /// Sobe fotos em paralelo e faz merge no post; push FCM só após `published` (Function).
   static Future<void> uploadImagesAndFinalizePost({
@@ -36,15 +41,16 @@ abstract final class MuralFastPublishService {
       required bool hasVideo,
     })
         buildMediaFields,
+    bool hasVideo = false,
   }) async {
     try {
-      await FeedPostMediaUpload.warmAuthToken();
+      await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
         count: newImages.length,
         progressLabel: 'A enviar imagens…',
-        uploadOne: (i, report) =>
-            uploadSlot(newImages[i], startSlotIndex + i, report),
-      );
+        uploadOne: (i, report) => uploadSlot(newImages[i], startSlotIndex + i, report)
+            .timeout(const Duration(minutes: 4)),
+      ).timeout(_batchTimeout);
       final allUrls = dedupeImageRefsByStorageIdentity([
         ...existingUrls,
         ...uploaded,
@@ -57,13 +63,21 @@ abstract final class MuralFastPublishService {
       final patch = buildMediaFields(
         allUrls: allUrls,
         aspectRatio: aspectRatio,
-        hasVideo: false,
+        hasVideo: hasVideo,
       );
       patch['publishState'] = statePublished;
       patch['pendingImageCount'] = FieldValue.delete();
       patch['publishError'] = FieldValue.delete();
       patch['updatedAt'] = FieldValue.serverTimestamp();
       await docRef.set(patch, SetOptions(merge: true));
+      await MuralPostPendingMediaCache.remove(
+        tenantId: tenantId,
+        postId: postId,
+      );
+      await MuralPublishOutboxService.clearJob(
+        tenantId: tenantId,
+        postId: postId,
+      );
       if (postType == 'aviso') {
         FirebaseStorageCleanupService.scheduleCleanupAfterAvisoPostImageUpload(
           tenantId: tenantId,
@@ -75,16 +89,28 @@ abstract final class MuralFastPublishService {
           postDocId: postId,
         );
       }
+    } on TimeoutException {
+      await _markFailed(
+        docRef: docRef,
+        message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
+      );
     } catch (e) {
-      try {
-        await docRef.set(
-          {
-            'publishState': stateFailed,
-            'publishError': e.toString(),
-          },
-          SetOptions(merge: true),
-        );
-      } catch (_) {}
+      await _markFailed(docRef: docRef, message: e.toString());
     }
+  }
+
+  static Future<void> _markFailed({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String message,
+  }) async {
+    try {
+      await docRef.set(
+        {
+          'publishState': stateFailed,
+          'publishError': message.length > 400 ? message.substring(0, 400) : message,
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
   }
 }

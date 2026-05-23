@@ -9,6 +9,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart';
@@ -403,6 +404,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         final now = DateTime.now();
         final names = <String>[];
         var unnamed = 0;
+        var recording = 0;
         for (final d in snap.data!.docs) {
           if (d.id == myUid) continue;
           final data = d.data();
@@ -410,14 +412,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (ts is! Timestamp) continue;
           if (now.difference(ts.toDate()).inSeconds > 5) continue;
           final lb = (data['label'] ?? '').toString().trim();
-          if (lb.isNotEmpty) {
+          if (lb == ChurchChatService.typingLabelRecording) {
+            recording++;
+          } else if (lb.isNotEmpty) {
             names.add(lb);
           } else {
             unnamed++;
           }
         }
-        if (names.isEmpty && unnamed == 0) return const SizedBox.shrink();
+        if (names.isEmpty && unnamed == 0 && recording == 0) {
+          return const SizedBox.shrink();
+        }
         final text = () {
+          if (recording > 0 && names.isEmpty && unnamed == 0) {
+            return recording == 1
+                ? 'A gravar áudio…'
+                : '$recording pessoas a gravar áudio…';
+          }
           if (names.isEmpty) {
             return unnamed == 1
                 ? 'A digitar…'
@@ -1182,7 +1193,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _showAttachmentSheet() async {
-    if (_sending) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1315,12 +1325,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _pickImage(ImageSource source) async {
     final x = await MediaHandlerService.instance.pickAndProcessImage(
       source: source,
-      imageQuality: 64,
-      minWidth: 1000,
-      minHeight: 750,
+      imageQuality: mediaChatImageQuality,
+      minWidth: mediaChatImageMaxWidth,
+      minHeight: mediaChatImageMaxHeight,
     );
     if (x == null) return;
-    final bytes = await x.readAsBytes();
     if (!mounted) return;
     final name = x.name.isNotEmpty ? x.name : 'foto.jpg';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
@@ -1328,9 +1337,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       fileName: name,
       mime: mime,
     );
+    if (!kIsWeb && (x.path ?? '').isNotEmpty) {
+      final path = x.path!;
+      final send = await showChurchChatMediaPreviewSheet(
+        context,
+        localPath: path,
+        title: 'Enviar foto',
+        isVideo: false,
+      );
+      if (!send || !mounted) return;
+      unawaited(_uploadAndSendFromPath(path, name, mime, kind));
+      return;
+    }
+    final bytes = await x.readAsBytes();
+    if (!mounted) return;
     final send = await showChurchChatMediaPreviewSheet(
       context,
-      previewBytes: bytes,
+      previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
       title: 'Enviar foto',
       isVideo: false,
     );
@@ -1430,18 +1453,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   void _enqueuePending(ChurchChatOutboundPending pending) {
     if (!mounted) return;
-    setState(() {
-      _pendingOutbound.insert(0, pending);
-      _sending = true;
-    });
+    setState(() => _pendingOutbound.insert(0, pending));
   }
 
   void _removePending(String localId) {
     if (!mounted) return;
-    setState(() {
-      _pendingOutbound.removeWhere((p) => p.localId == localId);
-      _sending = _pendingOutbound.any((p) => !p.failed && !p.cancelled);
-    });
+    setState(() => _pendingOutbound.removeWhere((p) => p.localId == localId));
   }
 
   void _setPendingProgress(String localId, double progress) {
@@ -1544,9 +1561,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _pendingOutbound[i].errorMessage = e.message ?? e.code;
         _pendingOutbound[i].firestoreMessageId = null;
         _pendingOutbound[i].storagePath = null;
-        if (mounted) {
-          setState(() => _sending = false);
-        }
+        if (mounted) setState(() {});
       }
     } catch (e) {
       if (messageId != null && messageId.isNotEmpty) {
@@ -1562,9 +1577,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _pendingOutbound[i].errorMessage = '$e';
         _pendingOutbound[i].firestoreMessageId = null;
         _pendingOutbound[i].storagePath = null;
-        if (mounted) {
-          setState(() => _sending = false);
-        }
+        if (mounted) setState(() {});
       }
     }
   }
@@ -1593,10 +1606,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    await ChurchChatService.clearTypingForMe(
+    unawaited(ChurchChatService.clearTypingForMe(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
-    );
+    ));
     final pending = ChurchChatOutboundPending(
       localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
       kind: kind,
@@ -1703,10 +1716,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    await ChurchChatService.clearTypingForMe(
+    unawaited(ChurchChatService.clearTypingForMe(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
-    );
+    ));
     final preview = kind == 'image'
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : null;
@@ -1849,9 +1862,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ),
                 const SizedBox(width: 4),
                 Icon(
-                  Icons.schedule_rounded,
+                  p.failed
+                      ? Icons.error_outline_rounded
+                      : (p.progress >= 1
+                          ? Icons.done_all_rounded
+                          : Icons.schedule_rounded),
                   size: 14,
-                  color: ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
+                  color: p.failed
+                      ? ThemeCleanPremium.error
+                      : ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
                 ),
               ],
             ),
@@ -1939,6 +1958,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _voiceRecording = true;
       _voiceElapsed = Duration.zero;
     });
+    unawaited(
+      ChurchChatService.setTypingActive(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        active: true,
+        displayLabel: ChurchChatService.typingLabelRecording,
+      ),
+    );
 
     _voiceTicker?.cancel();
     _voiceTicker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1956,6 +1983,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _finishVoiceRecording({required bool send}) async {
     _voiceTicker?.cancel();
     _voiceTicker = null;
+    unawaited(
+      ChurchChatService.clearTypingForMe(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+      ),
+    );
 
     final recorder = _voiceRecorder;
     final expectedPath = _voiceRecordPath;
@@ -2871,9 +2904,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
-                    onPressed: (_sending || _voiceRecording)
-                        ? null
-                        : _showAttachmentSheet,
+                    onPressed: _voiceRecording ? null : _showAttachmentSheet,
                     icon: Icon(Icons.attach_file_rounded,
                         color: ThemeCleanPremium.onSurfaceVariant),
                     tooltip: 'Foto, vídeo, documento…',

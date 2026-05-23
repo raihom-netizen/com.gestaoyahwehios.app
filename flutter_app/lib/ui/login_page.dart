@@ -177,11 +177,17 @@ class _LoginPageState extends State<LoginPage> {
   Map<String, EffectivePlanConfig>? _effectivePlanConfigs;
   StreamSubscription<Map<String, EffectivePlanConfig>>? _effectivePlanConfigsSub;
 
-  bool get _showAppleSignInButton =>
-      !_simplifiedGoogleOnlyLogin &&
-      !kIsWeb &&
-      defaultTargetPlatform == TargetPlatform.iOS &&
-      _appleSignInAvailable;
+  bool get _showAppleSignInButton {
+    if (_simplifiedGoogleOnlyLogin) return false;
+    if (kIsWeb) {
+      return widget.churchWebAppleIosRenewEntry ||
+          loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute);
+    }
+    return defaultTargetPlatform == TargetPlatform.iOS && _appleSignInAvailable;
+  }
+
+  bool get _showAppleSignInButtonWeb =>
+      kIsWeb && _showAppleSignInButton;
 
   String get _painelLoginRoute => widget.afterLoginRoute.split('?').first;
 
@@ -224,7 +230,8 @@ class _LoginPageState extends State<LoginPage> {
     _senhaController.addListener(_clearError);
     _loadSavedCredentials();
     if (kIsWeb &&
-        loginAfterTargetsPainelOrAtualizarPlano(widget.afterLoginRoute) &&
+        (loginAfterTargetsPainelOrAtualizarPlano(widget.afterLoginRoute) ||
+            widget.churchWebAppleIosRenewEntry) &&
         !_isMasterAdminLogin) {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _completeGoogleRedirectIfNeeded());
@@ -246,12 +253,16 @@ class _LoginPageState extends State<LoginPage> {
   /// Reabrir app: sessão Firebase ou Google silencioso → painel com dados já aquecidos.
   Future<void> _restoreSessionOnLoginPageOpen() async {
     if (!mounted) return;
-    if (_painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
+    if (_isMasterAdminLogin) return;
+    final targetPath = _painelLoginRoute;
+    if (!loginAfterTargetsPainelOrAtualizarPlano(targetPath)) return;
 
     final existing = FirebaseAuth.instance.currentUser;
     if (existing != null && !existing.isAnonymous) {
-      unawaited(ChurchAutoSessionService.preheatPanelCaches());
-      _goToPainelIfStillMounted();
+      if (targetPath == '/painel') {
+        unawaited(ChurchAutoSessionService.preheatPanelCaches());
+      }
+      _goToPostLoginTargetIfStillMounted();
       return;
     }
 
@@ -276,17 +287,27 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _goToPainelIfStillMounted() {
+  void _goToPostLoginTargetIfStillMounted() {
     if (!mounted) return;
-    if (kIsWeb && widget.churchWebAppleIosRenewEntry) {
-      final target = widget.afterLoginRoute.trim();
+    final target = widget.afterLoginRoute.trim();
+    if (kIsWeb &&
+        (widget.churchWebAppleIosRenewEntry ||
+            loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute))) {
       if (target.isNotEmpty) {
         Navigator.of(context).pushNamedAndRemoveUntil(target, (_) => false);
       }
       return;
     }
     if (kIsWeb || _nativeChurchLogin) {
-      Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
+      final path = target.split('?').first;
+      if (loginAfterTargetsPainelOrAtualizarPlano(path) && path != '/painel') {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          target.isNotEmpty ? target : path,
+          (_) => false,
+        );
+      } else {
+        Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
+      }
     }
   }
 
@@ -1031,7 +1052,55 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Painel igreja (somente iOS): mesmo pós-login que Google ([_afterGoogleSignInSuccess]).
+  /// Apple na web (Safari) — popup ou redirect.
+  Future<void> _onAppleWebChurchLogin() async {
+    if (!kIsWeb || !_showAppleSignInButtonWeb || _loading || _sessionFinalizing) {
+      return;
+    }
+    if (!_requireChurchPanelEmailBeforeOAuth()) return;
+    setState(() {
+      _oauthGoogleInFlight = true;
+      _errorMessage = null;
+    });
+    try {
+      final provider = OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      try {
+        await FirebaseAuth.instance.signInWithPopup(provider);
+      } on FirebaseAuthException catch (e) {
+        final code = e.code.toLowerCase();
+        if (code == 'popup-blocked' ||
+            code == 'internal-error' ||
+            (code.contains('popup') && code.contains('blocked'))) {
+          await FirebaseAuth.instance.signInWithRedirect(provider);
+          return;
+        }
+        final friendly = googleAuthErrorMessagePt(e);
+        if (mounted) {
+          setState(() => _errorMessage = friendly ??
+              'Apple: ${e.message ?? e.code}. Tente Google ou e-mail e senha.');
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _sessionFinalizing = true);
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) setState(() => _sessionFinalizing = false);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _errorMessage =
+            'Falha no login com Apple. Tente Google ou e-mail e senha.');
+      }
+    } finally {
+      if (mounted) setState(() => _oauthGoogleInFlight = false);
+    }
+  }
+
+  /// Painel igreja (somente iOS nativo): mesmo pós-login que Google ([_afterGoogleSignInSuccess]).
   Future<void> _onAppleChurchLogin() async {
     if (!_showChurchGoogleButton ||
         !_showAppleSignInButton ||
@@ -1325,9 +1394,9 @@ class _LoginPageState extends State<LoginPage> {
       defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.macOS;
 
-  /// Login com Google + e-mail/senha no painel da igreja (após etapa de credenciais no fluxo inteligente).
+  /// Login com Google + e-mail/senha no painel da igreja ou fluxo «Atualizar plano» web.
   bool get _showChurchGoogleButton =>
-      _painelLoginRoute == '/painel' &&
+      loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute) &&
       !_isMasterAdminLogin &&
       (_simplifiedGoogleOnlyLogin ||
           !_useSmartFlow ||
@@ -1624,7 +1693,27 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
-        if (_showAppleSignInButton) ...[
+        if (_showAppleSignInButtonWeb) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: busy ? null : _onAppleWebChurchLogin,
+              icon: const Icon(Icons.apple, size: 22),
+              label: const Text(
+                'Continuar com Apple',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF111827),
+                side: const BorderSide(color: Color(0xFF1F2937), width: 1.2),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ] else if (_showAppleSignInButton) ...[
           const SizedBox(height: 10),
           SignInWithAppleButton(
             onPressed: () {
@@ -2970,14 +3059,14 @@ class _LoginPageState extends State<LoginPage> {
                                 widget.afterLoginRoute)) ...[
                           const SizedBox(height: 8),
                           Text(
-                            widget.churchWebAppleIosRenewEntry
+                            widget.churchWebAppleIosRenewEntry ||
+                                    _painelLoginRoute == '/atualizar-plano'
                                 ? (IosPaymentsGate.isIosNative
                                     ? 'Entre com a conta já cadastrada (Google, Apple ou e-mail). '
                                         'Para contratar ou alterar plano, use o menu no painel — '
                                         'o pagamento é feito no site (Safari), não neste app.'
-                                    : 'Entrada para renovar ou alterar o plano. '
-                                        'Use o mesmo e-mail da igreja: Google, Apple ou e-mail e senha. '
-                                        'Após entrar, escolha o plano e conclua no site.')
+                                    : 'Entre com Google, Apple ou e-mail e senha da igreja. '
+                                        'Em seguida escolha o plano e pague com PIX ou cartão.')
                                 : (_credentialsAsMembro
                                     ? 'Membro: mesmo e-mail cadastrado na igreja. Google, Apple ou e-mail e senha. Chat Igreja e painel Super Premium.'
                                     : (IosPaymentsGate.hideOrganizationSignup

@@ -38,6 +38,12 @@ class ChurchChatMemberPrefsModel {
   /// DM oculta da lista «Conversas» (só para este utilizador; não apaga o thread).
   final List<String> hiddenDmThreadIds;
 
+  /// Conversas fixadas no topo (estilo WhatsApp).
+  final List<String> pinnedThreadIds;
+
+  /// Conversas arquivadas (fora da lista principal).
+  final List<String> archivedThreadIds;
+
   /// Ordem preferida dos grupos (ids de `departamentos/{id}`). Vazio = ordem alfabética.
   final List<String> departmentGroupOrderIds;
 
@@ -51,10 +57,14 @@ class ChurchChatMemberPrefsModel {
     this.departmentAlertModes = const {},
     this.dmPeerAlertModes = const {},
     this.hiddenDmThreadIds = const [],
+    this.pinnedThreadIds = const [],
+    this.archivedThreadIds = const [],
     this.departmentGroupOrderIds = const [],
   });
 
   bool isFavorite(String threadId) => favoriteThreadIds.contains(threadId);
+  bool isPinned(String threadId) => pinnedThreadIds.contains(threadId);
+  bool isArchived(String threadId) => archivedThreadIds.contains(threadId);
   bool isMutedThread(String threadId) => mutedThreadIds.contains(threadId);
   bool isBlockedPeer(String peerUid) =>
       peerUid.isNotEmpty && blockedPeerUids.contains(peerUid);
@@ -86,6 +96,12 @@ class ChurchChatMemberPrefs {
 
   /// Máximo de DMs ocultas na lista (evita documento gigante).
   static const int maxHiddenDmThreads = 80;
+
+  /// Conversas fixadas no topo.
+  static const int maxPinnedThreads = 12;
+
+  /// Conversas arquivadas.
+  static const int maxArchivedThreads = 80;
 
   /// Ordem personalizada dos grupos na aba Chat (ids de departamento).
   static const int maxDepartmentGroupOrderIds = 80;
@@ -125,6 +141,8 @@ class ChurchChatMemberPrefs {
       departmentAlertModes: _threadNotifMap(d?['departmentAlertModes']),
       dmPeerAlertModes: _threadNotifMap(d?['dmPeerAlertModes']),
       hiddenDmThreadIds: _stringList(d?['hiddenDmThreadIds']),
+      pinnedThreadIds: _stringList(d?['pinnedThreadIds']),
+      archivedThreadIds: _stringList(d?['archivedThreadIds']),
       departmentGroupOrderIds: _stringList(d?['departmentGroupOrderIds']),
     );
   }
@@ -241,6 +259,61 @@ class ChurchChatMemberPrefs {
         'hiddenDmThreadIds': hide
             ? FieldValue.arrayUnion([tid])
             : FieldValue.arrayRemove([tid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
+  static Future<bool> setPinnedThread({
+    required String tenantId,
+    required String threadId,
+    required bool value,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final tid = threadId.trim();
+    if (tid.isEmpty) return false;
+    if (value) {
+      final cur = await load(tenantId);
+      final ids = cur.pinnedThreadIds.toSet();
+      if (!ids.contains(tid) && ids.length >= maxPinnedThreads) {
+        return false;
+      }
+    }
+    await docRef(tenantId, uid).set(
+      {
+        'pinnedThreadIds': value
+            ? FieldValue.arrayUnion([tid])
+            : FieldValue.arrayRemove([tid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
+  static Future<bool> setArchivedThread({
+    required String tenantId,
+    required String threadId,
+    required bool value,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final tid = threadId.trim();
+    if (tid.isEmpty) return false;
+    if (value) {
+      final cur = await load(tenantId);
+      final ids = cur.archivedThreadIds.toSet();
+      if (!ids.contains(tid) && ids.length >= maxArchivedThreads) {
+        return false;
+      }
+    }
+    await docRef(tenantId, uid).set(
+      {
+        'archivedThreadIds': value
+            ? FieldValue.arrayUnion([tid])
+            : FieldValue.arrayRemove([tid]),
+        if (value) 'pinnedThreadIds': FieldValue.arrayRemove([tid]),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),

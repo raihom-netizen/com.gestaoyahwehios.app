@@ -28,7 +28,17 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
-enum _HubConversasFilter { all, unread, favorites }
+enum _HubConversasFilter { all, unread, favorites, archived }
+
+String? _chatHubActiveTypingPreview(Map<String, dynamic> data, String myUid) {
+  final typingUid = (data['typingUid'] ?? '').toString();
+  if (typingUid.isEmpty || typingUid == myUid) return null;
+  final ts = data['typingUpdatedAt'];
+  if (ts is! Timestamp) return null;
+  if (DateTime.now().difference(ts.toDate()).inSeconds > 8) return null;
+  final p = (data['typingPreview'] ?? '').toString().trim();
+  return p.isNotEmpty ? p : 'A digitar…';
+}
 
 Timestamp? _chatHubThreadMyLastSeen(Map<String, dynamic> data, String myUid) {
   final seenMap = data['lastSeenAtByUid'];
@@ -762,6 +772,73 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 const SizedBox(height: 12),
                 ListTile(
                   leading: Icon(
+                    prefs.isPinned(threadId)
+                        ? Icons.push_pin_rounded
+                        : Icons.push_pin_outlined,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: Text(
+                    prefs.isPinned(threadId)
+                        ? 'Desafixar conversa'
+                        : 'Fixar conversa',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final ok = await ChurchChatMemberPrefs.setPinnedThread(
+                      tenantId: tenantId,
+                      threadId: threadId,
+                      value: !prefs.isPinned(threadId),
+                    );
+                    if (!context.mounted) return;
+                    if (!ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Máximo de ${ChurchChatMemberPrefs.maxPinnedThreads} conversas fixadas.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    prefs.isArchived(threadId)
+                        ? Icons.unarchive_rounded
+                        : Icons.inventory_2_outlined,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                  title: Text(
+                    prefs.isArchived(threadId)
+                        ? 'Desarquivar conversa'
+                        : 'Arquivar conversa',
+                  ),
+                  subtitle: const Text(
+                    'Some da lista principal; mensagens mantêm-se no histórico.',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final ok = await ChurchChatMemberPrefs.setArchivedThread(
+                      tenantId: tenantId,
+                      threadId: threadId,
+                      value: !prefs.isArchived(threadId),
+                    );
+                    if (!context.mounted) return;
+                    if (!ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Limite de conversas arquivadas '
+                            '(${ChurchChatMemberPrefs.maxArchivedThreads}).',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
                     prefs.isFavorite(threadId)
                         ? Icons.star_rounded
                         : Icons.star_outline_rounded,
@@ -1189,6 +1266,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           label: Text('Favoritas'),
                           icon: Icon(Icons.star_rounded, size: 18),
                         ),
+                        ButtonSegment(
+                          value: _HubConversasFilter.archived,
+                          label: Text('Arquivadas'),
+                          icon: Icon(Icons.inventory_2_outlined, size: 18),
+                        ),
                       ],
                       selected: {_conversasFilter},
                       onSelectionChanged: (s) {
@@ -1206,6 +1288,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   }
                   final data = doc.data();
                   if (prefs.isHiddenDmThread(doc.id)) continue;
+                  final archived = prefs.isArchived(doc.id);
+                  if (_conversasFilter == _HubConversasFilter.archived) {
+                    if (!archived) continue;
+                  } else if (archived) {
+                    continue;
+                  }
                   final peers = (data['participantUids'] as List?)
                           ?.map((e) => e.toString())
                           .where((e) => e.isNotEmpty)
@@ -1226,6 +1314,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   dmFiltered.add(doc);
                 }
                 dmFiltered.sort((a, b) {
+                  final ap = prefs.isPinned(a.id);
+                  final bp = prefs.isPinned(b.id);
+                  if (ap != bp) return ap ? -1 : 1;
                   final ta = _threadLastActivityMs(a.data());
                   final tb = _threadLastActivityMs(b.data());
                   final c = tb.compareTo(ta);
@@ -1246,6 +1337,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       (d) => _chatHubThreadIsUnreadForUser(d.data(), uid),
                     );
                     break;
+                  case _HubConversasFilter.archived:
+                    break;
                   case _HubConversasFilter.all:
                     break;
                 }
@@ -1261,7 +1354,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                             ? 'Nenhuma conversa corresponde à pesquisa.'
                             : _conversasFilter == _HubConversasFilter.favorites
                                 ? 'Sem favoritas. Toque numa conversa e use «Favoritar».'
-                                : _conversasFilter == _HubConversasFilter.unread
+                                : _conversasFilter == _HubConversasFilter.archived
+                                    ? 'Sem conversas arquivadas.'
+                                    : _conversasFilter == _HubConversasFilter.unread
                                     ? 'Sem mensagens não lidas nas conversas diretas.'
                                     : _syncingChatThreads
                                         ? 'A sincronizar conversas…'
@@ -1706,8 +1801,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final peer = others.first;
     final fullTitle = _dmDisplayTitle(doc, uid);
     final rowTitle = _firstNameForChatRow(fullTitle);
-    final preview =
+    var preview =
         (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
+    final typingPreview = _chatHubActiveTypingPreview(data, uid);
+    final isTyping = typingPreview != null;
+    if (isTyping) preview = typingPreview;
     final ts = data['lastMessageAt'];
     final memberRef = memberByPeerUid[peer];
     final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
@@ -1716,6 +1814,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return _chatTile(
       title: rowTitle,
       subtitle: preview,
+      subtitleIsTyping: isTyping,
       subtitleMaxLines: 2,
       timeLabel: _fmtTime(ts),
       photo: ChurchChatPeerAvatar(
@@ -1728,6 +1827,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       online: online,
       isUnread: isUnread,
       isFavorite: prefs.isFavorite(doc.id),
+      isPinned: prefs.isPinned(doc.id),
       isMuted: prefs.isMutedThread(doc.id),
       onTap: () {
         Navigator.of(context).push(
@@ -1768,18 +1868,24 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     bool online = false,
     bool isUnread = false,
     bool isFavorite = false,
+    bool isPinned = false,
     bool isMuted = false,
+    bool subtitleIsTyping = false,
     int subtitleMaxLines = 1,
     Widget? trailing,
   }) {
-    final accent = isFavorite
-        ? const Color(0xFFF59E0B)
-        : isUnread
-            ? ThemeCleanPremium.primary
-            : Colors.transparent;
+    final accent = isPinned
+        ? ThemeCleanPremium.primary
+        : isFavorite
+            ? const Color(0xFFF59E0B)
+            : isUnread
+                ? ThemeCleanPremium.primary
+                : Colors.transparent;
   final rowBg = isUnread
         ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
-        : isFavorite
+        : isPinned
+            ? ThemeCleanPremium.primary.withValues(alpha: 0.04)
+            : isFavorite
             ? const Color(0xFFFFFBEB)
             : Colors.white;
 
@@ -1846,12 +1952,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           maxLines: subtitleMaxLines,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: isUnread
-                                ? ThemeCleanPremium.onSurface
-                                : ThemeCleanPremium.onSurfaceVariant,
+                            color: subtitleIsTyping
+                                ? ThemeCleanPremium.primary
+                                : isUnread
+                                    ? ThemeCleanPremium.onSurface
+                                    : ThemeCleanPremium.onSurfaceVariant,
                             fontSize: 13,
-                            fontWeight:
-                                isUnread ? FontWeight.w600 : FontWeight.w400,
+                            fontStyle: subtitleIsTyping
+                                ? FontStyle.italic
+                                : FontStyle.normal,
+                            fontWeight: subtitleIsTyping || isUnread
+                                ? FontWeight.w600
+                                : FontWeight.w400,
                             height: subtitleMaxLines > 1 ? 1.25 : null,
                           ),
                         ),

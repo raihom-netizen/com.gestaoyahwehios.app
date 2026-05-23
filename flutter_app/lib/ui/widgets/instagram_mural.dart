@@ -1,5 +1,6 @@
 import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:convert' show jsonDecode;
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -18,6 +19,9 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -1479,6 +1483,8 @@ class _PostCardState extends State<_PostCard>
     final videoCount = videoEntries.length;
     final publishState = (data['publishState'] ?? '').toString();
     final mediaUploading = publishState == MuralFastPublishService.stateUploading;
+    final publishFailed = publishState == MuralFastPublishService.stateFailed;
+    final publishError = (data['publishError'] ?? '').toString();
     final carouselLen = photoCount + videoCount;
     final mediaChipLabel = carouselLen > 0
         ? (photoCount == 0
@@ -1641,39 +1647,160 @@ class _PostCardState extends State<_PostCard>
           if (!isEvento && carouselLen == 0 && title.isNotEmpty)
             _buildCompactTitleStrip(title, '', isEvento),
 
-          if (mediaUploading && carouselLen == 0)
+          if ((mediaUploading || publishFailed) && carouselLen == 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      YahwehPremiumFeedShimmer.mediaCover(),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: CircularProgressIndicator(strokeWidth: 2.5),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'A publicar fotos…',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: ThemeCleanPremium.onSurfaceVariant,
+              child: FutureBuilder<List<Uint8List>?>(
+                future: MuralPostPendingMediaCache.get(
+                  tenantId: widget.tenantId,
+                  postId: widget.doc.id,
+                ),
+                builder: (context, pendingSnap) {
+                  final pending = pendingSnap.data;
+                  if (pending != null && pending.isNotEmpty) {
+                    return AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            PageView.builder(
+                              itemCount: pending.length,
+                              itemBuilder: (_, i) => Image.memory(
+                                pending[i],
+                                fit: BoxFit.cover,
+                              ),
                             ),
+                            if (mediaUploading)
+                              Align(
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                    horizontal: 12,
+                                  ),
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'A enviar ${pending.length} foto${pending.length > 1 ? 's' : ''}…',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  if (publishFailed) {
+                    return AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: ColoredBox(
+                          color: ThemeCleanPremium.error.withValues(alpha: 0.06),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.cloud_off_rounded,
+                                  color: ThemeCleanPremium.error,
+                                  size: 32,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  publishError.isNotEmpty
+                                      ? publishError
+                                      : 'Falha ao publicar fotos.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: ThemeCleanPremium.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                if (widget.canEdit)
+                                  FilledButton.tonal(
+                                    onPressed: () {
+                                      unawaited(
+                                        MuralPublishOutboxService.retryFromCard(
+                                          tenantId: widget.tenantId,
+                                          postId: widget.doc.id,
+                                          postType: type == 'evento'
+                                              ? 'evento'
+                                              : 'aviso',
+                                          existingUrls: muralPhotos,
+                                          startSlotIndex: muralPhotos.length,
+                                          hasVideo: videoCount > 0 ||
+                                              (data['videoUrl'] ?? '')
+                                                  .toString()
+                                                  .trim()
+                                                  .isNotEmpty,
+                                        ),
+                                      );
+                                    },
+                                    child: const Text('Tentar de novo'),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return AspectRatio(
+                    aspectRatio: 4 / 3,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          YahwehPremiumFeedShimmer.mediaCover(),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'A publicar fotos…',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             ),
 
@@ -3483,6 +3610,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
         final imagesCopy = List<Uint8List>.from(_newImages);
         final startSlot = existingUrls.length;
+        final hasVideo = _videoUrl.text.trim().isNotEmpty;
+        await MuralPostPendingMediaCache.put(
+          tenantId: widget.tenantId,
+          postId: postId,
+          images: imagesCopy,
+        );
+        await MuralPublishOutboxService.registerJob(
+          tenantId: widget.tenantId,
+          postId: postId,
+          postType: widget.type,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3502,10 +3643,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             newImages: imagesCopy,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            uploadSlot: (bytes, slot, report) => _upload(
-              bytes,
-              postId,
-              slot,
+            hasVideo: hasVideo,
+            uploadSlot: (bytes, slot, report) =>
+                MuralPostMediaPayload.uploadPhotoSlot(
+              tenantId: widget.tenantId,
+              postType: widget.type,
+              postId: postId,
+              bytes: bytes,
+              slotIndex: slot,
               onProgress: report,
             ),
             buildMediaFields: ({
@@ -3513,11 +3658,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               required aspectRatio,
               required hasVideo,
             }) =>
-                _mediaFieldsForPayload(
+                MuralPostMediaPayload.buildMediaFields(
               allUrls: allUrls,
               aspectRatio: aspectRatio,
-              hasVideo: hasVideo || _videoUrl.text.trim().isNotEmpty,
-              allowDeleteSentinels: true,
+              hasVideo: hasVideo,
             ),
           ),
         );

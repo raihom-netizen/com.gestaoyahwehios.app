@@ -1,21 +1,47 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Pré-visualização antes de enviar foto/vídeo (estilo WhatsApp).
 Future<bool> showChurchChatMediaPreviewSheet(
   BuildContext context, {
-  required Uint8List previewBytes,
+  Uint8List? previewBytes,
+  String? localPath,
   required String title,
   required bool isVideo,
 }) async {
+  assert(
+    previewBytes != null || (localPath != null && localPath.isNotEmpty),
+    'previewBytes ou localPath',
+  );
   final ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) {
       final bottom = MediaQuery.paddingOf(ctx).bottom;
+      Widget preview;
+      if (!kIsWeb &&
+          localPath != null &&
+          localPath.isNotEmpty &&
+          File(localPath).existsSync()) {
+        preview = Image.file(
+          File(localPath),
+          height: isVideo ? 220 : 260,
+          width: double.infinity,
+          fit: BoxFit.cover,
+        );
+      } else {
+        preview = Image.memory(
+          previewBytes!,
+          height: isVideo ? 220 : 260,
+          width: double.infinity,
+          fit: BoxFit.contain,
+        );
+      }
       return Container(
         decoration: BoxDecoration(
           color: ThemeCleanPremium.surface,
@@ -48,12 +74,7 @@ Future<bool> showChurchChatMediaPreviewSheet(
                   ? Stack(
                       alignment: Alignment.center,
                       children: [
-                        Image.memory(
-                          previewBytes,
-                          height: 220,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
+                        preview,
                         Icon(
                           Icons.play_circle_fill_rounded,
                           size: 56,
@@ -61,12 +82,7 @@ Future<bool> showChurchChatMediaPreviewSheet(
                         ),
                       ],
                     )
-                  : Image.memory(
-                      previewBytes,
-                      height: 260,
-                      width: double.infinity,
-                      fit: BoxFit.contain,
-                    ),
+                  : preview,
             ),
             const SizedBox(height: 16),
             Row(

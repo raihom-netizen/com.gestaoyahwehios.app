@@ -14,9 +14,8 @@ import 'app_shell.dart';
 ///   1. Mostrar **somente informacoes** dos planos (nome, capacidade,
 ///      recursos). Sem precos, sem ciclo de cobranca, sem qualquer CTA
 ///      de compra dentro do binario iOS.
-///   2. Botao «Atualizar plano no site» abre Safari em `/igreja/login/apple`
-///      (login directo Google/Apple/e-mail) e, após autenticar, segue para
-///      `/atualizar-plano` com planos e checkout na própria página web.
+///   2. Botao «Atualizar plano no site» abre Safari em `/atualizar-plano?from=ios_app`
+///      (sessão web existente → planos direto; senão Google/Apple/e-mail) e checkout MP.
 ///   3. Webhook MP atualiza o status no Firestore — o app detecta via
 ///      snapshot listener e libera o plano automaticamente.
 ///
@@ -72,7 +71,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse o site e entre em /igreja/login/apple manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano no Safari.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -82,7 +81,7 @@ class _IosPaymentUnavailableViewState extends State<IosPaymentUnavailableView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                'Nao foi possivel abrir o navegador. Acesse o site e entre em /igreja/login/apple manualmente.'),
+                'Nao foi possivel abrir o navegador. Acesse gestaoyahweh.com.br/atualizar-plano no Safari.'),
             behavior: SnackBarBehavior.floating,
           ),
         );

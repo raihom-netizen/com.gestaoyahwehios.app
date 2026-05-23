@@ -1,4 +1,9 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1606: iOS «Alterar plano» — Safari abre `/atualizar-plano` (login Google/Apple/e-mail + PIX/cartão).
+/// 11.2.295+1605: Chat WhatsApp igreja — fixar/arquivar, typing na lista, gravar áudio,
+/// mensagem pastoral e aviso automático de escala no grupo do departamento.
+/// 11.2.295+1604: Chat/avisos/eventos — upload sem spinner infinito (cache local mural,
+/// outbox reenvio, timeout Storage, preview instantâneo, anexos paralelos no chat).
 /// 11.2.295+1603: iOS TestFlight — corrige Binário inválido (Info.plist push/LSApplicationQueriesSchemes).
 /// 11.2.295+1602: Chat, avisos e eventos — upload de fotos/vídeos definitivamente mais rápido
 /// (turbo mobile release, WebP menor, vídeo 540p/sem transcode até 42MB, uploads em lote limitados,
@@ -137,7 +142,7 @@
 /// 11.2.295+1517: Chat da igreja — visual Clean Premium (hub/thread), preferência
 /// `pushChat` + silenciar no hub/thread/configurações, FCM + Cloud Function por mensagem.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1603';
+const String appBuildNumber = '1606';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

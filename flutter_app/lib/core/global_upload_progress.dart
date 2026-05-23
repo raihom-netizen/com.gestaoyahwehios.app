@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 /// Upload em segundo plano: barra de progresso persistente (não bloqueia navegação).
@@ -8,8 +10,13 @@ class GlobalUploadProgress {
   final ValueNotifier<GlobalUploadProgressState?> state =
       ValueNotifier<GlobalUploadProgressState?>(null);
 
+  Timer? _watchdog;
+  static const Duration _staleAfter = Duration(minutes: 14);
+
   void start(String label) {
+    _watchdog?.cancel();
     state.value = GlobalUploadProgressState(label: label, progress: 0);
+    _watchdog = Timer(_staleAfter, end);
   }
 
   void update(double progress) {
@@ -19,6 +26,8 @@ class GlobalUploadProgress {
   }
 
   void end() {
+    _watchdog?.cancel();
+    _watchdog = null;
     state.value = null;
   }
 }

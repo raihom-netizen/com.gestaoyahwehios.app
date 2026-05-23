@@ -51,6 +51,13 @@ int get mediaPickerImageMaxWidth =>
 int get mediaPickerImageMaxHeight =>
     kMediaTurboMobilePreset ? 720 : 800;
 
+/// Chat: fotos até 1280px (WhatsApp-style, boa qualidade sem payload enorme).
+int get mediaChatImageMaxWidth => 1280;
+
+int get mediaChatImageMaxHeight => 1280;
+
+int get mediaChatImageQuality => kMediaTurboMobilePreset ? 72 : 76;
+
 int get mediaPickerLogoQuality =>
     kMediaTurboMobilePreset ? 68 : 70;
 

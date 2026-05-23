@@ -51,7 +51,7 @@ class ChurchChatService {
   }
 
   /// Histórico por páginas no cliente (`startAfter` + stream da página recente).
-  static const int defaultMessagePageSize = 50;
+  static const int defaultMessagePageSize = 30;
   static const int maxOlderMessagePages = 50;
 
   /// Stream só da «cauda» recente (substitui `limit` crescente até 2500).
@@ -330,7 +330,10 @@ class ChurchChatService {
     return controller.stream;
   }
 
-  /// Indicador «a digitar…» — um doc por utilizador (`typing/{uid}`).
+  /// Rótulo interno para «a gravar áudio…» na lista de conversas.
+  static const String typingLabelRecording = '__recording__';
+
+  /// Indicador «a digitar…» — um doc por utilizador (`typing/{uid}`) + prévia no thread.
   static Future<void> setTypingActive({
     required String tenantId,
     required String threadId,
@@ -340,9 +343,24 @@ class ChurchChatService {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     final ref = typingCol(tenantId, threadId).doc(uid);
+    final thread = threadRef(tenantId, threadId);
     if (!active) {
       try {
         await ref.delete();
+      } catch (_) {}
+      try {
+        final snap = await thread.get();
+        final data = snap.data();
+        if (data != null && (data['typingUid'] ?? '').toString() == uid) {
+          await thread.set(
+            {
+              'typingPreview': FieldValue.delete(),
+              'typingUid': FieldValue.delete(),
+              'typingUpdatedAt': FieldValue.delete(),
+            },
+            SetOptions(merge: true),
+          );
+        }
       } catch (_) {}
       return;
     }
@@ -354,6 +372,19 @@ class ChurchChatService {
       {
         'updatedAt': FieldValue.serverTimestamp(),
         if (label.isNotEmpty) 'label': label,
+      },
+      SetOptions(merge: true),
+    );
+    final preview = label == typingLabelRecording
+        ? '${senderDisplayNameForNewMessage()} está a gravar áudio…'
+        : label.isNotEmpty
+            ? '$label está a digitar…'
+            : 'A digitar…';
+    await thread.set(
+      {
+        'typingPreview': preview,
+        'typingUid': uid,
+        'typingUpdatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
     );
@@ -885,6 +916,7 @@ class ChurchChatService {
       'senderUid': uid,
       'type': 'text',
       'text': text,
+      'deliveryStatus': 'sent',
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,

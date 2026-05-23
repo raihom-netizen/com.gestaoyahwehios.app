@@ -35,9 +35,15 @@ Future<String> uploadStoragePutDataWithRetry({
         });
       }
       try {
-        final snap = await task;
+        final snap = await task.timeout(const Duration(minutes: 8));
         onProgress?.call(1.0);
-        return await snap.ref.getDownloadURL();
+        return await snap.ref.getDownloadURL().timeout(const Duration(seconds: 45));
+      } on TimeoutException {
+        try {
+          await task.cancel();
+        } catch (_) {}
+        lastError = StateError('Tempo esgotado no upload');
+        break;
       } finally {
         await sub?.cancel();
       }
@@ -81,9 +87,15 @@ Future<String> uploadStoragePutFileWithRetry({
         });
       }
       try {
-        final snap = await task;
+        final snap = await task.timeout(const Duration(minutes: 8));
         onProgress?.call(1.0);
-        return await snap.ref.getDownloadURL();
+        return await snap.ref.getDownloadURL().timeout(const Duration(seconds: 45));
+      } on TimeoutException {
+        try {
+          await task.cancel();
+        } catch (_) {}
+        lastError = StateError('Tempo esgotado no upload');
+        break;
       } finally {
         await sub?.cancel();
       }
