@@ -10,26 +10,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
-import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
-import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
-import 'package:gestao_yahweh/core/media_upload_limits.dart'
-    show kMediaEventVideoMaxSeconds;
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -54,7 +45,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show kEffectiveMuralFeedWebpQuality;
+    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -82,6 +73,7 @@ import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
+import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
         BrDateDdMmYyyyInputFormatter,
@@ -573,8 +565,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       !ctx.mounted) return;
                                                   setSheetState(() {});
                                                   try {
-                                                    await FeedPostMediaUpload
-                                                        .warmAuthToken();
+                                                    await FirebaseAuth
+                                                        .instance.currentUser
+                                                        ?.getIdToken(true);
                                                     final bytes = await file
                                                         .readAsBytes();
                                                     final compressed =
@@ -590,17 +583,22 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                             DateTime.now()
                                                                 .millisecondsSinceEpoch
                                                                 .toString();
+                                                    final ref = FirebaseStorage
+                                                        .instance
+                                                        .ref(
+                                                            ChurchStorageLayout.eventTemplateCoverPath(
+                                                                tenantId,
+                                                                templateStorageId));
+                                                    await ref.putData(
+                                                        compressed,
+                                                        SettableMetadata(
+                                                            contentType:
+                                                                'image/jpeg',
+                                                            cacheControl:
+                                                                'public, max-age=31536000'));
                                                     final downloadUrl =
-                                                        await FeedPostMediaUpload
-                                                            .uploadFeedPhotoBytes(
-                                                      storagePath:
-                                                          ChurchStorageLayout
-                                                              .eventTemplateCoverPath(
-                                                        tenantId,
-                                                        templateStorageId,
-                                                      ),
-                                                      bytes: compressed,
-                                                    );
+                                                        await ref
+                                                            .getDownloadURL();
                                                     FirebaseStorageCleanupService
                                                         .scheduleCleanupAfterEventTemplateCoverUpload(
                                                       tenantId: tenantId,
@@ -656,7 +654,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             if (file == null || !ctx.mounted) return;
                             setSheetState(() {});
                             try {
-                              await FeedPostMediaUpload.warmAuthToken();
+                              await FirebaseAuth.instance.currentUser
+                                  ?.getIdToken(true);
                               final bytes = await file.readAsBytes();
                               final compressed =
                                   await ImageHelper.compressImage(
@@ -669,15 +668,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                   DateTime.now()
                                       .millisecondsSinceEpoch
                                       .toString();
-                              final downloadUrl =
-                                  await FeedPostMediaUpload.uploadFeedPhotoBytes(
-                                storagePath:
-                                    ChurchStorageLayout.eventTemplateCoverPath(
-                                  tenantId,
-                                  templateStorageId,
-                                ),
-                                bytes: compressed,
-                              );
+                              final ref = FirebaseStorage.instance.ref(
+                                  ChurchStorageLayout.eventTemplateCoverPath(
+                                      tenantId, templateStorageId));
+                              await ref.putData(
+                                  compressed,
+                                  SettableMetadata(
+                                      contentType: 'image/jpeg',
+                                      cacheControl:
+                                          'public, max-age=31536000'));
+                              final downloadUrl = await ref.getDownloadURL();
                               FirebaseStorageCleanupService
                                   .scheduleCleanupAfterEventTemplateCoverUpload(
                                 tenantId: tenantId,
@@ -1004,7 +1004,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             Tab(text: 'Feed'),
             Tab(text: 'Galeria'),
             Tab(text: 'Eventos Fixos'),
-            Tab(text: 'Painel'),
+            Tab(text: 'Dashboard'),
           ]
         : const <Widget>[
             Tab(text: 'Feed'),
@@ -1181,7 +1181,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() {
-    return widget.noticias.orderBy('startAt', descending: true).limit(80).get();
+    return widget.noticias.orderBy('startAt', descending: true).limit(250).get();
   }
 
   Future<void> _refresh() async {
@@ -2203,9 +2203,11 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await Future.delayed(const Duration(milliseconds: 150));
     return widget.noticias
         .orderBy('startAt', descending: true)
-        .limit(60)
+        .limit(200)
         .get();
   }
 
@@ -3564,9 +3566,6 @@ class _EventoPostState extends State<_EventoPost>
     final title = (data['title'] ?? '').toString();
     final allImages = _eventFeedCardPhotoUrls(data);
     final hasImages = allImages.isNotEmpty;
-    final publishState = (data['publishState'] ?? '').toString();
-    final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading;
     final location = (data['location'] ?? '').toString();
     final eventVideos = _eventVideosFromData(data);
     final videoUrl = eventVideos.isNotEmpty
@@ -3869,72 +3868,7 @@ class _EventoPostState extends State<_EventoPost>
               ),
             if (!hasImages &&
                 !hasVideoRow &&
-                mediaUploading)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-                child: FutureBuilder<List<Uint8List>?>(
-                  future: MuralPostPendingMediaCache.get(
-                    tenantId: widget.tenantId,
-                    postId: widget.doc.id,
-                  ),
-                  builder: (context, pendingSnap) {
-                    final pending = pendingSnap.data;
-                    if (pending == null || pending.isEmpty) {
-                      return const SizedBox.shrink();
-                    }
-                    return AspectRatio(
-                      aspectRatio: 4 / 3,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusLg),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.memory(pending.first, fit: BoxFit.cover),
-                            Align(
-                              alignment: Alignment.bottomCenter,
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                  horizontal: 12,
-                                ),
-                                color: Colors.black.withValues(alpha: 0.45),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'A enviar ${pending.length} foto${pending.length > 1 ? 's' : ''}…',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            if (!hasImages &&
-                !hasVideoRow &&
-                (title.isNotEmpty || eventDateStr.isNotEmpty) &&
-                !mediaUploading)
+                (title.isNotEmpty || eventDateStr.isNotEmpty))
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
                 child: AspectRatio(
@@ -5129,7 +5063,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   final List<String> _existingUrls = [];
   final List<Uint8List> _newImages = [];
   final List<String> _newNames = [];
-  final List<bool> _newImagesProcessing = [];
 
   /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
   final List<Map<String, String>> _eventVideos = [];
@@ -5162,7 +5095,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   String? _churchAddressText;
   double? _locationLat;
   double? _locationLng;
-  static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
+  static const int _maxVideoSeconds = 60;
   static const int _maxVideosPerEvent = 2;
   static const int _maxPhotosPerEvent = 20;
 
@@ -5729,60 +5662,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return manual;
   }
 
-  bool _eventPhotoLimitReached() =>
-      _existingUrls.length + _newImages.length >= _maxPhotosPerEvent;
-
-  Future<void> _appendEventPhotoPreview(XFile file, int slotIndex) async {
-    if (!mounted || _eventPhotoLimitReached()) return;
-    try {
-      final bytes = await file.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
-      setState(() {
-        if (slotIndex < _newImages.length) {
-          _newImages[slotIndex] = bytes;
-          _newNames[slotIndex] = file.name;
-          if (slotIndex < _newImagesProcessing.length) {
-            _newImagesProcessing[slotIndex] = true;
-          }
-        } else {
-          _newImages.add(bytes);
-          _newNames.add(file.name);
-          _newImagesProcessing.add(true);
-        }
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _finalizeEventPhotoSlot(XFile file, int slotIndex) async {
-    if (!mounted) return;
-    try {
-      final bytes = await file.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
-      setState(() {
-        if (slotIndex < _newImages.length) {
-          _newImages[slotIndex] = bytes;
-          _newNames[slotIndex] = file.name;
-          if (slotIndex < _newImagesProcessing.length) {
-            _newImagesProcessing[slotIndex] = false;
-          }
-        }
-      });
-    } catch (_) {}
-  }
-
-  void _removeEventPhotoSlot(int slotIndex) {
-    if (slotIndex < 0 || slotIndex >= _newImages.length) return;
-    setState(() {
-      _newImages.removeAt(slotIndex);
-      if (slotIndex < _newNames.length) _newNames.removeAt(slotIndex);
-      if (slotIndex < _newImagesProcessing.length) {
-        _newImagesProcessing.removeAt(slotIndex);
-      }
-    });
-  }
-
   Future<void> _pickImages() async {
-    if (_eventPhotoLimitReached()) {
+    final totalAtual = _existingUrls.length + _newImages.length;
+    if (totalAtual >= _maxPhotosPerEvent) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
@@ -5795,31 +5677,29 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await MediaHandlerService.instance
+      final files = await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
-        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
-        onGalleryPicked: (_) {
-          if (mounted) setState(() => _mediaPicking = false);
-        },
-        onPickedBeforeEncode: (file, index, total) async {
-          if (!mounted || _eventPhotoLimitReached()) return;
-          await _appendEventPhotoPreview(file, index);
-        },
-        onEachReady: (file, index, total) async {
-          await _finalizeEventPhotoSlot(file, index);
-        },
-        onEncodeSkipped: (index, total) {
-          if (mounted) _removeEventPhotoSlot(index);
-        },
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
-      if (_eventPhotoLimitReached() && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Limite de $_maxPhotosPerEvent fotos por evento. Remova alguma para adicionar mais.'),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ));
+      for (final f in files) {
+        if (_existingUrls.length + _newImages.length >= _maxPhotosPerEvent) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'Apenas as primeiras $_maxPhotosPerEvent fotos foram consideradas.'),
+              backgroundColor: ThemeCleanPremium.error,
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          break;
+        }
+        final bytes = await f.readAsBytes();
+        if (!mounted) return;
+        setState(() {
+          _newImages.add(bytes);
+          _newNames.add(f.name);
+        });
       }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
@@ -5844,14 +5724,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
-        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
       if (file != null && mounted) {
         final bytes = await file.readAsBytes();
         setState(() {
           _newImages.add(bytes);
           _newNames.add(file.name);
-          _newImagesProcessing.add(false);
         });
       }
     } finally {
@@ -5873,149 +5752,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<MediaUploadResult> _upload(
-    Uint8List bytes,
-    String postDocId,
-    int slotIndex, {
-    void Function(double progress)? onProgress,
-  }) async {
+      Uint8List bytes, String postDocId, int slotIndex) async {
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final storagePath = ChurchStorageLayout.eventPostPhotoPath(
       widget.tenantId,
       postDocId,
       slotIndex,
     );
-    return FeedPostMediaUpload.uploadFeedPhotoDetailed(
+    final webp = bytesLookLikeWebp(bytes);
+    return MediaUploadService.uploadBytesDetailed(
       storagePath: storagePath,
       bytes: bytes,
-      onProgress: onProgress,
+      contentType: webp ? 'image/webp' : 'image/jpeg',
+      skipClientPrepare: webp,
     );
-  }
-
-  List<String> _safePhotoUrls(List<String> urls) => urls
-      .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-      .toList();
-
-  List<Map<String, dynamic>> _videosPayload() => _eventVideos
-      .map((e) => <String, dynamic>{
-            'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-            'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-          })
-      .where((m) => (m['videoUrl'] as String).isNotEmpty)
-      .toList();
-
-  /// Se o evento já foi gravado no Firestore, atualiza vídeos após upload em background.
-  Future<void> _mergeEventVideosToFirestoreIfPublished() async {
-    if (_eventVideos.isEmpty) return;
-    try {
-      final snap = await _eventDocRef.get();
-      if (!snap.exists) return;
-      final data = snap.data() ?? <String, dynamic>{};
-      final patch = _eventMediaFields(
-        allUrlsSafe: _safePhotoUrls(eventNoticiaPhotoUrls(data)),
-        allowDeleteSentinels: false,
-      );
-      patch['updatedAt'] = FieldValue.serverTimestamp();
-      await _eventDocRef.set(patch, SetOptions(merge: true));
-    } catch (_) {}
-  }
-
-  Map<String, dynamic> _eventMediaFields({
-    required List<String> allUrlsSafe,
-    double? aspectRatio,
-    required bool allowDeleteSentinels,
-  }) {
-    final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
-    final firstVideoUrl = _eventVideos.isNotEmpty
-        ? (_eventVideos.first['videoUrl'] ?? '')
-        : _videoUrl.text.trim();
-    final firstThumbUrl =
-        _eventVideos.isNotEmpty ? (_eventVideos.first['thumbUrl'] ?? '') : '';
-    final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
-    final patch = <String, dynamic>{
-      'imageUrl': firstUrl,
-      'imageUrls': allUrlsSafe,
-      'defaultImageUrl': firstUrl,
-      'videoUrl': firstVideoUrl,
-      'thumbUrl': firstThumbUrl,
-      'videos': _videosPayload(),
-    };
-    if (derivedPaths != null && derivedPaths.isNotEmpty) {
-      patch['imageStoragePaths'] = derivedPaths;
-      patch['imageStoragePath'] = derivedPaths.first;
-    } else if (allowDeleteSentinels) {
-      patch['imageStoragePath'] = FieldValue.delete();
-      patch['imageStoragePaths'] = FieldValue.delete();
-    }
-    if (firstUrl.isNotEmpty) {
-      patch['imagemUrl'] = firstUrl;
-      patch['imagem_url'] = firstUrl;
-    } else if (allowDeleteSentinels) {
-      patch['imagemUrl'] = FieldValue.delete();
-      patch['imagem_url'] = FieldValue.delete();
-    }
-    if (aspectRatio != null) {
-      patch['media_info'] = {
-        'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
-      };
-    } else if (allowDeleteSentinels) {
-      patch['media_info'] = FieldValue.delete();
-    }
-    return patch;
-  }
-
-  Map<String, dynamic> _buildEventFirestorePayload({
-    required List<String> allUrlsSafe,
-    double? aspectRatio,
-    required bool isNewDoc,
-    String? publishState,
-    int? pendingImageCount,
-  }) {
-    final payload = <String, dynamic>{
-      'type': 'evento',
-      'title': _title.text.trim(),
-      ..._eventBodyFirestoreFields(),
-      ..._eventMediaFields(
-        allUrlsSafe: allUrlsSafe,
-        aspectRatio: aspectRatio,
-        allowDeleteSentinels: !isNewDoc,
-      ),
-      'active': true,
-      'likes': widget.doc?.data()?['likes'] ?? <String>[],
-      'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
-      'updatedAt': FieldValue.serverTimestamp(),
-      'generated': false,
-      'publicSite': _publicSite,
-      'galleryPermanent': _galleryPermanent,
-      ..._schedulingAndCategoryFields(merge: !isNewDoc),
-      ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
-    };
-    if (publishState != null) {
-      payload['publishState'] = publishState;
-      if (pendingImageCount != null) {
-        payload['pendingImageCount'] = pendingImageCount;
-      }
-    }
-    if (publishState == MuralFastPublishService.statePublished) {
-      payload['pendingImageCount'] = FieldValue.delete();
-      payload['publishError'] = FieldValue.delete();
-    }
-    if (!isNewDoc) {
-      payload['imageVariants'] = FieldValue.delete();
-      payload['templateId'] = FieldValue.delete();
-    }
-    if (_validUntil != null) {
-      payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-    }
-    if (!isNewDoc && widget.doc!.data()?['createdAt'] == null) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
-    }
-    if (isNewDoc) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
-      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
-      payload['likesCount'] = 0;
-      payload['rsvpCount'] = 0;
-      payload['commentsCount'] = 0;
-    }
-    return payload;
   }
 
   Widget _videoPlaceholder() => Container(
@@ -6120,137 +5870,51 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-
-    if (kIsWeb) {
-      setState(() {
-        _uploadingVideo = true;
-        _videoUploadFraction = null;
-      });
-      try {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              'A preparar vídeo. Máx. ${_maxVideoSeconds}s.',
-            ),
-          );
-        }
-        final result = await VideoHandlerService.instance.pickCompressAndUpload(
-          tenantId: widget.tenantId,
-          eventPostDocId: _eventDocRef.id,
-          videoSlotIndex: slot,
-          maxDuration: Duration(seconds: _maxVideoSeconds),
-          onUploadProgress: (p) {
-            if (!mounted) return;
-            setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
-          },
-        );
-        if (result == null || !mounted) {
-          setState(() {
-            _uploadingVideo = false;
-            _videoUploadFraction = null;
-          });
-          return;
-        }
-        setState(() {
-          _eventVideos.add({
-            'videoUrl': result.videoUrl,
-            'thumbUrl': result.thumbUrl,
-          });
-          _uploadingVideo = false;
-          _videoUploadFraction = null;
-        });
-        unawaited(_mergeEventVideosToFirestoreIfPublished());
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _uploadingVideo = false;
-            _videoUploadFraction = null;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Erro ao enviar vídeo: $e'),
-              backgroundColor: ThemeCleanPremium.error));
-        }
-      }
-      return;
-    }
-
-    final xfile = await ImagePicker().pickVideo(
-      source: ImageSource.gallery,
-      maxDuration: Duration(seconds: _maxVideoSeconds),
-    );
-    if (xfile == null || xfile.path.isEmpty || !mounted) return;
-
-    final listIndex = _eventVideos.length;
     setState(() {
-      _eventVideos.add({'videoUrl': '', 'thumbUrl': ''});
       _uploadingVideo = true;
       _videoUploadFraction = null;
     });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Vídeo anexado — compressão e envio em segundo plano.',
-        ),
-      );
-    }
-    unawaited(_uploadEventVideoInBackground(
-      localPath: xfile.path,
-      slot: slot,
-      listIndex: listIndex,
-    ));
-  }
-
-  Future<void> _uploadEventVideoInBackground({
-    required String localPath,
-    required int slot,
-    required int listIndex,
-  }) async {
     try {
-      final result = await VideoHandlerService.instance.compressAndUploadFromPath(
-        localPath: localPath,
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 720p HD). Máx. ${_maxVideoSeconds}s.'));
+      final result = await VideoHandlerService.instance.pickCompressAndUpload(
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
         videoSlotIndex: slot,
+        maxDuration: const Duration(seconds: 60),
         onUploadProgress: (p) {
           if (!mounted) return;
           setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
         },
       );
-      if (!mounted) return;
-      if (result == null) {
+      if (result == null || !mounted) {
         setState(() {
-          if (listIndex >= 0 && listIndex < _eventVideos.length) {
-            _eventVideos.removeAt(listIndex);
-          }
           _uploadingVideo = false;
           _videoUploadFraction = null;
         });
         return;
       }
       setState(() {
-        if (listIndex >= 0 && listIndex < _eventVideos.length) {
-          _eventVideos[listIndex] = {
-            'videoUrl': result.videoUrl,
-            'thumbUrl': result.thumbUrl,
-          };
-        }
+        _eventVideos
+            .add({'videoUrl': result.videoUrl, 'thumbUrl': result.thumbUrl});
         _uploadingVideo = false;
         _videoUploadFraction = null;
       });
-      unawaited(_mergeEventVideosToFirestoreIfPublished());
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+                'Vídeo anexado (máx. ${_maxVideoSeconds}s, até $_maxVideosPerEvent por evento).'));
     } catch (e) {
       if (mounted) {
         setState(() {
-          if (listIndex >= 0 && listIndex < _eventVideos.length) {
-            _eventVideos.removeAt(listIndex);
-          }
           _uploadingVideo = false;
           _videoUploadFraction = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro ao enviar vídeo: $e'),
-          backgroundColor: ThemeCleanPremium.error,
-        ));
+            content: Text('Erro ao enviar vídeo: $e'),
+            backgroundColor: ThemeCleanPremium.error));
       }
     }
   }
@@ -6322,7 +5986,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até $_maxVideoSeconds s.',
+                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até 60 s.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -6426,7 +6090,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ? 'Aguarde o envio em andamento…'
                           : videosFull
                               ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                              : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
+                              : 'Até 60 s — MP4 leve envia direto; senão 720p HD',
                       style: TextStyle(
                         fontSize: 12,
                         color: (_uploadingVideo || videosFull)
@@ -6439,7 +6103,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         ? null
                         : () {
                             Navigator.pop(ctx);
-                            unawaited(_pickAndUploadVideo());
+                            _pickAndUploadVideo();
                           },
                   ),
                 ],
@@ -6451,142 +6115,314 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
+  double? _aspectRatioFromBytes(Uint8List bytes) {
+    try {
+      final im = img.decodeImage(bytes);
+      if (im == null || im.height <= 0) return null;
+      return im.width / im.height;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _save() async {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
-    if (_newImagesProcessing.any((p) => p)) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text(
-            'Aguarde terminar o recorte das fotos antes de publicar.'),
-        backgroundColor: ThemeCleanPremium.error,
-        behavior: SnackBarBehavior.floating,
-      ));
-      return;
-    }
     setState(() => _saving = true);
     final docRef = _eventDocRef;
     final postId = docRef.id;
-    final isNewDoc = widget.doc == null;
     try {
-      final allUrlsSafe = _safePhotoUrls(List<String>.from(_existingUrls));
-      final hasNewImages = _newImages.isNotEmpty;
-      double? aspectRatio;
-      if (!hasNewImages && allUrlsSafe.isNotEmpty) {
-        final prev = widget.doc?.data()?['media_info'];
-        if (prev is Map) {
-          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) aspectRatio = oar.toDouble();
-        }
-      }
-
-      if (hasNewImages) {
-        final payload = _buildEventFirestorePayload(
-          allUrlsSafe: allUrlsSafe,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-          publishState: MuralFastPublishService.stateUploading,
-          pendingImageCount: _newImages.length,
+      final allUrls = List<String>.from(_existingUrls);
+      final initialLen = allUrls.length;
+      final room = (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
+      if (room > 0) {
+        final uploads = List<Future<MediaUploadResult>>.generate(
+          room,
+          (i) => _upload(_newImages[i], postId, initialLen + i),
         );
-        if (isNewDoc) {
-          await docRef.set(payload);
-        } else {
-          await widget.doc!.reference.set(payload, SetOptions(merge: true));
+        for (final up in await Future.wait(uploads)) {
+          allUrls.add(up.downloadUrl);
         }
-
-        final initialLen = allUrlsSafe.length;
-        final room =
-            (_maxPhotosPerEvent - initialLen).clamp(0, _newImages.length);
-        final imagesCopy = List<Uint8List>.from(_newImages.take(room));
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc
-                  ? 'Evento publicado! As fotos terminam de subir em segundo plano.'
-                  : 'Evento atualizado! As fotos terminam de subir em segundo plano.',
-            ),
-          );
-          Navigator.pop(context, true);
-        }
-        unawaited(_applyAgendaSyncAfterSave(postId));
-
-        if (imagesCopy.isNotEmpty) {
-          final hasVideo = _eventVideos.any(
-            (v) => (v['videoUrl'] ?? '').toString().trim().isNotEmpty,
-          );
-          MuralFastPublishService.scheduleBackgroundImageFinalize(
-              docRef: docRef,
-              tenantId: widget.tenantId,
-              postId: postId,
-              postType: 'evento',
-              newImages: imagesCopy,
-              existingUrls: allUrlsSafe,
-              startSlotIndex: initialLen,
-              hasVideo: hasVideo,
-              uploadSlot: (bytes, slot, report) =>
-                  MuralPostMediaPayload.uploadPhotoSlot(
-                tenantId: widget.tenantId,
-                postType: 'evento',
-                postId: postId,
-                bytes: bytes,
-                slotIndex: slot,
-                onProgress: report,
-              ),
-              buildMediaFields: ({
-                required allUrls,
-                required aspectRatio,
-                required hasVideo,
-              }) =>
-                  _eventMediaFields(
-                allUrlsSafe: allUrls,
-                aspectRatio: aspectRatio,
-                allowDeleteSentinels: true,
-              ),
-          );
-        } else {
-          unawaited(
-            docRef.set(
-              {
-                'publishState': MuralFastPublishService.statePublished,
-                'pendingImageCount': FieldValue.delete(),
-                'updatedAt': FieldValue.serverTimestamp(),
-              },
-              SetOptions(merge: true),
-            ),
-          );
-        }
-        return;
       }
-
-      final payload = _buildEventFirestorePayload(
-        allUrlsSafe: allUrlsSafe,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-        publishState: MuralFastPublishService.statePublished,
-      );
-      if (isNewDoc) {
+      if (allUrls.length > _maxPhotosPerEvent) {
+        allUrls.removeRange(_maxPhotosPerEvent, allUrls.length);
+      }
+      final allUrlsSafe =
+          allUrls.where((u) => !looksLikeHostedVideoFileUrl(u.trim())).toList();
+      final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
+      final firstVideoUrl = _eventVideos.isNotEmpty
+          ? (_eventVideos.first['videoUrl'] ?? '')
+          : _videoUrl.text.trim();
+      final firstThumbUrl =
+          _eventVideos.isNotEmpty ? (_eventVideos.first['thumbUrl'] ?? '') : '';
+      final videosClean = _eventVideos
+          .map((e) => <String, dynamic>{
+                'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+                'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+              })
+          .where((m) => (m['videoUrl'] as String).isNotEmpty)
+          .toList();
+      final derivedPaths = _pathsFromImageUrls(allUrlsSafe);
+      final arFromNew =
+          _newImages.isNotEmpty ? _aspectRatioFromBytes(_newImages.first) : null;
+      final payload = <String, dynamic>{
+        'type': 'evento',
+        'title': _title.text.trim(),
+        ..._eventBodyFirestoreFields(),
+        'imageUrl': firstUrl,
+        'imageUrls': allUrlsSafe,
+        'defaultImageUrl': firstUrl,
+        if (derivedPaths != null && derivedPaths.isNotEmpty) ...{
+          'imageStoragePaths': derivedPaths,
+          'imageStoragePath': derivedPaths.first,
+        },
+        'videoUrl': firstVideoUrl,
+        'thumbUrl': firstThumbUrl,
+        'videos': videosClean,
+        'active': true,
+        'likes': widget.doc?.data()?['likes'] ?? <String>[],
+        'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
+        'updatedAt': FieldValue.serverTimestamp(),
+        'generated': false,
+        'publicSite': _publicSite,
+        'galleryPermanent': _galleryPermanent,
+        ..._schedulingAndCategoryFields(merge: widget.doc != null),
+        ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
+        if (arFromNew != null)
+          'media_info': {
+            'aspect_ratio': arFromNew.clamp(0.45, 1.9),
+          },
+      };
+      if (firstUrl.isNotEmpty) {
+        payload['imagemUrl'] = firstUrl;
+        payload['imagem_url'] = firstUrl;
+      } else if (widget.doc != null) {
+        payload['imagemUrl'] = FieldValue.delete();
+        payload['imagem_url'] = FieldValue.delete();
+      }
+      // Só em merge/update: remove mapas legados (thumb/card). Em `add()` não usar delete sentinel.
+      if (widget.doc != null) {
+        payload['imageVariants'] = FieldValue.delete();
+      }
+      if (_validUntil != null)
+        payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+      if (widget.doc != null && widget.doc!.data()?['createdAt'] == null) {
+        payload['createdAt'] = FieldValue.serverTimestamp();
+      }
+      if (widget.doc == null) {
+        payload['createdAt'] = FieldValue.serverTimestamp();
+        payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+        payload['likesCount'] = 0;
+        payload['rsvpCount'] = 0;
+        payload['commentsCount'] = 0;
         await docRef.set(payload);
       } else {
+        payload['templateId'] = FieldValue.delete();
         await widget.doc!.reference.set(payload, SetOptions(merge: true));
       }
-      unawaited(_applyAgendaSyncAfterSave(postId));
+      if (_newImages.isNotEmpty) {
+        FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+          tenantId: widget.tenantId,
+          postDocId: postId,
+        );
+      }
+      await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            isNewDoc ? 'Evento publicado!' : 'Evento atualizado!',
-          ),
-        );
+            ThemeCleanPremium.successSnackBar(widget.doc == null
+                ? 'Evento publicado!'
+                : 'Evento atualizado!'));
         Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted) {
+      final msg = e.toString();
+      final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
+          msg.contains('permission-denied');
+      if (mounted && isAssertionOrPerm) {
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken();
+          await Future.delayed(const Duration(milliseconds: 150));
+          if (widget.doc == null) {
+            final retryUrls = List<String>.from(_existingUrls);
+            final rInit = retryUrls.length;
+            final rRoom =
+                (_maxPhotosPerEvent - rInit).clamp(0, _newImages.length);
+            if (rRoom > 0) {
+              final rUp = List<Future<MediaUploadResult>>.generate(
+                rRoom,
+                (i) => _upload(_newImages[i], postId, rInit + i),
+              );
+              for (final up in await Future.wait(rUp)) {
+                retryUrls.add(up.downloadUrl);
+              }
+            }
+            if (retryUrls.length > _maxPhotosPerEvent)
+              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
+            final retrySafe = retryUrls
+                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
+                .toList();
+            final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
+            final retryDerived = _pathsFromImageUrls(retrySafe);
+            final arRetry = _newImages.isNotEmpty
+                ? _aspectRatioFromBytes(_newImages.first)
+                : null;
+            final firstVideoUrl = _eventVideos.isNotEmpty
+                ? (_eventVideos.first['videoUrl'] ?? '')
+                : _videoUrl.text.trim();
+            final firstThumbUrl = _eventVideos.isNotEmpty
+                ? (_eventVideos.first['thumbUrl'] ?? '')
+                : '';
+            final vClean = _eventVideos
+                .map((e) => <String, dynamic>{
+                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+                    })
+                .where((m) => (m['videoUrl'] as String).isNotEmpty)
+                .toList();
+            final payload = <String, dynamic>{
+              'type': 'evento',
+              'title': _title.text.trim(),
+              ..._eventBodyFirestoreFields(),
+              'imageUrl': retryFirst,
+              'imageUrls': retrySafe,
+              'defaultImageUrl': retryFirst,
+              if (retryDerived != null && retryDerived.isNotEmpty) ...{
+                'imageStoragePaths': retryDerived,
+                'imageStoragePath': retryDerived.first,
+              },
+              if (retryFirst.isNotEmpty) 'imagemUrl': retryFirst,
+              if (retryFirst.isNotEmpty) 'imagem_url': retryFirst,
+              'videoUrl': firstVideoUrl,
+              'thumbUrl': firstThumbUrl,
+              'videos': vClean,
+              'active': true,
+              'updatedAt': FieldValue.serverTimestamp(),
+              'createdAt': FieldValue.serverTimestamp(),
+              'createdByUid': FirebaseAuth.instance.currentUser?.uid ?? '',
+              'generated': false,
+              'publicSite': _publicSite,
+              'galleryPermanent': _galleryPermanent,
+              'likes': <String>[],
+              'rsvp': <String>[],
+              'likesCount': 0,
+              'rsvpCount': 0,
+              'commentsCount': 0,
+              ..._schedulingAndCategoryFields(merge: false),
+              ..._locationFieldsForSave(allowDeleteSentinels: false),
+              if (arRetry != null)
+                'media_info': {
+                  'aspect_ratio': arRetry.clamp(0.45, 1.9),
+                },
+            };
+            if (_validUntil != null)
+              payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+            await docRef.set(payload);
+            if (_newImages.isNotEmpty) {
+              FirebaseStorageCleanupService
+                  .scheduleCleanupAfterEventPostImageUpload(
+                tenantId: widget.tenantId,
+                postDocId: postId,
+              );
+            }
+          } else {
+            final retryUrls = List<String>.from(_existingUrls);
+            final mInit = retryUrls.length;
+            final mRoom =
+                (_maxPhotosPerEvent - mInit).clamp(0, _newImages.length);
+            if (mRoom > 0) {
+              final mUp = List<Future<MediaUploadResult>>.generate(
+                mRoom,
+                (i) => _upload(_newImages[i], postId, mInit + i),
+              );
+              for (final up in await Future.wait(mUp)) {
+                retryUrls.add(up.downloadUrl);
+              }
+            }
+            if (retryUrls.length > _maxPhotosPerEvent)
+              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
+            final mergeSafe = retryUrls
+                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
+                .toList();
+            final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
+            final mergeDerived = _pathsFromImageUrls(mergeSafe);
+            final arMerge = _newImages.isNotEmpty
+                ? _aspectRatioFromBytes(_newImages.first)
+                : null;
+            final firstVideoUrl = _eventVideos.isNotEmpty
+                ? (_eventVideos.first['videoUrl'] ?? '')
+                : _videoUrl.text.trim();
+            final firstThumbUrl = _eventVideos.isNotEmpty
+                ? (_eventVideos.first['thumbUrl'] ?? '')
+                : '';
+            final vClean2 = _eventVideos
+                .map((e) => <String, dynamic>{
+                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+                    })
+                .where((m) => (m['videoUrl'] as String).isNotEmpty)
+                .toList();
+            final merge = <String, dynamic>{
+              'type': 'evento',
+              'title': _title.text.trim(),
+              ..._eventBodyFirestoreFields(),
+              'imageUrl': mergeFirst,
+              'imageUrls': mergeSafe,
+              'defaultImageUrl': mergeFirst,
+              if (mergeDerived != null && mergeDerived.isNotEmpty) ...{
+                'imageStoragePaths': mergeDerived,
+                'imageStoragePath': mergeDerived.first,
+              },
+              if (mergeFirst.isNotEmpty) 'imagemUrl': mergeFirst,
+              if (mergeFirst.isNotEmpty) 'imagem_url': mergeFirst,
+              'videoUrl': firstVideoUrl,
+              'thumbUrl': firstThumbUrl,
+              'videos': vClean2,
+              'updatedAt': FieldValue.serverTimestamp(),
+              'generated': false,
+              'publicSite': _publicSite,
+              'galleryPermanent': _galleryPermanent,
+              'imageVariants': FieldValue.delete(),
+              ..._schedulingAndCategoryFields(merge: true),
+              ..._locationFieldsForSave(allowDeleteSentinels: true),
+              if (arMerge != null)
+                'media_info': {
+                  'aspect_ratio': arMerge.clamp(0.45, 1.9),
+                },
+            };
+            if (_validUntil != null)
+              merge['validUntil'] = Timestamp.fromDate(_validUntil!);
+            if (widget.doc!.data()?['createdAt'] == null) {
+              merge['createdAt'] = FieldValue.serverTimestamp();
+            }
+            merge['templateId'] = FieldValue.delete();
+            await widget.doc!.reference.set(merge, SetOptions(merge: true));
+            if (_newImages.isNotEmpty) {
+              FirebaseStorageCleanupService
+                  .scheduleCleanupAfterEventPostImageUpload(
+                tenantId: widget.tenantId,
+                postDocId: postId,
+              );
+            }
+          }
+          await _applyAgendaSyncAfterSave(postId);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.successSnackBar('Evento publicado!'));
+            Navigator.pop(context, true);
+          }
+        } catch (e2) {
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Erro: $e2'),
+                backgroundColor: ThemeCleanPremium.error));
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro: $e'),
-          backgroundColor: ThemeCleanPremium.error,
-        ));
+            content: Text('Erro: $e'),
+            backgroundColor: ThemeCleanPremium.error));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -6633,32 +6469,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     for (var i = 0; i < _newImages.length; i++) {
       final idx = i;
-      final processing =
-          idx < _newImagesProcessing.length && _newImagesProcessing[idx];
       allPreviews.add(Stack(children: [
         ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Image.memory(_newImages[idx],
                 width: 100, height: 100, fit: BoxFit.cover)),
-        if (processing)
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.28),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
         Positioned(
             top: 2,
             right: 2,
@@ -6666,9 +6481,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 onTap: () => setState(() {
                       _newImages.removeAt(idx);
                       _newNames.removeAt(idx);
-                      if (idx < _newImagesProcessing.length) {
-                        _newImagesProcessing.removeAt(idx);
-                      }
                     }),
                 child: Container(
                     padding: const EdgeInsets.all(2),
@@ -6818,12 +6630,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           height: 1.35,
                           color: Colors.grey.shade600),
                     ),
-                    AsyncUploadProgressStrip(
-                      localActive: _mediaPicking || _uploadingVideo,
-                      localLabel: _uploadingVideo
-                          ? 'A enviar vídeo em segundo plano…'
-                          : 'A preparar fotos…',
-                    ),
+                    if (_mediaPicking) ...[
+                      const SizedBox(height: 10),
+                      const LinearProgressIndicator(minHeight: 3),
+                    ],
                     const SizedBox(height: 12),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       ...allPreviews,
@@ -6874,18 +6684,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: _mediaPicking ? null : _openAddMediaSheet,
+                          onTap: (_uploadingVideo || _mediaPicking)
+                              ? null
+                              : _openAddMediaSheet,
                           borderRadius: BorderRadius.circular(12),
                           child: Container(
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
-                              color: _mediaPicking
+                              color: (_uploadingVideo || _mediaPicking)
                                   ? Colors.grey.withValues(alpha: 0.15)
                                   : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: _mediaPicking
+                                color: (_uploadingVideo || _mediaPicking)
                                     ? Colors.grey.shade300
                                     : ThemeCleanPremium.primary
                                         .withValues(alpha: 0.35),
@@ -8081,7 +7893,7 @@ class _FixosTabState extends State<_FixosTab> {
               isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
           .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
           .orderBy('startAt')
-          .limit(80)
+          .limit(250)
           .get();
       return snap.docs;
     } catch (_) {
@@ -8089,10 +7901,10 @@ class _FixosTabState extends State<_FixosTab> {
       try {
         snap = await widget.noticias
             .orderBy('startAt', descending: false)
-            .limit(60)
+            .limit(200)
             .get();
       } catch (_) {
-        snap = await widget.noticias.limit(80).get();
+        snap = await widget.noticias.limit(250).get();
       }
       final out = snap.docs.where((d) {
         if ((d.data()['type'] ?? '').toString() != 'evento') return false;
@@ -9525,6 +9337,8 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       _error = null;
     });
     try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await Future.delayed(const Duration(milliseconds: 100));
       QuerySnapshot<Map<String, dynamic>> snap;
       try {
         snap = await widget.noticias
@@ -9533,7 +9347,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             .get();
       } catch (_) {
         // Fallback sem orderBy (evita exigir índice no Firestore).
-        snap = await widget.noticias.limit(80).get();
+        snap = await widget.noticias.limit(150).get();
       }
       var allSorted = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
       if (allSorted.length > 1 &&
@@ -9589,15 +9403,14 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         final title = (data['title'] ?? 'Evento').toString();
         final rsvp = (data['rsvp'] as List?)?.length ?? 0;
         final likes = (data['likes'] as List?)?.length ?? 0;
-        final comments = (data['commentsCount'] is num)
-            ? (data['commentsCount'] as num).toInt()
-            : 0;
-        final st = data['startAt'];
-        final startAt = st is Timestamp ? st.toDate() : null;
+        int comments = 0;
+        try {
+          final countSnap =
+              await d.reference.collection('comentarios').count().get();
+          comments = countSnap.count ?? 0;
+        } catch (_) {}
         list.add(_EventStats(
-            docId: d.id,
             title: title,
-            startAt: startAt,
             rsvp: rsvp,
             likes: likes,
             comments: comments,
@@ -9645,88 +9458,40 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       );
     }
     final padding = ThemeCleanPremium.pagePadding(context);
-    final sumRsvp = _stats.fold<int>(0, (a, s) => a + s.rsvp);
-    final sumLikes = _stats.fold<int>(0, (a, s) => a + s.likes);
-    final sumComments = _stats.fold<int>(0, (a, s) => a + s.comments);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding:
             EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 80),
         children: [
-          const SizedBox(height: 6),
-          _DashboardEventsHeroCard(
-            eventCount: _stats.length,
-            sumRsvp: sumRsvp,
-            sumLikes: sumLikes,
-            sumComments: sumComments,
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
+          const SizedBox(height: 8),
           if (_categoryPieSections.isNotEmpty) ...[
             _ChartCard(
-              title: 'Distribuição por categoria',
-              subtitle:
-                  'Amostra dos últimos registos no mural de eventos (até 100).',
-              icon: Icons.pie_chart_rounded,
+              title: 'Eventos por categoria (amostra dos últimos registros)',
+              icon: Icons.pie_chart_outline_rounded,
               color: const Color(0xFF7C3AED),
-              accentGradient: const LinearGradient(
-                colors: [Color(0xFF7C3AED), Color(0xFFA78BFA)],
-              ),
               onTap: null,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    height: 220,
-                    child: PieChart(
-                      PieChartData(
-                        sections: _categoryPieSections,
-                        sectionsSpace: 1.5,
-                        centerSpaceRadius: 52,
-                        startDegreeOffset: -90,
-                      ),
-                    ),
+              child: SizedBox(
+                height: 240,
+                child: PieChart(
+                  PieChartData(
+                    sections: _categoryPieSections,
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 44,
+                    startDegreeOffset: -90,
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var i = 0; i < _categoryPieSections.length; i++)
-                        Chip(
-                          avatar: CircleAvatar(
-                            backgroundColor: _categoryPieSections[i].color,
-                            radius: 6,
-                          ),
-                          label: Text(
-                            _categoryPieSections[i].title.split('\n').first,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
           ],
           _ChartCard(
-            title: 'Confirmações (RSVP) por evento',
-            subtitle: 'Barras proporcionais · toque no cartão para listar nomes',
+            title: 'Confirmações de presença (RSVP) por evento',
             icon: Icons.check_circle_rounded,
             color: ThemeCleanPremium.success,
-            accentGradient: LinearGradient(
-              colors: [
-                ThemeCleanPremium.success,
-                ThemeCleanPremium.success.withValues(alpha: 0.65),
-              ],
-            ),
             onTap: () => _showNamesSheet(context, 'rsvp'),
             child: SizedBox(
-              height: 300,
+              height: 280,
               child: BarChart(
                 _barChartData(_stats, (e) => e.rsvp.toDouble(),
                     ThemeCleanPremium.success),
@@ -9736,73 +9501,29 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
             title: 'Curtidas por evento',
-            subtitle: 'Engajamento no feed · toque para ver quem curtiu',
             icon: Icons.favorite_rounded,
-            color: const Color(0xFFEF4444),
-            accentGradient: const LinearGradient(
-              colors: [Color(0xFFF87171), Color(0xFFEF4444)],
-            ),
+            color: Colors.red.shade400,
             onTap: () => _showNamesSheet(context, 'likes'),
             child: SizedBox(
-              height: 300,
+              height: 280,
               child: BarChart(
                 _barChartData(
-                  _stats,
-                  (e) => e.likes.toDouble(),
-                  const Color(0xFFEF4444),
-                ),
+                    _stats, (e) => e.likes.toDouble(), Colors.red.shade400),
               ),
             ),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
             title: 'Comentários por evento',
-            subtitle: 'Moderadores podem remover comentários inadequados',
             icon: Icons.comment_rounded,
             color: const Color(0xFF0EA5E9),
-            accentGradient: const LinearGradient(
-              colors: [Color(0xFF38BDF8), Color(0xFF0EA5E9)],
-            ),
             onTap: () => _showNamesSheet(context, 'comments'),
             child: SizedBox(
-              height: 300,
+              height: 280,
               child: BarChart(
-                _barChartData(
-                  _stats,
-                  (e) => e.comments.toDouble(),
-                  const Color(0xFF0EA5E9),
-                ),
+                _barChartData(_stats, (e) => e.comments.toDouble(),
+                    const Color(0xFF0EA5E9)),
               ),
-            ),
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
-          _ChartCard(
-            title: 'Lista por evento',
-            subtitle:
-                'Resumo e atalhos para RSVP, curtidas e comentários de cada publicação.',
-            icon: Icons.view_list_rounded,
-            color: ThemeCleanPremium.primary,
-            accentGradient: LinearGradient(
-              colors: [
-                ThemeCleanPremium.primary,
-                ThemeCleanPremium.primaryLight,
-              ],
-            ),
-            onTap: null,
-            child: Column(
-              children: [
-                for (var i = 0; i < _stats.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(bottom: i == _stats.length - 1 ? 0 : 10),
-                    child: _EventDashboardListTile(
-                      index: i,
-                      stats: _stats[i],
-                      dateLabel: _formatEventDate(_stats[i].startAt),
-                      onOpenEngagement: () =>
-                          _openEventEngagementActions(context, i),
-                    ),
-                  ),
-              ],
             ),
           ),
           const SizedBox(height: 24),
@@ -9811,8 +9532,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
     );
   }
 
-  void _showNamesSheet(BuildContext context, String type,
-      {int? initialEventIndex}) {
+  void _showNamesSheet(BuildContext context, String type) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -9820,86 +9540,8 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => _EventNamesSheet(
-            stats: _stats,
-            type: type,
-            canDeleteComments: widget.canWrite,
-            initialEventIndex: initialEventIndex,
-          ),
+          stats: _stats, type: type, canDeleteComments: widget.canWrite),
     );
-  }
-
-  Future<void> _openEventEngagementActions(
-      BuildContext context, int eventIndex) async {
-    if (eventIndex < 0 || eventIndex >= _stats.length) return;
-    final s = _stats[eventIndex];
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                Text(
-                  s.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                ListTile(
-                  leading: Icon(Icons.check_circle_rounded,
-                      color: ThemeCleanPremium.success),
-                  title: const Text('Confirmações (RSVP)'),
-                  subtitle: Text('${s.rsvp} pessoas'),
-                  onTap: () => Navigator.pop(ctx, 'rsvp'),
-                ),
-                ListTile(
-                  leading: Icon(Icons.favorite_rounded,
-                      color: Colors.red.shade400),
-                  title: const Text('Curtidas'),
-                  subtitle: Text('${s.likes}'),
-                  onTap: () => Navigator.pop(ctx, 'likes'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.comment_rounded,
-                      color: Color(0xFF0EA5E9)),
-                  title: const Text('Comentários'),
-                  subtitle: Text('${s.comments}'),
-                  onTap: () => Navigator.pop(ctx, 'comments'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    if (choice == null || !context.mounted) return;
-    _showNamesSheet(context, choice, initialEventIndex: eventIndex);
-  }
-
-  String _formatEventDate(DateTime? d) {
-    if (d == null) return 'Sem data de início';
-    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
   BarChartData _barChartData(List<_EventStats> stats,
@@ -9918,17 +9560,10 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           barRods: [
             BarChartRodData(
               toY: v,
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  color.withValues(alpha: 0.45),
-                  color,
-                ],
-              ),
-              width: 16,
+              color: color,
+              width: 14,
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(8)),
+                  const BorderRadius.vertical(top: Radius.circular(6)),
             ),
           ],
           showingTooltipIndicators: [0],
@@ -9939,25 +9574,19 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            reservedSize: 42,
+            reservedSize: 36,
             getTitlesWidget: (v, meta) {
               final i = v.toInt();
               if (i >= 0 && i < stats.length) {
                 final t = stats[i].title;
-                final label = t.length > 10 ? '${t.substring(0, 10)}…' : t;
+                final label = t.length > 12 ? '${t.substring(0, 12)}…' : t;
                 return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                    textAlign: TextAlign.center,
-                  ),
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(label,
+                      style:
+                          TextStyle(fontSize: 9, color: Colors.grey.shade700),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1),
                 );
               }
               return const SizedBox();
@@ -9977,12 +9606,10 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             const AxisTitles(sideTitles: SideTitles(showTitles: false)),
       ),
       gridData: FlGridData(
-        show: true,
-        drawVerticalLine: false,
-        horizontalInterval: top > 10 ? (top / 5).clamp(1, 20) : 1,
-        getDrawingHorizontalLine: (_) =>
-            FlLine(color: Colors.grey.shade200, strokeWidth: 1),
-      ),
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
       borderData: FlBorderData(show: false),
       barTouchData: BarTouchData(
         enabled: true,
@@ -10007,22 +9634,17 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
 }
 
 class _EventStats {
-  final String docId;
   final String title;
-  final DateTime? startAt;
   final int rsvp;
   final int likes;
   final int comments;
   final DocumentReference<Map<String, dynamic>> eventRef;
-  _EventStats({
-    required this.docId,
-    required this.title,
-    this.startAt,
-    required this.rsvp,
-    required this.likes,
-    required this.comments,
-    required this.eventRef,
-  });
+  _EventStats(
+      {required this.title,
+      required this.rsvp,
+      required this.likes,
+      required this.comments,
+      required this.eventRef});
 }
 
 /// Sheet: selecionar evento e ver nomes (RSVP, curtidas) ou lista de comentários com opção de excluir.
@@ -10030,14 +9652,11 @@ class _EventNamesSheet extends StatefulWidget {
   final List<_EventStats> stats;
   final String type;
   final bool canDeleteComments;
-  final int? initialEventIndex;
 
-  const _EventNamesSheet({
-    required this.stats,
-    required this.type,
-    this.canDeleteComments = false,
-    this.initialEventIndex,
-  });
+  const _EventNamesSheet(
+      {required this.stats,
+      required this.type,
+      this.canDeleteComments = false});
 
   @override
   State<_EventNamesSheet> createState() => _EventNamesSheetState();
@@ -10140,10 +9759,6 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.stats.isNotEmpty && widget.initialEventIndex != null) {
-      _selectedIndex = widget.initialEventIndex!
-          .clamp(0, widget.stats.length - 1);
-    }
     if (widget.type != 'comments') _loadNames();
   }
 
@@ -10374,392 +9989,19 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   }
 }
 
-class _DashboardEventsHeroCard extends StatelessWidget {
-  final int eventCount;
-  final int sumRsvp;
-  final int sumLikes;
-  final int sumComments;
-
-  const _DashboardEventsHeroCard({
-    required this.eventCount,
-    required this.sumRsvp,
-    required this.sumLikes,
-    required this.sumComments,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ThemeCleanPremium.primary,
-            ThemeCleanPremium.primaryLight,
-            const Color(0xFF1E3A5F),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: const Icon(
-                  Icons.insights_rounded,
-                  color: Colors.white,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Painel de engajamento',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 20,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Eventos recentes no mural — RSVP, curtidas e comentários',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.9),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 18),
-          LayoutBuilder(
-            builder: (context, c) {
-              final narrow = c.maxWidth < 520;
-              Widget chip({
-                required IconData icon,
-                required String label,
-                required String value,
-              }) {
-                return Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.22),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(icon,
-                            color: Colors.white.withValues(alpha: 0.95),
-                            size: 20),
-                        const SizedBox(height: 8),
-                        Text(
-                          value,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 22,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.82),
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-              final row = Row(
-                children: [
-                  chip(
-                    icon: Icons.event_available_rounded,
-                    label: 'No painel',
-                    value: '$eventCount',
-                  ),
-                  const SizedBox(width: 10),
-                  chip(
-                    icon: Icons.how_to_reg_rounded,
-                    label: 'RSVP total',
-                    value: '$sumRsvp',
-                  ),
-                  const SizedBox(width: 10),
-                  chip(
-                    icon: Icons.favorite_rounded,
-                    label: 'Curtidas',
-                    value: '$sumLikes',
-                  ),
-                  const SizedBox(width: 10),
-                  chip(
-                    icon: Icons.forum_rounded,
-                    label: 'Comentários',
-                    value: '$sumComments',
-                  ),
-                ],
-              );
-              if (narrow) {
-                return Column(
-                  children: [
-                    Row(children: [
-                      chip(
-                        icon: Icons.event_available_rounded,
-                        label: 'No painel',
-                        value: '$eventCount',
-                      ),
-                      const SizedBox(width: 10),
-                      chip(
-                        icon: Icons.how_to_reg_rounded,
-                        label: 'RSVP total',
-                        value: '$sumRsvp',
-                      ),
-                    ]),
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      chip(
-                        icon: Icons.favorite_rounded,
-                        label: 'Curtidas',
-                        value: '$sumLikes',
-                      ),
-                      const SizedBox(width: 10),
-                      chip(
-                        icon: Icons.forum_rounded,
-                        label: 'Comentários',
-                        value: '$sumComments',
-                      ),
-                    ]),
-                  ],
-                );
-              }
-              return row;
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EventDashboardListTile extends StatelessWidget {
-  final int index;
-  final _EventStats stats;
-  final String dateLabel;
-  final VoidCallback onOpenEngagement;
-
-  const _EventDashboardListTile({
-    required this.index,
-    required this.stats,
-    required this.dateLabel,
-    required this.onOpenEngagement,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onOpenEngagement,
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.white.withValues(alpha: 0.55),
-            border: Border.all(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: LinearGradient(
-                      colors: [
-                        ThemeCleanPremium.primary.withValues(alpha: 0.2),
-                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.12),
-                      ],
-                    ),
-                  ),
-                  child: Text(
-                    '${index + 1}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: ThemeCleanPremium.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        stats.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        dateLabel,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _miniMetric(
-                            Icons.how_to_reg_rounded,
-                            'RSVP',
-                            '${stats.rsvp}',
-                            ThemeCleanPremium.success,
-                          ),
-                          _miniMetric(
-                            Icons.favorite_rounded,
-                            'Curtidas',
-                            '${stats.likes}',
-                            const Color(0xFFEF4444),
-                          ),
-                          _miniMetric(
-                            Icons.comment_rounded,
-                            'Coment.',
-                            '${stats.comments}',
-                            const Color(0xFF0EA5E9),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Column(
-                  children: [
-                    Icon(
-                      Icons.touch_app_rounded,
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.75),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Interações',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  static Widget _miniMetric(
-      IconData icon, String label, String value, Color c) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: c.withValues(alpha: 0.1),
-        border: Border.all(color: c.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: c),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              color: c,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 11,
-              color: ThemeCleanPremium.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ChartCard extends StatelessWidget {
   final String title;
-  final String? subtitle;
   final IconData icon;
   final Color color;
-  final LinearGradient accentGradient;
   final Widget child;
   final VoidCallback? onTap;
 
-  const _ChartCard({
-    required this.title,
-    this.subtitle,
-    required this.icon,
-    required this.color,
-    required this.accentGradient,
-    required this.child,
-    this.onTap,
-  });
+  const _ChartCard(
+      {required this.title,
+      required this.icon,
+      required this.color,
+      required this.child,
+      this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -10767,120 +10009,47 @@ class _ChartCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
           decoration: BoxDecoration(
             color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              ...ThemeCleanPremium.softUiCardShadow,
-              BoxShadow(
-                color: color.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 12),
-              ),
-            ],
-            border: Border.all(
-              color: color.withValues(alpha: 0.14),
-            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: const Color(0xFFF1F5F9)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(11),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      gradient: accentGradient,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Icon(icon, color: Colors.white, size: 22),
+                        color: color.withOpacity(0.12),
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                    child: Icon(icon, color: color, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
+                      child: Text(title,
                           style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                        ),
-                        ...() {
-                          final sub = subtitle;
-                          if (sub == null || sub.isEmpty) {
-                            return <Widget>[];
-                          }
-                          return <Widget>[
-                            const SizedBox(height: 4),
-                            Text(
-                              sub,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.35,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
-                            ),
-                          ];
-                        }(),
-                      ],
-                    ),
-                  ),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: ThemeCleanPremium.onSurface))),
                   if (onTap != null)
-                    Icon(
-                      Icons.open_in_new_rounded,
-                      size: 20,
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                    ),
+                    Icon(Icons.visibility_rounded,
+                        size: 18, color: Colors.grey.shade500),
                 ],
               ),
-              if (onTap != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.visibility_rounded,
-                        size: 16,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Toque para explorar listas',
+              if (onTap != null)
+                Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('Toque para ver nomes',
                         style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: ThemeCleanPremium.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 14),
+                            fontSize: 12, color: Colors.grey.shade600))),
+              const SizedBox(height: 16),
               child,
             ],
           ),

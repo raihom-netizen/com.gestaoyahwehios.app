@@ -1,12 +1,12 @@
 import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:convert' show jsonDecode;
-import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,15 +14,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show kEffectiveMuralFeedWebpQuality, kMaxAvisoFeedPhotosPerPost;
+    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
-import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
-import 'package:gestao_yahweh/services/mural_post_hosted_video_editor.dart';
-import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
-import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -81,7 +74,6 @@ import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 
@@ -166,10 +158,11 @@ class InstagramMural extends StatefulWidget {
 }
 
 class InstagramMuralState extends State<InstagramMural> {
-  /// Abre o editor de novo aviso (feed / FAB do [MuralPage]).
+  /// FAB «Novo aviso» na [MuralPage] (shell).
   void openNewAvisoEditor() {
     unawaited(_openEditor(type: 'aviso'));
   }
+
   Map<String, dynamic>? _tenantData;
   static const int _feedPageSize = 15;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _feedRawDocs = [];
@@ -243,6 +236,7 @@ class InstagramMuralState extends State<InstagramMural> {
     super.initState();
     _loadTenant();
     _startFeedLiveSync();
+    unawaited(_loadFeedPage(reset: true));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_canManageAll) {
@@ -262,6 +256,7 @@ class InstagramMuralState extends State<InstagramMural> {
       _isFeedInitialLoading = true;
       _feedLoadError = null;
       _startFeedLiveSync();
+      unawaited(_loadFeedPage(reset: true));
     }
   }
 
@@ -1487,10 +1482,6 @@ class _PostCardState extends State<_PostCard>
     final videoEntries = eventNoticiaVideosFromDoc(data);
     final photoCount = muralPhotos.length;
     final videoCount = videoEntries.length;
-    final publishState = (data['publishState'] ?? '').toString();
-    final mediaUploading = publishState == MuralFastPublishService.stateUploading;
-    final publishFailed = publishState == MuralFastPublishService.stateFailed;
-    final publishError = (data['publishError'] ?? '').toString();
     final carouselLen = photoCount + videoCount;
     final mediaChipLabel = carouselLen > 0
         ? (photoCount == 0
@@ -1652,163 +1643,6 @@ class _PostCardState extends State<_PostCard>
             _buildCompactTitleStrip(title, eventDateStr, isEvento),
           if (!isEvento && carouselLen == 0 && title.isNotEmpty)
             _buildCompactTitleStrip(title, '', isEvento),
-
-          if ((mediaUploading || publishFailed) && carouselLen == 0)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: FutureBuilder<List<Uint8List>?>(
-                future: MuralPostPendingMediaCache.get(
-                  tenantId: widget.tenantId,
-                  postId: widget.doc.id,
-                ),
-                builder: (context, pendingSnap) {
-                  final pending = pendingSnap.data;
-                  if (pending != null && pending.isNotEmpty) {
-                    return AspectRatio(
-                      aspectRatio: 4 / 3,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            PageView.builder(
-                              itemCount: pending.length,
-                              itemBuilder: (_, i) => Image.memory(
-                                pending[i],
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            if (mediaUploading)
-                              Align(
-                                alignment: Alignment.bottomCenter,
-                                child: Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                    horizontal: 12,
-                                  ),
-                                  color: Colors.black.withValues(alpha: 0.45),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'A enviar ${pending.length} foto${pending.length > 1 ? 's' : ''}…',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  if (publishFailed) {
-                    return AspectRatio(
-                      aspectRatio: 4 / 3,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: ColoredBox(
-                          color: ThemeCleanPremium.error.withValues(alpha: 0.06),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.cloud_off_rounded,
-                                  color: ThemeCleanPremium.error,
-                                  size: 32,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  publishError.isNotEmpty
-                                      ? publishError
-                                      : 'Falha ao publicar fotos.',
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: ThemeCleanPremium.onSurfaceVariant,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                if (widget.canEdit)
-                                  FilledButton.tonal(
-                                    onPressed: () {
-                                      unawaited(
-                                        MuralPublishOutboxService.retryFromCard(
-                                          tenantId: widget.tenantId,
-                                          postId: widget.doc.id,
-                                          postType: type == 'evento'
-                                              ? 'evento'
-                                              : 'aviso',
-                                          existingUrls: muralPhotos,
-                                          startSlotIndex: muralPhotos.length,
-                                          hasVideo: videoCount > 0 ||
-                                              (data['videoUrl'] ?? '')
-                                                  .toString()
-                                                  .trim()
-                                                  .isNotEmpty,
-                                        ),
-                                      );
-                                    },
-                                    child: const Text('Tentar de novo'),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                  return AspectRatio(
-                    aspectRatio: 4 / 3,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          YahwehPremiumFeedShimmer.mediaCover(),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(
-                                width: 28,
-                                height: 28,
-                                child: CircularProgressIndicator(strokeWidth: 2.5),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'A publicar fotos…',
-                                style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: ThemeCleanPremium.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
 
           // Mídia — carrossel 1:1 (Instagram): N fotos + M vídeos (deslizar)
           if (carouselLen > 0)
@@ -3010,9 +2844,6 @@ class MuralAvisoEditorPage extends StatefulWidget {
 }
 
 class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
-  static const int _maxVideosPerPost = 2;
-  static const int _maxPhotosPerEvento = 20;
-
   late TextEditingController _title, _videoUrl, _bodyDescription;
   late TextEditingController _cep,
       _logradouro,
@@ -3025,17 +2856,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   final List<String> _existingUrls = [];
   final List<Uint8List> _newImages = [];
   final List<String> _newNames = [];
-  /// `true` enquanto a foto ainda está em recorte/WebP (preview já visível).
-  final List<bool> _newImagesProcessing = [];
   DateTime? _date;
   TimeOfDay? _time;
   DateTime? _validUntil;
   bool _saving = false;
   bool _mediaPicking = false;
-  bool _uploadingVideo = false;
-  double? _videoUploadFraction;
-  late final DocumentReference<Map<String, dynamic>> _postDocRef;
-  late final MuralPostHostedVideoEditor _hostedVideo;
 
   /// Quando false, o post não aparece no site público (painel/app continuam).
   bool _publicSite = true;
@@ -3100,18 +2925,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     _locationLng = lng is num
         ? lng.toDouble()
         : (lng != null ? double.tryParse(lng.toString()) : null);
-    _postDocRef = widget.doc?.reference ?? widget.postsCollection.doc();
-    _hostedVideo = MuralPostHostedVideoEditor(
-      tenantId: widget.tenantId,
-      postDocRef: _postDocRef,
-      maxVideos: _maxVideosPerPost,
-    );
-    _hostedVideo.videos
-        .addAll(MuralPostHostedVideoEditor.loadFromDoc(data));
     final urls = _PostCard.imageUrlsFromData(data);
-    _existingUrls.addAll(
-      urls.where((u) => !looksLikeHostedVideoFileUrl(u.trim())),
-    );
+    _existingUrls.addAll(urls);
     try {
       final dt = (data['startAt'] as Timestamp).toDate();
       _date = DateTime(dt.year, dt.month, dt.day);
@@ -3386,99 +3201,21 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     super.dispose();
   }
 
-  bool _muralPhotoLimitReached() {
-    if (widget.type == 'aviso') {
-      return _newImages.length >= kMaxAvisoFeedPhotosPerPost;
-    }
-    return false;
-  }
-
-  Future<void> _appendMuralPhotoPreview(XFile file, int slotIndex) async {
-    if (!mounted || _muralPhotoLimitReached()) return;
-    try {
-      final bytes = await file.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
-      setState(() {
-        if (slotIndex < _newImages.length) {
-          _newImages[slotIndex] = bytes;
-          _newNames[slotIndex] = file.name;
-          if (slotIndex < _newImagesProcessing.length) {
-            _newImagesProcessing[slotIndex] = true;
-          }
-        } else {
-          _newImages.add(bytes);
-          _newNames.add(file.name);
-          _newImagesProcessing.add(true);
-        }
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _finalizeMuralPhotoSlot(XFile file, int slotIndex) async {
-    if (!mounted) return;
-    try {
-      final bytes = await file.readAsBytes();
-      if (!mounted || bytes.isEmpty) return;
-      setState(() {
-        if (slotIndex < _newImages.length) {
-          _newImages[slotIndex] = bytes;
-          _newNames[slotIndex] = file.name;
-          if (slotIndex < _newImagesProcessing.length) {
-            _newImagesProcessing[slotIndex] = false;
-          }
-        }
-      });
-    } catch (_) {}
-  }
-
-  void _removeMuralPhotoSlot(int slotIndex) {
-    if (slotIndex < 0 || slotIndex >= _newImages.length) return;
-    setState(() {
-      _newImages.removeAt(slotIndex);
-      if (slotIndex < _newNames.length) _newNames.removeAt(slotIndex);
-      if (slotIndex < _newImagesProcessing.length) {
-        _newImagesProcessing.removeAt(slotIndex);
-      }
-    });
-  }
-
   Future<void> _pickImages() async {
-    if (_muralPhotoLimitReached()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
-          ),
-        );
-      }
-      return;
-    }
     setState(() => _mediaPicking = true);
     try {
-      await MediaHandlerService.instance
+      final files = await MediaHandlerService.instance
           .pickMultiCropEncodeFeedWebpFromGallery(
         context,
-        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
-        onGalleryPicked: (_) {
-          if (mounted) setState(() => _mediaPicking = false);
-        },
-        onPickedBeforeEncode: (file, index, total) async {
-          if (!mounted || _muralPhotoLimitReached()) return;
-          await _appendMuralPhotoPreview(file, index);
-        },
-        onEachReady: (file, index, total) async {
-          await _finalizeMuralPhotoSlot(file, index);
-        },
-        onEncodeSkipped: (index, total) {
-          if (mounted) _removeMuralPhotoSlot(index);
-        },
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
-      if (_muralPhotoLimitReached() && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
-          ),
-        );
+      for (final f in files) {
+        final bytes = await f.readAsBytes();
+        if (!mounted) return;
+        setState(() {
+          _newImages.add(bytes);
+          _newNames.add(f.name);
+        });
       }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
@@ -3491,26 +3228,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
-        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        webpOutputQuality: kPremiumMuralFeedWebpQuality,
       );
       if (file != null) {
-        if (widget.type == 'aviso' &&
-            _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso.',
-              ),
-            );
-          }
-          return;
-        }
         final bytes = await file.readAsBytes();
         if (!mounted) return;
         setState(() {
           _newImages.add(bytes);
           _newNames.add(file.name);
-          _newImagesProcessing.add(false);
         });
       }
     } finally {
@@ -3541,377 +3266,24 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             widget.tenantId, postId, slotIndex)
         : ChurchStorageLayout.avisoPostPhotoPath(
             widget.tenantId, postId, slotIndex);
-    return FeedPostMediaUpload.uploadFeedPhotoBytes(
+    return MediaUploadService.uploadBytesWithRetry(
       storagePath: storagePath,
       bytes: bytes,
+      contentType:
+          bytesLookLikeWebp(bytes) ? 'image/webp' : 'image/jpeg',
       onProgress: onProgress,
+      skipClientPrepare: bytesLookLikeWebp(bytes),
     );
   }
 
-  bool get _hasVideoForPayload =>
-      _hostedVideo.hasHostedVideo || _videoUrl.text.trim().isNotEmpty;
-
-  List<String> _safePhotoUrls(List<String> urls) => urls
-      .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-      .toList();
-
-  Widget _videoPlaceholder() => Container(
-        width: 100,
-        height: 100,
-        color: Colors.grey.shade300,
-        child: Icon(Icons.play_circle_outline_rounded,
-            size: 40, color: Colors.grey.shade600),
-      );
-
-  Future<void> _removeHostedVideoAt(int index) async {
-    if (index < 0 || index >= _hostedVideo.videos.length) return;
-    final v = _hostedVideo.videos[index];
-    final videoUrl = (v['videoUrl'] ?? '').toString();
-    final thumbUrl = (v['thumbUrl'] ?? '').toString();
-    final slot = _hostedVideo.hostedVideoStorageSlotFromUrl(videoUrl);
-    if (slot != null) {
-      await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
-        tenantId: widget.tenantId,
-        postDocId: _postDocRef.id,
-        videoSlot: slot,
-      );
-    } else {
-      await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-          [videoUrl, thumbUrl]);
+  double _aspectRatioFromImageBytes(Uint8List bytes) {
+    try {
+      final im = img.decodeImage(bytes);
+      if (im == null || im.height <= 0) return 1.0;
+      return (im.width / im.height).clamp(0.4, 2.3);
+    } catch (_) {
+      return 1.0;
     }
-    if (mounted) setState(() => _hostedVideo.videos.removeAt(index));
-  }
-
-  Future<void> _pickAndUploadVideo() async {
-    if (_uploadingVideo ||
-        _hostedVideo.videos.length >= _maxVideosPerPost) {
-      if (_hostedVideo.videos.length >= _maxVideosPerPost && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Limite de $_maxVideosPerPost vídeo(s) por publicação.'),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-      return;
-    }
-    if (kIsWeb) {
-      setState(() {
-        _uploadingVideo = true;
-        _videoUploadFraction = null;
-      });
-    }
-    final result = await _hostedVideo.pickAndUploadHostedVideo(
-      setState: (fn) => setState(fn),
-      mounted: () => mounted,
-      showSnack: (msg) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(msg),
-        );
-      },
-    );
-    if (kIsWeb && mounted) {
-      setState(() {
-        _uploadingVideo = false;
-        _videoUploadFraction = null;
-      });
-    }
-    if (result.added) {
-      unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
-    } else if (result.error != null &&
-        result.error != 'cancel' &&
-        mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Erro ao enviar vídeo: ${result.error}'),
-        backgroundColor: ThemeCleanPremium.error,
-        behavior: SnackBarBehavior.floating,
-      ));
-    }
-  }
-
-  Future<void> _openAddMediaSheet() async {
-    final photosFull = widget.type == 'aviso'
-        ? _existingUrls.length + _newImages.length >=
-            kMaxAvisoFeedPhotosPerPost
-        : _existingUrls.length + _newImages.length >= _maxPhotosPerEvento;
-    final videosFull = _hostedVideo.videos.length >= _maxVideosPerPost;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(ThemeCleanPremium.radiusMd + 4),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 10, 8, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.workspace_premium_rounded,
-                          color: ThemeCleanPremium.primary, size: 22),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Mídia premium',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                          letterSpacing: -0.2,
-                          color: Colors.grey.shade900,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Fotos: recorte + WebP Full HD. Vídeo em arquivo: até 60 s.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      height: 1.35,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
-                    ),
-                    leading: CircleAvatar(
-                      backgroundColor: const Color(0xFFF0FDF4),
-                      child: Icon(Icons.photo_library_rounded,
-                          color: Colors.green.shade700, size: 24),
-                    ),
-                    title: const Text('Fotos da galeria',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text(
-                      photosFull
-                          ? 'Limite de fotos atingido'
-                          : 'Várias imagens · recorte por foto',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: photosFull
-                            ? ThemeCleanPremium.error
-                            : Colors.grey.shade600,
-                      ),
-                    ),
-                    enabled: !photosFull && !_mediaPicking,
-                    onTap: photosFull || _mediaPicking
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            unawaited(_pickImages());
-                          },
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
-                    ),
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      child: Icon(Icons.camera_alt_rounded,
-                          color: ThemeCleanPremium.primary, size: 24),
-                    ),
-                    title: const Text('Tirar foto',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text(
-                      photosFull ? 'Limite de fotos atingido' : 'Câmera',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: photosFull
-                            ? ThemeCleanPremium.error
-                            : Colors.grey.shade600,
-                      ),
-                    ),
-                    enabled: !photosFull && !_mediaPicking,
-                    onTap: photosFull || _mediaPicking
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            unawaited(_pickCamera());
-                          },
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey.shade200),
-                    ),
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      child: Icon(Icons.videocam_rounded,
-                          color: ThemeCleanPremium.primary, size: 24),
-                    ),
-                    title: const Text('Vídeo (arquivo)',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text(
-                      _uploadingVideo
-                          ? 'Aguarde o envio em andamento…'
-                          : videosFull
-                              ? 'Máx. $_maxVideosPerPost vídeo(s)'
-                              : 'Até 60 s — anexa antes de publicar',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: (_uploadingVideo || videosFull)
-                            ? Colors.grey.shade500
-                            : Colors.grey.shade600,
-                      ),
-                    ),
-                    enabled: !_uploadingVideo && !videosFull,
-                    onTap: (_uploadingVideo || videosFull)
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            unawaited(_pickAndUploadVideo());
-                          },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Map<String, dynamic> _mediaFieldsForPayload({
-    required List<String> allUrls,
-    required double aspectRatio,
-    required bool hasVideo,
-    required bool allowDeleteSentinels,
-  }) {
-    final allUrlsSafe = _safePhotoUrls(allUrls);
-    final firstUrl = allUrlsSafe.isNotEmpty ? allUrlsSafe[0] : '';
-    final firstVideoUrl = _hostedVideo.primaryVideoUrl(_videoUrl.text.trim());
-    final firstThumbUrl = _hostedVideo.primaryThumbUrl();
-    final patch = <String, dynamic>{};
-    patch['imageUrl'] = firstUrl;
-    patch['imageUrls'] = allUrlsSafe;
-    patch['defaultImageUrl'] = firstUrl;
-    patch['videoUrl'] = firstVideoUrl;
-    patch['thumbUrl'] = firstThumbUrl;
-    patch['videos'] = _hostedVideo.firestoreVideosPayload();
-    if (firstUrl.isNotEmpty) {
-      patch['imagemUrl'] = firstUrl;
-      patch['imagem_url'] = firstUrl;
-    } else if (allowDeleteSentinels) {
-      patch['imagemUrl'] = FieldValue.delete();
-      patch['imagem_url'] = FieldValue.delete();
-    }
-    if (allUrlsSafe.isNotEmpty) {
-      patch['media_info'] = <String, dynamic>{
-        'url_original': firstUrl,
-        'aspect_ratio': aspectRatio,
-        'tipo': hasVideo ? 'video' : 'image',
-      };
-    } else if (allowDeleteSentinels) {
-      patch['media_info'] = FieldValue.delete();
-    }
-    if (allUrlsSafe.isEmpty) {
-      if (allowDeleteSentinels) {
-        patch['imageStoragePath'] = FieldValue.delete();
-        patch['imageStoragePaths'] = FieldValue.delete();
-      }
-    } else {
-      final paths = _muralPathsFromImageUrls(allUrlsSafe);
-      if (paths != null && paths.isNotEmpty) {
-        patch['imageStoragePath'] = paths.first;
-        patch['imageStoragePaths'] = paths;
-      }
-    }
-    return patch;
-  }
-
-  Map<String, dynamic> _buildCorePayload({
-    required List<String> allUrls,
-    required double aspectRatio,
-    required bool isNewDoc,
-  }) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final displayName =
-        FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
-    final now = FieldValue.serverTimestamp();
-    final hasVideo = _hasVideoForPayload;
-    final plainBody = _bodyDescription.text.trim();
-    final payload = <String, dynamic>{
-      'type': widget.type,
-      'title': _title.text.trim(),
-      'text': plainBody,
-      kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
-      'updatedAt': now,
-      ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
-      ..._mediaFieldsForPayload(
-        allUrls: allUrls,
-        aspectRatio: aspectRatio,
-        hasVideo: hasVideo,
-        allowDeleteSentinels: !isNewDoc,
-      ),
-    };
-    if (widget.type == 'evento' && _date != null && _time != null) {
-      final dt = DateTime(
-          _date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
-      payload['startAt'] = Timestamp.fromDate(dt);
-      payload['generated'] = false;
-    }
-    if (_validUntil != null) {
-      payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-    }
-    if (widget.type == 'aviso') {
-      final refDate = _validUntil ?? DateTime.now();
-      final expiresAt = refDate.add(const Duration(days: 1));
-      payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
-    }
-    payload['publicSite'] = _publicSite;
-    if (widget.type == 'evento' && !isNewDoc) {
-      payload['imageVariants'] = FieldValue.delete();
-    }
-    if (isNewDoc) {
-      payload['createdAt'] = now;
-      payload['createdByUid'] = uid;
-      payload['createdByName'] = displayName;
-      payload['likes'] = <String>[];
-      payload['likedBy'] = <String>[];
-      payload['rsvp'] = <String>[];
-      payload['likesCount'] = 0;
-      payload['rsvpCount'] = 0;
-      payload['commentsCount'] = 0;
-    } else if (widget.type == 'evento') {
-      payload['templateId'] = FieldValue.delete();
-    }
-    return payload;
   }
 
   Future<void> _save() async {
@@ -3920,119 +3292,156 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
       return;
     }
-    if (_newImagesProcessing.any((p) => p)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Aguarde terminar o recorte das fotos antes de publicar.',
-        ),
-      );
-      return;
-    }
-    final docRef = _postDocRef;
+    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
     final postId = docRef.id;
-    final isNewDoc = widget.doc == null;
-    final hasNewImages = _newImages.isNotEmpty;
     setState(() => _saving = true);
     try {
-      final existingUrls =
-          _safePhotoUrls(dedupeImageRefsByStorageIdentity(_existingUrls));
+      var allUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      if (_newImages.isNotEmpty) {
+        final startSlot = allUrls.length;
+        final n = _newImages.length;
+        GlobalUploadProgress.instance.start('A enviar imagens…');
+        try {
+          final uploaded = <String>[];
+          for (var i = 0; i < n; i++) {
+            final u = await _upload(
+              _newImages[i],
+              postId,
+              startSlot + i,
+              onProgress: (p) =>
+                  GlobalUploadProgress.instance.update((i + p) / n),
+            );
+            uploaded.add(u);
+          }
+          allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
+        } finally {
+          GlobalUploadProgress.instance.end();
+        }
+      }
       var aspectRatio = 1.0;
-      if (!hasNewImages && existingUrls.isNotEmpty) {
+      if (_newImages.isNotEmpty) {
+        aspectRatio = _aspectRatioFromImageBytes(_newImages.first);
+      }
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final displayName =
+          FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
+      final now = FieldValue.serverTimestamp();
+
+      final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
+      if (_newImages.isEmpty && allUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+          if (oar is num) {
+            aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+          }
+        }
+      }
+      final hasVideo = _videoUrl.text.trim().isNotEmpty;
+
+      final plainBody = _bodyDescription.text.trim();
+      final payload = <String, dynamic>{
+        'type': widget.type,
+        'title': _title.text.trim(),
+        'text': plainBody,
+        kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
+        'imageUrl': firstUrl,
+        'imageUrls': allUrls,
+        'defaultImageUrl': firstUrl,
+        'videoUrl': _videoUrl.text.trim(),
+        'updatedAt': now,
+        ..._locationFieldsForSave(allowDeleteSentinels: widget.doc != null),
+      };
+      if (firstUrl.isNotEmpty) {
+        payload['imagemUrl'] = firstUrl;
+        payload['imagem_url'] = firstUrl;
+      } else if (widget.doc != null) {
+        payload['imagemUrl'] = FieldValue.delete();
+        payload['imagem_url'] = FieldValue.delete();
+      }
+
+      /// Só [url_original]: miniatura no Storage não é mais referenciada (evita confusão com `thumb_*` da extensão).
+      if (allUrls.isNotEmpty) {
+        payload['media_info'] = <String, dynamic>{
+          'url_original': firstUrl,
+          'aspect_ratio': aspectRatio,
+          'tipo': hasVideo ? 'video' : 'image',
+        };
+      } else if (widget.doc != null) {
+        payload['media_info'] = FieldValue.delete();
+      }
+
+      if (allUrls.isEmpty) {
+        if (widget.doc != null) {
+          payload['imageStoragePath'] = FieldValue.delete();
+          payload['imageStoragePaths'] = FieldValue.delete();
+        }
+      } else {
+        final paths = _muralPathsFromImageUrls(allUrls);
+        if (paths != null && paths.isNotEmpty) {
+          payload['imageStoragePath'] = paths.first;
+          payload['imageStoragePaths'] = paths;
         }
       }
 
-      if (hasNewImages) {
-        final payload = _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        payload['publishState'] = MuralFastPublishService.stateUploading;
-        payload['pendingImageCount'] = _newImages.length;
-        if (isNewDoc) {
-          await docRef.set(payload);
-        } else {
-          await docRef.set(payload, SetOptions(merge: true));
-        }
-        final imagesCopy = List<Uint8List>.from(_newImages);
-        final startSlot = existingUrls.length;
-        final hasVideo = _hasVideoForPayload;
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc
-                  ? 'Publicado! As fotos terminam de subir em segundo plano.'
-                  : 'Atualizado! As fotos terminam de subir em segundo plano.',
-            ),
-          );
-          Navigator.pop(context, true);
-        }
-        unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
-        MuralFastPublishService.scheduleBackgroundImageFinalize(
-          docRef: docRef,
-          tenantId: widget.tenantId,
-          postId: postId,
-          postType: widget.type,
-          newImages: imagesCopy,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-          uploadSlot: (bytes, slot, report) =>
-              MuralPostMediaPayload.uploadPhotoSlot(
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            postId: postId,
-            bytes: bytes,
-            slotIndex: slot,
-            onProgress: report,
-          ),
-          buildMediaFields: ({
-            required allUrls,
-            required aspectRatio,
-            required hasVideo,
-          }) {
-            final patch = MuralPostMediaPayload.buildMediaFields(
-              allUrls: allUrls,
-              aspectRatio: aspectRatio,
-              hasVideo: hasVideo,
-              allowDeleteSentinels: false,
-            );
-            patch['videoUrl'] =
-                _hostedVideo.primaryVideoUrl(_videoUrl.text.trim());
-            patch['thumbUrl'] = _hostedVideo.primaryThumbUrl();
-            patch['videos'] = _hostedVideo.firestoreVideosPayload();
-            return patch;
-          },
-        );
-        return;
+      if (widget.type == 'evento' && _date != null && _time != null) {
+        final dt = DateTime(
+            _date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
+        payload['startAt'] = Timestamp.fromDate(dt);
+        payload['generated'] = false;
       }
+      if (_validUntil != null) {
+        payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+      }
+      // Avisos são temporários: no site público só aparecem até 1 dia após a data predeterminada (ou criação).
+      if (widget.type == 'aviso') {
+        final refDate = _validUntil ?? DateTime.now();
+        final expiresAt = refDate.add(const Duration(days: 1));
+        payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
+      }
+      payload['publicSite'] = _publicSite;
 
-      final payload = _buildCorePayload(
-        allUrls: existingUrls,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-      );
-      payload['publishState'] = MuralFastPublishService.statePublished;
-      payload['pendingImageCount'] = FieldValue.delete();
-      payload['publishError'] = FieldValue.delete();
-      if (isNewDoc) {
+      if (widget.type == 'evento' && widget.doc != null) {
+        payload['imageVariants'] = FieldValue.delete();
+      }
+      if (widget.doc == null) {
+        payload['createdAt'] = now;
+        payload['createdByUid'] = uid;
+        payload['createdByName'] = displayName;
+        payload['likes'] = <String>[];
+        payload['likedBy'] = <String>[];
+        payload['rsvp'] = <String>[];
+        payload['likesCount'] = 0;
+        payload['rsvpCount'] = 0;
+        payload['commentsCount'] = 0;
         await docRef.set(payload);
       } else {
-        await docRef.set(payload, SetOptions(merge: true));
+        if (widget.type == 'evento') {
+          payload['templateId'] = FieldValue.delete();
+        }
+        await widget.doc!.reference.set(payload, SetOptions(merge: true));
       }
+
+      if (_newImages.isNotEmpty) {
+        if (widget.type == 'aviso') {
+          FirebaseStorageCleanupService.scheduleCleanupAfterAvisoPostImageUpload(
+            tenantId: widget.tenantId,
+            postDocId: postId,
+          );
+        } else if (widget.type == 'evento') {
+          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+            tenantId: widget.tenantId,
+            postDocId: postId,
+          );
+        }
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            isNewDoc ? 'Publicado!' : 'Atualizado!',
-          ),
-        );
+            ThemeCleanPremium.successSnackBar(
+                widget.doc == null ? 'Publicado!' : 'Atualizado!'));
         Navigator.pop(context, true);
       }
-      unawaited(_hostedVideo.mergeVideosToFirestoreIfPublished());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -4097,32 +3506,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     for (var i = 0; i < _newImages.length; i++) {
       final idx = i;
-      final processing =
-          idx < _newImagesProcessing.length && _newImagesProcessing[idx];
       allPreviews.add(Stack(children: [
         ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Image.memory(_newImages[idx],
                 width: thumbSize, height: thumbSize, fit: BoxFit.cover)),
-        if (processing)
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.28),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
         Positioned(
             top: 2,
             right: 2,
@@ -4130,9 +3518,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               onTap: () => setState(() {
                 _newImages.removeAt(idx);
                 _newNames.removeAt(idx);
-                if (idx < _newImagesProcessing.length) {
-                  _newImagesProcessing.removeAt(idx);
-                }
               }),
               child: Container(
                   padding: const EdgeInsets.all(2),
@@ -4260,6 +3645,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
+              if (_mediaPicking || _saving)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: LinearProgressIndicator(minHeight: 3),
+                ),
+              // FOTOS
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -4269,180 +3660,98 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.perm_media_rounded,
-                            color: ThemeCleanPremium.primary, size: 22),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(Icons.photo_library_rounded,
+                            color: ThemeCleanPremium.primary, size: 20),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Fotos e vídeo',
+                        const Text('Fotos',
                             style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                              color: Colors.grey.shade900,
+                                fontWeight: FontWeight.w700, fontSize: 14)),
+                        const Spacer(),
+                        Text(
+                          '${_existingUrls.length + _newImages.length} foto(s)',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade500),
+                        ),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Recorte livre · WebP premium · até Full HD (1920 px)',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.25,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        ...allPreviews,
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap:
+                                (_mediaPicking || _saving) ? null : _pickImages,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: thumbSize,
+                              height: thumbSize,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                                border:
+                                    Border.all(color: Colors.green.shade400),
+                              ),
+                              child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_photo_alternate_rounded,
+                                        color: Colors.green.shade700, size: 28),
+                                    const SizedBox(height: 4),
+                                    Text('Galeria',
+                                        style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.green.shade700)),
+                                  ]),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Toque em «Adicionar»: fotos (recorte + WebP Full HD) ou vídeo em arquivo — já fica anexado antes de publicar. Ou cole link YouTube/Vimeo abaixo.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    AsyncUploadProgressStrip(
-                      localActive: _mediaPicking || _uploadingVideo,
-                      localLabel: _uploadingVideo
-                          ? 'A enviar vídeo…'
-                          : 'A preparar fotos…',
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      ...allPreviews,
-                      ...List.generate(_hostedVideo.videos.length, (i) {
-                        final v = _hostedVideo.videos[i];
-                        final thumbUrl = (v['thumbUrl'] ?? '').toString();
-                        final videoUrl = (v['videoUrl'] ?? '').toString();
-                        return Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: thumbUrl.isNotEmpty &&
-                                      isValidImageUrl(thumbUrl)
-                                  ? SafeNetworkImage(
-                                      imageUrl: thumbUrl,
-                                      width: thumbSize,
-                                      height: thumbSize,
-                                      fit: BoxFit.cover,
-                                      placeholder: Container(
-                                        width: thumbSize,
-                                        height: thumbSize,
-                                        color: Colors.grey.shade200,
-                                        child: const Center(
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2),
-                                        ),
-                                      ),
-                                      errorWidget: _videoPlaceholder(),
-                                    )
-                                  : SizedBox(
-                                      width: thumbSize,
-                                      height: thumbSize,
-                                      child: _videoPlaceholder(),
-                                    ),
-                            ),
-                            if (videoUrl.isEmpty)
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black26,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Center(
-                                    child: SizedBox(
-                                      width: 28,
-                                      height: 28,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap:
+                                (_mediaPicking || _saving) ? null : _pickCamera,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: thumbSize,
+                              height: thumbSize,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                                border:
+                                    Border.all(color: Colors.green.shade400),
                               ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: GestureDetector(
-                                onTap: () =>
-                                    unawaited(_removeHostedVideoAt(i)),
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.black54,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.close,
-                                      size: 16, color: Colors.white),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      }),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: (_mediaPicking || _saving || _uploadingVideo)
-                              ? null
-                              : _openAddMediaSheet,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            width: thumbSize,
-                            height: thumbSize,
-                            decoration: BoxDecoration(
-                              color: (_mediaPicking || _uploadingVideo)
-                                  ? Colors.grey.withValues(alpha: 0.15)
-                                  : const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: (_mediaPicking || _uploadingVideo)
-                                    ? Colors.grey.shade300
-                                    : ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.35),
-                              ),
-                            ),
-                            child: (_mediaPicking || _uploadingVideo)
-                                ? Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const SizedBox(
-                                        width: 26,
-                                        height: 26,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        _uploadingVideo ? 'Vídeo…' : 'Fotos…',
+                              child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.camera_alt_rounded,
+                                        color: Colors.green.shade700, size: 28),
+                                    const SizedBox(height: 4),
+                                    Text('Câmera',
                                         style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.add_rounded,
-                                          color: ThemeCleanPremium.primary,
-                                          size: 32),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Adicionar',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: ThemeCleanPremium.primary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.green.shade700)),
+                                  ]),
+                            ),
                           ),
                         ),
-                      ),
+                      ]),
                     ]),
-                  ],
-                ),
               ),
               const SizedBox(height: 16),
 
