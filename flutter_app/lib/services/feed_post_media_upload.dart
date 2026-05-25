@@ -14,7 +14,13 @@ abstract final class FeedPostMediaUpload {
 
   /// Um refresh de token antes do lote — evita N× `getIdToken(true)` por foto.
   static Future<void> warmAuthToken() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken();
+    try {
+      await FirebaseAuth.instance.currentUser
+          ?.getIdToken(true)
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    }
   }
 
   /// Limita WebP do feed (~900KB) sem reconverter para JPEG.

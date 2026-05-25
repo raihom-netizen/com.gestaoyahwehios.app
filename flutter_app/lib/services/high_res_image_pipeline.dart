@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
@@ -41,13 +42,9 @@ const int kPremiumMuralFeedWebpQuality = 80;
 /// Qualidade WebP em release mobile (turbo — ficheiros menores, upload mais rápido).
 const int kPremiumMuralFeedWebpQualityTurbo = 74;
 
-int get kEffectiveMuralFeedWebpQuality =>
-    kMediaTurboMobilePreset
-        ? kPremiumMuralFeedWebpQualityTurbo
-        : kPremiumMuralFeedWebpQuality;
+int get kEffectiveMuralFeedWebpQuality => kEventoAvisoFeedWebpQuality;
 
-int get kEffectiveFeedEncodeMaxEdgePx =>
-    kMediaTurboMobilePreset ? 1280 : kPremiumFeedFullHdMaxWidth;
+int get kEffectiveFeedEncodeMaxEdgePx => eventoAvisoFeedEncodeMaxEdgePx();
 
 /// Máximo de fotos novas no editor de avisos (evita lotes enormes em 4G).
 const int kMaxAvisoFeedPhotosPerPost = 15;

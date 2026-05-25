@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
 /// Upload direto ao Storage com várias tentativas — usado por [MediaUploadService]
 /// e pela [StorageUploadQueueService] (sem fila offline).
@@ -12,7 +13,7 @@ Future<String> uploadStoragePutDataWithRetry({
   required Uint8List bytes,
   required String contentType,
   String cacheControl = 'public, max-age=31536000',
-  int maxAttempts = 2,
+  int maxAttempts = 4,
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
@@ -25,35 +26,21 @@ Future<String> uploadStoragePutDataWithRetry({
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
       );
       onTaskStarted?.call(task);
-      StreamSubscription<TaskSnapshot>? sub;
-      if (onProgress != null) {
-        sub = task.snapshotEvents.listen((snapshot) {
-          final total = snapshot.totalBytes;
-          if (total <= 0) return;
-          final p = (snapshot.bytesTransferred / total).clamp(0.0, 1.0);
-          onProgress(p);
-        });
-      }
-      try {
-        final snap = await task.timeout(const Duration(minutes: 8));
-        onProgress?.call(1.0);
-        return await snap.ref.getDownloadURL().timeout(const Duration(seconds: 45));
-      } on TimeoutException {
-        try {
-          await task.cancel();
-        } catch (_) {}
-        lastError = StateError('Tempo esgotado no upload');
-        break;
-      } finally {
-        await sub?.cancel();
-      }
+      final snap = await awaitStorageUploadTask(
+        task,
+        payloadBytes: bytes.length,
+        onProgress: onProgress,
+      );
+      onProgress?.call(1.0);
+      return await storageDownloadUrlWithRetry(snap.ref);
     } catch (e) {
       lastError = e;
       final isCanceled = e is FirebaseException && e.code == 'canceled';
       if (isCanceled) break;
       if (attempt >= maxAttempts) break;
+      onProgress?.call(0);
       await Future.delayed(
-          Duration(milliseconds: 80 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 120 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');
@@ -65,10 +52,11 @@ Future<String> uploadStoragePutFileWithRetry({
   required File file,
   required String contentType,
   String cacheControl = 'public, max-age=31536000',
-  int maxAttempts = 2,
+  int maxAttempts = 4,
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
+  final byteLen = await file.length();
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -78,34 +66,21 @@ Future<String> uploadStoragePutFileWithRetry({
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
       );
       onTaskStarted?.call(task);
-      StreamSubscription<TaskSnapshot>? sub;
-      if (onProgress != null) {
-        sub = task.snapshotEvents.listen((snapshot) {
-          final total = snapshot.totalBytes;
-          if (total <= 0) return;
-          onProgress((snapshot.bytesTransferred / total).clamp(0.0, 1.0));
-        });
-      }
-      try {
-        final snap = await task.timeout(const Duration(minutes: 8));
-        onProgress?.call(1.0);
-        return await snap.ref.getDownloadURL().timeout(const Duration(seconds: 45));
-      } on TimeoutException {
-        try {
-          await task.cancel();
-        } catch (_) {}
-        lastError = StateError('Tempo esgotado no upload');
-        break;
-      } finally {
-        await sub?.cancel();
-      }
+      final snap = await awaitStorageUploadTask(
+        task,
+        payloadBytes: byteLen,
+        onProgress: onProgress,
+      );
+      onProgress?.call(1.0);
+      return await storageDownloadUrlWithRetry(snap.ref);
     } catch (e) {
       lastError = e;
       final isCanceled = e is FirebaseException && e.code == 'canceled';
       if (isCanceled) break;
       if (attempt >= maxAttempts) break;
+      onProgress?.call(0);
       await Future.delayed(
-          Duration(milliseconds: 80 * math.pow(2, attempt - 1).toInt()));
+          Duration(milliseconds: 120 * math.pow(2, attempt - 1).toInt()));
     }
   }
   throw lastError ?? StateError('Falha de upload');

@@ -15,12 +15,16 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -1256,8 +1260,8 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
-            memCacheWidth: 900,
-            memCacheHeight: 900,
+            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
             placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
             errorWidget: const ColoredBox(
               color: Color(0xFFF1F5F9),
@@ -1268,8 +1272,8 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           SafeNetworkImage(
             imageUrl: coverRef,
             fit: BoxFit.cover,
-            memCacheWidth: 900,
-            memCacheHeight: 900,
+            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
             errorWidget: const ColoredBox(
               color: Color(0xFFF1F5F9),
               child: Center(child: Icon(Icons.photo_library_outlined)),
@@ -4176,8 +4180,8 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
                       final w = c.maxWidth;
                       final h = c.maxHeight;
                       final dpr = MediaQuery.devicePixelRatioOf(context);
-                      final memW = (w * dpr).round().clamp(64, 1920);
-                      final memH = (h * dpr).round().clamp(64, 1920);
+                      final memW = eventoAvisoMemCacheWidthPx(w, dpr);
+                      final memH = eventoAvisoMemCacheHeightPx(h, dpr);
                       final ph = DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -4445,8 +4449,8 @@ class _EventVideoBlock extends StatelessWidget {
                               fit: BoxFit.cover,
                               width: w,
                               height: h,
-                              memCacheWidth: (w * dpr).round().clamp(64, 1920),
-                              memCacheHeight: (h * dpr).round().clamp(64, 1920),
+                              memCacheWidth: eventoAvisoMemCacheWidthPx(w, dpr),
+                              memCacheHeight: eventoAvisoMemCacheHeightPx(h, dpr),
                               placeholder: Container(
                                   color: const Color(0xFF1E3A8A),
                                   child: const Center(
@@ -5753,18 +5757,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<MediaUploadResult> _upload(
       Uint8List bytes, String postDocId, int slotIndex) async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FeedPostMediaUpload.warmAuthToken();
     final storagePath = ChurchStorageLayout.eventPostPhotoPath(
       widget.tenantId,
       postDocId,
       slotIndex,
     );
     final webp = bytesLookLikeWebp(bytes);
+    final prepared = webp
+        ? await FeedPostMediaUpload.prepareFeedWebpBytes(bytes)
+        : bytes;
     return MediaUploadService.uploadBytesDetailed(
       storagePath: storagePath,
-      bytes: bytes,
+      bytes: prepared,
       contentType: webp ? 'image/webp' : 'image/jpeg',
       skipClientPrepare: webp,
+      useOfflineQueue: false,
+      maxAttempts: 4,
     );
   }
 
@@ -5986,7 +5995,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + WebP Full HD (1920 px), como no mural. Vídeo: até 60 s.',
+                    'Fotos: recorte + WebP otimizado (1024 px · 75%). Vídeo: até 60 s (compressão 540p/720p).',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -6416,12 +6425,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         } catch (e2) {
           if (mounted)
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text('Erro: $e2'),
+                content: Text(formatUploadErrorForUser(e2)),
                 backgroundColor: ThemeCleanPremium.error));
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erro: $e'),
+            content: Text(formatUploadErrorForUser(e)),
             backgroundColor: ThemeCleanPremium.error));
       }
     } finally {
@@ -6518,15 +6527,42 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               padding.left,
-              12,
+              10,
               padding.right,
-              12 + bottomInset,
+              10 + bottomInset,
             ),
-            child: SizedBox(
-              height: ThemeCleanPremium.minTouchTarget + 8,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: ThemeCleanPremium.minTouchTarget,
+                  child: FilledButton.tonalIcon(
+                    onPressed: (_mediaPicking || _uploadingVideo || _saving)
+                        ? null
+                        : _openAddMediaSheet,
+                    icon: const Icon(Icons.add_photo_alternate_rounded, size: 22),
+                    label: Text(
+                      'Adicionar foto ou vídeo (${_existingUrls.length + _newImages.length + _eventVideos.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      foregroundColor: ThemeCleanPremium.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: ThemeCleanPremium.minTouchTarget + 8,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: _saving
@@ -6584,7 +6620,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ),
                   ),
                 ],
-              ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -6595,8 +6633,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right,
               padding.bottom + bottomInset),
           children: [
-            // Fotos + vídeo — um único acionador (escolha no sheet)
-            Container(
+            AsyncUploadProgressStrip(
+              localActive: _mediaPicking || _uploadingVideo || _saving,
+              localLabel: _uploadingVideo
+                  ? 'A enviar vídeo…'
+                  : (_mediaPicking ? 'A preparar fotos…' : 'A publicar evento…'),
+            ),
+            // Pré-visualização de mídia (botão «Adicionar» na barra inferior).
+            if (allPreviews.isNotEmpty || _eventVideos.isNotEmpty)
+              Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                   color: Colors.white,
@@ -6622,19 +6667,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Toque em «Adicionar»: fotos com o mesmo padrão premium do mural (recorte + WebP Full HD) ou vídeo em arquivo (720p HD se precisar comprimir). Ou cole link YouTube/Vimeo abaixo.',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          height: 1.35,
-                          color: Colors.grey.shade600),
-                    ),
-                    if (_mediaPicking) ...[
-                      const SizedBox(height: 10),
-                      const LinearProgressIndicator(minHeight: 3),
-                    ],
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       ...allPreviews,
                       ...List.generate(_eventVideos.length, (i) {
@@ -6681,156 +6714,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ],
                         );
                       }),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: (_uploadingVideo || _mediaPicking)
-                              ? null
-                              : _openAddMediaSheet,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              color: (_uploadingVideo || _mediaPicking)
-                                  ? Colors.grey.withValues(alpha: 0.15)
-                                  : const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: (_uploadingVideo || _mediaPicking)
-                                    ? Colors.grey.shade300
-                                    : ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.35),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: _mediaPicking
-                                ? Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const SizedBox(
-                                        width: 26,
-                                        height: 26,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Fotos…',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : _uploadingVideo
-                                    ? Builder(
-                                        builder: (context) {
-                                          final upFrac = _videoUploadFraction;
-                                          return Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          if (upFrac != null) ...[
-                                            Padding(
-                                              padding: const EdgeInsets.symmetric(
-                                                  horizontal: 10),
-                                              child: ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                                child: LinearProgressIndicator(
-                                                  value: upFrac,
-                                                  minHeight: 5,
-                                                  backgroundColor:
-                                                      Colors.grey.shade300,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              'Enviando ${(upFrac * 100).clamp(0, 100).round()}%',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.grey.shade700,
-                                              ),
-                                            ),
-                                          ] else ...[
-                                            const SizedBox(
-                                              width: 26,
-                                              height: 26,
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              'A preparar…',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.grey.shade700,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                          );
-                                        },
-                                      )
-                                : Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.add_rounded,
-                                          color: ThemeCleanPremium.primary,
-                                          size: 30),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'Adicionar',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: ThemeCleanPremium.primary,
-                                        ),
-                                      ),
-                                      Text(
-                                        'foto ou vídeo',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                      ),
                     ]),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _videoUrl,
-                      keyboardType: TextInputType.url,
-                      onChanged: (_) => setState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: 'Link do vídeo (YouTube / Vimeo)',
-                        prefixIcon: Icon(Icons.link_rounded),
-                        hintText: 'https://...',
-                        helperText:
-                            'Opcional, se não usar vídeo em arquivo acima.',
-                      ),
-                    ),
                   ]),
             ),
-            const SizedBox(height: 16),
+            if (allPreviews.isEmpty && _eventVideos.isEmpty)
+              const SizedBox.shrink()
+            else
+              const SizedBox(height: 16),
             // Fields
             Container(
               padding: const EdgeInsets.all(16),
@@ -6919,6 +6809,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _videoUrl,
+                  keyboardType: TextInputType.url,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Link do vídeo (YouTube / Vimeo)',
+                    prefixIcon: Icon(Icons.link_rounded),
+                    hintText: 'https://...',
+                    helperText:
+                        'Opcional. Use o botão inferior para foto/vídeo em arquivo.',
+                  ),
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -7593,8 +7496,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   color: ThemeCleanPremium.primary),
             ),
             const SizedBox(height: 24),
-            SizedBox(height: max(24.0, minTouch * 0.25)),
-            const SizedBox(height: 32),
+            SizedBox(height: max(120.0, minTouch * 0.25)),
           ],
         ),
       ),

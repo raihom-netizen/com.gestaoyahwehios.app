@@ -12,16 +12,19 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp, kPremiumMuralFeedWebpQuality;
+    show bytesLookLikeWebp, kMaxAvisoFeedPhotosPerPost, kPremiumMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -78,7 +81,8 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
-/// O mural usa [SafeNetworkImage] (não [CachedNetworkImage] isolado em URLs Firebase na web).
+/// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
+/// Envio: WebP ~1024 px antes do upload ([evento_aviso_media_policy.dart]).
 void _muralImageLoadError(String url, Object? error) {
   debugPrint('Erro Storage: $error | url=$url');
 }
@@ -1720,12 +1724,10 @@ class _PostCardState extends State<_PostCard>
                                           height: h,
                                           // contain: mantém proporção do flyer/foto (cover numa caixa “achatada” cortava mal).
                                           fit: BoxFit.contain,
-                                          memCacheWidth: (w * dpr)
-                                              .round()
-                                              .clamp(64, 1600),
-                                          memCacheHeight: (h * dpr)
-                                              .round()
-                                              .clamp(64, 1600),
+                                          memCacheWidth:
+                                              eventoAvisoMemCacheWidthPx(w, dpr),
+                                          memCacheHeight:
+                                              eventoAvisoMemCacheHeightPx(h, dpr),
                                           skipFreshDisplayUrl: false,
                                           placeholder:
                                               YahwehPremiumFeedShimmer
@@ -2082,12 +2084,10 @@ class _PostCardState extends State<_PostCard>
                                             width: w,
                                             height: h,
                                             fit: BoxFit.contain,
-                                            memCacheWidth: (w * dpr)
-                                                .round()
-                                                .clamp(64, 1440),
-                                            memCacheHeight: (h * dpr)
-                                                .round()
-                                                .clamp(64, 1440),
+                                            memCacheWidth:
+                                                eventoAvisoMemCacheWidthPx(w, dpr),
+                                            memCacheHeight:
+                                                eventoAvisoMemCacheHeightPx(h, dpr),
                                             skipFreshDisplayUrl: false,
                                             placeholder:
                                                 YahwehPremiumFeedShimmer
@@ -3243,6 +3243,107 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
   }
 
+  Future<void> _openAddMediaSheet() async {
+    final photosFull =
+        _existingUrls.length + _newImages.length >= kMaxAvisoFeedPhotosPerPost;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.circular(ThemeCleanPremium.radiusMd + 4),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.workspace_premium_rounded,
+                          color: ThemeCleanPremium.primary, size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Mídia premium',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFFF0FDF4),
+                      child: Icon(Icons.photo_library_rounded,
+                          color: Colors.green.shade700),
+                    ),
+                    title: const Text('Fotos da galeria',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull ? 'Limite de fotos atingido' : 'Várias · recorte',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    enabled: !photosFull && !_mediaPicking && !_saving,
+                    onTap: photosFull || _mediaPicking || _saving
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickImages());
+                          },
+                  ),
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      child: Icon(Icons.camera_alt_rounded,
+                          color: ThemeCleanPremium.primary),
+                    ),
+                    title: const Text('Tirar foto',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    enabled: !photosFull && !_mediaPicking && !_saving,
+                    onTap: photosFull || _mediaPicking || _saving
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickCamera());
+                          },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   List<String>? _muralPathsFromImageUrls(List<String> urls) {
     final paths = <String>[];
     for (final u in urls) {
@@ -3261,18 +3362,24 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     int slotIndex, {
     void Function(double progress)? onProgress,
   }) async {
+    await FeedPostMediaUpload.warmAuthToken();
     final storagePath = widget.type == 'evento'
         ? ChurchStorageLayout.eventPostPhotoPath(
             widget.tenantId, postId, slotIndex)
         : ChurchStorageLayout.avisoPostPhotoPath(
             widget.tenantId, postId, slotIndex);
+    final prepared = bytesLookLikeWebp(bytes)
+        ? await FeedPostMediaUpload.prepareFeedWebpBytes(bytes)
+        : bytes;
     return MediaUploadService.uploadBytesWithRetry(
       storagePath: storagePath,
-      bytes: bytes,
+      bytes: prepared,
       contentType:
           bytesLookLikeWebp(bytes) ? 'image/webp' : 'image/jpeg',
       onProgress: onProgress,
       skipClientPrepare: bytesLookLikeWebp(bytes),
+      useOfflineQueue: false,
+      maxAttempts: 4,
     );
   }
 
@@ -3300,23 +3407,18 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (_newImages.isNotEmpty) {
         final startSlot = allUrls.length;
         final n = _newImages.length;
-        GlobalUploadProgress.instance.start('A enviar imagens…');
-        try {
-          final uploaded = <String>[];
-          for (var i = 0; i < n; i++) {
-            final u = await _upload(
-              _newImages[i],
-              postId,
-              startSlot + i,
-              onProgress: (p) =>
-                  GlobalUploadProgress.instance.update((i + p) / n),
-            );
-            uploaded.add(u);
-          }
-          allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
-        } finally {
-          GlobalUploadProgress.instance.end();
-        }
+        await FeedPostMediaUpload.warmAuthToken();
+        final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+          count: n,
+          progressLabel: 'A enviar imagens…',
+          uploadOne: (i, reportSlot) => _upload(
+            _newImages[i],
+            postId,
+            startSlot + i,
+            onProgress: reportSlot,
+          ),
+        );
+        allUrls = dedupeImageRefsByStorageIdentity([...allUrls, ...uploaded]);
       }
       var aspectRatio = 1.0;
       if (_newImages.isNotEmpty) {
@@ -3446,7 +3548,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
-                Text('Erro: $e', style: const TextStyle(color: Colors.white)),
+                Text(
+                  formatUploadErrorForUser(e),
+                  style: const TextStyle(color: Colors.white),
+                ),
             backgroundColor: ThemeCleanPremium.error));
       }
     } finally {
@@ -3562,17 +3667,42 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               padding.left,
-              12,
+              10,
               padding.right,
-              12 + MediaQuery.viewInsetsOf(context).bottom,
+              10 + MediaQuery.viewInsetsOf(context).bottom,
             ),
-            // Altura fixa: evita botões a esticar por todo o ecrã (Android/Web) quando
-            // o `bottomNavigationBar` recebe maxHeight grande + `CrossAxisAlignment.stretch`.
-            child: SizedBox(
-              height: ThemeCleanPremium.minTouchTarget + 8,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: ThemeCleanPremium.minTouchTarget,
+                  child: FilledButton.tonalIcon(
+                    onPressed: (_mediaPicking || _saving)
+                        ? null
+                        : _openAddMediaSheet,
+                    icon: const Icon(Icons.add_photo_alternate_rounded, size: 22),
+                    label: Text(
+                      'Adicionar foto (${_existingUrls.length + _newImages.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      foregroundColor: ThemeCleanPremium.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: ThemeCleanPremium.minTouchTarget + 8,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: _saving
@@ -3630,7 +3760,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                     ),
                   ),
                 ],
-              ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -3645,115 +3777,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
-              if (_mediaPicking || _saving)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: LinearProgressIndicator(minHeight: 3),
-                ),
-              // FOTOS
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                ),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Icon(Icons.photo_library_rounded,
-                            color: ThemeCleanPremium.primary, size: 20),
-                        const SizedBox(width: 8),
-                        const Text('Fotos',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 14)),
-                        const Spacer(),
-                        Text(
-                          '${_existingUrls.length + _newImages.length} foto(s)',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500),
-                        ),
-                      ]),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Recorte livre · WebP premium · até Full HD (1920 px)',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          height: 1.25,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(spacing: 8, runSpacing: 8, children: [
-                        ...allPreviews,
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap:
-                                (_mediaPicking || _saving) ? null : _pickImages,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: thumbSize,
-                              height: thumbSize,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: Colors.green.shade400),
-                              ),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate_rounded,
-                                        color: Colors.green.shade700, size: 28),
-                                    const SizedBox(height: 4),
-                                    Text('Galeria',
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.green.shade700)),
-                                  ]),
-                            ),
-                          ),
-                        ),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap:
-                                (_mediaPicking || _saving) ? null : _pickCamera,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: thumbSize,
-                              height: thumbSize,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: Colors.green.shade400),
-                              ),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.camera_alt_rounded,
-                                        color: Colors.green.shade700, size: 28),
-                                    const SizedBox(height: 4),
-                                    Text('Câmera',
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.green.shade700)),
-                                  ]),
-                            ),
-                          ),
-                        ),
-                      ]),
-                    ]),
+              AsyncUploadProgressStrip(
+                localActive: _mediaPicking || _saving,
+                localLabel: _mediaPicking
+                    ? 'A preparar fotos…'
+                    : 'A publicar aviso…',
               ),
-              const SizedBox(height: 16),
 
               // CAMPOS
               Container(
@@ -4309,7 +4338,46 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       ),
                     ]),
               ),
-              SizedBox(height: 88 + MediaQuery.paddingOf(context).bottom),
+              const SizedBox(height: 16),
+              if (allPreviews.isNotEmpty ||
+                  _videoUrl.text.trim().isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.photo_library_rounded,
+                              color: ThemeCleanPremium.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Fotos anexadas (${_existingUrls.length + _newImages.length})',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: allPreviews,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              SizedBox(height: 120 + MediaQuery.paddingOf(context).bottom),
             ]),
       ),
     );
