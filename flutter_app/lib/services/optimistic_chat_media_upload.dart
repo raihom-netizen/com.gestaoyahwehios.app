@@ -163,11 +163,13 @@ abstract final class OptimisticChatMediaUpload {
         }
       } else if (pending.kind == 'image') {
         if (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb) {
-          final raw = await File(uploadPath).readAsBytes();
-          uploadBytes = await MediaService.compressImageBytes(
-            raw,
+          uploadBytes = await MediaService.compressImageFile(
+            uploadPath,
             profile: MediaImageProfile.chat,
           );
+          if (uploadBytes == null || uploadBytes.isEmpty) {
+            throw StateError('Não foi possível preparar a foto.');
+          }
           uploadPath = null;
         } else if (uploadBytes != null && uploadBytes.isNotEmpty) {
           uploadBytes = await MediaService.compressImageBytes(

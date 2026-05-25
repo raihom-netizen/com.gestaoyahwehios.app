@@ -17,6 +17,7 @@ abstract class IVideoHandlerService {
     required int videoSlotIndex,
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   });
 
   /// Comprime (se necessário) e envia vídeo já escolhido — permite pick rápido + upload em background.
@@ -26,5 +27,6 @@ abstract class IVideoHandlerService {
     required String eventPostDocId,
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   });
 }

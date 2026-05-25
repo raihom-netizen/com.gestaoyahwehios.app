@@ -1315,7 +1315,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final picker = ImagePicker();
     final x = await picker.pickImage(
       source: source,
-      imageQuality: 100,
+      imageQuality: mediaChatImageQuality,
       maxWidth: mediaChatImageMaxWidth.toDouble(),
       maxHeight: mediaChatImageMaxHeight.toDouble(),
     );

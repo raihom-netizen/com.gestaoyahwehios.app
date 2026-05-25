@@ -26,12 +26,17 @@ class VideoHandlerService implements IVideoHandlerService {
     required int videoSlotIndex,
     required String mime,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   }) async {
     final hardLimitBytes = mediaVideoHardMaxBytesEffective;
-    if (bytes.length > hardLimitBytes) {
-      final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+    final pickLimit = maxRawPickBytes ?? hardLimitBytes;
+    if (bytes.length > pickLimit) {
+      final sizeMb = (bytes.length / (1024 * 1024)).toStringAsFixed(1);
+      final limitMb = (pickLimit / (1024 * 1024)).round();
       throw StateError(
-          'Video muito grande para envio rápido. Reduza para até ${limitMb}MB.');
+        'O vídeo pesa ${sizeMb}MB. Para manter a velocidade igual à Web, '
+        'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
+      );
     }
     await FirebaseAuth.instance.currentUser?.getIdToken();
     final slot = videoSlotIndex.clamp(0, 1);
@@ -80,6 +85,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required int videoSlotIndex,
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   }) async {
     final effectiveMaxDuration =
         maxDuration < mediaVideoMaxDurationEffective
@@ -99,6 +105,7 @@ class VideoHandlerService implements IVideoHandlerService {
       videoSlotIndex: videoSlotIndex,
       mime: xfile.mimeType ?? 'video/mp4',
       onUploadProgress: onUploadProgress,
+      maxRawPickBytes: maxRawPickBytes,
     );
   }
 
@@ -109,6 +116,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required String eventPostDocId,
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   }) async {
     if (localPath.isEmpty) return null;
     final bytes = await XFile(localPath).readAsBytes();
@@ -119,6 +127,7 @@ class VideoHandlerService implements IVideoHandlerService {
       videoSlotIndex: videoSlotIndex,
       mime: 'video/mp4',
       onUploadProgress: onUploadProgress,
+      maxRawPickBytes: maxRawPickBytes,
     );
   }
 }

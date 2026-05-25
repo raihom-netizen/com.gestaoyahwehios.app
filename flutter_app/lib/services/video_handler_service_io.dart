@@ -27,6 +27,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required int videoSlotIndex,
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   }) async {
     final effectiveMaxDuration =
         maxDuration < mediaVideoMaxDurationEffective
@@ -43,6 +44,7 @@ class VideoHandlerService implements IVideoHandlerService {
       eventPostDocId: eventPostDocId,
       videoSlotIndex: videoSlotIndex,
       onUploadProgress: onUploadProgress,
+      maxRawPickBytes: maxRawPickBytes,
     );
   }
 
@@ -53,6 +55,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required String eventPostDocId,
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
+    int? maxRawPickBytes,
   }) async {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
@@ -61,10 +64,14 @@ class VideoHandlerService implements IVideoHandlerService {
       final lower = path.toLowerCase();
       final byteLen = await File(path).length();
       final hardLimitBytes = mediaVideoHardMaxBytesEffective;
-      if (byteLen > hardLimitBytes) {
-        final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+      final pickLimit = maxRawPickBytes ?? hardLimitBytes;
+      if (byteLen > pickLimit) {
+        final sizeMb = (byteLen / (1024 * 1024)).toStringAsFixed(1);
+        final limitMb = (pickLimit / (1024 * 1024)).round();
         throw StateError(
-            'Video muito grande para envio rápido. Reduza para até ${limitMb}MB.');
+          'O vídeo pesa ${sizeMb}MB. Para manter a velocidade igual à Web, '
+          'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
+        );
       }
       final useOriginal = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
           (lower.endsWith('.mp4') || lower.endsWith('.m4v'));

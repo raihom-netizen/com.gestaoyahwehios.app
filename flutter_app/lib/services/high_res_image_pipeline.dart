@@ -70,7 +70,7 @@ Future<XFile?> pickCropEncodeWebp({
   final ctx = webCropContext;
   final picked = await picker.pickImage(
     source: source,
-    imageQuality: 100,
+    imageQuality: kIsWeb ? 100 : kEventoAvisoFeedWebpQuality,
     maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
     maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
   );
@@ -93,9 +93,9 @@ int get _mobileCropMaxDimension =>
 bool get _feedIosUsesStableJpeg =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-/// No iOS, reduz no disco antes do [ImageCropper] (HEIC/RAW → JPEG leve).
-Future<XFile> _iosPreparePickedForCrop(XFile picked) async {
-  if (!_feedIosUsesStableJpeg) return picked;
+/// No mobile, reduz no disco antes do recorte (HEIC/12MP → JPEG leve ~1080px).
+Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
+  if (kIsWeb) return picked;
   try {
     final f = File(picked.path);
     if (!f.existsSync()) return picked;
@@ -107,9 +107,24 @@ Future<XFile> _iosPreparePickedForCrop(XFile picked) async {
       return XFile(pre.path);
     }
   } catch (e) {
-    if (kDebugMode) debugPrint('ios pre-crop compress: $e');
+    if (kDebugMode) debugPrint('mobile pre-crop compress: $e');
   }
   return picked;
+}
+
+/// Reduz bytes brutos da câmara antes do ecrã «Confirmar» (evita OOM e acelera o recorte).
+Future<Uint8List> _downscaleBytesForFeedCropUi(Uint8List raw) async {
+  if (raw.isEmpty) return raw;
+  try {
+    final lite = await MediaService.compressImageBytes(
+      raw,
+      profile: MediaImageProfile.feed,
+    );
+    if (lite.isNotEmpty) return lite;
+  } catch (e) {
+    if (kDebugMode) debugPrint('downscaleBytesForFeedCropUi: $e');
+  }
+  return raw;
 }
 
 /// Codifica mural no disco (sem carregar 10MB+ em RAM no iPhone).
@@ -201,24 +216,24 @@ Future<XFile?> cropEncodePickedToWebp(
 }) async {
   var working = picked;
   if (profile == HighResCropProfile.feedFree && !kIsWeb) {
-    working = await _iosPreparePickedForCrop(picked);
+    working = await _mobilePreparePickedForCrop(picked);
   }
   final square = profile == HighResCropProfile.memberSquare;
 
-  /// Mural feed: recorte Flutter premium **só na web**; iOS/Android usam [image_cropper] nativo (evita OOM).
+  /// Mural feed: recorte Flutter premium (igual web) em iOS/Android quando há [webCropContext].
   if (profile == HighResCropProfile.feedFree &&
-      webCropContext != null &&
-      kIsWeb) {
-    final bytes = await working.readAsBytes();
-    if (bytes.isEmpty) return null;
+      webCropContext != null) {
+    final rawBytes = await working.readAsBytes();
+    if (rawBytes.isEmpty) return null;
     // ignore: use_build_context_synchronously
     if (!webCropContext.mounted) return null;
+    final previewBytes = await _downscaleBytesForFeedCropUi(rawBytes);
     // ignore: use_build_context_synchronously
     final croppedBytes = await Navigator.of(webCropContext, rootNavigator: true)
         .push<Uint8List?>(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => PremiumFeedImageCropScreen(imageBytes: bytes),
+        builder: (_) => PremiumFeedImageCropScreen(imageBytes: previewBytes),
       ),
     );
     if (croppedBytes == null || croppedBytes.isEmpty) return null;

@@ -45,7 +45,7 @@ abstract final class MediaService {
   static const int feedImageMaxHeight = 1080;
   static const int thumbMaxEdge = 480;
 
-  static const int chatJpegQuality = 80;
+  static const int chatJpegQuality = 70;
   static const int feedWebpQuality = 80;
   static const int thumbJpegQuality = 78;
 

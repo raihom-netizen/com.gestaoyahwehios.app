@@ -144,7 +144,7 @@ class MediaHandlerService {
   }) async {
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
-      imageQuality: 100,
+      imageQuality: kIsWeb ? 100 : kEffectiveMuralFeedWebpQuality,
       maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : edge,
       maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : edge,
     );

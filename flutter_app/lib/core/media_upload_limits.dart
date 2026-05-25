@@ -15,6 +15,13 @@ const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 /// Eventos (editor + galeria) — vídeo até 90 s.
 const int kMediaEventVideoMaxSeconds = 90;
 
+/// Eventos mobile — rejeita vídeo bruto acima deste tamanho antes de transcodificar (evita timeout em 4G).
+/// Equivalente ao `limiteMaximoMB = 15` do fluxo web.
+const int kMediaEventVideoMobilePickMaxBytes = 15 * 1024 * 1024;
+
+int get mediaEventVideoMobilePickMaxBytesEffective =>
+    kMediaEventVideoMobilePickMaxBytes;
+
 bool get kMediaTurboMobilePreset {
   if (kIsWeb) return false;
   if (!const bool.fromEnvironment('GY_MEDIA_TURBO', defaultValue: true)) {
@@ -61,7 +68,7 @@ int get mediaChatImageMaxWidth => 1280;
 
 int get mediaChatImageMaxHeight => 1280;
 
-int get mediaChatImageQuality => kMediaTurboMobilePreset ? 72 : 76;
+int get mediaChatImageQuality => 70;
 
 int get mediaPickerLogoQuality =>
     kMediaTurboMobilePreset ? 68 : 70;
