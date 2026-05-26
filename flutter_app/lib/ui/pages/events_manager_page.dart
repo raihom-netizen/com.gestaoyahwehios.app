@@ -55,6 +55,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -5086,10 +5087,26 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       });
       return;
     }
+    final path = await FeedEditorMediaService.persistXFileToTemp(
+      encoded,
+      prefix: 'gy_event',
+    );
+    if (path == null || !File(path).existsSync()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            'Não foi possível preparar a foto. Tente outra imagem.',
+          ),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     setState(() {
-      _newImagePaths.add(encoded.path);
-      _newNames.add(encoded.name);
+      _newImagePaths.add(path);
+      _newNames.add(
+        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
+      );
     });
   }
 
@@ -5155,7 +5172,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   String? _churchAddressText;
   double? _locationLat;
   double? _locationLng;
-  static const int _maxVideoSeconds = 60;
+  static int get _maxVideoSeconds => kMediaEventVideoMaxSeconds;
   static const int _maxVideosPerEvent = 2;
   static const int _maxPhotosPerEvent = 20;
 
@@ -5949,7 +5966,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
         videoSlotIndex: slot,
-        maxDuration: const Duration(seconds: 60),
+        maxDuration: mediaEventVideoMaxDurationEffective,
         maxRawPickBytes:
             kIsWeb ? null : mediaEventVideoMobilePickMaxBytesEffective,
         onUploadProgress: (p) {
@@ -6054,7 +6071,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + WebP (1080 px · 75%). Vídeo: até 60 s, máx. 15 MB no celular.',
+                    'Fotos: recorte + WebP (1080 px · 75%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -6158,7 +6175,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ? 'Aguarde o envio em andamento…'
                           : videosFull
                               ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                              : 'Até 60 s — MP4 leve envia direto; senão 720p HD',
+                              : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
                       style: TextStyle(
                         fontSize: 12,
                         color: (_uploadingVideo || videosFull)
@@ -6285,28 +6302,48 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
 
       if (hasNewImages) {
-        final imagesCopy = await _copyNewImagesForPublish();
-        if (imagesCopy.isEmpty) {
-          throw StateError('Não foi possível ler as fotos para enviar.');
-        }
         final startSlot = existingUrls.length;
-        final hasVideo = _eventVideos.isNotEmpty ||
-            _videoUrl.text.trim().isNotEmpty;
-        final uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-          tenantId: widget.tenantId,
-          postType: 'evento',
-          postId: postId,
-          newImages: imagesCopy,
-          startSlotIndex: startSlot,
-        );
+        final List<String> uploaded;
+        if (kIsWeb) {
+          final imagesCopy = await _copyNewImagesForPublish();
+          if (imagesCopy.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
+          uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            newImages: imagesCopy,
+            startSlotIndex: startSlot,
+          );
+          if (imagesCopy.isNotEmpty) {
+            final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
+            if (arNew != null) aspectRatio = arNew;
+          }
+        } else {
+          final paths =
+              FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          if (paths.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
+          uploaded =
+              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            localPaths: paths,
+            startSlotIndex: startSlot,
+          );
+          final firstBytes = await _firstNewImageBytes();
+          if (firstBytes != null) {
+            final arNew = await imageAspectRatioFromBytes(firstBytes);
+            if (arNew != null) aspectRatio = arNew;
+          }
+        }
         final allUrls = dedupeImageRefsByStorageIdentity([
           ...existingUrls,
           ...uploaded,
         ]);
-        if (imagesCopy.isNotEmpty) {
-          final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
-          if (arNew != null) aspectRatio = arNew;
-        }
         final payload = _buildEventCorePayload(
           allUrls: allUrls,
           aspectRatio: aspectRatio,

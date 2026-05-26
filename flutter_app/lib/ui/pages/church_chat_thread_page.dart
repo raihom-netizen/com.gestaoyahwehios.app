@@ -1356,6 +1356,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
     final bytes = await x.readAsBytes();
+    if (!mounted) return;
+    if (bytes.length > mediaVideoHardMaxBytesEffective) {
+      _showChatAttachmentError(
+        'Vídeo demasiado grande. Escolha um ficheiro até '
+        '${(mediaVideoHardMaxBytesEffective / (1024 * 1024)).round()} MB.',
+      );
+      return;
+    }
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
@@ -1590,7 +1598,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         'ods',
         'zip',
       ],
-      withData: !kIsWeb,
+      withData: kIsWeb,
     );
     final f = r?.files.single;
     if (f == null) return;
@@ -1625,7 +1633,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         'opus',
         'flac',
       ],
-      withData: !kIsWeb,
+      withData: kIsWeb,
     );
     final f = r?.files.single;
     if (f == null) return;
@@ -1748,14 +1756,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 size: 48,
                 color: Colors.white.withValues(alpha: 0.92),
               ),
-            if (!p.failed && p.kind == 'image')
+            if (!p.failed && (p.kind == 'image' || p.kind == 'video'))
               ValueListenableBuilder<double>(
                 valueListenable: p.progressListenable,
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
                   return Container(
                     width: 200,
-                    height: 200,
+                    height: p.kind == 'video' ? 140 : 200,
                     color: Colors.black.withValues(alpha: 0.35),
                     child: Center(
                       child: SizedBox(

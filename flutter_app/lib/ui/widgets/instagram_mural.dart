@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -3043,10 +3044,23 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       });
       return;
     }
+    final path = await FeedEditorMediaService.persistXFileToTemp(encoded);
+    if (path == null || !File(path).existsSync()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            'Não foi possível preparar a foto. Tente outra imagem.',
+          ),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     setState(() {
-      _newImagePaths.add(encoded.path);
-      _newNames.add(encoded.name);
+      _newImagePaths.add(path);
+      _newNames.add(
+        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
+      );
     });
   }
 
@@ -3693,25 +3707,46 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
 
       if (hasNewImages) {
-        final imagesCopy = await _copyNewImagesForPublish();
-        if (imagesCopy.isEmpty) {
-          throw StateError('Não foi possível ler as fotos para enviar.');
-        }
         final startSlot = existingUrls.length;
-        final hasVideo = _videoUrl.text.trim().isNotEmpty;
-        final uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-          tenantId: widget.tenantId,
-          postType: widget.type,
-          postId: postId,
-          newImages: imagesCopy,
-          startSlotIndex: startSlot,
-        );
+        final List<String> uploaded;
+        if (kIsWeb) {
+          final imagesCopy = await _copyNewImagesForPublish();
+          if (imagesCopy.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
+          uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+            tenantId: widget.tenantId,
+            postType: widget.type,
+            postId: postId,
+            newImages: imagesCopy,
+            startSlotIndex: startSlot,
+          );
+          final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
+          if (arNew != null) aspectRatio = arNew.clamp(0.4, 2.3);
+        } else {
+          final paths =
+              FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          if (paths.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
+          uploaded =
+              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+            tenantId: widget.tenantId,
+            postType: widget.type,
+            postId: postId,
+            localPaths: paths,
+            startSlotIndex: startSlot,
+          );
+          final firstBytes = await _firstNewImageBytes();
+          if (firstBytes != null) {
+            final arNew = await imageAspectRatioFromBytes(firstBytes);
+            if (arNew != null) aspectRatio = arNew.clamp(0.4, 2.3);
+          }
+        }
         final allUrls = dedupeImageRefsByStorageIdentity([
           ...existingUrls,
           ...uploaded,
         ]);
-        final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
-        if (arNew != null) aspectRatio = arNew.clamp(0.4, 2.3);
         final payload = _buildCorePayload(
           allUrls: allUrls,
           aspectRatio: aspectRatio,

@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -40,6 +42,49 @@ abstract final class MuralPostMediaPayload {
         slotIndex: startSlotIndex + i,
         onProgress: report,
       ).timeout(_photoSlotTimeout),
+    ).timeout(_batchTimeout);
+    return dedupeImageRefsByStorageIdentity(uploaded);
+  }
+
+  /// Mobile: lê **uma** foto de cada vez do disco (evita OOM com 15+ fotos no iOS).
+  static Future<List<String>> uploadNewPhotosBeforePublishFromPaths({
+    required String tenantId,
+    required String postType,
+    required String postId,
+    required List<String> localPaths,
+    required int startSlotIndex,
+  }) async {
+    if (kIsWeb) {
+      throw StateError('uploadNewPhotosBeforePublishFromPaths só no mobile.');
+    }
+    final paths = localPaths
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (paths.isEmpty) return const [];
+    await FeedPostMediaUpload.warmAuthToken()
+        .timeout(const Duration(seconds: 25));
+    final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+      count: paths.length,
+      progressLabel: 'A enviar imagens…',
+      uploadOne: (i, report) async {
+        final f = File(paths[i]);
+        if (!await f.exists()) {
+          throw StateError('Foto ${i + 1} não encontrada no aparelho.');
+        }
+        final bytes = await f.readAsBytes();
+        if (bytes.isEmpty) {
+          throw StateError('Foto ${i + 1} está vazia.');
+        }
+        return uploadPhotoSlot(
+          tenantId: tenantId,
+          postType: postType,
+          postId: postId,
+          bytes: bytes,
+          slotIndex: startSlotIndex + i,
+          onProgress: report,
+        ).timeout(_photoSlotTimeout);
+      },
     ).timeout(_batchTimeout);
     return dedupeImageRefsByStorageIdentity(uploaded);
   }

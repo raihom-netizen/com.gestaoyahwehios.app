@@ -15,6 +15,9 @@ const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 /// Eventos (editor + galeria) — vídeo até 90 s.
 const int kMediaEventVideoMaxSeconds = 90;
 
+Duration get mediaEventVideoMaxDurationEffective =>
+    Duration(seconds: kMediaEventVideoMaxSeconds);
+
 /// Eventos mobile — rejeita vídeo bruto acima deste tamanho antes de transcodificar (evita timeout em 4G).
 /// Equivalente ao `limiteMaximoMB = 15` do fluxo web.
 const int kMediaEventVideoMobilePickMaxBytes = 15 * 1024 * 1024;

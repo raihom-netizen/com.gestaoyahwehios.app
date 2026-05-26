@@ -148,12 +148,14 @@
 /// chat stub Firestore (uploading→sent); mensagens de erro amigáveis.
 /// 11.2.295+1611: Upload avisos/eventos/chat — token Firebase, timeouts maiores,
 /// paralelo no mural; botão «Adicionar foto» na barra inferior (Super Premium).
+/// 11.2.295+1620: Chat, avisos e eventos Super Premium — fotos com path válido no iOS
+/// (sem OOM no publish), eventos vídeo até 90 s, chat anexos por ficheiro no mobile.
 /// 11.2.295+1610: Eventos e avisos restaurados (v1555 — MediaUploadService direto);
 /// chat igreja — envio foto/vídeo/arquivo com a mesma lógica (sem stub Firestore).
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1619';
+const String appBuildNumber = '1620';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
