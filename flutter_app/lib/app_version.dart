@@ -1,4 +1,4 @@
-/// Single source of app version used everywhere.
+﻿/// Single source of app version used everywhere.
 /// 11.2.295+1606: iOS «Alterar plano» — Safari abre `/atualizar-plano` (login Google/Apple/e-mail + PIX/cartão).
 /// 11.2.295+1605: Chat WhatsApp igreja — fixar/arquivar, typing na lista, gravar áudio,
 /// mensagem pastoral e aviso automático de escala no grupo do departamento.
@@ -153,7 +153,7 @@
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1618';
+const String appBuildNumber = '1619';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

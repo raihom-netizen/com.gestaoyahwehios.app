@@ -1510,14 +1510,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     try {
       await _startPendingFirestoreStub(pending);
     } catch (e) {
-      final i =
-          _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-      if (i >= 0) {
-        _pendingOutbound[i].failed = true;
-        _pendingOutbound[i].errorMessage = formatUploadErrorForUser(e);
-        if (mounted) setState(() {});
-      }
-      return;
+      // Não sair aqui: o flush tenta criar o stub novamente.
+      // Isso evita "nada acontece" em falhas transitórias de rede/regras.
+      // Mantém `pending.failed=false` para a bolha continuar a mostrar envio.
     }
     unawaited(_flushPendingUpload(
       pending: pending,

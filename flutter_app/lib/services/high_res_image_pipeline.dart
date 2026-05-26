@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_feed_photo_confirm_screen.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -461,11 +462,17 @@ Future<XFile?> _bytesToWebpXFile(
     final ext = _feedIosUsesStableJpeg ? 'jpg' : 'webp';
     final mime = ext == 'webp' ? 'image/webp' : 'image/jpeg';
     final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
-    return XFile.fromData(
-      out,
-      mimeType: mime,
-      name: name,
-    );
+    // Importante: mobile precisa de `path` válido (para o editor carregar e
+    // re-lê bytes no `_copyNewImagesForPublish`). Bytes-only (`fromData`)
+    // deixam o `path` vazio e quebram o publish síncrono.
+    if (kIsWeb) {
+      return XFile.fromData(out, mimeType: mime, name: name);
+    }
+    final dir = await getTemporaryDirectory();
+    final filePath = '${dir.path}/$name';
+    final f = File(filePath);
+    await f.writeAsBytes(out, flush: true);
+    return XFile(f.path, mimeType: mime, name: name);
   } catch (_) {
     return null;
   }
