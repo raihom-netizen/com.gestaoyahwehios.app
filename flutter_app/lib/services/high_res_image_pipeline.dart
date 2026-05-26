@@ -8,6 +8,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_feed_photo_confirm_screen.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -57,8 +58,8 @@ const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
-/// **Feed (eventos/avisos):** web = [PremiumFeedImageCropScreen]; iOS/Android =
-/// [image_cropper] nativo (evita crash por memória). **Foto membro:** quadrado nativo.
+/// **Feed (eventos/avisos):** web/Android = [PremiumFeedImageCropScreen] (Confirmar em baixo);
+/// iOS = [IosFeedPhotoConfirmScreen] (sem crop nativo — crash TestFlight).
 Future<XFile?> pickCropEncodeWebp({
   required ImageSource source,
   required HighResCropProfile profile,
@@ -91,6 +92,73 @@ int get _mobileCropMaxDimension =>
 
 bool get _feedIosUsesStableJpeg =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+bool get _isIosNative => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+bool get _isAndroidNative =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+/// Android mural: recorte Flutter com **Confirmar em baixo** (não uCrop nativo no topo).
+Future<XFile?> _androidFeedCropAndEncode(
+  XFile working,
+  BuildContext? webCropContext,
+  int webpOutputQuality,
+) async {
+  if (webCropContext == null || !webCropContext.mounted) {
+    return _encodeFeedImageFile(working.path);
+  }
+  try {
+    final rawBytes = await File(working.path).readAsBytes();
+    if (rawBytes.isEmpty) return null;
+    final previewBytes = await _downscaleBytesForFeedCropUi(rawBytes);
+    // ignore: use_build_context_synchronously
+    if (!webCropContext.mounted) return null;
+    // ignore: use_build_context_synchronously
+    final croppedBytes = await Navigator.of(webCropContext, rootNavigator: true)
+        .push<Uint8List?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => PremiumFeedImageCropScreen(imageBytes: previewBytes),
+      ),
+    );
+    if (croppedBytes == null || croppedBytes.isEmpty) return null;
+    final edge = kEffectiveFeedEncodeMaxEdgePx;
+    return _bytesToWebpXFile(
+      croppedBytes,
+      quality: webpOutputQuality,
+      encodeMaxWidth: edge,
+      encodeMaxHeight: edge,
+    );
+  } catch (e) {
+    if (kDebugMode) debugPrint('androidFeedCrop: $e');
+    return _encodeFeedImageFile(working.path);
+  }
+}
+
+/// iOS mural: confirmação Flutter (sem TOCropViewController — crash em TestFlight).
+Future<XFile?> _iosFeedConfirmAndEncode(
+  XFile working,
+  BuildContext? webCropContext,
+) async {
+  final prepared = await _encodeFeedImageFile(working.path);
+  if (prepared == null) return null;
+  final path = prepared.path;
+  if (path.isEmpty) return prepared;
+  if (webCropContext == null || !webCropContext.mounted) {
+    return prepared;
+  }
+  // ignore: use_build_context_synchronously
+  final confirmed = await Navigator.of(webCropContext, rootNavigator: true)
+      .push<String?>(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => IosFeedPhotoConfirmScreen(imagePath: path),
+    ),
+  );
+  if (confirmed == null || confirmed.isEmpty) return null;
+  if (confirmed == path) return prepared;
+  return _encodeFeedImageFile(confirmed);
+}
 
 /// No mobile, reduz no disco antes do recorte (HEIC/12MP → JPEG leve ~1080px).
 Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
@@ -285,16 +353,28 @@ Future<XFile?> cropEncodePickedToWebp(
       );
     }
   } else {
+    final feed = profile == HighResCropProfile.feedFree;
+    if (feed && _isIosNative) {
+      return _iosFeedConfirmAndEncode(working, webCropContext);
+    }
+    if (feed && _isAndroidNative) {
+      return _androidFeedCropAndEncode(
+        working,
+        webCropContext,
+        webpOutputQuality,
+      );
+    }
+
     final cropMax = _mobileCropMaxDimension;
     try {
       cropped = await ImageCropper().cropImage(
         sourcePath: working.path,
         maxWidth: cropMax,
         maxHeight: cropMax,
-      compressQuality: kCropperCompressQuality,
-      compressFormat: ImageCompressFormat.jpg,
-      aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
-      uiSettings: [
+        compressQuality: kCropperCompressQuality,
+        compressFormat: ImageCompressFormat.jpg,
+        aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
+        uiSettings: [
         AndroidUiSettings(
           toolbarTitle: 'Ajustar enquadramento',
           toolbarColor: const Color(0xFF1E40AF),
@@ -349,9 +429,9 @@ Future<XFile?> cropEncodePickedToWebp(
   }
 
   final pathIn = cropped?.path ?? working.path;
-  final feed = profile == HighResCropProfile.feedFree;
+  final feedEncoded = profile == HighResCropProfile.feedFree;
 
-  if (!kIsWeb && feed) {
+  if (!kIsWeb && feedEncoded) {
     return _encodeFeedImageFile(pathIn);
   }
 
@@ -360,8 +440,8 @@ Future<XFile?> cropEncodePickedToWebp(
   return _bytesToWebpXFile(
     rawBytes,
     quality: webpOutputQuality,
-    encodeMaxWidth: feed ? feedEdge : kMemberCropWebpMaxEdgePx,
-    encodeMaxHeight: feed ? feedEdge : kMemberCropWebpMaxEdgePx,
+    encodeMaxWidth: feedEncoded ? feedEdge : kMemberCropWebpMaxEdgePx,
+    encodeMaxHeight: feedEncoded ? feedEdge : kMemberCropWebpMaxEdgePx,
   );
 }
 

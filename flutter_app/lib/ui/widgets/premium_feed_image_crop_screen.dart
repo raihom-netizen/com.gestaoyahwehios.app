@@ -4,6 +4,7 @@ import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/feed_photo_bottom_actions.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image/image.dart' as img;
 
@@ -137,141 +138,92 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
               ),
             ),
           ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E).withValues(alpha: 0.97),
-              border: Border(
-                top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  blurRadius: 24,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      height: 44,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        itemCount: _ratios.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 6),
-                        itemBuilder: (context, i) {
-                          final sel = i == _selectedRatioIndex;
-                          return CupertinoButton(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 6,
-                            ),
-                            minimumSize: Size.zero,
-                            color: sel
-                                ? Colors.white.withValues(alpha: 0.16)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(22),
-                            onPressed: () => _selectRatio(i),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _ratios[i].label,
-                                  style: TextStyle(
-                                    color: sel
-                                        ? Colors.white
-                                        : Colors.white.withValues(alpha: 0.55),
-                                    fontWeight:
-                                        sel ? FontWeight.w700 : FontWeight.w500,
-                                    fontSize: 13,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                Container(
-                                  width: 5,
-                                  height: 5,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: sel
-                                        ? primary
-                                        : Colors.transparent,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C1E).withValues(alpha: 0.97),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: CupertinoButton(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            onPressed: () => Navigator.of(context).pop(null),
-                            child: Text(
-                              'Cancelar',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w400,
-                                color: primary.withValues(alpha: 0.95),
-                              ),
-                            ),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: SizedBox(
+                    height: 44,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      itemCount: _ratios.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      itemBuilder: (context, i) {
+                        final sel = i == _selectedRatioIndex;
+                        return CupertinoButton(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
                           ),
-                        ),
-                        IconButton(
-                          onPressed: _rotate90,
-                          tooltip: 'Girar 90°',
-                          icon: Icon(
-                            Icons.rotate_90_degrees_ccw_rounded,
-                            color: Colors.white.withValues(alpha: 0.85),
-                            size: 26,
-                          ),
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 4),
-                            child: FilledButton(
-                              onPressed: () => _cropController.crop(),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: primary,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                  horizontal: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: Text(
-                                'Confirmar',
-                                style: GoogleFonts.manrope(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                          minimumSize: Size.zero,
+                          color: sel
+                              ? Colors.white.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(22),
+                          onPressed: () => _selectRatio(i),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _ratios[i].label,
+                                style: TextStyle(
+                                  color: sel
+                                      ? Colors.white
+                                      : Colors.white.withValues(alpha: 0.55),
+                                  fontWeight:
+                                      sel ? FontWeight.w700 : FontWeight.w500,
+                                  fontSize: 13,
                                   letterSpacing: -0.2,
                                 ),
                               ),
-                            ),
+                              const SizedBox(height: 5),
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color:
+                                      sel ? primary : Colors.transparent,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+              FeedPhotoBottomActions(
+                onCancel: () => Navigator.of(context).pop(null),
+                onConfirm: () => _cropController.crop(),
+                center: IconButton(
+                  onPressed: _rotate90,
+                  tooltip: 'Girar 90°',
+                  icon: Icon(
+                    Icons.rotate_90_degrees_ccw_rounded,
+                    color: Colors.white.withValues(alpha: 0.85),
+                    size: 26,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

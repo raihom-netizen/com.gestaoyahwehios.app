@@ -11,7 +11,8 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
 
-/// Publicação estilo WhatsApp no mural (avisos/eventos): documento primeiro, fotos depois.
+/// Reenvio/outbox de posts com `publishState: uploading` (legado ou falha).
+/// **Editor avisos/eventos:** publicação síncrona via [MuralPostMediaPayload.uploadNewPhotosBeforePublish].
 abstract final class MuralFastPublishService {
   MuralFastPublishService._();
 

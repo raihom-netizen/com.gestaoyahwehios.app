@@ -4,11 +4,45 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show firebaseStorageObjectPathFromHttpUrl, isValidImageUrl, normalizeFirebaseStorageObjectPath, sanitizeImageUrl;
+    show
+        dedupeImageRefsByStorageIdentity,
+        firebaseStorageObjectPathFromHttpUrl,
+        isValidImageUrl,
+        normalizeFirebaseStorageObjectPath,
+        sanitizeImageUrl;
 
 /// Campos de mídia partilhados entre editor do mural e reenvio em background.
 abstract final class MuralPostMediaPayload {
   MuralPostMediaPayload._();
+
+  static const Duration _photoSlotTimeout = Duration(minutes: 4);
+  static const Duration _batchTimeout = Duration(minutes: 12);
+
+  /// Avisos/eventos: sobe **todas** as fotos antes do Firestore (publicação concluída de uma vez).
+  static Future<List<String>> uploadNewPhotosBeforePublish({
+    required String tenantId,
+    required String postType,
+    required String postId,
+    required List<Uint8List> newImages,
+    required int startSlotIndex,
+  }) async {
+    if (newImages.isEmpty) return const [];
+    await FeedPostMediaUpload.warmAuthToken()
+        .timeout(const Duration(seconds: 25));
+    final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+      count: newImages.length,
+      progressLabel: 'A enviar imagens…',
+      uploadOne: (i, report) => uploadPhotoSlot(
+        tenantId: tenantId,
+        postType: postType,
+        postId: postId,
+        bytes: newImages[i],
+        slotIndex: startSlotIndex + i,
+        onProgress: report,
+      ).timeout(_photoSlotTimeout),
+    ).timeout(_batchTimeout);
+    return dedupeImageRefsByStorageIdentity(uploaded);
+  }
 
   static Future<String> uploadPhotoSlot({
     required String tenantId,

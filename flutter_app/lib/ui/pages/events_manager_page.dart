@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 import 'dart:convert';
+import 'dart:io' show File;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -25,6 +26,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
@@ -5069,7 +5071,58 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       _referencia;
   final List<String> _existingUrls = [];
   final List<Uint8List> _newImages = [];
+  final List<String> _newImagePaths = [];
   final List<String> _newNames = [];
+
+  int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
+
+  Future<void> _addEncodedEventPhoto(XFile encoded) async {
+    if (kIsWeb) {
+      final bytes = await encoded.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _newImages.add(bytes);
+        _newNames.add(encoded.name);
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _newImagePaths.add(encoded.path);
+      _newNames.add(encoded.name);
+    });
+  }
+
+  Future<List<Uint8List>> _copyNewImagesForPublish() async {
+    if (kIsWeb) return List<Uint8List>.from(_newImages);
+    final out = <Uint8List>[];
+    for (final p in _newImagePaths) {
+      final f = File(p);
+      if (f.existsSync()) out.add(await f.readAsBytes());
+    }
+    return out;
+  }
+
+  Future<Uint8List?> _firstNewImageBytes() async {
+    if (kIsWeb) {
+      return _newImages.isEmpty ? null : _newImages.first;
+    }
+    if (_newImagePaths.isEmpty) return null;
+    final f = File(_newImagePaths.first);
+    if (!f.existsSync()) return null;
+    return f.readAsBytes();
+  }
+
+  void _removeNewPhotoAt(int index) {
+    setState(() {
+      if (kIsWeb) {
+        _newImages.removeAt(index);
+      } else {
+        _newImagePaths.removeAt(index);
+      }
+      _newNames.removeAt(index);
+    });
+  }
 
   /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
   final List<Map<String, String>> _eventVideos = [];
@@ -5670,7 +5723,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _pickImages() async {
-    final totalAtual = _existingUrls.length + _newImages.length;
+    final totalAtual = _existingUrls.length + _newPhotoCount;
     if (totalAtual >= _maxPhotosPerEvent) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -5684,28 +5737,34 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
+      final remaining =
+          (_maxPhotosPerEvent - totalAtual).clamp(1, _maxPhotosPerEvent);
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
+        maxPickCount: remaining,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
         onEachReady: (encoded, index, total) async {
-          if (_existingUrls.length + _newImages.length >= _maxPhotosPerEvent) {
+          if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerEvent) {
             return;
           }
-          final bytes = await encoded.readAsBytes();
-          if (!mounted) return;
-          setState(() {
-            _newImages.add(bytes);
-            _newNames.add(encoded.name);
-          });
+          await _addEncodedEventPhoto(encoded);
         },
       );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
     }
   }
 
   Future<void> _pickCamera() async {
-    final totalAtual = _existingUrls.length + _newImages.length;
+    final totalAtual = _existingUrls.length + _newPhotoCount;
     if (totalAtual >= _maxPhotosPerEvent) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -5725,11 +5784,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
       );
       if (file != null && mounted) {
-        final bytes = await file.readAsBytes();
-        setState(() {
-          _newImages.add(bytes);
-          _newNames.add(file.name);
-        });
+        await _addEncodedEventPhoto(file);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
       }
     } finally {
       if (mounted) setState(() => _mediaPicking = false);
@@ -5927,7 +5990,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _openAddMediaSheet() async {
     if (_mediaPicking) return;
     final photosFull =
-        (_existingUrls.length + _newImages.length) >= _maxPhotosPerEvent;
+        (_existingUrls.length + _newPhotoCount) >= _maxPhotosPerEvent;
     final videosFull = _eventVideos.length >= _maxVideosPerEvent;
     if (photosFull && videosFull) {
       if (mounted) {
@@ -6204,12 +6267,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
-    final hasNewImages = _newImages.isNotEmpty;
+    final hasNewImages = _newPhotoCount > 0;
     try {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
       if (hasNewImages) {
-        aspectRatio = _aspectRatioFromBytes(_newImages.first);
+        final firstBytes = await _firstNewImageBytes();
+        if (firstBytes != null) {
+          aspectRatio = await imageAspectRatioFromBytes(firstBytes);
+        }
       } else if (existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
@@ -6219,22 +6285,46 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
 
       if (hasNewImages) {
+        final imagesCopy = await _copyNewImagesForPublish();
+        if (imagesCopy.isEmpty) {
+          throw StateError('Não foi possível ler as fotos para enviar.');
+        }
+        final startSlot = existingUrls.length;
+        final hasVideo = _eventVideos.isNotEmpty ||
+            _videoUrl.text.trim().isNotEmpty;
+        final uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+          tenantId: widget.tenantId,
+          postType: 'evento',
+          postId: postId,
+          newImages: imagesCopy,
+          startSlotIndex: startSlot,
+        );
+        final allUrls = dedupeImageRefsByStorageIdentity([
+          ...existingUrls,
+          ...uploaded,
+        ]);
+        if (imagesCopy.isNotEmpty) {
+          final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
+          if (arNew != null) aspectRatio = arNew;
+        }
         final payload = _buildEventCorePayload(
-          allUrls: existingUrls,
+          allUrls: allUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        payload['publishState'] = MuralFastPublishService.stateUploading;
-        payload['pendingImageCount'] = _newImages.length;
+        payload['publishState'] = MuralFastPublishService.statePublished;
+        payload['pendingImageCount'] = FieldValue.delete();
+        payload['publishError'] = FieldValue.delete();
         if (isNewDoc) {
           await docRef.set(payload);
         } else {
           await widget.doc!.reference.set(payload, SetOptions(merge: true));
         }
-        final imagesCopy = List<Uint8List>.from(_newImages);
-        final startSlot = existingUrls.length;
-        final hasVideo = _eventVideos.isNotEmpty ||
-            _videoUrl.text.trim().isNotEmpty;
+        FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+          tenantId: widget.tenantId,
+          postDocId: postId,
+        );
+        await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6243,36 +6333,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
-        unawaited(_applyAgendaSyncAfterSave(postId));
-        MuralFastPublishService.scheduleBackgroundImageFinalize(
-          docRef: docRef,
-          tenantId: widget.tenantId,
-          postId: postId,
-          postType: 'evento',
-          newImages: imagesCopy,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-          uploadSlot: (bytes, slot, report) =>
-              MuralPostMediaPayload.uploadPhotoSlot(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            bytes: bytes,
-            slotIndex: slot,
-            onProgress: report,
-          ),
-          buildMediaFields: ({
-            required allUrls,
-            required aspectRatio,
-            required hasVideo,
-          }) =>
-              MuralPostMediaPayload.buildMediaFields(
-            allUrls: allUrls,
-            aspectRatio: aspectRatio,
-            hasVideo: hasVideo,
-          ),
-        );
         return;
       }
 
@@ -6307,15 +6367,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken();
           await Future.delayed(const Duration(milliseconds: 150));
+          final publishBytes = await _copyNewImagesForPublish();
           if (widget.doc == null) {
             final retryUrls = List<String>.from(_existingUrls);
             final rInit = retryUrls.length;
             final rRoom =
-                (_maxPhotosPerEvent - rInit).clamp(0, _newImages.length);
+                (_maxPhotosPerEvent - rInit).clamp(0, publishBytes.length);
             if (rRoom > 0) {
               final rUp = List<Future<MediaUploadResult>>.generate(
                 rRoom,
-                (i) => _upload(_newImages[i], postId, rInit + i),
+                (i) => _upload(publishBytes[i], postId, rInit + i),
               );
               for (final up in await Future.wait(rUp)) {
                 retryUrls.add(up.downloadUrl);
@@ -6328,9 +6389,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 .toList();
             final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
             final retryDerived = _pathsFromImageUrls(retrySafe);
-            final arRetry = _newImages.isNotEmpty
-                ? _aspectRatioFromBytes(_newImages.first)
-                : null;
+            double? arRetry;
+            if (publishBytes.isNotEmpty) {
+              arRetry = await imageAspectRatioFromBytes(publishBytes.first);
+            }
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')
                 : _videoUrl.text.trim();
@@ -6382,7 +6444,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             if (_validUntil != null)
               payload['validUntil'] = Timestamp.fromDate(_validUntil!);
             await docRef.set(payload);
-            if (_newImages.isNotEmpty) {
+            if (publishBytes.isNotEmpty) {
               FirebaseStorageCleanupService
                   .scheduleCleanupAfterEventPostImageUpload(
                 tenantId: widget.tenantId,
@@ -6393,11 +6455,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final retryUrls = List<String>.from(_existingUrls);
             final mInit = retryUrls.length;
             final mRoom =
-                (_maxPhotosPerEvent - mInit).clamp(0, _newImages.length);
+                (_maxPhotosPerEvent - mInit).clamp(0, publishBytes.length);
             if (mRoom > 0) {
               final mUp = List<Future<MediaUploadResult>>.generate(
                 mRoom,
-                (i) => _upload(_newImages[i], postId, mInit + i),
+                (i) => _upload(publishBytes[i], postId, mInit + i),
               );
               for (final up in await Future.wait(mUp)) {
                 retryUrls.add(up.downloadUrl);
@@ -6410,9 +6472,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 .toList();
             final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
             final mergeDerived = _pathsFromImageUrls(mergeSafe);
-            final arMerge = _newImages.isNotEmpty
-                ? _aspectRatioFromBytes(_newImages.first)
-                : null;
+            double? arMerge;
+            if (publishBytes.isNotEmpty) {
+              arMerge = await imageAspectRatioFromBytes(publishBytes.first);
+            }
             final firstVideoUrl = _eventVideos.isNotEmpty
                 ? (_eventVideos.first['videoUrl'] ?? '')
                 : _videoUrl.text.trim();
@@ -6461,7 +6524,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             }
             merge['templateId'] = FieldValue.delete();
             await widget.doc!.reference.set(merge, SetOptions(merge: true));
-            if (_newImages.isNotEmpty) {
+            if (publishBytes.isNotEmpty) {
               FirebaseStorageCleanupService
                   .scheduleCleanupAfterEventPostImageUpload(
                 tenantId: widget.tenantId,
@@ -6529,21 +6592,31 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         size: 14, color: Colors.white)))),
       ]));
     }
-    for (var i = 0; i < _newImages.length; i++) {
+    for (var i = 0; i < _newPhotoCount; i++) {
       final idx = i;
+      final thumbChild = kIsWeb
+          ? Image.memory(
+              _newImages[idx],
+              width: 100,
+              height: 100,
+              fit: BoxFit.cover,
+            )
+          : Image.file(
+              File(_newImagePaths[idx]),
+              width: 100,
+              height: 100,
+              fit: BoxFit.cover,
+              cacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+              filterQuality: FilterQuality.medium,
+            );
       allPreviews.add(Stack(children: [
         ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.memory(_newImages[idx],
-                width: 100, height: 100, fit: BoxFit.cover)),
+            borderRadius: BorderRadius.circular(12), child: thumbChild),
         Positioned(
             top: 2,
             right: 2,
             child: GestureDetector(
-                onTap: () => setState(() {
-                      _newImages.removeAt(idx);
-                      _newNames.removeAt(idx);
-                    }),
+                onTap: () => _removeNewPhotoAt(idx),
                 child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: const BoxDecoration(
@@ -6596,7 +6669,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         : _openAddMediaSheet,
                     icon: const Icon(Icons.add_photo_alternate_rounded, size: 22),
                     label: Text(
-                      'Adicionar foto ou vídeo (${_existingUrls.length + _newImages.length + _eventVideos.length})',
+                      'Adicionar foto ou vídeo (${_existingUrls.length + _newPhotoCount + _eventVideos.length})',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     style: FilledButton.styleFrom(

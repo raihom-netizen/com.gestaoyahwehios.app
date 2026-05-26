@@ -108,7 +108,7 @@ class MediaHandlerService {
   Future<XFile?> pickAndProcessLogoFromCamera() =>
       pickAndProcessLogoImage(source: ImageSource.camera);
 
-  /// Mural / avisos / eventos: recorte premium na web; iOS/Android = image_cropper nativo.
+  /// Mural / avisos / eventos: web/Android = recorte premium (Confirmar em baixo); iOS = confirmar foto.
   /// [webpOutputQuality]: use [kPremiumMuralFeedWebpQuality] (ou [kHighResWebpQuality]).
   Future<XFile?> pickCropEncodeFeedImageWebp({
     required ImageSource source,
@@ -136,6 +136,7 @@ class MediaHandlerService {
   /// Várias imagens da galeria (mural) — recorte por foto + WebP (sequencial no mobile).
   Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
     BuildContext? webCropContext, {
+    int? maxPickCount,
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
     void Function(List<XFile> picked)? onGalleryPicked,
     void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
@@ -144,6 +145,7 @@ class MediaHandlerService {
   }) async {
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
+      limit: maxPickCount,
       imageQuality: kIsWeb ? 100 : kEffectiveMuralFeedWebpQuality,
       maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : edge,
       maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : edge,
