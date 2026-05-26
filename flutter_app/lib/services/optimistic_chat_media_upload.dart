@@ -115,19 +115,16 @@ abstract final class OptimisticChatMediaUpload {
     }
 
     try {
-      final can = await ChurchChatMemberPrefs.canSendToDmThread(
-        tenantId: tenantId,
-        threadId: threadId,
-      );
-      if (!can) {
-        onFailed('Envio bloqueado — desbloqueie o contacto.');
-        return;
-      }
-
-      reportProgress(0.03);
-      await FeedPostMediaUpload.warmAuthToken();
-
       if (messageId == null || messageId.isEmpty) {
+        final can = await ChurchChatMemberPrefs.canSendToDmThread(
+          tenantId: tenantId,
+          threadId: threadId,
+        );
+        if (!can) {
+          onFailed('Envio bloqueado — desbloqueie o contacto.');
+          return;
+        }
+        reportProgress(0.04);
         final begun = await ChurchChatService.beginMediaUploadMessage(
           tenantId: tenantId,
           threadId: threadId,
@@ -136,14 +133,17 @@ abstract final class OptimisticChatMediaUpload {
           replyTo: replyTo,
           senderDisplayName:
               ChurchChatService.senderDisplayNameForNewMessage(),
-        );
+        ).timeout(const Duration(seconds: 20));
         messageId = begun.messageId;
         storagePath = begun.storagePath;
         pending.firestoreMessageId = messageId;
         pending.storagePath = storagePath;
         onReplyCleared?.call();
       }
+
       reportProgress(0.08);
+      await FeedPostMediaUpload.warmAuthToken()
+          .timeout(const Duration(seconds: 25));
 
       var uploadPath = localPath;
       List<int>? uploadBytes = bytes;

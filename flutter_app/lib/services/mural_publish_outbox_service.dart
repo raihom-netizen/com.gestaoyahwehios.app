@@ -123,10 +123,24 @@ abstract final class MuralPublishOutboxService {
       tenantId: tenantId,
       postId: postId,
     );
-    if (images == null || images.isEmpty) return;
-
     final docRef = _docRef(tenantId, postType, postId);
     final snap = await docRef.get();
+    if (images == null || images.isEmpty) {
+      final state = (snap.data()?['publishState'] ?? '').toString();
+      if (state == MuralFastPublishService.stateUploading) {
+        await docRef.set(
+          {
+            'publishState': MuralFastPublishService.stateFailed,
+            'publishError':
+                'Fotos não encontradas no aparelho. Edite o aviso/evento e envie de novo.',
+          },
+          SetOptions(merge: true),
+        );
+      }
+      await clearJob(tenantId: tenantId, postId: postId);
+      return;
+    }
+
     if (!snap.exists) {
       await clearJob(tenantId: tenantId, postId: postId);
       await MuralPostPendingMediaCache.remove(

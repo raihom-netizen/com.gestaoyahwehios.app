@@ -54,8 +54,6 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
-import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -6208,7 +6206,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final isNewDoc = widget.doc == null;
     final hasNewImages = _newImages.isNotEmpty;
     try {
-      await FeedPostMediaUpload.warmAuthToken();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
       if (hasNewImages) {
@@ -6238,20 +6235,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         final startSlot = existingUrls.length;
         final hasVideo = _eventVideos.isNotEmpty ||
             _videoUrl.text.trim().isNotEmpty;
-        await MuralPostPendingMediaCache.put(
-          tenantId: widget.tenantId,
-          postId: postId,
-          images: imagesCopy,
-        );
-        await MuralPublishOutboxService.registerJob(
-          tenantId: widget.tenantId,
-          postId: postId,
-          postType: 'evento',
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-        );
-        await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6260,40 +6243,41 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
-        unawaited(
-          MuralFastPublishService.uploadImagesAndFinalizePost(
-            docRef: docRef,
+        unawaited(_applyAgendaSyncAfterSave(postId));
+        MuralFastPublishService.scheduleBackgroundImageFinalize(
+          docRef: docRef,
+          tenantId: widget.tenantId,
+          postId: postId,
+          postType: 'evento',
+          newImages: imagesCopy,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          uploadSlot: (bytes, slot, report) =>
+              MuralPostMediaPayload.uploadPhotoSlot(
             tenantId: widget.tenantId,
-            postId: postId,
             postType: 'evento',
-            newImages: imagesCopy,
-            existingUrls: existingUrls,
-            startSlotIndex: startSlot,
+            postId: postId,
+            bytes: bytes,
+            slotIndex: slot,
+            onProgress: report,
+          ),
+          buildMediaFields: ({
+            required allUrls,
+            required aspectRatio,
+            required hasVideo,
+          }) =>
+              MuralPostMediaPayload.buildMediaFields(
+            allUrls: allUrls,
+            aspectRatio: aspectRatio,
             hasVideo: hasVideo,
-            uploadSlot: (bytes, slot, report) =>
-                MuralPostMediaPayload.uploadPhotoSlot(
-              tenantId: widget.tenantId,
-              postType: 'evento',
-              postId: postId,
-              bytes: bytes,
-              slotIndex: slot,
-              onProgress: report,
-            ),
-            buildMediaFields: ({
-              required allUrls,
-              required aspectRatio,
-              required hasVideo,
-            }) =>
-                MuralPostMediaPayload.buildMediaFields(
-              allUrls: allUrls,
-              aspectRatio: aspectRatio,
-              hasVideo: hasVideo,
-            ),
           ),
         );
         return;
       }
 
+      await FeedPostMediaUpload.warmAuthToken()
+          .timeout(const Duration(seconds: 20));
       final payload = _buildEventCorePayload(
         allUrls: existingUrls,
         aspectRatio: aspectRatio,

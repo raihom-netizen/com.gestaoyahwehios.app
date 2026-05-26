@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -35,8 +36,14 @@ abstract final class MuralPostPendingMediaCache {
     _memory[key] = List<Uint8List>.from(images);
     final dir = await _dirFor(postId);
     if (dir == null) return;
+    unawaited(_writeDisk(dir, images));
+  }
+
+  static Future<void> _writeDisk(Directory dir, List<Uint8List> images) async {
     for (var i = 0; i < images.length; i++) {
-      await File(p.join(dir.path, '$i.bin')).writeAsBytes(images[i], flush: true);
+      try {
+        await File(p.join(dir.path, '$i.bin')).writeAsBytes(images[i], flush: true);
+      } catch (_) {}
     }
   }
 

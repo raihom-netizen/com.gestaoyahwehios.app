@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
@@ -1458,23 +1459,35 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
+  /// Stub Firestore imediato (padrão Controle Total: BD primeiro, ficheiro depois).
+  Future<void> _startPendingFirestoreStub(ChurchChatOutboundPending pending) async {
+    if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
+    final begun = await ChurchChatService.beginMediaUploadMessage(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      kind: pending.kind,
+      fileName: pending.kind == 'document' ? pending.fileName : null,
+      replyTo: _replyDraft?.toReplyPayload(),
+      senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+    ).timeout(const Duration(seconds: 20));
+    pending.firestoreMessageId = begun.messageId;
+    pending.storagePath = begun.storagePath;
+    if (mounted) setState(() => _replyDraft = null);
+  }
+
   Future<void> _flushPendingUpload({
     required ChurchChatOutboundPending pending,
     required List<int>? bytes,
     required String? localPath,
   }) async {
-    final replyPayload = _replyDraft?.toReplyPayload();
     await OptimisticChatMediaUpload.flush(
       pending: pending,
       tenantId: widget.tenantId,
       threadId: widget.threadId,
       bytes: bytes,
       localPath: localPath,
-      replyTo: replyPayload,
+      replyTo: null,
       onProgress: (p) => _setPendingProgress(pending.localId, p),
-      onReplyCleared: () {
-        if (mounted) setState(() => _replyDraft = null);
-      },
       onSuccess: () => _removePending(pending.localId),
       onFailed: (msg) {
         final i =
@@ -1485,6 +1498,42 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (mounted) setState(() {});
         }
       },
+    );
+  }
+
+  Future<void> _enqueueAndUploadPending({
+    required ChurchChatOutboundPending pending,
+    required List<int>? bytes,
+    required String? localPath,
+  }) async {
+    _enqueuePending(pending);
+    try {
+      await _startPendingFirestoreStub(pending);
+    } catch (e) {
+      final i =
+          _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage = formatUploadErrorForUser(e);
+        if (mounted) setState(() {});
+      }
+      return;
+    }
+    unawaited(_flushPendingUpload(
+      pending: pending,
+      bytes: bytes,
+      localPath: localPath,
+    ));
+  }
+
+  void _showChatAttachmentError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: ThemeCleanPremium.error,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -1521,8 +1570,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       previewBytes: previewBytes,
       replyPreview: _replyDraft?.preview,
     );
-    _enqueuePending(pending);
-    unawaited(_flushPendingUpload(
+    unawaited(_enqueueAndUploadPending(
       pending: pending,
       bytes: null,
       localPath: localPath,
@@ -1561,7 +1609,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
       return;
     }
-    if (f.bytes == null) return;
+    if (f.bytes == null || f.bytes!.isEmpty) {
+      _showChatAttachmentError(
+        'Não foi possível ler o ficheiro. Tente outro ou um ficheiro menor.',
+      );
+      return;
+    }
     unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
   }
 
@@ -1591,7 +1644,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
       return;
     }
-    if (f.bytes == null) return;
+    if (f.bytes == null || f.bytes!.isEmpty) {
+      _showChatAttachmentError(
+        'Não foi possível ler o áudio. Tente outro ficheiro.',
+      );
+      return;
+    }
     unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
   }
 
@@ -1618,8 +1676,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       previewBytes: preview,
       replyPreview: _replyDraft?.preview,
     );
-    _enqueuePending(pending);
-    unawaited(_flushPendingUpload(
+    unawaited(_enqueueAndUploadPending(
       pending: pending,
       bytes: bytes,
       localPath: null,
@@ -1781,13 +1838,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 onPressed: () {
                   p.failed = false;
                   p.errorMessage = null;
-                  unawaited(_flushPendingUpload(
-                    pending: p,
-                    bytes: p.previewBytes != null
-                        ? p.previewBytes!.toList()
-                        : null,
-                    localPath: p.localPath,
-                  ));
+                  p.firestoreMessageId = null;
+                  p.storagePath = null;
+                  if (mounted) setState(() {});
+                  unawaited(() async {
+                    try {
+                      await _startPendingFirestoreStub(p);
+                    } catch (_) {
+                      return;
+                    }
+                    await _flushPendingUpload(
+                      pending: p,
+                      bytes: p.previewBytes != null
+                          ? p.previewBytes!.toList()
+                          : null,
+                      localPath: p.localPath,
+                    );
+                  }());
                 },
                 child: const Text('Tentar de novo'),
               ),

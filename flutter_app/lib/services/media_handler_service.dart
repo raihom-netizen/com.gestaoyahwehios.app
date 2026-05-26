@@ -108,7 +108,7 @@ class MediaHandlerService {
   Future<XFile?> pickAndProcessLogoFromCamera() =>
       pickAndProcessLogoImage(source: ImageSource.camera);
 
-  /// Mural / avisos / eventos: recorte premium Flutter (mobile + web) com [webCropContext]; WebP Full HD.
+  /// Mural / avisos / eventos: recorte premium na web; iOS/Android = image_cropper nativo.
   /// [webpOutputQuality]: use [kPremiumMuralFeedWebpQuality] (ou [kHighResWebpQuality]).
   Future<XFile?> pickCropEncodeFeedImageWebp({
     required ImageSource source,

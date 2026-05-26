@@ -51,7 +51,13 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
     final decoded = img.decodeImage(_bytes);
     if (decoded == null) return;
     final rotated = img.copyRotate(decoded, angle: 90);
-    final out = Uint8List.fromList(img.encodeJpg(rotated, quality: 95));
+    final edge = 1600;
+    final resized = img.copyResize(
+      rotated,
+      width: rotated.width > rotated.height ? edge : null,
+      height: rotated.height >= rotated.width ? edge : null,
+    );
+    final out = Uint8List.fromList(img.encodeJpg(resized, quality: 88));
     setState(() => _bytes = out);
     _cropController.image = out;
   }

@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
 
@@ -149,7 +150,10 @@ abstract final class MuralFastPublishService {
         message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
       );
     } catch (e) {
-      await _markFailed(docRef: docRef, message: e.toString());
+      await _markFailed(
+        docRef: docRef,
+        message: formatUploadErrorForUser(e),
+      );
     }
   }
 
@@ -157,11 +161,15 @@ abstract final class MuralFastPublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required String message,
   }) async {
+    final userMsg = message.trim().isEmpty
+        ? 'Não foi possível enviar as fotos. Toque em «Tentar de novo».'
+        : message;
     try {
       await docRef.set(
         {
           'publishState': stateFailed,
-          'publishError': message.length > 400 ? message.substring(0, 400) : message,
+          'publishError':
+              userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
         },
         SetOptions(merge: true),
       );

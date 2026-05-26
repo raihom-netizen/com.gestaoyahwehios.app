@@ -7,8 +7,8 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -3371,12 +3371,27 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _pickImages() async {
+    if (_existingUrls.length + _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso. Remova alguma para adicionar mais.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
     setState(() => _mediaPicking = true);
     try {
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
         onEachReady: (encoded, index, total) async {
+          if (_existingUrls.length + _newImages.length >=
+              kMaxAvisoFeedPhotosPerPost) {
+            return;
+          }
           final bytes = await encoded.readAsBytes();
           if (!mounted) return;
           setState(() {
@@ -3391,6 +3406,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _pickCamera() async {
+    if (_existingUrls.length + _newImages.length >= kMaxAvisoFeedPhotosPerPost) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso. Remova alguma para adicionar mais.'),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
     setState(() => _mediaPicking = true);
     try {
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
@@ -3512,16 +3538,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     );
   }
 
-  double _aspectRatioFromImageBytes(Uint8List bytes) {
-    try {
-      final im = img.decodeImage(bytes);
-      if (im == null || im.height <= 0) return 1.0;
-      return (im.width / im.height).clamp(0.4, 2.3);
-    } catch (_) {
-      return 1.0;
-    }
-  }
-
   Map<String, dynamic> _buildCorePayload({
     required List<String> allUrls,
     required double aspectRatio,
@@ -3594,11 +3610,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final hasNewImages = _newImages.isNotEmpty;
     setState(() => _saving = true);
     try {
-      await FeedPostMediaUpload.warmAuthToken();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (hasNewImages) {
-        aspectRatio = _aspectRatioFromImageBytes(_newImages.first);
+        final ar = await imageAspectRatioFromBytes(_newImages.first);
+        if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
       } else if (existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
@@ -3623,19 +3639,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         final imagesCopy = List<Uint8List>.from(_newImages);
         final startSlot = existingUrls.length;
         final hasVideo = _videoUrl.text.trim().isNotEmpty;
-        await MuralPostPendingMediaCache.put(
-          tenantId: widget.tenantId,
-          postId: postId,
-          images: imagesCopy,
-        );
-        await MuralPublishOutboxService.registerJob(
-          tenantId: widget.tenantId,
-          postId: postId,
-          postType: widget.type,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3644,40 +3647,40 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           );
           Navigator.pop(context, true);
         }
-        unawaited(
-          MuralFastPublishService.uploadImagesAndFinalizePost(
-            docRef: docRef,
+        MuralFastPublishService.scheduleBackgroundImageFinalize(
+          docRef: docRef,
+          tenantId: widget.tenantId,
+          postId: postId,
+          postType: widget.type,
+          newImages: imagesCopy,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          uploadSlot: (bytes, slot, report) =>
+              MuralPostMediaPayload.uploadPhotoSlot(
             tenantId: widget.tenantId,
-            postId: postId,
             postType: widget.type,
-            newImages: imagesCopy,
-            existingUrls: existingUrls,
-            startSlotIndex: startSlot,
+            postId: postId,
+            bytes: bytes,
+            slotIndex: slot,
+            onProgress: report,
+          ),
+          buildMediaFields: ({
+            required allUrls,
+            required aspectRatio,
+            required hasVideo,
+          }) =>
+              MuralPostMediaPayload.buildMediaFields(
+            allUrls: allUrls,
+            aspectRatio: aspectRatio,
             hasVideo: hasVideo,
-            uploadSlot: (bytes, slot, report) =>
-                MuralPostMediaPayload.uploadPhotoSlot(
-              tenantId: widget.tenantId,
-              postType: widget.type,
-              postId: postId,
-              bytes: bytes,
-              slotIndex: slot,
-              onProgress: report,
-            ),
-            buildMediaFields: ({
-              required allUrls,
-              required aspectRatio,
-              required hasVideo,
-            }) =>
-                MuralPostMediaPayload.buildMediaFields(
-              allUrls: allUrls,
-              aspectRatio: aspectRatio,
-              hasVideo: hasVideo,
-            ),
           ),
         );
         return;
       }
 
+      await FeedPostMediaUpload.warmAuthToken()
+          .timeout(const Duration(seconds: 20));
       final payload = _buildCorePayload(
         allUrls: existingUrls,
         aspectRatio: aspectRatio,

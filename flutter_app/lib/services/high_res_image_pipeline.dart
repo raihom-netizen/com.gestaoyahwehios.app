@@ -57,9 +57,8 @@ const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
-/// **Feed (eventos/avisos):** com [webCropContext] montado, usa recorte Flutter
-/// premium (iOS-like, mobile + web). Sem contexto na web: só WebP sem recorte.
-/// **Foto membro:** mantém [image_cropper] nativo / Cropper.js na web.
+/// **Feed (eventos/avisos):** web = [PremiumFeedImageCropScreen]; iOS/Android =
+/// [image_cropper] nativo (evita crash por memória). **Foto membro:** quadrado nativo.
 Future<XFile?> pickCropEncodeWebp({
   required ImageSource source,
   required HighResCropProfile profile,
@@ -220,9 +219,11 @@ Future<XFile?> cropEncodePickedToWebp(
   }
   final square = profile == HighResCropProfile.memberSquare;
 
-  /// Mural feed: recorte Flutter premium (igual web) em iOS/Android quando há [webCropContext].
+  /// Mural feed: recorte Flutter premium **só na web**. iOS/Android usam [image_cropper]
+  /// nativo (Confirmar/Cancelar) — o ecrã em RAM com `crop_your_image` causa OOM/crash no iPhone.
   if (profile == HighResCropProfile.feedFree &&
-      webCropContext != null) {
+      webCropContext != null &&
+      kIsWeb) {
     final rawBytes = await working.readAsBytes();
     if (rawBytes.isEmpty) return null;
     // ignore: use_build_context_synchronously
