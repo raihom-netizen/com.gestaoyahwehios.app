@@ -169,6 +169,17 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   pushFromAny(data['imagem_url']);
   pushFromAny(data['imagemUrl']);
   pushFromAny(data['imageUrl']);
+  final iv = data['imageVariants'];
+  if (iv is Map) {
+    for (final key in const ['medium_800', 'medium', 'full_1920', 'full', 'thumb_200', 'thumb']) {
+      final e = iv[key];
+      if (e is Map) {
+        pushFromAny(e['url'] ?? e['downloadUrl']);
+      } else {
+        pushFromAny(e);
+      }
+    }
+  }
   // Avisos/eventos: `media` como mapa ou lista de mapas (url / storagePath).
   final mediaRoot = data['media'];
   if (mediaRoot is Map) {
@@ -372,6 +383,15 @@ bool _isUsableFeedCoverRef(String s) {
 
 String eventNoticiaFeedCoverHintUrl(Map<String, dynamic>? p) {
   if (p == null) return '';
+  final iv = p['imageVariants'];
+  if (iv is Map) {
+    for (final key in const ['medium_800', 'medium']) {
+      final e = iv[key];
+      final raw = e is Map ? (e['url'] ?? e['downloadUrl']) : e;
+      final s = sanitizeImageUrl('$raw');
+      if (_isUsableFeedCoverRef(s)) return s;
+    }
+  }
   for (final raw in eventNoticiaPhotoUrls(p)) {
     final s = sanitizeImageUrl(raw);
     if (_isUsableFeedCoverRef(s)) return s;

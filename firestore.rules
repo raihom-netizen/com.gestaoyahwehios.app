@@ -1128,6 +1128,24 @@ service cloud.firestore {
       }
 
       /// Mídia: stub «uploading» → `sent` após Storage — sem segundo `get(thread)` (só valida remetente).
+      function chatMessageSendingFinalizeAllowed(tenantId, threadId) {
+        return chatTenantMemberFast(tenantId)
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus == 'sending'
+          && request.resource.data.deliveryStatus == 'sent'
+          && (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus'])
+            || (
+              resource.data.type == 'sticker'
+              && request.resource.data.mediaUrl is string
+              && request.resource.data.mediaUrl.size() > 8
+              && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                'deliveryStatus', 'mediaUrl', 'storagePath', 'stickerSource'
+              ])
+            )
+          );
+      }
+
       function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
         return chatTenantMemberFast(tenantId)
           && resource.data.senderUid == request.auth.uid
@@ -1268,6 +1286,7 @@ service cloud.firestore {
               && request.resource.data.replyTo.preview.size() <= 240
             ));
           allow update: if chatMessageMediaDeliveryPatchAllowed(id, threadId)
+            || chatMessageSendingFinalizeAllowed(id, threadId)
             || chatMessageUploadProgressOnly(id, threadId)
             || chatMessageHideForMeOnly(id, threadId)
             || chatMessageReactionsByUidOnly(id, threadId);

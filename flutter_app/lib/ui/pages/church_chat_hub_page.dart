@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_notification_settings_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
@@ -121,6 +123,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('chat');
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -1232,9 +1235,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final tid = _resolvedTenantId;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (tid == null || uid == null) {
-      return const ColoredBox(
+      return ColoredBox(
         color: Colors.white,
-        child: Center(child: CircularProgressIndicator()),
+        child: YahwehSkeletonLoading.chatThreads(),
       );
     }
 
@@ -1328,7 +1331,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           slivers: [
             SliverFillRemaining(
               hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator(color: ThemeCleanPremium.primary)),
+              child: YahwehSkeletonLoading.chatThreads(),
             ),
           ],
         ),
@@ -1404,11 +1407,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       slivers: [
                         SliverFillRemaining(
                           hasScrollBody: false,
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: ThemeCleanPremium.primary,
-                            ),
-                          ),
+                          child: YahwehSkeletonLoading.chatThreads(),
                         ),
                       ],
                     ),
@@ -2810,7 +2809,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return YahwehSkeletonLoading.chatThreads(count: 8);
     }
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance

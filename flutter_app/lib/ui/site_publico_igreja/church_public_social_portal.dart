@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show churchMuralCarouselClipHeight;
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
@@ -36,8 +37,57 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show saveNoticiaCoverToGallery, shareChurchNoticiaForOgPreview;
+    show
+        YahwehPremiumFeedShimmer,
+        saveNoticiaCoverToGallery,
+        shareChurchNoticiaForOgPreview;
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
+
+/// Skeleton enquanto `publishState == uploading` (fotos a subir em background).
+Widget _churchPublicProcessingMediaPlaceholder(Color accent) {
+  return ClipRRect(
+    borderRadius: BorderRadius.circular(20),
+    child: AspectRatio(
+      aspectRatio: 4 / 3,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          YahwehPremiumFeedShimmer.mediaCover(),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              color: Colors.black.withValues(alpha: 0.42),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Carregando mídia...',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 /// Miniatura rápida quando o post tem [media_info] (mural Instagram).
 String? churchPublicPostThumbUrl(Map<String, dynamic> p) {
@@ -561,6 +611,9 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     final badgeBg = isEvento
         ? const Color(0xFF0369A1).withValues(alpha: 0.92)
         : const Color(0xFF6D28D9).withValues(alpha: 0.92);
+    final publishState = (p['publishState'] ?? '').toString();
+    final mediaUploading =
+        publishState == MuralFastPublishService.stateUploading;
 
     if (widget.galleryArchivePremiumLayout) {
       return _buildGalleryArchivePremiumLayout(context);
@@ -691,6 +744,8 @@ class _SocialGridTileState extends State<_SocialGridTile> {
           ),
         ),
       );
+    } else if (mediaUploading) {
+      mediaChild = _churchPublicProcessingMediaPlaceholder(widget.accent);
     } else {
       mediaChild = ClipRRect(
         borderRadius: BorderRadius.circular(20),

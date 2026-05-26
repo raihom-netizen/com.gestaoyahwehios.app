@@ -68,6 +68,9 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/data/yahweh_data_repository.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
 import 'package:gestao_yahweh/core/event_gallery_archive.dart'
     show eventArchiveBaseDate, eventShouldMoveToGalleryArchive;
@@ -134,7 +137,7 @@ bool _churchPublicDocIsNoticiaEvento(
 
 /// Site público: oculta após validade ou expiração de aviso (documento excluído some do stream).
 bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
-  if ((m['publishState'] ?? '').toString() == 'uploading') return false;
+  // `uploading`: visível no site com skeleton até as fotos subirem (StreamBuilder).
   // Eventos marcados para galeria permanente continuam visíveis no site público
   // via seção de arquivo, mesmo quando já passaram da validade padrão.
   if (eventShouldMoveToGalleryArchive(m, now)) return true;
@@ -150,7 +153,7 @@ bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
 
 /// Eventos em `noticias` + avisos em `avisos`, ordenados por `createdAt`.
 Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-    _churchPublicMergedPublicacoesStream(String igrejaId, {int limit = 48}) {
+    _churchPublicMergedPublicacoesStream(String igrejaId, {int limit = 20}) {
   return Stream.multi((controller) {
     var noticiasOk = true;
     var avisosOk = true;
@@ -265,16 +268,35 @@ class _ChurchPublicMuralStreamSliverState
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _items;
   Object? _error;
   bool _didWarmup = false;
+  int _skeletonPlaceholderCount = 0;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_primeInstantFeedHint());
     _subscribe();
+  }
+
+  Future<void> _primeInstantFeedHint() async {
+    final cached = await YahwehPublicFeedRepository.readInstantFeed(
+      widget.igrejaId,
+      refreshServerCacheInBackground: true,
+    );
+    if (!mounted || cached.isEmpty || _items != null) return;
+    setState(() {
+      _skeletonPlaceholderCount = cached.length.clamp(
+        1,
+        YahwehPublicFeedRepository.pageSize,
+      );
+    });
   }
 
   void _subscribe() {
     _sub?.cancel();
-    _sub = _churchPublicMergedPublicacoesStream(widget.igrejaId, limit: 48)
+    _sub = _churchPublicMergedPublicacoesStream(
+      widget.igrejaId,
+      limit: YahwehPublicFeedRepository.pageSize,
+    )
         .listen(
       (list) {
         if (!mounted) return;
@@ -337,12 +359,13 @@ class _ChurchPublicMuralStreamSliverState
       );
     }
     if (_items == null) {
-      return SliverToBoxAdapter(
-        child: ChurchPublicFeedItemWidth(
-          child: const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: LinearProgressIndicator(),
-          ),
+      final skCount = _skeletonPlaceholderCount > 0
+          ? _skeletonPlaceholderCount.clamp(1, 3)
+          : 3;
+      return SliverList.builder(
+        itemCount: skCount,
+        itemBuilder: (_, __) => ChurchPublicFeedItemWidth(
+          child: YahwehSkeletonLoading.publicFeedPost(),
         ),
       );
     }
@@ -5295,6 +5318,47 @@ class _ChurchTenantFallback extends StatelessWidget {
                       }
                     }
                   } else {
+                    // Avisos: publicação instantânea — skeleton até fotos no Storage.
+                    if ((p['publishState'] ?? '').toString() == 'uploading' &&
+                        !eventNoticiaPostHasFeedCoverRow(p)) {
+                      media.add(
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: ChurchPublicConstrainedMedia(
+                            child: LayoutBuilder(
+                              builder: (ctx, c) => SizedBox(
+                                width: c.maxWidth,
+                                height: c.maxHeight,
+                                child: YahwehPremiumFeedShimmer.mediaCover(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                      media.add(
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Carregando mídia...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
                     // Avisos: mesma cobertura de capa que o mural (fotoUrl, gs://, path) + path derivado de URL expirada.
                     if (eventNoticiaPostHasFeedCoverRow(p)) {
                       final hint =

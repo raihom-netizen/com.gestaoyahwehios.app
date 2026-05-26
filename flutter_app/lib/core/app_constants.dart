@@ -263,6 +263,7 @@ class AppConstants {
 
   // ——— Paginação ———
   /// Quantidade de itens por página em listas (membros, eventos, etc.).
+  /// Alinhado a [YahwehPerformanceV4.defaultPageSize].
   static const int pageSize = 20;
 
   // ——— UX ———

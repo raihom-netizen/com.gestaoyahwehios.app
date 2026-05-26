@@ -56,7 +56,10 @@ abstract final class FeedPostMediaUpload {
     final startedProgress =
         progressLabel != null && progressLabel.isNotEmpty;
     if (startedProgress) {
-      GlobalUploadProgress.instance.start(progressLabel);
+      GlobalUploadProgress.instance.startBatch(
+        itemLabel: progressLabel!,
+        totalItems: count,
+      );
     }
     try {
       final workers =
@@ -70,6 +73,13 @@ abstract final class FeedPostMediaUpload {
           if (i >= count) return;
           results[i] = await uploadOne(i, (p) {
             slotProgress[i] = p.clamp(0.0, 1.0);
+            if (startedProgress) {
+              GlobalUploadProgress.instance.updateBatch(
+                currentItem: i + 1,
+                totalItems: count,
+                slotProgress01: p,
+              );
+            }
             report();
           });
         }

@@ -3,6 +3,7 @@ import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -11,7 +12,9 @@ import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_member_prefs.dart';
 import 'firestore_stream_utils.dart';
+import 'analytics_service.dart';
 import 'media_upload_service.dart';
+import 'upload_storage_task.dart' show formatUploadErrorForUser;
 
 /// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
 class ChurchChatService {
@@ -19,6 +22,13 @@ class ChurchChatService {
 
   static const Duration textRetention = Duration(days: 30);
   static const Duration mediaRetention = Duration(days: 3);
+
+  /// Estados de entrega (estilo WhatsApp).
+  static const String deliverySending = 'sending';
+  static const String deliveryUploading = 'uploading';
+  static const String deliverySent = 'sent';
+
+  static String formatInstantSendError(Object e) => formatUploadErrorForUser(e);
 
   static final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -51,7 +61,8 @@ class ChurchChatService {
   }
 
   /// Histórico por páginas no cliente (`startAfter` + stream da página recente).
-  static const int defaultMessagePageSize = 30;
+  static const int defaultMessagePageSize =
+      YahwehPerformanceV4.chatMessagesPageSize;
   static const int maxOlderMessagePages = 50;
 
   /// Stream só da «cauda» recente (substitui `limit` crescente até 2500).
@@ -881,7 +892,40 @@ class ChurchChatService {
     );
   }
 
+  /// Legado síncrono — preferir [ChurchChatInstantSendService.enqueueText].
   static Future<bool> sendTextMessage({
+    required String tenantId,
+    required String threadId,
+    required String text,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+    String? senderDisplayName,
+    List<String>? mentionedUids,
+  }) async {
+    final begun = await beginTextMessage(
+      tenantId: tenantId,
+      threadId: threadId,
+      text: text,
+      replyTo: replyTo,
+      forwardedFrom: forwardedFrom,
+      senderDisplayName: senderDisplayName,
+      mentionedUids: mentionedUids,
+    );
+    if (!begun.allowed) return false;
+    await finalizeTextMessage(
+      tenantId: tenantId,
+      threadId: threadId,
+      messageId: begun.messageId,
+      text: text,
+      replyTo: replyTo,
+      forwardedFrom: forwardedFrom,
+    );
+    unawaited(AnalyticsService.logMessage());
+    return true;
+  }
+
+  /// Stub de texto (`deliveryStatus: sending`) — aparece na thread sem esperar rede lenta.
+  static Future<({String messageId, bool allowed})> beginTextMessage({
     required String tenantId,
     required String threadId,
     required String text,
@@ -894,7 +938,7 @@ class ChurchChatService {
       tenantId: tenantId,
       threadId: threadId,
     )) {
-      return false;
+      return (messageId: '', allowed: false);
     }
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final expiresAt =
@@ -909,14 +953,11 @@ class ChurchChatService {
         .toSet()
         .take(24)
         .toList();
-    final preview = nf != null
-        ? '↪ ${nf['preview']}'
-        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
     await msgRef.set({
       'senderUid': uid,
       'type': 'text',
       'text': text,
-      'deliveryStatus': 'sent',
+      'deliveryStatus': deliverySending,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,
@@ -925,6 +966,25 @@ class ChurchChatService {
         'senderDisplayName':
             label.length > 100 ? label.substring(0, 100) : label,
       if (mentions.isNotEmpty) 'mentionedUids': mentions,
+    });
+    return (messageId: msgRef.id, allowed: true);
+  }
+
+  static Future<void> finalizeTextMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required String text,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final nf = normalizeForwardedFrom(forwardedFrom);
+    final preview = nf != null
+        ? '↪ ${nf['preview']}'
+        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
+    await messagesCol(tenantId, threadId).doc(messageId).update({
+      'deliveryStatus': deliverySent,
     });
     await threadRef(tenantId, threadId).set(
       {
@@ -937,7 +997,83 @@ class ChurchChatService {
       },
       SetOptions(merge: true),
     );
-    return true;
+  }
+
+  static Future<void> abandonTextMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    try {
+      await messagesCol(tenantId, threadId).doc(messageId).delete();
+    } catch (_) {}
+  }
+
+  static Future<({String messageId, bool allowed})> beginStickerMessage({
+    required String tenantId,
+    required String threadId,
+    required String downloadUrl,
+    String? storagePath,
+    String stickerSource = 'upload',
+    Map<String, dynamic>? replyTo,
+    String? senderDisplayName,
+  }) async {
+    if (!await ChurchChatMemberPrefs.canSendToDmThread(
+      tenantId: tenantId,
+      threadId: threadId,
+    )) {
+      return (messageId: '', allowed: false);
+    }
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final expiresAt =
+        Timestamp.fromDate(DateTime.now().add(mediaRetention));
+    final msgRef = messagesCol(tenantId, threadId).doc();
+    final nr = normalizeReplyTo(replyTo);
+    final sp = storagePath?.trim() ?? '';
+    final label = (senderDisplayName ?? '').trim();
+    await msgRef.set({
+      'senderUid': uid,
+      'type': 'sticker',
+      'deliveryStatus': deliverySending,
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': expiresAt,
+      if (nr != null) 'replyTo': nr,
+      if (label.isNotEmpty)
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
+    });
+    return (messageId: msgRef.id, allowed: true);
+  }
+
+  static Future<void> finalizeStickerMessage({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required String downloadUrl,
+    String? storagePath,
+    String stickerSource = 'upload',
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
+      kind: 'sticker',
+      fileName: null,
+    );
+    final sp = storagePath?.trim() ?? '';
+    await messagesCol(tenantId, threadId).doc(messageId).update({
+      'mediaUrl': downloadUrl,
+      if (sp.isNotEmpty) 'storagePath': sp,
+      'stickerSource': stickerSource,
+      'deliveryStatus': deliverySent,
+    });
+    await threadRef(tenantId, threadId).set(
+      {
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'lastMessagePreview': preview,
+        'lastSenderUid': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   static Future<bool> sendMediaMessage({
@@ -1037,6 +1173,7 @@ class ChurchChatService {
       if (label.isNotEmpty)
         'senderDisplayName':
             label.length > 100 ? label.substring(0, 100) : label,
+      'deliveryStatus': deliverySent,
     });
     await threadRef(tenantId, threadId).set(
       {
@@ -1169,7 +1306,7 @@ class ChurchChatService {
     await msgRef.set({
       'senderUid': uid,
       'type': kind,
-      'deliveryStatus': 'uploading',
+      'deliveryStatus': deliveryUploading,
       'uploadProgress': 0,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
@@ -1203,13 +1340,17 @@ class ChurchChatService {
     required String downloadUrl,
     required String storagePath,
     String? fileName,
+    String? thumbUrl,
   }) async {
     final patch = <String, dynamic>{
       'mediaUrl': downloadUrl,
       'storagePath': storagePath,
-      'deliveryStatus': 'sent',
+      'deliveryStatus': deliverySent,
       'uploadProgress': 1,
     };
+    if (thumbUrl != null && thumbUrl.trim().isNotEmpty) {
+      patch['thumbUrl'] = thumbUrl.trim();
+    }
     if (fileName != null && fileName.trim().isNotEmpty) {
       patch['fileName'] = fileName.trim();
     }

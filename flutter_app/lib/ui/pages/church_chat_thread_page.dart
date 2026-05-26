@@ -9,6 +9,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
@@ -24,8 +26,10 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
+import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
@@ -143,7 +147,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   final _ctrl = TextEditingController();
   final _msgSearchCtrl = TextEditingController();
   final _scroll = ScrollController();
-  bool _sending = false;
   bool _searchingMessages = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _deptSub;
@@ -180,6 +183,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('chat_thread');
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -603,52 +607,45 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _sendText() async {
     final t = _ctrl.text.trim();
-    if (t.isEmpty || _sending) return;
+    if (t.isEmpty) return;
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    await ChurchChatService.clearTypingForMe(
+    unawaited(ChurchChatService.clearTypingForMe(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
-    );
+    ));
     final replyPayload = _replyDraft?.toReplyPayload();
-    setState(() => _sending = true);
-    try {
-      final ok = await ChurchChatService.sendTextMessage(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-        text: t,
-        replyTo: replyPayload,
-        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
-        mentionedUids: _mentionedUidsPending.isEmpty
-            ? null
-            : _mentionedUidsPending.toList(),
-      );
-      if (!ok) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Não é possível enviar — desbloqueie o contacto nas opções da conversa.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-      _ctrl.clear();
-      if (mounted) {
-        setState(() {
-          _replyDraft = null;
-          _mentionedUidsPending.clear();
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    final mentions = _mentionedUidsPending.isEmpty
+        ? null
+        : _mentionedUidsPending.toList();
+    _ctrl.clear();
+    if (mounted) {
+      setState(() {
+        _replyDraft = null;
+        _mentionedUidsPending.clear();
+      });
     }
+    ChurchChatInstantSendService.enqueueText(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      text: t,
+      replyTo: replyPayload,
+      senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+      mentionedUids: mentions,
+      onComplete: (ok) {
+        if (!ok || !mounted) return;
+      },
+      onError: (msg) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: ThemeCleanPremium.error),
+        );
+      },
+    );
   }
 
   Future<void> _openExpressionSheet() async {
-    if (_voiceRecording || _sending) return;
+    if (_voiceRecording) return;
     await showChurchChatExpressionSheet(
       context: context,
       tenantId: widget.tenantId,
@@ -661,66 +658,41 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _sendStickerPick(ChurchStickerPick pick) async {
-    if (_sending) return;
-    final can = await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: widget.tenantId,
-      threadId: widget.threadId,
-    );
-    if (!can) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não é possível enviar — desbloqueie o contacto nas opções.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    await ChurchChatService.clearTypingForMe(
+    unawaited(ChurchChatService.clearTypingForMe(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
-    );
+    ));
     final replyPayload = _replyDraft?.toReplyPayload();
     final sp = pick.storagePath?.trim();
-    setState(() => _sending = true);
-    try {
-      final ok = await ChurchChatService.sendStickerMessage(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-        downloadUrl: pick.mediaUrl,
-        storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
-        stickerSource: pick.stickerSource,
-        replyTo: replyPayload,
-        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
-      );
-      if (!ok) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Não é possível enviar — desbloqueie o contacto nas opções da conversa.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-      if (mounted) setState(() => _replyDraft = null);
-      unawaited(
-        ChurchChatExpressionPrefs.rememberStickerSent(
-          tenantId: widget.tenantId,
-          mediaUrl: pick.mediaUrl,
-          storagePath: pick.storagePath,
-          stickerSource: pick.stickerSource,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    if (mounted) setState(() => _replyDraft = null);
+    ChurchChatInstantSendService.enqueueSticker(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      downloadUrl: pick.mediaUrl,
+      storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
+      stickerSource: pick.stickerSource,
+      replyTo: replyPayload,
+      senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+      onComplete: (ok) {
+        if (!ok || !mounted) return;
+        unawaited(
+          ChurchChatExpressionPrefs.rememberStickerSent(
+            tenantId: widget.tenantId,
+            mediaUrl: pick.mediaUrl,
+            storagePath: pick.storagePath,
+            stickerSource: pick.stickerSource,
+          ),
+        );
+      },
+      onError: (msg) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: ThemeCleanPremium.error),
+        );
+      },
+    );
   }
 
   void _showEmojiReactionPicker(String messageId, Map<String, dynamic> m) {
@@ -1902,7 +1874,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _toggleVoiceRecordSend() async {
-    if (_sending) return;
     if (_voiceRecording) {
       await _finishVoiceRecording(send: true);
     } else {
@@ -2529,7 +2500,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   ),
                   builder: (context, snap) {
                     if (!snap.hasData) {
-                      return const Center(child: CircularProgressIndicator());
+                      return YahwehSkeletonLoading.chatMessages();
                     }
                     _latestRecentDocs = snap.data!.docs;
                     final docsRaw = _mergeVisibleMessages(_latestRecentDocs);
@@ -2764,18 +2735,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                                     .onSurfaceVariant,
                                           ),
                                         ),
-                                      if (mine &&
-                                          !widget.isDepartment &&
-                                          widget.peerUid != null &&
-                                          widget.peerUid!.isNotEmpty) ...[
+                                      if (mine) ...[
                                         const SizedBox(width: 5),
-                                        Icon(
-                                          Icons.done_all_rounded,
-                                          size: 15,
-                                          color: peerRead
-                                              ? const Color(0xFF53BDEB)
-                                              : ThemeCleanPremium.onSurface
-                                                  .withValues(alpha: 0.45),
+                                        ChurchChatDeliveryStatusIcon(
+                                          deliveryStatus: (m['deliveryStatus'] ?? '')
+                                              .toString(),
+                                          mine: true,
+                                          peerRead: !widget.isDepartment &&
+                                              widget.peerUid != null &&
+                                              widget.peerUid!.isNotEmpty &&
+                                              peerRead,
                                         ),
                                       ],
                                     ],
@@ -2875,9 +2844,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       child: Row(
                         children: [
                           TextButton(
-                            onPressed: _sending
-                                ? null
-                                : () => _finishVoiceRecording(send: false),
+                            onPressed: () => _finishVoiceRecording(send: false),
                             child: Text(
                               'Cancelar',
                               style: TextStyle(
@@ -2933,7 +2900,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   if (widget.isDepartment &&
                       (widget.departmentId?.trim().isNotEmpty ?? false))
                     IconButton(
-                      onPressed: (_sending || _voiceRecording)
+                      onPressed: _voiceRecording
                           ? null
                           : () => unawaited(_openDeptMentionPicker()),
                       icon: Icon(
@@ -2944,17 +2911,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   if (!kIsWeb)
                     GestureDetector(
-                      onLongPressStart: _sending
-                          ? null
-                          : (_) => unawaited(_startVoiceRecording()),
-                      onLongPressEnd: _sending
-                          ? null
-                          : (_) => unawaited(_finishVoiceRecording(send: true)),
-                      onLongPressCancel: _sending
-                          ? null
-                          : () => unawaited(_finishVoiceRecording(send: false)),
+                      onLongPressStart: (_) =>
+                          unawaited(_startVoiceRecording()),
+                      onLongPressEnd: (_) =>
+                          unawaited(_finishVoiceRecording(send: true)),
+                      onLongPressCancel: () =>
+                          unawaited(_finishVoiceRecording(send: false)),
                       child: IconButton(
-                        onPressed: _sending ? null : _toggleVoiceRecordSend,
+                        onPressed: _toggleVoiceRecordSend,
                         icon: Icon(
                           _voiceRecording
                               ? Icons.stop_circle_rounded
@@ -2998,7 +2962,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             ? null
                             : IconButton(
                                 tooltip: 'Emojis e figurinhas',
-                                onPressed: (_sending || _voiceRecording)
+                                onPressed: _voiceRecording
                                     ? null
                                     : _openExpressionSheet,
                                 icon: Icon(
@@ -3045,20 +3009,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   ),
                   IconButton(
-                    onPressed: (_sending || _voiceRecording)
-                        ? null
-                        : _sendText,
-                    icon: _sending
-                        ? SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: ThemeCleanPremium.primary,
-                            ),
-                          )
-                        : Icon(Icons.send_rounded,
-                            color: ThemeCleanPremium.primary),
+                    onPressed: _voiceRecording ? null : _sendText,
+                    icon: Icon(Icons.send_rounded,
+                        color: ThemeCleanPremium.primary),
                   ),
                 ],
               ),
@@ -3239,7 +3192,8 @@ class _MessageBody extends StatelessWidget {
     final url = (data['mediaUrl'] ?? '').toString();
     final delivery = (data['deliveryStatus'] ?? '').toString();
     if (url.isEmpty) {
-      if (delivery == 'uploading') {
+      if (delivery == ChurchChatService.deliveryUploading ||
+          delivery == ChurchChatService.deliverySending) {
         final progress = (data['uploadProgress'] is num)
             ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
             : null;

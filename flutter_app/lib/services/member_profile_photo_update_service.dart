@@ -7,13 +7,10 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
-import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         MemberProfilePhotoBytesCache,
@@ -21,7 +18,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         imageUrlFromMap,
         isValidImageUrl,
         sanitizeImageUrl;
-import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
 class MemberProfilePhotoUpdateResult {
@@ -98,32 +96,18 @@ class MemberProfilePhotoUpdateService {
     required Uint8List rawBytes,
   }) async {
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
-    var nome = (memberData['NOME_COMPLETO'] ?? memberData['nome'] ?? '')
-        .toString()
-        .trim();
     final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
         .toString()
         .trim();
-    final compressed =
-        await ImageHelper.compressMemberProfileForUpload(rawBytes);
-    final photoPath = FirebaseStorageService.memberProfilePhotoPath(
+    final tiers = await MemberProfileVariantsService.encodeProfileTiers(rawBytes);
+    final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
       tenantId: tenantId,
       memberDocId: memberDocId,
-      nomeCompleto: nome,
-      authUid: authUid.isEmpty ? null : authUid,
+      thumbBytes: tiers.thumb,
+      mediumBytes: tiers.medium,
+      fullBytes: tiers.full,
     );
-    final upload = await MediaUploadService.uploadBytesDetailed(
-      storagePath: photoPath,
-      bytes: compressed,
-      contentType: bytesLookLikeWebp(compressed) ? 'image/webp' : 'image/jpeg',
-      skipClientPrepare: true,
-      deleteFirebaseDownloadUrlsBefore: () {
-        if (previousUrl.isEmpty) return null;
-        return <String>[previousUrl];
-      }(),
-      useOfflineQueue: false,
-    );
-    final photoUrl = sanitizeImageUrl(upload.downloadUrl);
+    final photoUrl = sanitizeImageUrl(uploaded.photoFull);
     if (!isValidImageUrl(photoUrl)) {
       throw StateError('URL da foto inválida após upload.');
     }
@@ -134,8 +118,10 @@ class MemberProfilePhotoUpdateService {
       'fotoUrl': photoUrl,
       'photoURL': photoUrl,
       'photoVariants': FieldValue.delete(),
+      YahwehPerformanceV4.profileThumbField: uploaded.photoThumb,
+      YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
       'fotoUrlCacheRevision': revision,
-      'photoStoragePath': upload.storagePath,
+      'photoStoragePath': uploaded.fullStoragePath,
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
     };
 
@@ -161,6 +147,8 @@ class MemberProfilePhotoUpdateService {
           'foto_url': photoUrl,
           'photoURL': photoUrl,
           'fotoUrl': photoUrl,
+          YahwehPerformanceV4.profileThumbField: uploaded.photoThumb,
+          YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
           'fotoUrlCacheRevision': revision,
         }, SetOptions(merge: true));
       } catch (_) {}
@@ -177,7 +165,7 @@ class MemberProfilePhotoUpdateService {
     invalidateDisplayCaches(
       previousDownloadUrl: previousUrl,
       newDownloadUrl: photoUrl,
-      storagePath: upload.storagePath,
+      storagePath: uploaded.fullStoragePath,
     );
 
     final mergedMember = Map<String, dynamic>.from(memberData)..addAll(updates);
@@ -191,7 +179,7 @@ class MemberProfilePhotoUpdateService {
 
     return MemberProfilePhotoUpdateResult(
       downloadUrl: photoUrl,
-      storagePath: upload.storagePath,
+      storagePath: uploaded.fullStoragePath,
       cacheRevision: revision,
     );
   }

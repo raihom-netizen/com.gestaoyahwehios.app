@@ -46,7 +46,8 @@ Future<String> uploadStoragePutDataWithRetry({
   throw lastError ?? StateError('Falha de upload');
 }
 
-/// Upload de ficheiro local (sem compressão adicional — o chamador prepara se necessário).
+/// Upload de ficheiro local via [Reference.putFile] — o SDK Firebase usa upload
+/// resumível por chunks (retoma após falhas de rede dentro da mesma sessão).
 Future<String> uploadStoragePutFileWithRetry({
   required String storagePath,
   required File file,

@@ -37,6 +37,8 @@ class MediaVideoPrepareResult {
 }
 
 /// Compressão centralizada (imagens, vídeos, áudio) — WhatsApp-style, sem bloquear UI.
+///
+/// **Envio instantâneo do chat** (stub Firestore + background): [ChurchChatInstantSendService].
 abstract final class MediaService {
   MediaService._();
 

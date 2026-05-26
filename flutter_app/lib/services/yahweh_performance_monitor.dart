@@ -1,0 +1,84 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:gestao_yahweh/services/yahweh_observability.dart';
+import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
+
+/// Medidor interno de tempo de ecrã (debug + amostra em `performanceLogs`).
+abstract final class YahwehPerformanceMonitor {
+  YahwehPerformanceMonitor._();
+
+  static final Map<String, int> _startsMs = {};
+  static bool _enabled = kDebugMode;
+
+  static void setEnabled(bool value) => _enabled = value;
+
+  static void markScreenStart(String screen) {
+    if (!_enabled) return;
+    _startsMs[screen] = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  static Future<void> markScreenReady(
+    String screen, {
+    bool reportToFirestore = false,
+  }) async {
+    if (!_enabled) return;
+    final start = _startsMs.remove(screen);
+    if (start == null) return;
+    final loadMs = DateTime.now().millisecondsSinceEpoch - start;
+    if (kDebugMode) {
+      debugPrint('Perf[$screen] ${loadMs}ms');
+    }
+    YahwehTelemetry.logScreenLoad(screen: screen, loadMs: loadMs);
+    if (reportToFirestore && loadMs > 800) {
+      unawaited(_sampleLog(screen: screen, loadMs: loadMs));
+    }
+  }
+
+  /// Após primeiro frame pintado.
+  static void markScreenReadyAfterFirstFrame(
+    String screen, {
+    bool reportToFirestore = false,
+  }) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      unawaited(markScreenReady(screen, reportToFirestore: reportToFirestore));
+    });
+  }
+
+  static Future<T> traceAsync<T>(
+    String label,
+    Future<T> Function() fn,
+  ) async {
+    return YahwehObservability.traceAsync(label, () async {
+      final sw = Stopwatch()..start();
+      try {
+        return await fn();
+      } finally {
+        sw.stop();
+        if (_enabled && kDebugMode) {
+          debugPrint('Perf[$label] ${sw.elapsedMilliseconds}ms');
+        }
+      }
+    });
+  }
+
+  static Future<void> _sampleLog({
+    required String screen,
+    required int loadMs,
+  }) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      await FirebaseFirestore.instance.collection('performanceLogs').add({
+        'screen': screen,
+        'loadTime': loadMs,
+        'device': defaultTargetPlatform.name,
+        'uid': uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+}

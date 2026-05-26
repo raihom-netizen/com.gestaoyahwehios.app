@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Abre https/http no navegador (app externo). Não depende só de [canLaunchUrl]
@@ -69,22 +70,15 @@ class ChurchPanelErrorBody extends StatelessWidget {
   }
 }
 
-/// Indicador de carregamento centralizado (módulos do painel).
+/// Carregamento inicial do painel — skeleton (não spinner isolado).
 class ChurchPanelLoadingBody extends StatelessWidget {
-  const ChurchPanelLoadingBody({super.key});
+  const ChurchPanelLoadingBody({super.key, this.itemCount = 5});
+
+  final int itemCount;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: SizedBox(
-        width: 36,
-        height: 36,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.6,
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
-        ),
-      ),
-    );
+    return YahwehSkeletonLoading.panelList(itemCount: itemCount);
   }
 }
 

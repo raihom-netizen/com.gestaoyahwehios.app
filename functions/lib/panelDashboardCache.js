@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = void 0;
+exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = void 0;
 exports.recomputePanelDashboardSummary = recomputePanelDashboardSummary;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -64,6 +64,8 @@ function pickString(data, keys) {
 }
 function pickPhotoUrl(data) {
     const keys = [
+        "photoThumb",
+        "photoMedium",
         "fotoUrl",
         "fotoURL",
         "FOTO_URL",
@@ -235,6 +237,19 @@ function computeBirthdayBuckets(memberDocs) {
         birthdaysMonth: mes.slice(0, 80),
     };
 }
+/** Aniversariantes: query indexada por `birthMonth` (V4) — evita scan de todos os membros. */
+async function loadBirthdayMemberDocs(membrosCol) {
+    const month = new Date().getMonth() + 1;
+    try {
+        const snap = await membrosCol.where("birthMonth", "==", month).limit(120).get();
+        if (snap.size > 0)
+            return snap.docs;
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: birthMonth query", { e });
+    }
+    return [];
+}
 function cpfsFromDepartment(data) {
     const out = [];
     const add = (v) => {
@@ -398,7 +413,7 @@ async function recomputePanelDashboardSummary(tenantId) {
     const membrosCol = churchRef.collection("membros");
     const avisosCol = churchRef.collection("avisos");
     const noticiasCol = churchRef.collection("noticias");
-    const [pendingMembers, newVisitors, openPrayers, membersTotal, avisosSnap, eventosSnap, eventosProximosSnap, membrosSnap, deptSnap,] = await Promise.all([
+    const [pendingMembers, newVisitors, openPrayers, membersTotal, avisosSnap, eventosSnap, eventosProximosSnap, membrosSnap, deptSnap, birthdayMonthDocs,] = await Promise.all([
         safeCount(membrosCol.where("status", "==", "pendente")),
         safeCount(churchRef.collection("visitantes").where("status", "==", "Novo")),
         safeCount(churchRef.collection("pedidosOracao").where("respondida", "==", false)),
@@ -412,6 +427,7 @@ async function recomputePanelDashboardSummary(tenantId) {
             .get(),
         membrosCol.limit(MEMBERS_SCAN_LIMIT).get(),
         churchRef.collection("departamentos").limit(DEPT_SCAN_LIMIT).get(),
+        loadBirthdayMemberDocs(membrosCol),
     ]);
     const membersByCpf = new Map();
     const authUidToCpf = new Map();
@@ -431,7 +447,8 @@ async function recomputePanelDashboardSummary(tenantId) {
                 authUidToCpf.set(uid, cpf);
         }
     }
-    const birthdayBuckets = computeBirthdayBuckets(membrosSnap.docs);
+    const birthdaySource = birthdayMonthDocs.length > 0 ? birthdayMonthDocs : membrosSnap.docs;
+    const birthdayBuckets = computeBirthdayBuckets(birthdaySource);
     const homeLeaders = computeLeaders(deptSnap.docs, membersByCpf, authUidToCpf);
     const homeCorpoAdmin = computeCorpoAdmin(membrosSnap.docs);
     const nowMsEvt = Date.now();
@@ -456,6 +473,15 @@ async function recomputePanelDashboardSummary(tenantId) {
         homeLeaders,
         homeCorpoAdmin,
     }, { merge: false });
+    await cacheCol.doc("dashboard_current").set({
+        totalMembers: membersTotal,
+        birthdaysToday: birthdayBuckets.birthdaysToday.length,
+        totalUpcomingEvents: upcomingDocs.length,
+        pendingMembers,
+        newVisitors,
+        openPrayerRequests: openPrayers,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
     await (0, membersDirectoryCache_1.recomputeMembersDirectoryFromDocs)(tid, membrosSnap.docs, membersTotal);
     functions.logger.info("panelDashboardCache: atualizado", {
         tenantId: tid,
@@ -477,6 +503,27 @@ const dashboardTrigger = (path) => functions
     .onWrite((_, context) => {
     scheduleRecompute(context.params.tenantId);
     return null;
+});
+/** Mantém `birthMonth` / `birthDay` indexados para queries de aniversariantes. */
+exports.onChurchMembroWriteSyncBirthIndex = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/membros/{memberId}")
+    .onWrite(async (change) => {
+    const after = change.after;
+    if (!after.exists)
+        return;
+    const d = after.data();
+    const birth = parseBirthMd(d);
+    if (!birth)
+        return;
+    const patch = {};
+    if (d.birthMonth !== birth.month)
+        patch.birthMonth = birth.month;
+    if (d.birthDay !== birth.day)
+        patch.birthDay = birth.day;
+    if (Object.keys(patch).length === 0)
+        return;
+    await after.ref.update(patch);
 });
 exports.onChurchMembroWritePanelDashboard = dashboardTrigger("igrejas/{tenantId}/membros/{docId}");
 /** Atualiza só `recentAvisos` no cache (rápido) — evita recompute completo a cada aviso. */

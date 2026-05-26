@@ -14,6 +14,8 @@ import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
+import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
@@ -340,6 +342,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _runMembersToMembrosMigration();
       unawaited(ChurchTenantOfflineWarmupService.instance
           .scheduleWarmupAfterLogin(widget.tenantId));
+      YahwehPerformanceMonitor.markScreenStart('church_shell');
+      YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
+      unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
+        context,
+        widget.tenantId,
+      ));
       unawaited(_bootstrapChatPresenceHeartbeat());
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = 2);

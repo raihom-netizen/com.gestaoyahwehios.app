@@ -29,6 +29,8 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
 
 function pickPhotoUrl(data: Record<string, unknown>): string {
   const keys = [
+    "photoThumb",
+    "photoMedium",
     "fotoUrl",
     "fotoURL",
     "FOTO_URL",
@@ -212,6 +214,20 @@ function computeBirthdayBuckets(
     birthdaysWeek: [...hoje, ...semana].slice(0, 64),
     birthdaysMonth: mes.slice(0, 80),
   };
+}
+
+/** Aniversariantes: query indexada por `birthMonth` (V4) — evita scan de todos os membros. */
+async function loadBirthdayMemberDocs(
+  membrosCol: admin.firestore.CollectionReference,
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const month = new Date().getMonth() + 1;
+  try {
+    const snap = await membrosCol.where("birthMonth", "==", month).limit(120).get();
+    if (snap.size > 0) return snap.docs;
+  } catch (e) {
+    functions.logger.warn("panelDashboardCache: birthMonth query", { e });
+  }
+  return [];
 }
 
 function cpfsFromDepartment(data: Record<string, unknown>): string[] {
@@ -403,6 +419,7 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     eventosProximosSnap,
     membrosSnap,
     deptSnap,
+    birthdayMonthDocs,
   ] = await Promise.all([
     safeCount(membrosCol.where("status", "==", "pendente")),
     safeCount(churchRef.collection("visitantes").where("status", "==", "Novo")),
@@ -417,6 +434,7 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
       .get(),
     membrosCol.limit(MEMBERS_SCAN_LIMIT).get(),
     churchRef.collection("departamentos").limit(DEPT_SCAN_LIMIT).get(),
+    loadBirthdayMemberDocs(membrosCol),
   ]);
 
   const membersByCpf = new Map<string, admin.firestore.QueryDocumentSnapshot>();
@@ -437,7 +455,9 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     }
   }
 
-  const birthdayBuckets = computeBirthdayBuckets(membrosSnap.docs);
+  const birthdaySource =
+    birthdayMonthDocs.length > 0 ? birthdayMonthDocs : membrosSnap.docs;
+  const birthdayBuckets = computeBirthdayBuckets(birthdaySource);
   const homeLeaders = computeLeaders(deptSnap.docs, membersByCpf, authUidToCpf);
   const homeCorpoAdmin = computeCorpoAdmin(membrosSnap.docs);
 
@@ -468,6 +488,19 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     { merge: false },
   );
 
+  await cacheCol.doc("dashboard_current").set(
+    {
+      totalMembers: membersTotal,
+      birthdaysToday: birthdayBuckets.birthdaysToday.length,
+      totalUpcomingEvents: upcomingDocs.length,
+      pendingMembers,
+      newVisitors,
+      openPrayerRequests: openPrayers,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+
   await recomputeMembersDirectoryFromDocs(tid, membrosSnap.docs, membersTotal);
 
   functions.logger.info("panelDashboardCache: atualizado", {
@@ -494,6 +527,23 @@ const dashboardTrigger = (path: string) =>
       scheduleRecompute(context.params.tenantId as string);
       return null;
     });
+
+/** Mantém `birthMonth` / `birthDay` indexados para queries de aniversariantes. */
+export const onChurchMembroWriteSyncBirthIndex = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/membros/{memberId}")
+  .onWrite(async (change) => {
+    const after = change.after;
+    if (!after.exists) return;
+    const d = after.data() as Record<string, unknown>;
+    const birth = parseBirthMd(d);
+    if (!birth) return;
+    const patch: Record<string, number> = {};
+    if (d.birthMonth !== birth.month) patch.birthMonth = birth.month;
+    if (d.birthDay !== birth.day) patch.birthDay = birth.day;
+    if (Object.keys(patch).length === 0) return;
+    await after.ref.update(patch);
+  });
 
 export const onChurchMembroWritePanelDashboard = dashboardTrigger(
   "igrejas/{tenantId}/membros/{docId}",

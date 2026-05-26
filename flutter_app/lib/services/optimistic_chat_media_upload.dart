@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
@@ -8,6 +7,8 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
@@ -162,24 +163,47 @@ abstract final class OptimisticChatMediaUpload {
           pending.localPath = uploadPath;
         }
       } else if (pending.kind == 'image') {
-        if (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb) {
-          uploadBytes = await MediaService.compressImageFile(
-            uploadPath,
-            profile: MediaImageProfile.chat,
-          );
-          if (uploadBytes == null || uploadBytes.isEmpty) {
-            throw StateError('Não foi possível preparar a foto.');
-          }
-          uploadPath = null;
-        } else if (uploadBytes != null && uploadBytes.isNotEmpty) {
-          uploadBytes = await MediaService.compressImageBytes(
-            uploadBytes is Uint8List
-                ? uploadBytes
-                : Uint8List.fromList(uploadBytes),
-            profile: MediaImageProfile.chat,
-          );
-        }
         reportProgress(0.38);
+        final stem = pending.fileName.replaceAll(RegExp(r'\.[a-z0-9]+$'), '');
+        final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
+          bytes: uploadBytes is Uint8List && uploadBytes.isNotEmpty
+              ? Uint8List.fromList(uploadBytes)
+              : null,
+          localPath: uploadPath,
+        );
+        final thumbPath = ChurchStorageLayout.chatMediaVariantPath(
+          tenantId,
+          threadId,
+          stem,
+          MediaImageVariantsService.tierThumb,
+        );
+        final fullPath = ChurchStorageLayout.chatMediaVariantPath(
+          tenantId,
+          threadId,
+          stem,
+          MediaImageVariantsService.tierFull,
+        );
+        void uploadProgress(double t) =>
+            _mapProgress(reportProgress, 0.42, 0.96, t);
+        final chatUp = await MediaImageVariantsService.uploadChatTiers(
+          thumbPath: thumbPath,
+          fullPath: fullPath,
+          thumbBytes: tiers.thumb,
+          fullBytes: tiers.full,
+          onProgress: uploadProgress,
+        );
+        await ChurchChatService.completeMediaUploadMessage(
+          tenantId: tenantId,
+          threadId: threadId,
+          messageId: messageId,
+          downloadUrl: chatUp.primaryUrl,
+          storagePath: fullPath,
+          fileName: pending.fileName,
+          thumbUrl: chatUp.thumbUrl,
+        );
+        reportProgress(1.0);
+        onSuccess();
+        return;
       }
 
       final ({String url, String path}) up;
@@ -214,7 +238,7 @@ abstract final class OptimisticChatMediaUpload {
       await ChurchChatService.completeMediaUploadMessage(
         tenantId: tenantId,
         threadId: threadId,
-        messageId: messageId!,
+        messageId: messageId,
         downloadUrl: up.url,
         storagePath: up.path,
         fileName: pending.kind == 'document' ? pending.fileName : null,

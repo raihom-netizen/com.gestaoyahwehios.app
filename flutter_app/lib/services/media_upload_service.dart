@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/analytics_service.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/performance_service.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'image_helper.dart';
@@ -56,6 +59,25 @@ class MediaUploadService {
   /// - [downloadUrl] URL completa `getDownloadURL()` (com token) — gravar em `foto_url` / `FOTO_URL_OU_ID` / `fotoUrl`
   /// - [storagePath] para fallback/refresh de token
   /// - [contentType] para diagnóstico e processamento
+  static String _uploadTraceName({
+    required String contentType,
+    bool chatJpegFast = false,
+    String? storagePath,
+  }) {
+    final ct = contentType.toLowerCase();
+    if (ct.contains('video')) return 'upload_video';
+    if (chatJpegFast) return 'upload_image_chat';
+    final path = (storagePath ?? '').toLowerCase();
+    if (path.contains('/chat/') || path.contains('chat_media')) {
+      return 'upload_image_chat';
+    }
+    if (path.contains('event') || path.contains('noticia')) {
+      return 'upload_image_evento';
+    }
+    if (path.contains('aviso')) return 'upload_image_aviso';
+    return 'upload_image';
+  }
+
   static MediaUploadResult _result({
     required String downloadUrl,
     required String storagePath,
@@ -88,51 +110,65 @@ class MediaUploadService {
     /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
     bool chatJpegFast = false,
   }) async {
-    final preparedBytes = skipClientPrepare
-        ? bytes
-        : await _prepareBytesForUpload(
-            bytes: bytes,
+    final trace = _uploadTraceName(
+      contentType: contentType,
+      chatJpegFast: chatJpegFast,
+      storagePath: storagePath,
+    );
+    return PerformanceService.track(trace, () async {
+      unawaited(AnalyticsService.logUpload(trace));
+      try {
+        final preparedBytes = skipClientPrepare
+            ? bytes
+            : await _prepareBytesForUpload(
+                bytes: bytes,
+                contentType: contentType,
+                chatJpegFast: chatJpegFast,
+              );
+        if (deleteFirebaseDownloadUrlsBefore != null) {
+          for (final u in deleteFirebaseDownloadUrlsBefore) {
+            await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
+          }
+        }
+        if (!useOfflineQueue) {
+          return uploadStoragePutDataWithRetry(
+            storagePath: storagePath,
+            bytes: preparedBytes,
             contentType: contentType,
-            chatJpegFast: chatJpegFast,
+            cacheControl: cacheControl,
+            maxAttempts: maxAttempts,
+            onProgress: onProgress,
+            onTaskStarted: onUploadTaskCreated,
           );
-    if (deleteFirebaseDownloadUrlsBefore != null) {
-      for (final u in deleteFirebaseDownloadUrlsBefore) {
-        await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
+        }
+        try {
+          return await uploadStoragePutDataWithRetry(
+            storagePath: storagePath,
+            bytes: preparedBytes,
+            contentType: contentType,
+            cacheControl: cacheControl,
+            maxAttempts: maxAttempts,
+            onProgress: onProgress,
+            onTaskStarted: onUploadTaskCreated,
+          );
+        } catch (e, st) {
+          if (isLikelyNetworkUploadError(e)) {
+            return StorageUploadQueueService.instance.enqueuePutData(
+              storagePath: storagePath,
+              bytes: preparedBytes,
+              contentType: contentType,
+              cacheControl: cacheControl,
+              onProgress: onProgress,
+            );
+          }
+          await CrashlyticsService.record(e, st, reason: trace);
+          rethrow;
+        }
+      } catch (e, st) {
+        await CrashlyticsService.record(e, st, reason: trace);
+        rethrow;
       }
-    }
-    if (!useOfflineQueue) {
-      return uploadStoragePutDataWithRetry(
-        storagePath: storagePath,
-        bytes: preparedBytes,
-        contentType: contentType,
-        cacheControl: cacheControl,
-        maxAttempts: maxAttempts,
-        onProgress: onProgress,
-        onTaskStarted: onUploadTaskCreated,
-      );
-    }
-    try {
-      return await uploadStoragePutDataWithRetry(
-        storagePath: storagePath,
-        bytes: preparedBytes,
-        contentType: contentType,
-        cacheControl: cacheControl,
-        maxAttempts: maxAttempts,
-        onProgress: onProgress,
-        onTaskStarted: onUploadTaskCreated,
-      );
-    } catch (e) {
-      if (isLikelyNetworkUploadError(e)) {
-        return StorageUploadQueueService.instance.enqueuePutData(
-          storagePath: storagePath,
-          bytes: preparedBytes,
-          contentType: contentType,
-          cacheControl: cacheControl,
-          onProgress: onProgress,
-        );
-      }
-      rethrow;
-    }
+    });
   }
 
   static Future<MediaUploadResult> uploadBytesDetailed({

@@ -3,7 +3,7 @@ description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart; scripts/bump_version.ps1 atualiza os dois.
 # App Store: cada IPA precisa de build (+N) unico; se der 409, incrementar +N.
-version: 11.2.295+1620
+version: 11.2.295+1621
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -74,6 +74,7 @@ dependencies:
   smooth_page_indicator: ^1.2.1
   flutter_cache_manager: ^3.4.1
   firebase_crashlytics: ^4.3.10
+  firebase_performance: ^0.10.1+10
   screenshot: ^3.0.0
   gal: ^2.3.2
   flutter_staggered_grid_view: ^0.7.0

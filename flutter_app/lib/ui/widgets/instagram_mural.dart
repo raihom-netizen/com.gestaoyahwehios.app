@@ -10,6 +10,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,11 +21,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxAvisoFeedPhotosPerPost, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -244,6 +247,7 @@ class InstagramMuralState extends State<InstagramMural> {
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('avisos');
     _loadTenant();
     _startFeedLiveSync();
     unawaited(_loadFeedPage(reset: true));
@@ -466,7 +470,7 @@ class InstagramMuralState extends State<InstagramMural> {
       );
     }
     if (_isFeedInitialLoading && _feedRawDocs.isEmpty) {
-      return YahwehPremiumFeedShimmer.muralFeedSkeleton();
+      return YahwehSkeletonLoading.avisosFeed();
     }
 
     const type = 'aviso';
@@ -1711,7 +1715,7 @@ class _PostCardState extends State<_PostCard>
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        'A enviar ${pending.length} foto${pending.length > 1 ? 's' : ''}…',
+                                        'Carregando mídia…',
                                         style: GoogleFonts.inter(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -3069,7 +3073,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final out = <Uint8List>[];
     for (final p in _newImagePaths) {
       final f = File(p);
-      if (f.existsSync()) out.add(await f.readAsBytes());
+      if (!f.existsSync()) continue;
+      if (IosPublishImagePipeline.useIosLightweightPublish) {
+        out.add(await IosPublishImagePipeline.compressForPublishFromPath(p));
+      } else {
+        out.add(await f.readAsBytes());
+      }
     }
     return out;
   }
@@ -3079,7 +3088,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       return _newImages.isEmpty ? null : _newImages.first;
     }
     if (_newImagePaths.isEmpty) return null;
-    final f = File(_newImagePaths.first);
+    final path = _newImagePaths.first;
+    if (IosPublishImagePipeline.useIosLightweightPublish) {
+      return IosPublishImagePipeline.compressForPublishFromPath(path);
+    }
+    final f = File(path);
     if (!f.existsSync()) return null;
     return f.readAsBytes();
   }
@@ -3679,6 +3692,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
@@ -3706,118 +3720,68 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
       }
 
+      final hasVideo = _videoUrl.text.trim().isNotEmpty;
       if (hasNewImages) {
         final startSlot = existingUrls.length;
-        final List<String> uploaded;
-        if (kIsWeb) {
-          final imagesCopy = await _copyNewImagesForPublish();
-          if (imagesCopy.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            postId: postId,
-            newImages: imagesCopy,
-            startSlotIndex: startSlot,
-          );
-          final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
-          if (arNew != null) aspectRatio = arNew.clamp(0.4, 2.3);
-        } else {
-          final paths =
-              FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          if (paths.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploaded =
-              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            postId: postId,
-            localPaths: paths,
-            startSlotIndex: startSlot,
-          );
-          final firstBytes = await _firstNewImageBytes();
-          if (firstBytes != null) {
-            final arNew = await imageAspectRatioFromBytes(firstBytes);
-            if (arNew != null) aspectRatio = arNew.clamp(0.4, 2.3);
-          }
-        }
-        final allUrls = dedupeImageRefsByStorageIdentity([
-          ...existingUrls,
-          ...uploaded,
-        ]);
-        final payload = _buildCorePayload(
-          allUrls: allUrls,
+        final stubPayload = _buildCorePayload(
+          allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        payload['publishState'] = MuralFastPublishService.statePublished;
-        payload['pendingImageCount'] = FieldValue.delete();
-        payload['publishError'] = FieldValue.delete();
-        if (isNewDoc) {
-          await docRef.set(payload);
+        List<Uint8List>? imagesCopy;
+        List<String>? paths;
+        if (kIsWeb) {
+          imagesCopy = await _copyNewImagesForPublish();
+          if (imagesCopy.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
         } else {
-          await docRef.set(payload, SetOptions(merge: true));
+          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          if (paths.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
         }
-        unawaited(
-          MuralPostPendingMediaCache.remove(
-            tenantId: widget.tenantId,
-            postId: postId,
-          ),
+        await FeedMediaPublishService.saveStubAndSchedulePhotos(
+          docRef: docRef,
+          tenantId: widget.tenantId,
+          postType: widget.type,
+          stubPayload: stubPayload,
+          isNewDoc: isNewDoc,
+          pendingPhotoCount: _newPhotoCount,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          newImagesBytes: imagesCopy,
+          newImagePaths: paths,
         );
-        unawaited(
-          MuralPublishOutboxService.clearJob(
-            tenantId: widget.tenantId,
-            postId: postId,
-          ),
-        );
-        if (widget.type == 'aviso') {
-          FirebaseStorageCleanupService.scheduleCleanupAfterAvisoPostImageUpload(
-            tenantId: widget.tenantId,
-            postDocId: postId,
-          );
-        } else if (widget.type == 'evento') {
-          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
-            tenantId: widget.tenantId,
-            postDocId: postId,
-          );
-        }
         if (mounted) {
+          setState(() => _saving = false);
+          unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc ? 'Publicado!' : 'Atualizado!',
-            ),
+            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
           );
           Navigator.pop(context, true);
         }
         return;
       }
-
-      await FeedPostMediaUpload.warmAuthToken()
-          .timeout(const Duration(seconds: 20));
       final payload = _buildCorePayload(
         allUrls: existingUrls,
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
-      payload['publishState'] = MuralFastPublishService.statePublished;
-      payload['pendingImageCount'] = FieldValue.delete();
-      payload['publishError'] = FieldValue.delete();
-      if (isNewDoc) {
-        await docRef.set(payload);
-      } else {
-        await docRef.set(payload, SetOptions(merge: true));
-      }
+      await FeedMediaPublishService.publishNow(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            isNewDoc ? 'Publicado!' : 'Atualizado!',
-          ),
+          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
         );
         Navigator.pop(context, true);
       }
-    } catch (e) {
+    } catch (e, st) {
+      await CrashlyticsService.record(e, st, reason: 'avisos_publish');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
@@ -3890,13 +3854,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               height: thumbSize,
               fit: BoxFit.cover,
             )
-          : Image.file(
-              File(_newImagePaths[idx]),
-              width: thumbSize,
-              height: thumbSize,
-              fit: BoxFit.cover,
-              cacheWidth: kEventoAvisoFeedMemCacheMaxPx,
-              filterQuality: FilterQuality.medium,
+          : IosPublishImagePipeline.fileThumbnail(
+              file: File(_newImagePaths[idx]),
+              size: thumbSize,
             );
       allPreviews.add(Stack(children: [
         ClipRRect(
@@ -4022,7 +3982,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                   strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.check_circle_rounded, size: 22),
                       label: Text(
-                        _saving ? 'Publicando…' : publishLabel,
+                        _saving ? 'A guardar…' : publishLabel,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,

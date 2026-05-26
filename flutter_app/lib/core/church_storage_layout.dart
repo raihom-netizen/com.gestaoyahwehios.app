@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 
 /// Layout canônico do **Firebase Storage** por igreja (tenant = id do doc em `igrejas/{id}`).
 ///
@@ -109,6 +110,22 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegMembros/$mid/thumb_foto_perfil.jpg';
   }
 
+  /// V4: miniatura WebP para listas (`photoThumb`).
+  static String memberProfileThumbWebpPath(
+      String tenantId, String memberDocId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(memberDocId);
+    return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileThumbFile}';
+  }
+
+  /// V4: média WebP para perfil (`photoMedium`).
+  static String memberProfileMediumWebpPath(
+      String tenantId, String memberDocId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(memberDocId);
+    return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileMediumFile}';
+  }
+
   /// Post **evento** em [noticias]: capa `banner_evento.jpg`, mais fotos `galeria_01.jpg`…
   static String eventPostPhotoPath(
       String tenantId, String postDocId, int slotIndex) {
@@ -139,7 +156,7 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegEventos/videos/${pid}_v${s}_thumb.jpg';
   }
 
-  /// Post **aviso**: capa canónica `capa_aviso.jpg` (Firestore usa só `url_original`; derivados `thumb_*` da extensão Storage são limpos em background).
+  /// Post **aviso**: capa canónica `capa_aviso.jpg` (legado) ou variantes WebP `capa_aviso_full_1920.webp`.
   static String avisoPostPhotoPath(
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
@@ -149,6 +166,47 @@ abstract final class ChurchStorageLayout {
     final n = slotIndex.toString().padLeft(2, '0');
     return '$root/galeria_$n.jpg';
   }
+
+  static String _avisoPostPhotoBase(
+      String tenantId, String postDocId, int slotIndex) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final root = '${churchRoot(tid)}/$kSegAvisos/$pid';
+    if (slotIndex <= 0) return '$root/capa_aviso';
+    final n = slotIndex.toString().padLeft(2, '0');
+    return '$root/galeria_$n';
+  }
+
+  /// Variante WebP do mural aviso (`thumb_200`, `medium_800`, `full_1920`).
+  static String avisoPostPhotoVariantPath(
+    String tenantId,
+    String postDocId,
+    int slotIndex,
+    String tier,
+  ) =>
+      '${_avisoPostPhotoBase(tenantId, postDocId, slotIndex)}_${tier.trim()}.webp';
+
+  static String eventPostPhotoVariantPath(
+    String tenantId,
+    String postDocId,
+    int slotIndex,
+    String tier,
+  ) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final root = '${churchRoot(tid)}/$kSegEventos/$pid';
+    final base = slotIndex <= 0 ? '$root/banner_evento' : '$root/galeria_${slotIndex.toString().padLeft(2, '0')}';
+    return '${base}_${tier.trim()}.webp';
+  }
+
+  /// Chat: `…/chat_media/{threadId}/{uid}_{ts}_thumb_200.webp` (lista) + `_full_1920.webp`.
+  static String chatMediaVariantPath(
+    String tenantId,
+    String threadId,
+    String fileNameStem,
+    String tier,
+  ) =>
+      '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/${fileNameStem}_${tier.trim()}.webp';
 
   /// Caminhos tentados para assinatura institucional (`assinatura.png` / `.jpg`).
   static List<String> pastorSignatureConfigPaths(String tenantId) {

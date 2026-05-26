@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 
 import 'app_connectivity_service.dart';
 import 'upload_bytes_core.dart';
+import 'yahweh_telemetry.dart';
 
 /// Erros de rede / indisponibilidade — candidatos a fila offline e retry.
 bool isLikelyNetworkUploadError(Object error) {
@@ -134,6 +135,11 @@ class StorageUploadQueueService {
           if (!item.completer.isCompleted) {
             item.completer.completeError(e);
           }
+          unawaited(YahwehTelemetry.recordUploadFailure(
+            e,
+            StackTrace.current,
+            context: item.storagePath,
+          ));
           _queue.removeAt(0);
           _networkFailStreak = 0;
         }

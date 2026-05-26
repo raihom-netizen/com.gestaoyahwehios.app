@@ -61,6 +61,8 @@ class PanelHomeMemberLite {
       if (authUid != null && authUid!.isNotEmpty) 'authUid': authUid,
       'NOME_COMPLETO': displayName,
       if (photoUrl != null && photoUrl!.isNotEmpty) 'fotoUrl': photoUrl,
+      if (photoUrl != null && photoUrl!.isNotEmpty) 'photoMedium': photoUrl,
+      if (photoUrl != null && photoUrl!.isNotEmpty) 'photoThumb': photoUrl,
       if (fotoUrlCacheRevision > 0)
         'fotoUrlCacheRevision': fotoUrlCacheRevision,
       if (cpfDigits != null && cpfDigits!.isNotEmpty) 'CPF': cpfDigits,

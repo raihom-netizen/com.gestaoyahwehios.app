@@ -590,13 +590,13 @@ Future<void> scheduleFeedMediaWarmup(
   await preloadNetworkImages(
     context,
     dedupeImageRefsByStorageIdentity(leadImageUrls),
-    maxItems: 12,
+    maxItems: 16,
   );
   if (!context.mounted) return;
   await preloadNetworkImages(
     context,
     dedupeImageRefsByStorageIdentity(imageUrls),
-    maxItems: 24,
+    maxItems: 32,
   );
   await precacheHostedVideosFromFeed(videoUrls, maxItems: 8);
   if (kIsWeb) {

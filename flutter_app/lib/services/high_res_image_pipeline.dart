@@ -49,7 +49,8 @@ int get kEffectiveMuralFeedWebpQuality => kEventoAvisoFeedWebpQuality;
 int get kEffectiveFeedEncodeMaxEdgePx => eventoAvisoFeedEncodeMaxEdgePx();
 
 /// Máximo de fotos novas no editor de avisos (evita lotes enormes em 4G).
-const int kMaxAvisoFeedPhotosPerPost = 15;
+/// Máximo de fotos por aviso (publicação instantânea + upload em background).
+const int kMaxAvisoFeedPhotosPerPost = 5;
 
 /// WebP final — retrocompat (igual ao premium mural).
 const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;

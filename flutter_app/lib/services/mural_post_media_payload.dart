@@ -5,6 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/services/media_image_variants_service.dart';
+import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
@@ -20,7 +23,7 @@ abstract final class MuralPostMediaPayload {
   static const Duration _photoSlotTimeout = Duration(minutes: 4);
   static const Duration _batchTimeout = Duration(minutes: 12);
 
-  /// Avisos/eventos: sobe **todas** as fotos antes do Firestore (publicação concluída de uma vez).
+  /// Upload de um slot (usado em background após stub no Firestore).
   static Future<List<String>> uploadNewPhotosBeforePublish({
     required String tenantId,
     required String postType,
@@ -68,19 +71,27 @@ abstract final class MuralPostMediaPayload {
       count: paths.length,
       progressLabel: 'A enviar imagens…',
       uploadOne: (i, report) async {
-        final f = File(paths[i]);
+        final path = paths[i];
+        final f = File(path);
         if (!await f.exists()) {
           throw StateError('Foto ${i + 1} não encontrada no aparelho.');
         }
-        final bytes = await f.readAsBytes();
-        if (bytes.isEmpty) {
-          throw StateError('Foto ${i + 1} está vazia.');
+        if (IosPublishImagePipeline.useIosLightweightPublish) {
+          final r = await IosPublishImagePipeline.uploadFeedPhotoSlot(
+            tenantId: tenantId,
+            postType: postType,
+            postId: postId,
+            slotIndex: startSlotIndex + i,
+            localPath: path,
+            onProgress: report,
+          );
+          return r.primaryUrl;
         }
         return uploadPhotoSlot(
           tenantId: tenantId,
           postType: postType,
           postId: postId,
-          bytes: bytes,
+          bytes: await f.readAsBytes(),
           slotIndex: startSlotIndex + i,
           onProgress: report,
         ).timeout(_photoSlotTimeout);
@@ -97,12 +108,68 @@ abstract final class MuralPostMediaPayload {
     required int slotIndex,
     void Function(double progress)? onProgress,
   }) async {
-    final storagePath = postType == 'evento'
-        ? ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex)
-        : ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
-    return FeedPostMediaUpload.uploadFeedPhotoBytes(
-      storagePath: storagePath,
+    final r = await uploadPhotoSlotWithVariants(
+      tenantId: tenantId,
+      postType: postType,
+      postId: postId,
       bytes: bytes,
+      slotIndex: slotIndex,
+      onProgress: onProgress,
+    );
+    return r.primaryUrl;
+  }
+
+  /// WebP thumb/medium/full — feed e site público carregam [medium_800] primeiro.
+  static Future<
+      ({
+        String primaryUrl,
+        Map<String, dynamic> imageVariants,
+      })> uploadPhotoSlotWithVariants({
+    required String tenantId,
+    required String postType,
+    required String postId,
+    required Uint8List bytes,
+    required int slotIndex,
+    void Function(double progress)? onProgress,
+    String? localPath,
+  }) async {
+    if (IosPublishImagePipeline.useIosLightweightPublish) {
+      try {
+        return await IosPublishImagePipeline.uploadFeedPhotoSlot(
+          tenantId: tenantId,
+          postType: postType,
+          postId: postId,
+          slotIndex: slotIndex,
+          bytes: bytes,
+          localPath: localPath,
+          onProgress: onProgress,
+        );
+      } catch (e, st) {
+        await YahwehTelemetry.recordUploadFailure(
+          e,
+          st,
+          context: 'uploadPhotoSlotWithVariants_ios',
+        );
+        rethrow;
+      }
+    }
+    final tiers = await MediaImageVariantsService.encodeFeedWebpTiers(
+      bytes: bytes,
+      localPath: localPath,
+    );
+    String variantPath(String tier) => postType == 'evento'
+        ? ChurchStorageLayout.eventPostPhotoVariantPath(
+            tenantId, postId, slotIndex, tier)
+        : ChurchStorageLayout.avisoPostPhotoVariantPath(
+            tenantId, postId, slotIndex, tier);
+
+    return MediaImageVariantsService.uploadFeedTiers(
+      thumbPath: variantPath(MediaImageVariantsService.tierThumb),
+      mediumPath: variantPath(MediaImageVariantsService.tierMedium),
+      fullPath: variantPath(MediaImageVariantsService.tierFull),
+      thumbBytes: tiers.thumb,
+      mediumBytes: tiers.medium,
+      fullBytes: tiers.full,
       onProgress: onProgress,
     );
   }
@@ -112,6 +179,7 @@ abstract final class MuralPostMediaPayload {
     required double aspectRatio,
     required bool hasVideo,
     bool allowDeleteSentinels = true,
+    Map<String, dynamic>? imageVariants,
   }) {
     final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
     final patch = <String, dynamic>{};
@@ -124,6 +192,9 @@ abstract final class MuralPostMediaPayload {
     } else if (allowDeleteSentinels) {
       patch['imagemUrl'] = FieldValue.delete();
       patch['imagem_url'] = FieldValue.delete();
+    }
+    if (imageVariants != null && imageVariants.isNotEmpty) {
+      patch['imageVariants'] = imageVariants;
     }
     if (allUrls.isNotEmpty) {
       patch['media_info'] = <String, dynamic>{

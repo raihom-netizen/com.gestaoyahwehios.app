@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
 ///
+/// Equivalente V4 a `enablePersistence` + `PersistenceSettings(synchronizeTabs: true)` na web.
 /// - **Persistência + cache amplo**: leituras repetidas e listas ficam mais rápidas;
 ///   escritas feitas offline entram na fila e sincronizam quando a rede voltar.
 ///   Pré-carga opcional das coleções principais: serviço `church_tenant_offline_warmup_service.dart`.

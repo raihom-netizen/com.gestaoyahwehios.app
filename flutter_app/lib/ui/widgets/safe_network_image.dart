@@ -765,6 +765,8 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
     'imagemPerfil',
     'urlFoto',
     'fotoPerfil',
+    'photoThumb',
+    'photoMedium',
     'logoUrl',
     'logo_url',
     'logo',
@@ -1382,6 +1384,9 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
     final errorWidget = widget.errorWidget ?? defaultImageErrorWidget();
     final cacheW = widget.memCacheWidth;
     final cacheH = widget.memCacheHeight;
+    final diskCache = (cacheW != null && cacheW <= 280)
+        ? YahwehCacheManagers.feedThumbs
+        : YahwehCacheManagers.images;
 
     // Web: URLs do Firebase Storage — mesmo pipeline do avatar do header ([FirebaseStorageMemoryImage]);
     // [StorageFriendlyImage] aqui deixava listas de membros/painel presas em loading ou sem foto.
@@ -1438,7 +1443,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
 
     return CachedNetworkImage(
       imageUrl: url,
-      cacheManager: YahwehCacheManagers.images,
+      cacheManager: diskCache,
       fit: widget.fit,
       width: widget.width,
       height: widget.height,

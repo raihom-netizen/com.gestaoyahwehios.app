@@ -11,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
@@ -1079,6 +1080,7 @@ class _FinancePageState extends State<FinancePage>
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('financeiro');
     final rawTab = widget.initialTabIndex ?? 0;
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);

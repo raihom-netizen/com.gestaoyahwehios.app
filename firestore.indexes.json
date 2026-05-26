@@ -65,6 +65,40 @@
       ]
     },
     {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publishState", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publicSite", "order": "ASCENDING" },
+        { "fieldPath": "publishState", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "noticias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publishState", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "noticias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publicSite", "order": "ASCENDING" },
+        { "fieldPath": "publishState", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "notifications",
       "queryScope": "COLLECTION",
       "fields": [
@@ -413,6 +447,14 @@
       "collectionGroup": "membros",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "birthMonth", "order": "ASCENDING" },
+        { "fieldPath": "birthDay", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "departamentosIds", "arrayConfig": "CONTAINS" },
         { "fieldPath": "NOME_COMPLETO", "order": "ASCENDING" }
       ]
@@ -439,6 +481,22 @@
       "fields": [
         { "fieldPath": "noticiaId", "order": "ASCENDING" },
         { "fieldPath": "startTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "publicSite", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "noticias",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "publicSite", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
   ],

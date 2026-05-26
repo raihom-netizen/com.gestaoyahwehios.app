@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -114,7 +115,14 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   }
 
   Future<void> _resolveDisplayUrl() async {
-    final norm = sanitizeImageUrl(widget.imageUrl);
+    final hint = widget.memberFirestoreHint;
+    final variantUrl = widget.preferListThumbnail
+        ? MemberProfileVariantsService.listPhotoUrl(hint)
+        : MemberProfileVariantsService.profilePhotoUrl(hint);
+    final fromVariant = sanitizeImageUrl(variantUrl);
+    final norm = isValidImageUrl(fromVariant)
+        ? fromVariant
+        : sanitizeImageUrl(widget.imageUrl);
     if (!isValidImageUrl(norm)) {
       if (mounted) setState(() => _displayUrl = null);
       return;

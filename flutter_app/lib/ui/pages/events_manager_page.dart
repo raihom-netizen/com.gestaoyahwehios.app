@@ -26,6 +26,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/performance_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
@@ -54,9 +59,10 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
-import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -184,6 +190,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('eventos');
     _tab = TabController(length: _canWrite ? 4 : 2, vsync: this);
     final startIndex =
         widget.initialTabIndex.clamp(0, (_tab.length - 1).clamp(0, 99)) as int;
@@ -209,21 +216,23 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    try {
-      final tid =
-          await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-        widget.tenantId,
-        userUid: uid,
-      );
-      if (!mounted) return;
-      setState(() => _firestoreTenantId = tid);
-      await _loadTenantDoc();
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _firestoreTenantId = widget.tenantId);
-      await _loadTenantDoc();
-    }
+    await PerformanceService.track('load_events', () async {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      try {
+        final tid = await TenantResolverService
+            .resolveEffectiveTenantIdPreferringUserBinding(
+          widget.tenantId,
+          userUid: uid,
+        );
+        if (!mounted) return;
+        setState(() => _firestoreTenantId = tid);
+        await _loadTenantDoc();
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _firestoreTenantId = widget.tenantId);
+        await _loadTenantDoc();
+      }
+    });
   }
 
   Future<void> _loadTenantDoc() async {
@@ -4958,91 +4967,10 @@ class _FeedSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.only(top: 8), children: [
-      Container(
-          height: 100,
-          color: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-              children: List.generate(
-                  4,
-                  (_) => Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: Column(children: [
-                        Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.grey.shade200)),
-                        const SizedBox(height: 6),
-                        Container(
-                            width: 40,
-                            height: 8,
-                            decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(4))),
-                      ]))))),
-      const SizedBox(height: 8),
-      for (var i = 0; i < 3; i++)
-        Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            color: Colors.white,
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(children: [
-                    Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.grey.shade200)),
-                    const SizedBox(width: 10),
-                    Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                              width: 120,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                  color: Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(4))),
-                          const SizedBox(height: 4),
-                          Container(
-                              width: 80,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(4))),
-                        ]),
-                  ])),
-              Container(
-                  width: double.infinity,
-                  height: 300,
-                  color: Colors.grey.shade200),
-              Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                            width: 200,
-                            height: 10,
-                            decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(4))),
-                        const SizedBox(height: 8),
-                        Container(
-                            width: double.infinity,
-                            height: 8,
-                            decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(4))),
-                      ])),
-            ])),
-    ]);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(top: 8, left: 8, right: 8),
+      child: YahwehSkeletonLoading.eventosFeed(postCount: 3),
+    );
   }
 }
 
@@ -5115,7 +5043,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final out = <Uint8List>[];
     for (final p in _newImagePaths) {
       final f = File(p);
-      if (f.existsSync()) out.add(await f.readAsBytes());
+      if (!f.existsSync()) continue;
+      if (IosPublishImagePipeline.useIosLightweightPublish) {
+        out.add(await IosPublishImagePipeline.compressForPublishFromPath(p));
+      } else {
+        out.add(await f.readAsBytes());
+      }
     }
     return out;
   }
@@ -5125,7 +5058,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return _newImages.isEmpty ? null : _newImages.first;
     }
     if (_newImagePaths.isEmpty) return null;
-    final f = File(_newImagePaths.first);
+    final path = _newImagePaths.first;
+    if (IosPublishImagePipeline.useIosLightweightPublish) {
+      return IosPublishImagePipeline.compressForPublishFromPath(path);
+    }
+    final f = File(path);
     if (!f.existsSync()) return null;
     return f.readAsBytes();
   }
@@ -5173,8 +5110,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   double? _locationLat;
   double? _locationLng;
   static int get _maxVideoSeconds => kMediaEventVideoMaxSeconds;
-  static const int _maxVideosPerEvent = 2;
-  static const int _maxPhotosPerEvent = 20;
+  static const int _maxVideosPerEvent = FeedMediaPublishService.kMaxVideosPerPost;
+  static const int _maxPhotosPerEvent = FeedMediaPublishService.kMaxPhotosPerPost;
 
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
     final endereco = (data['endereco'] ?? '').toString().trim();
@@ -5934,7 +5871,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text(
-              'Este evento já atingiu o limite de 2 vídeos. Remova um para adicionar outro.'),
+              'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
           backgroundColor: ThemeCleanPremium.error,
           behavior: SnackBarBehavior.floating,
         ));
@@ -5946,7 +5883,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text(
-              'Limite de 2 vídeos no Storage. Remova um vídeo para adicionar outro.'),
+              'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
           backgroundColor: ThemeCleanPremium.error,
           behavior: SnackBarBehavior.floating,
         ));
@@ -6275,6 +6212,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
@@ -6301,102 +6239,73 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       }
 
+      final hasVideo = _eventVideos.isNotEmpty ||
+          _videoUrl.text.trim().isNotEmpty;
       if (hasNewImages) {
         final startSlot = existingUrls.length;
-        final List<String> uploaded;
-        if (kIsWeb) {
-          final imagesCopy = await _copyNewImagesForPublish();
-          if (imagesCopy.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            newImages: imagesCopy,
-            startSlotIndex: startSlot,
-          );
-          if (imagesCopy.isNotEmpty) {
-            final arNew = await imageAspectRatioFromBytes(imagesCopy.first);
-            if (arNew != null) aspectRatio = arNew;
-          }
-        } else {
-          final paths =
-              FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          if (paths.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploaded =
-              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            localPaths: paths,
-            startSlotIndex: startSlot,
-          );
-          final firstBytes = await _firstNewImageBytes();
-          if (firstBytes != null) {
-            final arNew = await imageAspectRatioFromBytes(firstBytes);
-            if (arNew != null) aspectRatio = arNew;
-          }
-        }
-        final allUrls = dedupeImageRefsByStorageIdentity([
-          ...existingUrls,
-          ...uploaded,
-        ]);
-        final payload = _buildEventCorePayload(
-          allUrls: allUrls,
+        final stubPayload = _buildEventCorePayload(
+          allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        payload['publishState'] = MuralFastPublishService.statePublished;
-        payload['pendingImageCount'] = FieldValue.delete();
-        payload['publishError'] = FieldValue.delete();
-        if (isNewDoc) {
-          await docRef.set(payload);
+        List<Uint8List>? imagesCopy;
+        List<String>? paths;
+        if (kIsWeb) {
+          imagesCopy = await _copyNewImagesForPublish();
+          if (imagesCopy.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
         } else {
-          await widget.doc!.reference.set(payload, SetOptions(merge: true));
+          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          if (paths.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
         }
-        FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+        await FeedMediaPublishService.saveStubAndSchedulePhotos(
+          docRef: docRef,
           tenantId: widget.tenantId,
-          postDocId: postId,
+          postType: 'evento',
+          stubPayload: stubPayload,
+          isNewDoc: isNewDoc,
+          pendingPhotoCount: _newPhotoCount,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          newImagesBytes: imagesCopy,
+          newImagePaths: paths,
+          onPublished: () => _applyAgendaSyncAfterSave(postId),
         );
         await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
+          setState(() => _saving = false);
+          unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc ? 'Evento publicado!' : 'Evento atualizado!',
-            ),
+            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
           );
           Navigator.pop(context, true);
         }
         return;
       }
 
-      await FeedPostMediaUpload.warmAuthToken()
-          .timeout(const Duration(seconds: 20));
       final payload = _buildEventCorePayload(
         allUrls: existingUrls,
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
-      payload['publishState'] = MuralFastPublishService.statePublished;
-      payload['pendingImageCount'] = FieldValue.delete();
-      payload['publishError'] = FieldValue.delete();
-      if (isNewDoc) {
-        await docRef.set(payload);
-      } else {
-        await widget.doc!.reference.set(payload, SetOptions(merge: true));
-      }
+      await FeedMediaPublishService.publishNow(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+      );
       await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(widget.doc == null
-                ? 'Evento publicado!'
-                : 'Evento atualizado!'));
+          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+        );
         Navigator.pop(context, true);
       }
-    } catch (e) {
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
       final msg = e.toString();
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
           msg.contains('permission-denied');
@@ -6411,11 +6320,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final rRoom =
                 (_maxPhotosPerEvent - rInit).clamp(0, publishBytes.length);
             if (rRoom > 0) {
-              final rUp = List<Future<MediaUploadResult>>.generate(
-                rRoom,
-                (i) => _upload(publishBytes[i], postId, rInit + i),
-              );
-              for (final up in await Future.wait(rUp)) {
+              for (var i = 0; i < rRoom; i++) {
+                final up = await _upload(publishBytes[i], postId, rInit + i);
                 retryUrls.add(up.downloadUrl);
               }
             }
@@ -6494,11 +6400,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             final mRoom =
                 (_maxPhotosPerEvent - mInit).clamp(0, publishBytes.length);
             if (mRoom > 0) {
-              final mUp = List<Future<MediaUploadResult>>.generate(
-                mRoom,
-                (i) => _upload(publishBytes[i], postId, mInit + i),
-              );
-              for (final up in await Future.wait(mUp)) {
+              for (var i = 0; i < mRoom; i++) {
+                final up = await _upload(publishBytes[i], postId, mInit + i);
                 retryUrls.add(up.downloadUrl);
               }
             }
@@ -6638,13 +6541,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               height: 100,
               fit: BoxFit.cover,
             )
-          : Image.file(
-              File(_newImagePaths[idx]),
-              width: 100,
-              height: 100,
-              fit: BoxFit.cover,
-              cacheWidth: kEventoAvisoFeedMemCacheMaxPx,
-              filterQuality: FilterQuality.medium,
+          : IosPublishImagePipeline.fileThumbnail(
+              file: File(_newImagePaths[idx]),
+              size: 100,
             );
       allPreviews.add(Stack(children: [
         ClipRRect(
@@ -6763,7 +6662,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                   strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.check_circle_rounded, size: 22),
                       label: Text(
-                        _saving ? 'Publicando…' : publishLabel,
+                        _saving ? 'A guardar…' : publishLabel,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,

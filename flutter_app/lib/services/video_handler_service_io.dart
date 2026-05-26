@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
@@ -17,6 +19,9 @@ import 'video_handler_service_types.dart';
 class VideoHandlerService implements IVideoHandlerService {
   VideoHandlerService._();
   static final VideoHandlerService instance = VideoHandlerService._();
+
+  static bool get _isIosNative =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -73,19 +78,25 @@ class VideoHandlerService implements IVideoHandlerService {
           'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
         );
       }
-      final useOriginal = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
-          (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
+      final useOriginal = _isIosNative
+          ? byteLen <= hardLimitBytes &&
+              (lower.endsWith('.mp4') ||
+                  lower.endsWith('.m4v') ||
+                  lower.endsWith('.mov'))
+          : byteLen <= mediaVideoSkipTranscodeMaxBytes &&
+              (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
       late final File compressed;
       if (useOriginal) {
+        compressed = File(path);
+      } else if (_isIosNative) {
+        // iOS: evita transcode pesado no aparelho — CF gera thumb depois.
         compressed = File(path);
       } else {
         final mediaInfo = await MediaService.compressVideo(File(path));
         if (mediaInfo == null || mediaInfo.file == null) return null;
         compressed = mediaInfo.file!;
       }
-
-      final thumbFile = await MediaService.getVideoThumbnail(compressed);
 
       await FirebaseAuth.instance.currentUser?.getIdToken();
       final slot = videoSlotIndex.clamp(0, 1);
@@ -101,22 +112,24 @@ class VideoHandlerService implements IVideoHandlerService {
           tenantId, eventPostDocId, slot);
 
       onUploadProgress?.call(0.0);
-      final videoFuture = MediaUploadService.uploadFileWithRetry(
+      final videoUrl = await MediaUploadService.uploadFileWithRetry(
         storagePath: videoPath,
         file: compressed,
         contentType: 'video/mp4',
         onProgress: onUploadProgress,
       );
-      final thumbFuture = (thumbFile != null && thumbFile.existsSync())
-          ? MediaUploadService.uploadFileWithRetry(
-              storagePath: thumbPath,
-              file: thumbFile,
-              contentType: 'image/jpeg',
-            )
-          : Future<String>.value('');
-      final results = await Future.wait([videoFuture, thumbFuture]);
-      final videoUrl = results[0];
-      final thumbUrl = results[1];
+
+      String thumbUrl = '';
+      if (!_isIosNative) {
+        final thumbFile = await MediaService.getVideoThumbnail(compressed);
+        if (thumbFile != null && thumbFile.existsSync()) {
+          thumbUrl = await MediaUploadService.uploadFileWithRetry(
+            storagePath: thumbPath,
+            file: thumbFile,
+            contentType: 'image/jpeg',
+          );
+        }
+      }
 
       return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
     } finally {

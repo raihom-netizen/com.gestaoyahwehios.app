@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'church_panel_navigation_bridge.dart';
+import 'yahweh_push_cache_refresh.dart';
 
 class FcmService {
   FcmService._();
@@ -122,6 +123,7 @@ class FcmService {
     }
 
     FirebaseMessaging.onMessage.listen((message) {
+      YahwehPushCacheRefresh.handleMessage(message);
       if (onForegroundMessage != null) {
         onForegroundMessage(message);
       }

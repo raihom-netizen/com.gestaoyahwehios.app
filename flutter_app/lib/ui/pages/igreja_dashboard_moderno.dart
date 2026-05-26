@@ -34,7 +34,11 @@ import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
@@ -174,6 +178,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   /// Cache `_panel_cache/dashboard_summary` — pintura instantânea do topo do painel.
   PanelDashboardSnapshot _panelCache = const PanelDashboardSnapshot();
 
+  /// KPIs pré-processados (`_performance_cache/dashboard_current`).
+  ChurchDashboardCurrent _dashboardKpis = const ChurchDashboardCurrent();
+
   bool _initialAuthTokenForced = false;
 
   DateTimeRange get _resolvedDashFinanceRange =>
@@ -225,6 +232,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('dashboard');
+    YahwehPerformanceMonitor.markScreenStart('igreja_dashboard');
     WidgetsBinding.instance.addObserver(this);
     _effectiveTenantId = widget.tenantId;
     _loadStreams();
@@ -318,16 +327,21 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       }
     }
     if (!mounted) return;
-    final cache = await PanelDashboardSnapshotService.readOnce(resolved);
+    final results = await Future.wait([
+      PanelDashboardSnapshotService.readOnce(resolved),
+      ChurchDashboardCurrentService.readOnce(resolved),
+    ]);
     if (!mounted) return;
     unawaited(
       PanelDashboardSnapshotService.warmFromCallableIfStale(resolved),
     );
+    YahwehPerformanceMonitor.markScreenReady('igreja_dashboard');
     setState(() {
       _effectiveTenantId = resolved;
       _churchSlug = churchSlug;
       _churchNome = churchNome;
-      _panelCache = cache;
+      _panelCache = results[0] as PanelDashboardSnapshot;
+      _dashboardKpis = results[1] as ChurchDashboardCurrent;
       _membersStream = null;
       _deptStream = null;
       _avisosStream = FirestoreStreamUtils.resilientQuery(
@@ -493,7 +507,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       return SafeArea(
         child: Container(
           color: ThemeCleanPremium.surfaceVariant,
-          child: const Center(child: CircularProgressIndicator()),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: YahwehSkeletonLoading.dashboardHome(),
+          ),
         ),
       );
     }
@@ -681,7 +698,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         const SizedBox(height: ThemeCleanPremium.spaceSm),
                         _ProgramacaoDiasCard(tenantId: _effectiveTenantId, role: widget.role),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
-                        _StatsCards(snap: mergedSnap, tenantId: _effectiveTenantId, role: widget.role),
+                        _StatsCards(
+                          snap: mergedSnap,
+                          tenantId: _effectiveTenantId,
+                          role: widget.role,
+                          cachedTotalMembers: _dashboardKpis.totalMembers,
+                        ),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
@@ -3630,11 +3652,62 @@ class _StatsCards extends StatelessWidget {
   final String tenantId;
   final String role;
 
-  const _StatsCards({required this.snap, required this.tenantId, required this.role});
+  final int? cachedTotalMembers;
+
+  const _StatsCards({
+    required this.snap,
+    required this.tenantId,
+    required this.role,
+    this.cachedTotalMembers,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+      final cached = cachedTotalMembers;
+      if (cached != null && cached > 0) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 600;
+            final membroRestrito = AppPermissions.isRestrictedMember(role);
+            final onMembros = membroRestrito
+                ? null
+                : () => Navigator.push(
+                      context,
+                      ThemeCleanPremium.fadeSlideRoute(
+                        MembersPage(tenantId: tenantId, role: role),
+                      ),
+                    );
+            return isNarrow
+                ? _StatCard(
+                    label: 'Membros',
+                    value: cached,
+                    icon: Icons.people_rounded,
+                    color: ThemeCleanPremium.primary,
+                    onTap: onMembros,
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: _StatCard(
+                          label: 'Membros',
+                          value: cached,
+                          icon: Icons.people_rounded,
+                          color: ThemeCleanPremium.primary,
+                          onTap: onMembros,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(child: _SkeletonBox(height: 88)),
+                      const SizedBox(width: 12),
+                      const Expanded(child: _SkeletonBox(height: 88)),
+                      const SizedBox(width: 12),
+                      const Expanded(child: _SkeletonBox(height: 88)),
+                    ],
+                  );
+          },
+        );
+      }
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: LayoutBuilder(
@@ -4289,7 +4362,13 @@ class _GraficoMembros extends StatelessWidget {
       return SizedBox(height: 180, child: Center(child: Text('Erro ao carregar dados.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13))));
     }
     if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-      return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
+      return SizedBox(
+        height: 180,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: YahwehSkeletonLoading.panelList(itemCount: 3),
+        ),
+      );
     }
     final docs = snap.data?.docs ?? [];
     final now = DateTime.now();

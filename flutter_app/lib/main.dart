@@ -52,12 +52,14 @@ import 'package:gestao_yahweh/window_close_handler_stub.dart'
 import 'package:gestao_yahweh/core/app_scroll_behavior.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
+import 'package:gestao_yahweh/services/yahweh_observability.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
@@ -472,7 +474,7 @@ void main() async {
     } catch (_) {}
   }
   ensureBrasiliaTimeZoneInitialized();
-  await PublicSiteAnalytics.ensureInitialized();
+  await YahwehObservability.ensureInitialized();
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -549,6 +551,7 @@ void main() async {
     await AppConnectivityService.instance.start();
     StorageUploadQueueService.instance.start();
     MuralPublishOutboxService.resumePendingOnAppStart();
+    unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
   } catch (_) {}
   String initialRoute =
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';

@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/department_member_integration_service.dar
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -1135,6 +1136,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    logYahwehModuleScreen('escalas');
     FirebaseAuth.instance.currentUser?.getIdToken(true);
     _tab = TabController(length: 3, vsync: this);
     _effectiveTidFuture = _resolveTenantAndSeedPresets();

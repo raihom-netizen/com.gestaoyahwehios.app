@@ -7111,6 +7111,16 @@ export {
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
 
 export {
+  optimizeImage,
+  compressVideo,
+  generateBirthdayCache,
+  generatePublicFeedCache,
+  refreshPublicFeedCacheOnAvisoWrite,
+  refreshPublicFeedCacheOnNoticiaWrite,
+} from "./churchPerformancePack";
+
+export {
+  onChurchMembroWriteSyncBirthIndex,
   onChurchMembroWritePanelDashboard,
   onChurchAvisoWritePanelDashboard,
   onChurchNoticiaWritePanelDashboard,
