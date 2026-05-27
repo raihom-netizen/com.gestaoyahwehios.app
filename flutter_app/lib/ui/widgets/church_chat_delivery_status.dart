@@ -37,7 +37,7 @@ class ChurchChatDeliveryStatusIcon extends StatelessWidget {
     }
     if (ds == ChurchChatService.deliverySent || ds.isEmpty) {
       return Icon(
-        Icons.done_all_rounded,
+        Icons.done_rounded,
         size: size,
         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
       );

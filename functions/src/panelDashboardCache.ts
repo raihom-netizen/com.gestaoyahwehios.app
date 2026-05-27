@@ -29,9 +29,15 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
 
 function pickPhotoUrl(data: Record<string, unknown>): string {
   const keys = [
-    "photoThumb",
-    "photoMedium",
+    "imagem_url",
+    "imagemUrl",
     "fotoUrl",
+    "FOTO_URL_OU_ID",
+    "foto_url",
+    "coverUrl",
+    "capaUrl",
+    "coverImageUrl",
+    "bannerUrl",
     "fotoURL",
     "FOTO_URL",
     "imageUrl",
@@ -40,6 +46,8 @@ function pickPhotoUrl(data: Record<string, unknown>): string {
     "FOTO",
     "avatarUrl",
     "profilePhotoUrl",
+    "photoMedium",
+    "photoThumb",
     "logoProcessedUrl",
   ];
   for (const k of keys) {
@@ -287,24 +295,52 @@ function foldFuncaoKey(raw: string): string {
   return s;
 }
 
-function isCorpoAdminRole(raw: string): boolean {
-  const k = foldFuncaoKey(raw);
-  return (
-    k === "pastor" ||
-    k === "pastora" ||
-    k === "secretario" ||
-    k === "secretaria" ||
-    k === "tesoureiro" ||
-    k === "tesoureira"
-  );
+const DEFAULT_CORPO_ADMIN_ROLES = [
+  "pastor",
+  "pastora",
+  "secretario",
+  "secretaria",
+  "tesoureiro",
+  "tesoureira",
+];
+
+function configuredCorpoAdminRoles(
+  churchData: Record<string, unknown> | undefined,
+): string[] {
+  if (!churchData) return DEFAULT_CORPO_ADMIN_ROLES;
+  let raw = churchData.corpoAdminRoles;
+  if (!Array.isArray(raw) && churchData.config && typeof churchData.config === "object") {
+    raw = (churchData.config as Record<string, unknown>).corpoAdminRoles;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_CORPO_ADMIN_ROLES;
+  const out: string[] = [];
+  for (const e of raw) {
+    const s = foldFuncaoKey(String(e));
+    if (s) out.push(s);
+  }
+  return out.length > 0 ? out : DEFAULT_CORPO_ADMIN_ROLES;
 }
 
-function memberCorpoRoles(data: Record<string, unknown>): string[] {
+function isCorpoAdminRole(raw: string, configured: string[]): boolean {
+  const k = foldFuncaoKey(raw);
+  if (!k) return false;
+  for (const c of configured) {
+    const cc = foldFuncaoKey(c);
+    if (k === cc) return true;
+    if (k.startsWith(cc) && cc.length >= 4) return true;
+  }
+  return false;
+}
+
+function memberCorpoRoles(
+  data: Record<string, unknown>,
+  configured: string[],
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   const tryAdd = (raw: string) => {
     const t = raw.trim();
-    if (!t || !isCorpoAdminRole(t)) return;
+    if (!t || !isCorpoAdminRole(t, configured)) return;
     const k = foldFuncaoKey(t);
     if (seen.has(k)) return;
     seen.add(k);
@@ -316,6 +352,20 @@ function memberCorpoRoles(data: Record<string, unknown>): string[] {
     for (const x of flist) tryAdd(String(x));
   }
   return out;
+}
+
+function corpoSortRank(roles: string[]): number {
+  if (roles.length === 0) return 0;
+  let max = 0;
+  for (const r of roles) {
+    const k = foldFuncaoKey(r);
+    let rank = 50;
+    if (k.startsWith("pastor")) rank = 300;
+    else if (k.startsWith("secretar")) rank = 200;
+    else if (k.startsWith("tesour")) rank = 100;
+    if (rank > max) max = rank;
+  }
+  return max;
 }
 
 function computeLeaders(
@@ -359,22 +409,26 @@ function computeLeaders(
 
 function computeCorpoAdmin(
   memberDocs: admin.firestore.QueryDocumentSnapshot[],
+  configuredRoles: string[],
 ): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const doc of memberDocs) {
     const d = doc.data();
     if (!memberIsActive(d)) continue;
-    const roles = memberCorpoRoles(d);
+    const roles = memberCorpoRoles(d, configuredRoles);
     if (roles.length === 0) continue;
     const lite = lightMember(doc);
     lite.corpoRoles = roles;
     out.push(lite);
   }
-  out.sort((a, b) =>
-    String(a.displayName ?? "")
+  out.sort((a, b) => {
+    const ra = corpoSortRank((a.corpoRoles as string[]) || []);
+    const rb = corpoSortRank((b.corpoRoles as string[]) || []);
+    if (ra !== rb) return rb - ra;
+    return String(a.displayName ?? "")
       .toLowerCase()
-      .localeCompare(String(b.displayName ?? "").toLowerCase()),
-  );
+      .localeCompare(String(b.displayName ?? "").toLowerCase());
+  });
   return out.slice(0, 36);
 }
 
@@ -408,6 +462,11 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
   const membrosCol = churchRef.collection("membros");
   const avisosCol = churchRef.collection("avisos");
   const noticiasCol = churchRef.collection("noticias");
+
+  const churchSnap = await churchRef.get();
+  const corpoRolesConfigured = configuredCorpoAdminRoles(
+    churchSnap.data() as Record<string, unknown> | undefined,
+  );
 
   const [
     pendingMembers,
@@ -459,7 +518,7 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     birthdayMonthDocs.length > 0 ? birthdayMonthDocs : membrosSnap.docs;
   const birthdayBuckets = computeBirthdayBuckets(birthdaySource);
   const homeLeaders = computeLeaders(deptSnap.docs, membersByCpf, authUidToCpf);
-  const homeCorpoAdmin = computeCorpoAdmin(membrosSnap.docs);
+  const homeCorpoAdmin = computeCorpoAdmin(membrosSnap.docs, corpoRolesConfigured);
 
   const nowMsEvt = Date.now();
   const upcomingDocs = eventosProximosSnap.docs.filter((d) => {

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/services/media_image_variants_service.dart';
@@ -32,6 +33,7 @@ abstract final class MuralPostMediaPayload {
     required int startSlotIndex,
   }) async {
     if (newImages.isEmpty) return const [];
+    await ensureFirebaseInitialized();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
@@ -65,6 +67,7 @@ abstract final class MuralPostMediaPayload {
         .where((p) => p.isNotEmpty)
         .toList();
     if (paths.isEmpty) return const [];
+    await ensureFirebaseInitialized();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(

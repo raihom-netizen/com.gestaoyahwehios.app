@@ -116,6 +116,7 @@ class PanelDashboardSnapshot {
   final List<PanelHomeMemberLite> homeLeaders;
   final List<PanelHomeMemberLite> homeCorpoAdmin;
   final List<PanelHomeAvisoLite> homeAvisos;
+  final Timestamp? cacheUpdatedAt;
 
   const PanelDashboardSnapshot({
     this.pendingMembersCount = 0,
@@ -131,6 +132,7 @@ class PanelDashboardSnapshot {
     this.homeLeaders = const [],
     this.homeCorpoAdmin = const [],
     this.homeAvisos = const [],
+    this.cacheUpdatedAt,
   });
 
   bool get hasBirthdayData =>
@@ -175,6 +177,9 @@ class PanelDashboardSnapshot {
       homeAvisos: list(raw['recentAvisos'])
           .map(PanelHomeAvisoLite.fromMap)
           .toList(),
+      cacheUpdatedAt: raw['updatedAt'] is Timestamp
+          ? raw['updatedAt'] as Timestamp
+          : null,
     );
   }
 }
@@ -197,7 +202,18 @@ class PanelDashboardSnapshotService {
       return Stream.value(const PanelDashboardSnapshot());
     }
     return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
-      (snap) => PanelDashboardSnapshot.fromMap(snap.data()),
+      (snap) {
+        final data = snap.data();
+        if (data == null) return const PanelDashboardSnapshot();
+        final summary = data['summary'];
+        final base = summary is Map
+            ? Map<String, dynamic>.from(summary)
+            : Map<String, dynamic>.from(data);
+        if (data['updatedAt'] is Timestamp) {
+          base['updatedAt'] = data['updatedAt'];
+        }
+        return PanelDashboardSnapshot.fromMap(base);
+      },
     );
   }
 
@@ -207,7 +223,16 @@ class PanelDashboardSnapshotService {
     if (tid.isEmpty) return const PanelDashboardSnapshot();
     try {
       final snap = await cacheRef(tid).get();
-      return PanelDashboardSnapshot.fromMap(snap.data());
+      final data = snap.data();
+      if (data == null) return const PanelDashboardSnapshot();
+      final summary = data['summary'];
+      final base = summary is Map
+          ? Map<String, dynamic>.from(summary)
+          : Map<String, dynamic>.from(data);
+      if (data['updatedAt'] is Timestamp) {
+        base['updatedAt'] = data['updatedAt'];
+      }
+      return PanelDashboardSnapshot.fromMap(base);
     } catch (_) {
       return const PanelDashboardSnapshot();
     }

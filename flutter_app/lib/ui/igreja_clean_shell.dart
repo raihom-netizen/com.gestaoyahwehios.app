@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/avatar_gestor_widget.dart';
@@ -1849,7 +1850,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             key: const ValueKey('page_5'),
             tenantId: widget.tenantId,
             role: widget.role,
-            embeddedInShell: true);
+            embeddedInShell: true,
+            onOpenPanelCorpoAdministrativo: () {
+              setState(() => _selectedIndex = 0);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                PanelScrollBridge.scrollToCorpoAdministrativo?.call();
+              });
+            });
       case 6:
         return MuralPage(
             key: const ValueKey('page_6'),

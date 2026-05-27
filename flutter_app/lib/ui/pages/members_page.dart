@@ -49,6 +49,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -1849,6 +1850,7 @@ class _MembersPageState extends State<MembersPage> {
     final email = _str(d, 'EMAIL', 'email');
     final phone = _str(d, 'TELEFONES', 'telefone');
     final cpf = _str(d, 'CPF', 'cpf');
+    final codigoMembro = MemberCodigoService.readFromMember(d);
     final sexo = _str(d, 'SEXO', 'sexo');
     final estadoCivil = _str(d, 'ESTADO_CIVIL', 'estadoCivil');
     final endereco = _str(d, 'ENDERECO', 'endereco');
@@ -2236,6 +2238,11 @@ class _MembersPageState extends State<MembersPage> {
                       icon: Icons.family_restroom_rounded,
                       label: 'Filiação',
                       value: filiacao),
+                if (codigoMembro.isNotEmpty)
+                  _DetailRow(
+                      icon: Icons.pin_rounded,
+                      label: 'Cód. membro',
+                      value: codigoMembro),
                 if (cpf.isNotEmpty)
                   _DetailRow(
                       icon: Icons.badge_rounded,
@@ -2375,6 +2382,7 @@ class _MembersPageState extends State<MembersPage> {
     final phoneCtrl =
         TextEditingController(text: _str(d, 'TELEFONES', 'telefone'));
     final cpfCtrl = TextEditingController(text: _str(d, 'CPF', 'cpf'));
+    final codigoMembroInicial = MemberCodigoService.readFromMember(d);
     final enderecoCtrl =
         TextEditingController(text: _str(d, 'ENDERECO', 'endereco'));
     final quadraLoteNumeroCtrl = TextEditingController(
@@ -2639,6 +2647,35 @@ class _MembersPageState extends State<MembersPage> {
                                 label: 'CPF',
                                 icon: Icons.badge_rounded,
                                 type: TextInputType.number),
+                          if (staffEdit)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InputDecorator(
+                                decoration: InputDecoration(
+                                  labelText: 'Cód. membro (igreja)',
+                                  helperText:
+                                      'Sequencial único desta igreja — usado no cartão CNH digital.',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm,
+                                    ),
+                                  ),
+                                  prefixIcon:
+                                      const Icon(Icons.pin_outlined),
+                                ),
+                                child: Text(
+                                  codigoMembroInicial.isNotEmpty
+                                      ? codigoMembroInicial
+                                      : 'Será gerado ao salvar',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: codigoMembroInicial.isNotEmpty
+                                        ? ThemeCleanPremium.onSurface
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                            ),
                           // Nascimento
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
@@ -4307,6 +4344,33 @@ class _MembersPageState extends State<MembersPage> {
     updates['alias'] = linkage['alias'];
     updates['slug'] = linkage['slug'];
     updates['tenantId'] = targetTenantId;
+
+    try {
+      if (isMoveToOtherChurch) {
+        final newCode = await MemberCodigoService.ensureForMember(
+          tenantId: targetTenantId,
+          memberId: member.id,
+          forceNew: true,
+        );
+        updates.addAll(MemberCodigoService.fieldsForFirestore(newCode));
+      } else if (MemberCodigoService.readFromMember(member.data).isEmpty) {
+        final newCode = await MemberCodigoService.ensureForMember(
+          tenantId: targetTenantId,
+          memberId: member.id,
+          memberData: member.data,
+        );
+        updates.addAll(MemberCodigoService.fieldsForFirestore(newCode));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Não foi possível atribuir código de membro: $e',
+          ),
+        );
+      }
+      return;
+    }
 
     try {
       final db = FirebaseFirestore.instance;

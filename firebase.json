@@ -3,6 +3,7 @@
     "source": "functions"
   },
   "hosting": {
+    "site": "gestaoyahweh-21e23",
     "public": "flutter_app/build/web",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [

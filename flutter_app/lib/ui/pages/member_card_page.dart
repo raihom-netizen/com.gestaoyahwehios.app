@@ -45,6 +45,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
+import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/carteira_pades_signer.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
@@ -63,6 +64,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
+import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
+import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
+import 'package:gestao_yahweh/ui/widgets/member_card_cnh_digital.dart';
 import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
@@ -216,6 +221,9 @@ class MemberCardPage extends StatefulWidget {
   /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; ações em barra compacta no corpo.
   final bool embeddedInShell;
 
+  /// Só o cartão CNH centralizado (usado por [MemberCardCnhFullscreenPage]).
+  final bool cnhFullscreenOnly;
+
   const MemberCardPage({
     super.key,
     required this.tenantId,
@@ -224,6 +232,7 @@ class MemberCardPage extends StatefulWidget {
     this.cpf,
     this.onNavigateToMembers,
     this.embeddedInShell = false,
+    this.cnhFullscreenOnly = false,
   });
 
   @override
@@ -685,6 +694,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
     memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(memberMap,
         igrejaDocId: igrejaDocId);
 
+    if (MemberCodigoService.readFromMember(memberMap).isEmpty) {
+      try {
+        final code = await MemberCodigoService.ensureForMember(
+          tenantId: igrejaDocId,
+          memberId: memberDoc.id,
+          memberData: memberMap,
+        );
+        memberMap = Map<String, dynamic>.from(memberMap)
+          ..addAll(MemberCodigoService.fieldsForFirestore(code));
+      } catch (_) {}
+    }
+
     return _CardData(
       memberId: memberDoc.id,
       member: memberMap,
@@ -829,6 +850,308 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     final now = DateTime.now();
     return _fmtDate(DateTime(now.year + 1, now.month, now.day));
+  }
+
+  MemberCardCnhViewData _cnhViewDataFrom(_CardData data, _CardConfig cfg) {
+    return MemberCardCnhViewData.fromMaps(
+      tenantId: data.igrejaDocId,
+      memberId: data.memberId,
+      member: data.member,
+      tenant: data.tenant,
+      churchTitle: cfg.title,
+      churchSubtitle: cfg.subtitle,
+      qrPayload: CarteirinhaConsultaUrl.validationUrl(
+        data.igrejaDocId,
+        data.memberId,
+      ),
+      cargoLabel: cfg.cargoLabel,
+    );
+  }
+
+  Widget _cnhLogoSlot(_CardData data, _CardConfig cfg) {
+    if (cfg.logoDataBase64 != null && cfg.logoDataBase64!.isNotEmpty) {
+      return Image.memory(
+        base64Decode(cfg.logoDataBase64!),
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Image.asset(
+          'assets/LOGO_GESTAO_YAHWEH.png',
+          fit: BoxFit.contain,
+        ),
+      );
+    }
+    return StableChurchLogo(
+      tenantId: data.igrejaDocId,
+      tenantData: data.tenant,
+      storagePath: ChurchImageFields.logoStoragePath(data.tenant),
+      imageUrl: cfg.logoUrl.trim().isNotEmpty ? cfg.logoUrl.trim() : null,
+      width: 160,
+      height: 160,
+      fit: BoxFit.contain,
+      memCacheWidth: 320,
+      memCacheHeight: 320,
+    );
+  }
+
+  Widget _cnhPhotoSlot(_CardData data) {
+    final cpf = _memberCpfRaw(data.member);
+    final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
+    final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
+    return FotoMembroWidget(
+      key: ValueKey<String>(
+        'cnh_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
+      ),
+      imageUrl: photoUrlPreview.isEmpty ? null : photoUrlPreview,
+      tenantId: data.igrejaDocId,
+      memberId: data.memberId,
+      cpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
+      memberData: data.member,
+      authUid: _memberAuthUidForCarteiraFoto(data.member),
+      size: 112,
+      memCacheWidth: 280,
+      memCacheHeight: 350,
+      imageCacheRevision: memberPhotoDisplayCacheRevision(data.member),
+    );
+  }
+
+  Widget _buildCnhCardPreview(
+    _CardData data,
+    _CardConfig cfg, {
+    double maxWidth = 400,
+  }) {
+    return MemberCardCnhDigital(
+      data: _cnhViewDataFrom(data, cfg),
+      logoSlot: _cnhLogoSlot(data, cfg),
+      photoSlot: _cnhPhotoSlot(data),
+      showPhoto: cfg.showPhoto,
+      maxWidth: maxWidth,
+    );
+  }
+
+  void _openCnhFullscreen(BuildContext context) {
+    openMemberCardCnhFullscreen(
+      context,
+      tenantId: widget.tenantId,
+      role: widget.role,
+      memberId: widget.memberId,
+      cpf: widget.cpf,
+    );
+  }
+
+  Widget _buildCnhFullscreenBody(BuildContext context) {
+    return FutureBuilder<_CardData?>(
+      future: _loadFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+        if (snap.hasError || snap.data == null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline_rounded,
+                      color: Colors.white70, size: 48),
+                  const SizedBox(height: 12),
+                  Text(
+                    snap.hasError
+                        ? snap.error.toString()
+                        : 'Cartão não disponível.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        final data = snap.data!;
+        final cfg = _effectiveCardConfig(data);
+        final w = min(
+          420.0,
+          MediaQuery.sizeOf(context).width - 28,
+        ).clamp(300.0, 420.0);
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              children: [
+                Screenshot(
+                  controller: _walletScreenshotController,
+                  child: _buildCnhCardPreview(data, cfg, maxWidth: w),
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    if (!kIsWeb)
+                      OutlinedButton.icon(
+                        onPressed: () => _saveWalletImageToGallery(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white54),
+                        ),
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('Salvar na galeria'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: () => _shareWalletPng(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                      ),
+                      icon: const Icon(Icons.ios_share_rounded),
+                      label: Text(
+                        kIsWeb ? 'Baixar PNG' : 'Compartilhar',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _backfillCodigosMembro(BuildContext context) async {
+    if (!_canManage) return;
+    final igrejaDocId = await _effectiveIgrejaDocId();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Gerando códigos de membro em falta…')),
+    );
+    try {
+      final r = await MemberCodigoService.backfillMissing(
+        tenantId: igrejaDocId,
+        limit: 120,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          '${r.assigned} código(s) atribuído(s). ${r.skipped} já tinham código.'
+          '${r.errors > 0 ? " ${r.errors} erro(s)." : ""}',
+        ),
+      );
+      setState(() => _loadFuture = _load());
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('Erro ao gerar códigos: $e'),
+        );
+      }
+    }
+  }
+
+  Future<void> _assinarMembroAtual(BuildContext context, _CardData data) async {
+    if (!_canManage) return;
+    final options = await _loadSignatoryOptions();
+    if (!context.mounted) return;
+    if (options.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cadastre a assinatura do pastor/gestor em Membros → Editar.',
+          ),
+        ),
+      );
+      return;
+    }
+    final defaultSigId =
+        (data.cardConfig['defaultSignatoryMemberId'] ?? '').toString().trim();
+    var selected = _selectSignatory(
+      options,
+      defaultSigId.isEmpty ? null : defaultSigId,
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Container(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(ThemeCleanPremium.radiusLg),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Assinar cartão de ${_memberNome(data.member)}',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<
+                    ({
+                      String memberId,
+                      String nome,
+                      String cargo,
+                      String? cpf,
+                      String? assinaturaUrl
+                    })>(
+                  value: selected,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Quem assina',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: options
+                      .map(
+                        (o) => DropdownMenuItem(
+                          value: o,
+                          child: Text(
+                            '${o.nome} — ${o.cargo}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => _refreshSignatoryFromFirestore(
+                    ctx,
+                    setModal,
+                    v,
+                    (nv) => selected = nv,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: selected == null
+                      ? null
+                      : () async {
+                          Navigator.pop(ctx);
+                          final r = await _firestoreAssinaturaLote(
+                            [data.memberId],
+                            selected!,
+                          );
+                          if (context.mounted) {
+                            _snackFirestoreAssinaturaResult(context, r);
+                            setState(() => _loadFuture = _load());
+                          }
+                        },
+                  icon: const Icon(Icons.draw_rounded),
+                  label: const Text('Assinar cartão'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _abrirEmitirVarios(BuildContext context) async {
@@ -4092,7 +4415,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// Frente + verso com os mesmos widgets da carteira digital (captura em lote fora do ecrã).
+  /// Cartão CNH digital para captura raster (lote / PNG / PDF).
   Widget _walletDigitalFrontBackForRaster({
     required BuildContext context,
     required _CardData data,
@@ -4105,142 +4428,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required bool showDigitalSignature,
     required bool ladoALado,
   }) {
-    final name = _memberNome(data.member);
-    final cpf = _memberCpfRaw(data.member);
-    final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
-    final nascimento =
-        _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-    final batismoFmt =
-        _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
-    final validade = _validityLabel(data.member);
-    final colorA = cfg.bgColorValue;
-    final colorB = cfg.bgColorSecondaryValue ??
-        CarteirinhaVisualTokens.gradientEndFromPrimary(colorA);
-    final accentGold = cfg.accentColorValue;
-    final logoSlot = (cfg.logoDataBase64 != null &&
-            cfg.logoDataBase64!.isNotEmpty)
-        ? Image.memory(
-            base64Decode(cfg.logoDataBase64!),
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Image.asset(
-              'assets/LOGO_GESTAO_YAHWEH.png',
-              fit: BoxFit.contain,
-            ),
-          )
-        : StableChurchLogo(
-            tenantId: data.igrejaDocId,
-            tenantData: data.tenant,
-            storagePath: ChurchImageFields.logoStoragePath(data.tenant),
-            imageUrl:
-                cfg.logoUrl.trim().isNotEmpty ? cfg.logoUrl.trim() : null,
-            width: 160,
-            height: 160,
-            fit: BoxFit.contain,
-            memCacheWidth: 320,
-            memCacheHeight: 320,
-          );
-    final photoSlot = FotoMembroWidget(
-      key: ValueKey<String>(
-        'raster_wallet_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
+    return ColoredBox(
+      color: const Color(0xFF0D2C54),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        child: _buildCnhCardPreview(data, cfg, maxWidth: wCard),
       ),
-      imageUrl: photoUrlPreview.isEmpty ? null : photoUrlPreview,
-      tenantId: data.igrejaDocId,
-      memberId: data.memberId,
-      cpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
-      memberData: data.member,
-      authUid: _memberAuthUidForCarteiraFoto(data.member),
-      size: 72,
-      memCacheWidth: 220,
-      memCacheHeight: 220,
-      imageCacheRevision: memberPhotoDisplayCacheRevision(data.member),
-    );
-    final cpfFmt = _formatCpfForCard(cpf);
-    final filiacaoTxt = walletFiliacaoFromMember(data.member);
-    final estadoRaster = _estadoCivilFromMember(data.member);
-    final telM = _telefoneFromMember(data.member);
-    final signatoryNameWallet = signatoryNome.trim().isNotEmpty
-        ? signatoryNome.trim()
-        : (data.member['carteirinhaAssinadaPorNome'] ?? '').toString();
-    final signatoryCargoWallet = signatoryCargo.trim().isNotEmpty
-        ? signatoryCargo.trim()
-        : (data.member['carteirinhaAssinadaPorCargo'] ?? '').toString();
-    final sigUrlUse =
-        showDigitalSignature ? sigUrl.trim() : '';
-
-    final hCard = DigitalWalletCardLayout.cardHeight(wCard);
-    final front = MemberDigitalWalletFront(
-      width: wCard,
-      colorA: colorA,
-      colorB: colorB,
-      textColor: cfg.textColorValue,
-      accentGold: accentGold,
-      churchTitle: cfg.title,
-      churchSubtitle: cfg.subtitle,
-      logoSlot: logoSlot,
-      photoSlot: photoSlot,
-      showPhoto: cfg.showPhoto,
-      memberName: name,
-      cargo: _cargoDisplay(data.member, cfg),
-      admission: () {
-        final a = _admissionBatismoLine(data.member);
-        return a.isEmpty ? '—' : a;
-      }(),
-      validade: validade.isEmpty ? '—' : validade,
-    );
-    final back = MemberDigitalWalletBack(
-      width: wCard,
-      colorA: colorA,
-      colorB: colorB,
-      textColor: cfg.textColorValue,
-      accentGold: accentGold,
-      churchTitle: cfg.title,
-      cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
-      nascimento: nascimento.isEmpty ? '—' : nascimento,
-      dataBatismo: batismoFmt.isEmpty ? '—' : batismoFmt,
-      filiacaoPaiMae: filiacaoTxt.isEmpty ? '—' : filiacaoTxt,
-      estadoCivil: estadoRaster.isEmpty ? '—' : estadoRaster,
-      telefone: telM.isEmpty ? '—' : telM,
-      signatureImageUrl: sigUrlUse.isEmpty ? null : sigUrlUse,
-      signatoryName: signatoryNameWallet,
-      signatoryCargo: signatoryCargoWallet,
-      signatoryCpf: signatoryCpf.trim(),
-      showDigitalSignature: showDigitalSignature,
-      fraseRodape: cfg.fraseRodape,
-    );
-    if (!ladoALado) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          front,
-          const SizedBox(height: 14),
-          back,
-        ],
-      );
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        front,
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 1,
-          height: hCard,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color: Colors.grey.shade500,
-                  width: 1,
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 11),
-        back,
-      ],
     );
   }
 
@@ -5746,6 +5939,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.cnhFullscreenOnly) {
+      return _buildCnhFullscreenBody(context);
+    }
     final isMobile = ThemeCleanPremium.isMobile(context);
     final hideAppBarEmbedded = widget.embeddedInShell && isMobile;
     return Scaffold(
@@ -5797,7 +5993,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 onPressed: () => Navigator.maybePop(context),
                 tooltip: 'Voltar',
               ),
-              title: const Text('Carteirinha digital',
+              title: const Text('Cartão membro — CNH digital',
                   style: TextStyle(
                       fontWeight: FontWeight.w800, letterSpacing: -0.3)),
               flexibleSpace: Container(
@@ -5819,20 +6015,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
               scrolledUnderElevation: 0,
               surfaceTintColor: Colors.transparent,
               actions: [
-                IconButton(
-                  tooltip: 'Exportar PDF',
-                  icon: const Icon(Icons.picture_as_pdf_rounded),
-                  style: IconButton.styleFrom(
-                      minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                          ThemeCleanPremium.minTouchTarget)),
-                  onPressed: () async {
-                    final future = _loadFuture;
-                    if (future == null) return;
-                    final data = await future;
-                    if (data == null || !context.mounted) return;
-                    await _showGerarPdfComAssinatura(context, data);
-                  },
-                ),
+                if (_canManage)
+                  IconButton(
+                    tooltip: 'Exportar PDF (gestor)',
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    style: IconButton.styleFrom(
+                        minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
+                            ThemeCleanPremium.minTouchTarget)),
+                    onPressed: () async {
+                      final future = _loadFuture;
+                      if (future == null) return;
+                      final data = await future;
+                      if (data == null || !context.mounted) return;
+                      await _showGerarPdfComAssinatura(context, data);
+                    },
+                  ),
                 if (_canManage)
                   IconButton(
                     tooltip: 'Configurar cor e logo',
@@ -5872,25 +6069,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    IconButton(
-                      tooltip: 'Exportar PDF',
-                      icon: const Icon(Icons.picture_as_pdf_rounded),
-                      color: ThemeCleanPremium.primary,
-                      style: IconButton.styleFrom(
-                          minimumSize: const Size(
-                              ThemeCleanPremium.minTouchTarget,
-                              ThemeCleanPremium.minTouchTarget)),
-                      onPressed: () async {
-                        final future = _loadFuture;
-                        if (future == null) return;
-                        final data = await future;
-                        if (data == null || !context.mounted) return;
-                        await _showGerarPdfComAssinatura(context, data);
-                      },
-                    ),
                     if (_canManage)
                       IconButton(
-                        tooltip: 'Configurar cor e logo',
+                        tooltip: 'Exportar PDF (gestor)',
+                        icon: const Icon(Icons.picture_as_pdf_rounded),
+                        color: ThemeCleanPremium.primary,
+                        style: IconButton.styleFrom(
+                            minimumSize: const Size(
+                                ThemeCleanPremium.minTouchTarget,
+                                ThemeCleanPremium.minTouchTarget)),
+                        onPressed: () async {
+                          final future = _loadFuture;
+                          if (future == null) return;
+                          final data = await future;
+                          if (data == null || !context.mounted) return;
+                          await _showGerarPdfComAssinatura(context, data);
+                        },
+                      ),
+                    if (_canManage)
+                      IconButton(
+                        tooltip: 'Configurar logo da igreja',
                         icon: const Icon(Icons.palette_rounded),
                         color: ThemeCleanPremium.primary,
                         style: IconButton.styleFrom(
@@ -6574,15 +6772,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       if (_canManage) ...[
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
-                          onPressed: () => _abrirEmitirVarios(context),
-                          icon: const Icon(Icons.badge_outlined),
-                          label: const Text('Emitir vários (gestor)'),
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
                           onPressed: () => _abrirAssinarEmLote(context),
                           icon: const Icon(Icons.draw_rounded),
-                          label: const Text('Assinar carteirinhas em lote'),
+                          label: const Text('Assinar cartões em lote'),
                         ),
                       ],
                     ],
@@ -6595,14 +6787,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
             final cfg = _effectiveCardConfig(data);
             final name = _memberNome(data.member);
-            final cpf = _memberCpfRaw(data.member);
-            final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
             final photoUrlPreview =
                 sanitizeImageUrl(imageUrlFromMap(data.member));
-            final nascimento =
-                _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
-            final batismoFmt =
-                _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO')).trim();
             final validade = _validityLabel(data.member);
             _warmupCarteiraAssets(data, cfg);
 
@@ -6748,63 +6934,58 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    Center(
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () async =>
-                              _showGerarPdfComAssinatura(context, data),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                          child: Ink(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  ThemeCleanPremium.primary,
-                                  ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.88),
-                                  ThemeCleanPremium.navSidebar,
-                                ],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusLg),
-                              boxShadow: ThemeCleanPremium.cardShadowHover,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 28, vertical: 16),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.picture_as_pdf_rounded,
-                                      color: Colors.white, size: 22),
-                                  const SizedBox(width: 10),
-                                  const Text(
-                                    'Exportar PDF',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                    if (_canManage) ...[
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _backfillCodigosMembro(context),
+                            icon: const Icon(Icons.pin_outlined),
+                            label: const Text('Gerar códigos em falta'),
                           ),
-                        ),
+                          FilledButton.icon(
+                            onPressed: () => _assinarMembroAtual(context, data),
+                            icon: const Icon(Icons.draw_rounded),
+                            label: const Text('Assinar este cartão'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _showGerarPdfComAssinatura(context, data),
+                            icon: const Icon(Icons.picture_as_pdf_outlined),
+                            label: const Text('PDF (opcional)'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _abrirAssinarEmLote(context),
+                            icon: const Icon(Icons.fact_check_outlined),
+                            label: const Text('Assinar em lote'),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Depois: imprimir, compartilhar ou salvar no dispositivo.',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      textAlign: TextAlign.center,
-                    ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Modelo único CNH digital — só a logo da igreja muda. Membros usam só no celular; impressão não é necessária.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Seu cartão digital oficial — apresente no celular. Não precisa imprimir.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     if (!_canManage) ...[
                       const SizedBox(height: 12),
                       Builder(
@@ -6909,7 +7090,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Carteira digital (Wallet)',
+                        'Cartão membro — padrão CNH digital',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -6919,280 +7100,108 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Exportar PDF usa o mesmo visual da carteira abaixo (frente + verso); '
-                      'visualização em folha A4 com largura de cartão CR80 para caber na tela. '
-                      'PDF vetorial (se a captura falhar) usa páginas no tamanho do cartão. '
-                      'Cores e destaque em Configurar carteirinha. '
-                      'Assinatura: Configurar carteirinha ou assinatura no cadastro do signatário.',
+                      'Visual único em todo o Gestão YAHWEH. Apenas a logo e o nome da sua igreja mudam. '
+                      'O QR Code abre a validação oficial no app.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
                         color: Colors.grey.shade600,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: _walletIncluirAssinaturaDigital,
-                      onChanged: (v) =>
-                          setState(() => _walletIncluirAssinaturaDigital = v),
-                      title: const Text('Assinatura digital na impressão / PNG'),
-                      subtitle: Text(
-                        _walletIncluirAssinaturaDigital
-                            ? 'Inclui a imagem da assinatura cadastrada no líder (ideal para impressão direta).'
-                            : 'Oculta a imagem e reserva espaço para assinar à mão no papel.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          height: 1.35,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    FutureBuilder<
-                        ({
-                          String pastorUrl,
-                          String sigNome,
-                          String sigCargo,
-                          String sigCpf
-                        })>(
-                      key: ValueKey<String>(
-                          'wallet_ctx_${data.igrejaDocId}_${data.memberId}'),
-                      future: _walletDisplayContext(data),
-                      builder: (context, snapPastor) {
-                        final memberSig = (data.member['carteirinhaAssinaturaUrl'] ??
-                                '')
-                            .toString()
-                            .trim();
-                        final snapSig =
-                            (snapPastor.data?.pastorUrl ?? '').trim();
-                        final exportSig = (_walletPdfExportSigUrl ?? '').trim();
-                        final sigUrlRaw = exportSig.isNotEmpty
-                            ? exportSig
-                            : (memberSig.isNotEmpty ? memberSig : snapSig);
-                        final sigUrl = _walletIncluirAssinaturaDigital
-                            ? sigUrlRaw
-                            : '';
-                        final estadoTxt = _estadoCivilFromMember(data.member);
-                        final wCard = min(
-                          360.0,
-                          MediaQuery.sizeOf(context).width -
-                              ThemeCleanPremium.spaceLg * 2,
-                        ).clamp(280.0, 360.0);
-                        final colorA = cfg.bgColorValue;
-                        final colorB = cfg.bgColorSecondaryValue ??
-                            CarteirinhaVisualTokens.gradientEndFromPrimary(
-                                colorA);
-                        final accentGold = cfg.accentColorValue;
-                        final logoSlot = (cfg.logoDataBase64 != null &&
-                                cfg.logoDataBase64!.isNotEmpty)
-                            ? Image.memory(
-                                base64Decode(cfg.logoDataBase64!),
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => Image.asset(
-                                  'assets/LOGO_GESTAO_YAHWEH.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              )
-                            : StableChurchLogo(
-                                tenantId: data.igrejaDocId,
-                                tenantData: data.tenant,
-                                storagePath:
-                                    ChurchImageFields.logoStoragePath(data.tenant),
-                                imageUrl: cfg.logoUrl.trim().isNotEmpty
-                                    ? cfg.logoUrl.trim()
-                                    : null,
-                                // Tamanho lógico alto: [FittedBox] na carteira escala para o quadrado; cache maior = mais nítido.
-                                width: 160,
-                                height: 160,
-                                fit: BoxFit.contain,
-                                memCacheWidth: 320,
-                                memCacheHeight: 320,
-                              );
-                        final photoSlot = FotoMembroWidget(
-                          key: ValueKey<String>(
-                            'wallet_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
-                          ),
-                          imageUrl:
-                              photoUrlPreview.isEmpty ? null : photoUrlPreview,
-                          tenantId: data.igrejaDocId,
-                          memberId: data.memberId,
-                          cpfDigits:
-                              cpfDigits.length == 11 ? cpfDigits : null,
-                          memberData: data.member,
-                          authUid: _memberAuthUidForCarteiraFoto(data.member),
-                          size: 72,
-                          memCacheWidth: 220,
-                          memCacheHeight: 220,
-                          imageCacheRevision:
-                              memberPhotoDisplayCacheRevision(data.member),
-                        );
-                        final cpfFmt = _formatCpfForCard(cpf);
-                        final filiacaoTxt =
-                            walletFiliacaoFromMember(data.member);
-                        final telM = _telefoneFromMember(data.member);
-                        final signatoryNameWallet =
-                            (_walletPdfExportSignatoryNome ?? '').trim().isNotEmpty
-                                ? _walletPdfExportSignatoryNome!.trim()
-                                : (snapPastor.hasData &&
-                                        (snapPastor.data!.sigNome).trim().isNotEmpty
-                                    ? snapPastor.data!.sigNome.trim()
-                                    : (data.member['carteirinhaAssinadaPorNome'] ??
-                                            '')
-                                        .toString());
-                        final signatoryCargoWallet =
-                            (_walletPdfExportSignatoryCargo ?? '').trim().isNotEmpty
-                                ? _walletPdfExportSignatoryCargo!.trim()
-                                : (snapPastor.hasData &&
-                                        (snapPastor.data!.sigCargo).trim().isNotEmpty
-                                    ? snapPastor.data!.sigCargo.trim()
-                                    : (data.member['carteirinhaAssinadaPorCargo'] ??
-                                            '')
-                                        .toString());
-                        final signatoryCpfWallet =
-                            (_walletPdfExportSignatoryCpf ?? '').trim().isNotEmpty
-                                ? _walletPdfExportSignatoryCpf!.trim()
-                                : (snapPastor.hasData &&
-                                        (snapPastor.data!.sigCpf).trim().isNotEmpty
-                                    ? snapPastor.data!.sigCpf.trim()
-                                    : '');
-                        return Column(
+                    const SizedBox(height: 12),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _openCnhFullscreen(context),
+                        borderRadius: BorderRadius.circular(18),
+                        child: Column(
                           children: [
                             Screenshot(
                               controller: _walletScreenshotController,
                               child: ColoredBox(
-                                color: const Color(0xFFF8FAFC),
+                                color: const Color(0xFF0D2C54),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                    horizontal: 8,
+                                    vertical: 16,
+                                    horizontal: 10,
                                   ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      MemberDigitalWalletFront(
-                                        width: wCard,
-                                        colorA: colorA,
-                                        colorB: colorB,
-                                        textColor: cfg.textColorValue,
-                                        accentGold: accentGold,
-                                        churchTitle: cfg.title,
-                                        churchSubtitle: cfg.subtitle,
-                                        logoSlot: logoSlot,
-                                        photoSlot: photoSlot,
-                                        showPhoto: cfg.showPhoto,
-                                        memberName: name,
-                                        cargo: _cargoDisplay(data.member, cfg),
-                                        admission: () {
-                                          final a = _admissionBatismoLine(
-                                              data.member);
-                                          return a.isEmpty ? '—' : a;
-                                        }(),
-                                        validade: validade.isEmpty
-                                            ? '—'
-                                            : validade,
-                                      ),
-                                      const SizedBox(height: 14),
-                                      MemberDigitalWalletBack(
-                                        width: wCard,
-                                        colorA: colorA,
-                                        colorB: colorB,
-                                        textColor: cfg.textColorValue,
-                                        accentGold: accentGold,
-                                        churchTitle: cfg.title,
-                                        cpfOrDoc: cpfFmt.isEmpty ? '—' : cpfFmt,
-                                        nascimento: nascimento.isEmpty
-                                            ? '—'
-                                            : nascimento,
-                                        dataBatismo: batismoFmt.isEmpty
-                                            ? '—'
-                                            : batismoFmt,
-                                        filiacaoPaiMae: filiacaoTxt.isEmpty
-                                            ? '—'
-                                            : filiacaoTxt,
-                                        estadoCivil: estadoTxt.isEmpty
-                                            ? '—'
-                                            : estadoTxt,
-                                        telefone:
-                                            telM.isEmpty ? '—' : telM,
-                                        signatureImageUrl:
-                                            sigUrl.isEmpty ? null : sigUrl,
-                                        signatoryName: signatoryNameWallet,
-                                        signatoryCargo: signatoryCargoWallet,
-                                        signatoryCpf: signatoryCpfWallet,
-                                        showDigitalSignature:
-                                            _walletIncluirAssinaturaDigital,
-                                        fraseRodape: cfg.fraseRodape,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                'Verso — dados do membro; bloco institucional com nome, CPF e cargo do responsável; assinatura digital ou área para assinar à mão (PDF/PNG acima)',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.blueGrey.shade600,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              alignment: WrapAlignment.center,
-                              children: [
-                                if (!kIsWeb)
-                                  OutlinedButton.icon(
-                                    onPressed: () =>
-                                        _saveWalletImageToGallery(context),
-                                    icon: const Icon(
-                                        Icons.photo_library_outlined),
-                                    label: const Text('Salvar na galeria'),
-                                  ),
-                                OutlinedButton.icon(
-                                  onPressed: () => _shareWalletPng(context),
-                                  icon: const Icon(Icons.ios_share_rounded),
-                                  label: Text(
-                                      kIsWeb ? 'Baixar / compartilhar PNG' : 'Compartilhar PNG'),
-                                ),
-                                FilledButton.icon(
-                                  onPressed: () => _openWhatsAppCarteira(
-                                    context,
+                                  child: _buildCnhCardPreview(
                                     data,
                                     cfg,
-                                    validade.isEmpty ? '—' : validade,
+                                    maxWidth: min(
+                                      400.0,
+                                      MediaQuery.sizeOf(context).width -
+                                          ThemeCleanPremium.spaceLg * 2,
+                                    ).clamp(300.0, 400.0),
                                   ),
-                                  icon: const Icon(Icons.chat_rounded),
-                                  label: const Text(
-                                      'Enviar imagem (WhatsApp / compart.)'),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF25D366),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_maskNomePublico(name).isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Text(
-                                'Titular público (mascarado): ${_maskNomePublico(name)}',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.blueGrey.shade700,
                                 ),
                               ),
-                            ],
+                            ),
+                            const SizedBox(height: 8),
+                            FilledButton.icon(
+                              onPressed: () => _openCnhFullscreen(context),
+                              icon: const Icon(Icons.fullscreen_rounded),
+                              label: const Text('Ver em tela cheia'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF0D2C54),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
                           ],
-                        );
-                      },
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        if (!kIsWeb)
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _saveWalletImageToGallery(context),
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Salvar na galeria'),
+                          ),
+                        OutlinedButton.icon(
+                          onPressed: () => _shareWalletPng(context),
+                          icon: const Icon(Icons.ios_share_rounded),
+                          label: Text(kIsWeb
+                              ? 'Baixar / compartilhar PNG'
+                              : 'Compartilhar PNG'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () => _openWhatsAppCarteira(
+                            context,
+                            data,
+                            cfg,
+                            validade.isEmpty ? '—' : validade,
+                          ),
+                          icon: const Icon(Icons.chat_rounded),
+                          label: const Text('Enviar (WhatsApp / compart.)'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF25D366),
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_maskNomePublico(name).isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Titular público (mascarado): ${_maskNomePublico(name)}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.blueGrey.shade700,
+                        ),
+                      ),
+                    ],
                     if (_showMemberFinanceHistory(data))
                       Padding(
                         padding: const EdgeInsets.only(top: 16),
@@ -8124,7 +8133,7 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
-        title: const Text('Cor e logo da carteirinha'),
+        title: const Text('Logo do cartão membro (CNH)'),
         backgroundColor: ThemeCleanPremium.primary,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -8140,8 +8149,28 @@ class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2F0D9),
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  border: Border.all(color: const Color(0xFF2E7D32)),
+                ),
+                child: Text(
+                  'Modelo único CNH digital em todo o Gestão YAHWEH. '
+                  'Aqui você altera só a logo e o nome da igreja — cores do cartão são fixas.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: Colors.green.shade900,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: ThemeCleanPremium.spaceMd),
               _buildPremiumCard(
-                title: 'Logo da carteirinha',
+                title: 'Logo do cartão',
                 icon: Icons.image_rounded,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

@@ -622,6 +622,12 @@ String _pickBestImageUrlCandidate(List<String> ordered) {
   if (ordered.isEmpty) return '';
   int thumbRank(String s) {
     final low = s.toLowerCase();
+    if (low.contains('profile_thumb') ||
+        low.contains('profile_medium') ||
+        low.contains('photothumb') ||
+        low.contains('photomedium')) {
+      return 2;
+    }
     if (low.contains('thumb_') ||
         low.contains('_thumb.') ||
         low.contains('_thumb?') ||
@@ -630,6 +636,7 @@ String _pickBestImageUrlCandidate(List<String> ordered) {
         low.contains('thumb_foto_perfil')) {
       return 1;
     }
+    if (low.contains('foto_perfil')) return 0;
     return 0;
   }
 
@@ -765,8 +772,6 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
     'imagemPerfil',
     'urlFoto',
     'fotoPerfil',
-    'photoThumb',
-    'photoMedium',
     'logoUrl',
     'logo_url',
     'logo',

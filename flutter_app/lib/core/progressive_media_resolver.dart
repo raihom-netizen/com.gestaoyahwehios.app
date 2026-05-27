@@ -7,9 +7,13 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 abstract final class ProgressiveMediaResolver {
   ProgressiveMediaResolver._();
 
-  /// Lista / feed — menor payload primeiro.
+  /// Lista / feed — capa canónica do post (não priorizar variante V4 quebrada).
   static String feedListUrl(Map<String, dynamic>? data) {
     if (data == null) return '';
+    final photos = eventNoticiaPhotoUrls(data);
+    if (photos.isNotEmpty) {
+      return sanitizeImageUrl(photos.first);
+    }
     final hint = eventNoticiaFeedCoverHintUrl(data);
     if (hint.isNotEmpty) return sanitizeImageUrl(hint);
     return sanitizeImageUrl(imageUrlFromMap(data));
@@ -32,13 +36,17 @@ abstract final class ProgressiveMediaResolver {
 
   /// Avatar em lista.
   static String memberListUrl(Map<String, dynamic>? member) {
+    final primary = sanitizeImageUrl(imageUrlFromMap(member));
+    if (primary.isNotEmpty) return primary;
     final thumb = MemberProfileVariantsService.listPhotoUrl(member);
     if (thumb != null && thumb.isNotEmpty) return sanitizeImageUrl(thumb);
-    return sanitizeImageUrl(imageUrlFromMap(member));
+    return '';
   }
 
   /// Perfil / carteirinha.
   static String memberProfileUrl(Map<String, dynamic>? member) {
+    final primary = sanitizeImageUrl(imageUrlFromMap(member));
+    if (primary.isNotEmpty) return primary;
     final med = MemberProfileVariantsService.profilePhotoUrl(member);
     if (med != null && med.isNotEmpty) return sanitizeImageUrl(med);
     return memberListUrl(member);

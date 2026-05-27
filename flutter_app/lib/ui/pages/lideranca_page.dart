@@ -1,20 +1,25 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show ResilientNetworkImage, imageUrlFromMap, sanitizeImageUrl;
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 
-/// Organograma simples: líderes com foto, ordenados por hierarquia do cargo.
+/// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
   final String tenantId;
   final String role;
+  final String viewerCpfDigits;
 
   const LiderancaPage({
     super.key,
     required this.tenantId,
     required this.role,
+    this.viewerCpfDigits = '',
   });
 
   @override
@@ -24,6 +29,8 @@ class LiderancaPage extends StatefulWidget {
 class _LiderancaPageState extends State<LiderancaPage> {
   bool _loading = true;
   List<_LeaderRow> _rows = [];
+  String _effectiveTenantId = '';
+  bool _usedPanelCache = false;
 
   @override
   void initState() {
@@ -32,12 +39,38 @@ class _LiderancaPageState extends State<LiderancaPage> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-    });
+    setState(() => _loading = true);
     try {
       final tid =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      _effectiveTenantId = tid;
+
+      final panel = await PanelDashboardSnapshotService.readOnce(tid);
+      if (panel.homeLeaders.isNotEmpty) {
+        final rows = panel.homeLeaders.map((lite) {
+          final data = lite.toMemberDataMap();
+          return _LeaderRow(
+            memberId: lite.memberDocId,
+            memberData: data,
+            name: lite.displayName,
+            photoUrl: lite.photoUrl ?? imageUrlFromMap(data),
+            cargoLabel: lite.deptNames.isNotEmpty
+                ? 'Líder · ${lite.deptNames.join(', ')}'
+                : 'Liderança',
+            rank: 50,
+            sortKey: lite.displayName.toLowerCase(),
+            deptNames: lite.deptNames,
+          );
+        }).toList();
+        if (!mounted) return;
+        setState(() {
+          _rows = rows;
+          _usedPanelCache = true;
+          _loading = false;
+        });
+        return;
+      }
+
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(tid)
@@ -72,11 +105,14 @@ class _LiderancaPageState extends State<LiderancaPage> {
         final foto = imageUrlFromMap(m);
         final label = _cargoDisplayLabel(m, bestKey, cargoMeta);
         rows.add(_LeaderRow(
+          memberId: d.id,
+          memberData: m,
           name: nome,
           photoUrl: foto,
           cargoLabel: label,
           rank: bestRank,
           sortKey: nome.toLowerCase(),
+          deptNames: const [],
         ));
       }
       rows.sort((a, b) {
@@ -87,14 +123,11 @@ class _LiderancaPageState extends State<LiderancaPage> {
       if (!mounted) return;
       setState(() {
         _rows = rows;
+        _usedPanelCache = false;
         _loading = false;
       });
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -173,12 +206,35 @@ class _LiderancaPageState extends State<LiderancaPage> {
   @override
   Widget build(BuildContext context) {
     final padding = ThemeCleanPremium.pagePadding(context);
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId;
+
+    if (!_loading && _rows.isNotEmpty) {
+      ChurchGalleryPhotoWarmup.schedule(
+        context: context,
+        tenantId: tid,
+        members: _rows.map(
+          (r) => ChurchGalleryMemberPhotoRef(
+            memberDocId: r.memberId,
+            memberData: r.memberData,
+            cpfDigits: (r.memberData['CPF'] ?? r.memberData['cpf'] ?? '')
+                .toString()
+                .replaceAll(RegExp(r'\D'), ''),
+            authUid: (r.memberData['authUid'] ?? '').toString().trim().isEmpty
+                ? null
+                : (r.memberData['authUid'] ?? '').toString(),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: ThemeCleanPremium.isMobile(context)
           ? null
           : AppBar(
-              title: const Text('Liderança'),
+              title: const Text('Organograma ministerial'),
               backgroundColor: Colors.white,
               foregroundColor: ThemeCleanPremium.onSurface,
               elevation: 0,
@@ -196,7 +252,7 @@ class _LiderancaPageState extends State<LiderancaPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Liderança ministerial',
+                            'Organograma ministerial',
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w800,
@@ -205,7 +261,9 @@ class _LiderancaPageState extends State<LiderancaPage> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Membros com cargos de liderança (pastores, tesoureiros, líderes de departamento, etc.), do maior nível hierárquico para o menor.',
+                            _usedPanelCache
+                                ? 'Lista rápida do painel (líderes de departamento). Para cargos ministeriais completos, atribua funções em Membros ou Cargos.'
+                                : 'Membros com cargos de liderança (pastores, tesoureiros, líderes, etc.), do maior nível hierárquico para o menor.',
                             style: TextStyle(
                               fontSize: 13,
                               height: 1.35,
@@ -250,56 +308,59 @@ class _LiderancaPageState extends State<LiderancaPage> {
                               child: Material(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(16),
-                                elevation: 0,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                        color: const Color(0xFFE2E8F0)),
-                                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: () => openChurchLeaderContactPage(
+                                    context,
+                                    memberData: r.memberData,
+                                    departmentNames: r.deptNames,
+                                    funcoes: const [],
+                                    tenantId: tid,
+                                    memberDocId: r.memberId,
+                                    memberRole: widget.role,
+                                    viewerCpfDigits: widget.viewerCpfDigits,
                                   ),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 10),
-                                    leading: CircleAvatar(
-                                      radius: 28,
-                                      backgroundColor: const Color(0xFFF1F5F9),
-                                      child: ClipOval(
-                                        child: r.photoUrl.isNotEmpty
-                                            ? ResilientNetworkImage(
-                                                imageUrl: sanitizeImageUrl(
-                                                    r.photoUrl),
-                                                width: 56,
-                                                height: 56,
-                                                fit: BoxFit.cover,
-                                                errorWidget: Icon(
-                                                  Icons.person_rounded,
-                                                  color: Colors.grey.shade400,
-                                                ),
-                                              )
-                                            : Icon(
-                                                Icons.person_rounded,
-                                                color: Colors.grey.shade400,
-                                                size: 32,
-                                              ),
-                                      ),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                          color: const Color(0xFFE2E8F0)),
+                                      boxShadow:
+                                          ThemeCleanPremium.softUiCardShadow,
                                     ),
-                                    title: Text(
-                                      r.name,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 16,
+                                    child: ListTile(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 16, vertical: 10),
+                                      leading: FotoMembroWidget(
+                                        tenantId: tid,
+                                        memberId: r.memberId,
+                                        memberData: r.memberData,
+                                        imageUrl: r.photoUrl,
+                                        size: 56,
+                                        preferListThumbnail: true,
                                       ),
-                                    ),
-                                    subtitle: Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        r.cargoLabel,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: ThemeCleanPremium.primary,
-                                          fontWeight: FontWeight.w600,
+                                      title: Text(
+                                        r.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 16,
                                         ),
+                                      ),
+                                      subtitle: Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          r.cargoLabel,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: ThemeCleanPremium.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      trailing: const Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Color(0xFF94A3B8),
                                       ),
                                     ),
                                   ),
@@ -319,17 +380,23 @@ class _LiderancaPageState extends State<LiderancaPage> {
 }
 
 class _LeaderRow {
+  final String memberId;
+  final Map<String, dynamic> memberData;
   final String name;
   final String photoUrl;
   final String cargoLabel;
   final int rank;
   final String sortKey;
+  final List<String> deptNames;
 
   _LeaderRow({
+    required this.memberId,
+    required this.memberData,
     required this.name,
     required this.photoUrl,
     required this.cargoLabel,
     required this.rank,
     required this.sortKey,
+    this.deptNames = const [],
   });
 }

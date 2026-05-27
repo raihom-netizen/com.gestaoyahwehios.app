@@ -25,6 +25,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -5691,6 +5692,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
+      await ensureFirebaseInitialized();
       final remaining =
           (_maxPhotosPerEvent - totalAtual).clamp(1, _maxPhotosPerEvent);
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
@@ -5732,6 +5734,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
+      await ensureFirebaseInitialized();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -5895,6 +5898,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       _videoUploadFraction = null;
     });
     try {
+      await ensureFirebaseInitialized();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6219,6 +6223,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
+      }
+      return;
+    }
     final docRef = _eventDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
@@ -6494,6 +6510,74 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Future<void> _saveDraft() async {
+    if (_saving) return;
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Informe o título.')));
+      return;
+    }
+    if (_newPhotoCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Fotos novas não entram no rascunho. Publique para enviar a mídia.',
+        ),
+      );
+    }
+    setState(() => _saving = true);
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
+      }
+      return;
+    }
+    final docRef = _eventDocRef;
+    final isNewDoc = widget.doc == null;
+    try {
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      double? aspectRatio;
+      if (existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble();
+        }
+      }
+      final payload = _buildEventCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      await FeedMediaPublishService.saveDraft(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Rascunho guardado'),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'eventos_draft'));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final allPreviews = <Widget>[];
@@ -6612,6 +6696,31 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       backgroundColor:
                           ThemeCleanPremium.primary.withValues(alpha: 0.12),
                       foregroundColor: ThemeCleanPremium.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: ThemeCleanPremium.minTouchTarget,
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : _saveDraft,
+                    icon: const Icon(Icons.drive_file_rename_outline_rounded,
+                        size: 20),
+                    label: const Text(
+                      'Guardar rascunho',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.onSurfaceVariant,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.onSurfaceVariant
+                            .withValues(alpha: 0.35),
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
                             ThemeCleanPremium.radiusMd),

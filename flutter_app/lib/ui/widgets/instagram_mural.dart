@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
@@ -33,7 +34,6 @@ import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dar
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
-import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -147,6 +147,8 @@ String muralFeedPhotoRefAt(
   final orig = sanitizeImageUrl(
       (mi['url_original'] ?? mi['urlOriginal'] ?? '').toString());
   if (orig.isNotEmpty && isValidImageUrl(orig)) return orig;
+  final primary = sanitizeImageUrl(photos[idx]);
+  if (primary.isNotEmpty) return primary;
   final t = sanitizeImageUrl(
       (mi['url_thumb'] ?? mi['urlThumb'] ?? '').toString());
   if (t.isNotEmpty && isValidImageUrl(t)) return t;
@@ -439,6 +441,13 @@ class InstagramMuralState extends State<InstagramMural> {
     return title.contains(q) || text.contains(q);
   }
 
+  bool _docVisibleInFeed(Map<String, dynamic> data) {
+    final ps = (data['publishState'] ?? '').toString();
+    if (ps != MuralFastPublishService.stateDraft) return true;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return uid.isNotEmpty && (data['createdByUid'] ?? '').toString() == uid;
+  }
+
   void _maybeLoadMoreFromScroll(ScrollMetrics metrics) {
     if (_isFeedPageLoading || !_hasMoreFeedPages) return;
     if ((metrics.maxScrollExtent - metrics.pixels) > 520) return;
@@ -475,7 +484,10 @@ class InstagramMuralState extends State<InstagramMural> {
 
     const type = 'aviso';
     final rawDocs = _feedRawDocs;
-    final docs = rawDocs.where((d) => _docMatchesFeedSearch(d.data())).toList();
+    final docs = rawDocs
+        .where((d) =>
+            _docVisibleInFeed(d.data()) && _docMatchesFeedSearch(d.data()))
+        .toList();
     if (rawDocs.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
@@ -1498,6 +1510,7 @@ class _PostCardState extends State<_PostCard>
     final videoCount = videoEntries.length;
     final carouselLen = photoCount + videoCount;
     final publishState = (data['publishState'] ?? '').toString();
+    final isDraft = publishState == MuralFastPublishService.stateDraft;
     final mediaUploading =
         publishState == MuralFastPublishService.stateUploading;
     final publishFailed = publishState == MuralFastPublishService.stateFailed;
@@ -1656,6 +1669,27 @@ class _PostCardState extends State<_PostCard>
                 ),
             ]),
           ),
+
+          if (isDraft)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(
+                  avatar: Icon(Icons.edit_note_rounded,
+                      size: 18, color: Colors.orange.shade800),
+                  label: Text(
+                    'Rascunho — só você vê',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.orange.shade900,
+                    ),
+                  ),
+                  backgroundColor: Colors.orange.shade50,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
 
           // Faixa estreita (evento: título+data; aviso sem foto: só título)
           if (isEvento && (title.isNotEmpty || eventDateStr.isNotEmpty))
@@ -3466,6 +3500,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
+      await ensureFirebaseInitialized();
       final remaining = (kMaxAvisoFeedPhotosPerPost -
               _existingUrls.length -
               _newPhotoCount)
@@ -3509,6 +3544,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
+      await ensureFirebaseInitialized();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -3699,11 +3735,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       return;
     }
     final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-    final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     final hasNewImages = _newPhotoCount > 0;
     setState(() => _saving = true);
     try {
+      await ensureFirebaseInitialized();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (hasNewImages) {
@@ -3782,6 +3818,67 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
     } catch (e, st) {
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+              formatUploadErrorForUser(e),
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: ThemeCleanPremium.error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _saveDraft() async {
+    if (_saving) return;
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
+      return;
+    }
+    if (_newPhotoCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Fotos novas não entram no rascunho. Publique para enviar a mídia.',
+        ),
+      );
+    }
+    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+    final isNewDoc = widget.doc == null;
+    setState(() => _saving = true);
+    try {
+      await ensureFirebaseInitialized();
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      var aspectRatio = 1.0;
+      if (existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+        }
+      }
+      final payload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      await FeedMediaPublishService.saveDraft(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Rascunho guardado'),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e, st) {
+      await CrashlyticsService.record(e, st, reason: 'avisos_draft');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
@@ -3932,6 +4029,31 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       backgroundColor:
                           ThemeCleanPremium.primary.withValues(alpha: 0.12),
                       foregroundColor: ThemeCleanPremium.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: ThemeCleanPremium.minTouchTarget,
+                  child: OutlinedButton.icon(
+                    onPressed: (_mediaPicking || _saving) ? null : _saveDraft,
+                    icon: const Icon(Icons.drive_file_rename_outline_rounded,
+                        size: 20),
+                    label: const Text(
+                      'Guardar rascunho',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.onSurfaceVariant,
+                      side: BorderSide(
+                        color: ThemeCleanPremium.onSurfaceVariant
+                            .withValues(alpha: 0.35),
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
                             ThemeCleanPremium.radiusMd),

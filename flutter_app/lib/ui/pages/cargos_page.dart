@@ -65,12 +65,14 @@ class CargosPage extends StatefulWidget {
   final String role;
   /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartão do módulo.
   final bool embeddedInShell;
+  final VoidCallback? onOpenPanelCorpoAdministrativo;
 
   const CargosPage({
     super.key,
     required this.tenantId,
     required this.role,
     this.embeddedInShell = false,
+    this.onOpenPanelCorpoAdministrativo,
   });
 
   @override
@@ -1382,8 +1384,19 @@ class _CargosPageState extends State<CargosPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  if (widget.onOpenPanelCorpoAdministrativo != null)
+                    IconButton(
+                      tooltip: 'Corpo administrativo (painel)',
+                      onPressed: widget.onOpenPanelCorpoAdministrativo,
+                      icon: Icon(Icons.groups_rounded,
+                          color: ThemeCleanPremium.primary),
+                      style: IconButton.styleFrom(
+                          minimumSize: const Size(
+                              ThemeCleanPremium.minTouchTarget,
+                              ThemeCleanPremium.minTouchTarget)),
+                    ),
                   IconButton(
-                    tooltip: 'Liderança (organograma)',
+                    tooltip: 'Organograma ministerial',
                     onPressed: _openLideranca,
                     icon: Icon(Icons.account_tree_rounded,
                         color: ThemeCleanPremium.primary),

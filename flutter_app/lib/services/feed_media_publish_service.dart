@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -19,6 +20,7 @@ abstract final class FeedMediaPublishService {
   static const String statusProcessing = MuralFastPublishService.stateUploading;
   static const String statusPublished = MuralFastPublishService.statePublished;
   static const String statusFailed = MuralFastPublishService.stateFailed;
+  static const String statusDraft = MuralFastPublishService.stateDraft;
 
   static const int kMaxPhotosPerPost = 5;
   static const int kMaxVideosPerPost = 1;
@@ -45,6 +47,7 @@ abstract final class FeedMediaPublishService {
     required bool isNewDoc,
     int pendingPhotoCount = 0,
   }) async {
+    await ensureFirebaseInitialized();
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(payload),
     );
@@ -67,8 +70,30 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
+    await ensureFirebaseInitialized();
     final patch = Map<String, dynamic>.from(payload);
     patch['publishState'] = statusPublished;
+    patch['pendingImageCount'] = FieldValue.delete();
+    patch['publishError'] = FieldValue.delete();
+    if (isNewDoc) {
+      await docRef.set(patch);
+    } else {
+      await docRef.set(patch, SetOptions(merge: true));
+    }
+    return docRef.id;
+  }
+
+  /// Rascunho — texto/campos guardados sem publicar no feed.
+  static Future<String> saveDraft({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Map<String, dynamic> payload,
+    required bool isNewDoc,
+  }) async {
+    await ensureFirebaseInitialized();
+    final patch = FirestoreWriteGuard.stripHeavyFields(
+      Map<String, dynamic>.from(payload),
+    );
+    patch['publishState'] = statusDraft;
     patch['pendingImageCount'] = FieldValue.delete();
     patch['publishError'] = FieldValue.delete();
     if (isNewDoc) {

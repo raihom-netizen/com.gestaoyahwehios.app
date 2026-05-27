@@ -474,10 +474,10 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
         );
         break;
       case AdminMenuItem.igrejasDashboard:
-        content = _IgrejasTab(
-            query: _q,
-            onQueryChanged: (v) => setState(() => _q = v),
-            canEdit: isAdmin);
+        content = MasterCommandCenterPage(
+          onNavigateTo: (item) => _selectMenuItem(context, item),
+          moduleVisible: _canAccessMasterItem,
+        );
         break;
       case AdminMenuItem.igrejasLista:
         content = _IgrejasTab(

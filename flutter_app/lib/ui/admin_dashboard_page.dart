@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
+import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
+import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Dashboard SaaS Super Premium: KPIs, gráficos de novas igrejas, usuários, recebimentos PIX/cartão, vencimentos e acessos.
@@ -57,9 +59,22 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  MasterDashboardSummary? _masterSummary;
+
+  Future<void> _load({bool force = false}) async {
     setState(() => _loading = true);
     try {
+      final summary = await MasterDashboardCacheService.refresh(force: force);
+      if (summary.hasChartData || summary.igrejas > 0) {
+        _applyFromMasterSummary(summary);
+        if (mounted) {
+          setState(() {
+            _masterSummary = summary;
+            _loading = false;
+          });
+        }
+        return;
+      }
       await _loadDashboardData().timeout(
         const Duration(seconds: 25),
         onTimeout: () => throw TimeoutException('Dashboard'),
@@ -69,6 +84,30 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _applyFromMasterSummary(MasterDashboardSummary s) {
+    _usuarios = s.usuarios;
+    _igrejas = s.igrejas;
+    _receita = s.receita;
+    _alertas = s.alertas;
+    _licencasIgrejas = s.licencasAtivas;
+    _subscriptionsAtivas = s.licencasAtivas;
+    _receitaPix = s.receitaPix;
+    _receitaCartao = s.receitaCartao;
+    _igrejasPorMes = s.igrejasPorMes;
+    _usuariosPorMes = s.usuariosPorMes;
+    _receitaPorMes = s.receitaPorMes;
+    _proximosVencimentos = s.expiringChurches.map((e) {
+      DateTime? dt;
+      final dv = e['dataVencimento'];
+      if (dv is Timestamp) dt = dv.toDate();
+      return {
+        'nome': (e['nome'] ?? e['tenantId'] ?? '').toString(),
+        'dataVencimento': dt ?? DateTime.now(),
+        'tenantId': (e['tenantId'] ?? '').toString(),
+      };
+    }).toList();
   }
 
   static DateTime? _parseDate(dynamic v) {
@@ -292,7 +331,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
 
     final body = RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () => _load(force: true),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, padding.bottom + 24),
@@ -300,6 +339,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _WelcomeStrip(),
+            if (_masterSummary != null) ...[
+              MasterCacheUpdatedBadge(summary: _masterSummary),
+              if (_masterSummary!.hasActionQueue &&
+                  widget.onNavigateTo != null) ...[
+                const SizedBox(height: ThemeCleanPremium.spaceMd),
+                MasterActionQueueCard(
+                  items: _masterSummary!.actionQueue,
+                  onNavigateTo: widget.onNavigateTo!,
+                ),
+              ],
+            ],
             if (widget.embedInPanel && widget.onNavigateTo != null) ...[
               const SizedBox(height: ThemeCleanPremium.spaceXl),
               _MasterPanelModulesSection(

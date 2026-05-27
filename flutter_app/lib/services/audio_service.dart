@@ -1,15 +1,18 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
-/// Gravação de voz ultra-leve para o Chat Igreja (AAC/M4A, upload instantâneo após parar).
+/// Gravação de voz estilo WhatsApp para o Chat Igreja (AAC/M4A mobile; web via blob).
 class ChatAudioService {
   AudioRecorder? _recorder;
   String? _path;
   AudioEncoder _encoder = AudioEncoder.aacLc;
+  Uint8List? _webBytes;
 
   bool get isRecording => _recorder != null;
   String? get currentPath => _path;
@@ -23,9 +26,8 @@ class ChatAudioService {
     }
   }
 
-  /// Inicia gravação em ficheiro temporário `.m4a` (AAC) quando suportado.
+  /// Inicia gravação (mobile: ficheiro `.m4a`; web: blob em memória).
   Future<String?> startRecording() async {
-    if (kIsWeb) return null;
     await stopRecording(send: false);
 
     final recorder = AudioRecorder();
@@ -38,24 +40,37 @@ class ChatAudioService {
     if (!await recorder.isEncoderSupported(AudioEncoder.aacLc)) {
       _encoder = AudioEncoder.wav;
     }
+    if (kIsWeb && !await recorder.isEncoderSupported(_encoder)) {
+      _encoder = AudioEncoder.opus;
+    }
 
-    final dir = await getTemporaryDirectory();
-    final ext = _encoder == AudioEncoder.wav ? 'wav' : 'm4a';
-    final path =
-        '${dir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    String? path;
+    if (kIsWeb) {
+      path = 'web_voice_${DateTime.now().millisecondsSinceEpoch}';
+      await recorder.start(
+        MediaService.chatVoiceRecordConfig(encoder: _encoder),
+        path: '',
+      );
+    } else {
+      final dir = await getTemporaryDirectory();
+      final ext = _encoder == AudioEncoder.wav ? 'wav' : 'm4a';
+      path =
+          '${dir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await recorder.start(
+        MediaService.chatVoiceRecordConfig(encoder: _encoder),
+        path: path,
+      );
+    }
 
-    await recorder.start(
-      MediaService.chatVoiceRecordConfig(encoder: _encoder),
-      path: path,
-    );
     _recorder = recorder;
     _path = path;
+    _webBytes = null;
     return path;
   }
 
-  /// Para gravação; se [send] false, apaga o ficheiro.
-  Future<File?> stopRecording({required bool send}) async {
-    if (kIsWeb) return null;
+  /// Para gravação; se [send] false, descarta.
+  /// Mobile: devolve path do ficheiro. Web: usar [takeWebRecordingBytes].
+  Future<String?> stopRecording({required bool send}) async {
     final recorder = _recorder;
     final expected = _path;
     _recorder = null;
@@ -73,18 +88,39 @@ class ChatAudioService {
     } catch (_) {}
     await recorder.dispose();
 
-    final path = outPath ?? expected;
-    if (!send || path == null || path.isEmpty) {
-      if (path != null && path.isNotEmpty) {
+    if (!send) {
+      _webBytes = null;
+      final discard = outPath ?? expected;
+      if (!kIsWeb && discard != null && discard.isNotEmpty) {
+        await churchChatDeleteFileQuiet(discard);
+      }
+      return null;
+    }
+
+    if (kIsWeb) {
+      final blobPath = outPath ?? expected ?? '';
+      if (blobPath.isNotEmpty &&
+          (blobPath.startsWith('blob:') || blobPath.startsWith('http'))) {
         try {
-          final f = File(path);
-          if (f.existsSync()) await f.delete();
+          final r = await http.get(Uri.parse(blobPath));
+          if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
+            _webBytes = Uint8List.fromList(r.bodyBytes);
+          }
         } catch (_) {}
       }
       return null;
     }
-    final file = File(path);
-    return file.existsSync() ? file : null;
+
+    final path = outPath ?? expected;
+    if (path == null || path.isEmpty) return null;
+    return path;
+  }
+
+  /// Bytes da última gravação na web (após [stopRecording] com `send: true`).
+  Uint8List? takeWebRecordingBytes() {
+    final b = _webBytes;
+    _webBytes = null;
+    return b;
   }
 
   Future<void> dispose() async {

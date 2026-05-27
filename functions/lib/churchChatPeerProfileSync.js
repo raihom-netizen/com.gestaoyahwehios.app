@@ -46,6 +46,8 @@ function pickString(data, keys) {
 }
 function pickPhotoUrl(data) {
     const keys = [
+        "imagem_url",
+        "imagemUrl",
         "fotoUrl",
         "fotoURL",
         "FOTO_URL",
@@ -60,6 +62,8 @@ function pickPhotoUrl(data) {
         "profilePhotoUrl",
         "logoProcessedUrl",
         "logoUrl",
+        "photoMedium",
+        "photoThumb",
     ];
     for (const k of keys) {
         const v = data[k];

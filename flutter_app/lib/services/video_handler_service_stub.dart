@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
@@ -87,6 +88,7 @@ class VideoHandlerService implements IVideoHandlerService {
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
   }) async {
+    await ensureFirebaseInitialized();
     final effectiveMaxDuration =
         maxDuration < mediaVideoMaxDurationEffective
             ? maxDuration

@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -1169,6 +1170,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         updateData.remove('CRIADO_EM');
         await ref.update(updateData);
       } else {
+        final codigoMembro =
+            await MemberCodigoService.allocateNext(_tenantId!);
+        data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
         await ref.set(data);
       }
 

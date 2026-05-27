@@ -15,23 +15,59 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         normalizeFirebaseStorageObjectPath,
         sanitizeImageUrl;
 
-/// Para exibição: prefere URL `https` (token Firebase) a `gs://` ou path nu (evita Firestore "cego" na web).
+/// Prioridade de capa: foto canónica (banner/galeria) antes de variantes V4 (`medium_800`, `thumb_200`).
+int _noticiaRefDisplayRank(String s) {
+  final low = s.toLowerCase();
+  if (low.contains('banner_evento') ||
+      low.contains('galeria_') ||
+      low.contains('foto_perfil') ||
+      (low.contains('/noticias/') &&
+          !low.contains('thumb') &&
+          !low.contains('medium_800'))) {
+    return 0;
+  }
+  if (low.contains('medium_800') ||
+      low.contains('_medium.') ||
+      low.contains('_medium?') ||
+      low.contains('/medium/')) {
+    return 2;
+  }
+  if (low.contains('thumb_200') ||
+      low.contains('thumb_') ||
+      low.contains('_thumb.') ||
+      low.contains('/thumbs/') ||
+      low.contains('%2fthumbs%2f')) {
+    return 3;
+  }
+  if (low.contains('thumb')) return 3;
+  return 1;
+}
+
+int _noticiaRefSortKey(String s) {
+  final rank = _noticiaRefDisplayRank(s);
+  final low = s.toLowerCase();
+  final proto = low.startsWith('https://')
+      ? 0
+      : low.startsWith('gs://')
+          ? 4
+          : low.startsWith('http://')
+              ? 8
+              : 12;
+  return rank * 16 + proto;
+}
+
+/// Para exibição: foto principal antes de miniaturas V4; `https` canónico antes de `thumb` quebrado.
 List<String> noticiaImageRefsPreferDisplayOrder(Iterable<String> refs) {
-  final https = <String>[];
-  final http = <String>[];
-  final rest = <String>[];
+  final out = <String>[];
+  final seen = <String>{};
   for (final r in refs) {
     final x = sanitizeImageUrl(r);
-    if (x.isEmpty) continue;
-    if (x.startsWith('https://')) {
-      if (!https.contains(x)) https.add(x);
-    } else if (x.startsWith('http://')) {
-      if (!http.contains(x)) http.add(x);
-    } else {
-      if (!rest.contains(x)) rest.add(x);
-    }
+    if (x.isEmpty || seen.contains(x)) continue;
+    seen.add(x);
+    out.add(x);
   }
-  return [...https, ...http, ...rest];
+  out.sort((a, b) => _noticiaRefSortKey(a).compareTo(_noticiaRefSortKey(b)));
+  return out;
 }
 
 /// Normaliza `&amp;` e URLs truncadas do Firebase Storage (mesmo fluxo de [sanitizeImageUrl]).
@@ -169,17 +205,6 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   pushFromAny(data['imagem_url']);
   pushFromAny(data['imagemUrl']);
   pushFromAny(data['imageUrl']);
-  final iv = data['imageVariants'];
-  if (iv is Map) {
-    for (final key in const ['medium_800', 'medium', 'full_1920', 'full', 'thumb_200', 'thumb']) {
-      final e = iv[key];
-      if (e is Map) {
-        pushFromAny(e['url'] ?? e['downloadUrl']);
-      } else {
-        pushFromAny(e);
-      }
-    }
-  }
   // Avisos/eventos: `media` como mapa ou lista de mapas (url / storagePath).
   final mediaRoot = data['media'];
   if (mediaRoot is Map) {
@@ -243,7 +268,27 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   ]) {
     if (data.containsKey(key)) pushFromAny(data[key]);
   }
-  // 4) Variantes de imagem (cadastro evento: imageVariants; legados: photoVariants como em membros)
+  // 4) Variantes V4 — só quando campos canónicos não trouxeram URL (evita thumb https quebrado em posts antigos)
+  if (out.isEmpty) {
+    final iv = data['imageVariants'];
+    if (iv is Map) {
+      for (final key in const [
+        'full_1920',
+        'full',
+        'medium_800',
+        'medium',
+        'thumb_200',
+        'thumb',
+      ]) {
+        final e = iv[key];
+        if (e is Map) {
+          pushFromAny(e['url'] ?? e['downloadUrl']);
+        } else {
+          pushFromAny(e);
+        }
+      }
+    }
+  }
   if (out.isEmpty) {
     for (final raw in imageUrlsFromVariantMap(data['imageVariants'])) {
       pushString(raw);
@@ -383,18 +428,18 @@ bool _isUsableFeedCoverRef(String s) {
 
 String eventNoticiaFeedCoverHintUrl(Map<String, dynamic>? p) {
   if (p == null) return '';
+  for (final raw in eventNoticiaPhotoUrls(p)) {
+    final s = sanitizeImageUrl(raw);
+    if (_isUsableFeedCoverRef(s)) return s;
+  }
   final iv = p['imageVariants'];
   if (iv is Map) {
-    for (final key in const ['medium_800', 'medium']) {
+    for (final key in const ['full_1920', 'full', 'medium_800', 'medium']) {
       final e = iv[key];
       final raw = e is Map ? (e['url'] ?? e['downloadUrl']) : e;
       final s = sanitizeImageUrl('$raw');
       if (_isUsableFeedCoverRef(s)) return s;
     }
-  }
-  for (final raw in eventNoticiaPhotoUrls(p)) {
-    final s = sanitizeImageUrl(raw);
-    if (_isUsableFeedCoverRef(s)) return s;
   }
   final thumb = eventNoticiaDisplayVideoThumbnailUrl(p);
   if (thumb != null && thumb.isNotEmpty) {

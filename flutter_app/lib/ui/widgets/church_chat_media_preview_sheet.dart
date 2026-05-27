@@ -14,8 +14,10 @@ Future<bool> showChurchChatMediaPreviewSheet(
   required bool isVideo,
 }) async {
   assert(
-    previewBytes != null || (localPath != null && localPath.isNotEmpty),
-    'previewBytes ou localPath',
+    previewBytes != null ||
+        (localPath != null && localPath.isNotEmpty) ||
+        isVideo,
+    'previewBytes, localPath ou isVideo',
   );
   final ok = await showModalBottomSheet<bool>(
     context: context,
@@ -27,19 +29,31 @@ Future<bool> showChurchChatMediaPreviewSheet(
       if (!kIsWeb &&
           localPath != null &&
           localPath.isNotEmpty &&
-          File(localPath).existsSync()) {
+          File(localPath).existsSync() &&
+          !isVideo) {
         preview = Image.file(
           File(localPath),
-          height: isVideo ? 220 : 260,
+          height: 260,
           width: double.infinity,
           fit: BoxFit.cover,
         );
-      } else {
+      } else if (previewBytes != null && previewBytes.isNotEmpty) {
         preview = Image.memory(
-          previewBytes!,
+          previewBytes,
           height: isVideo ? 220 : 260,
           width: double.infinity,
           fit: BoxFit.contain,
+        );
+      } else {
+        preview = Container(
+          height: isVideo ? 220 : 260,
+          width: double.infinity,
+          color: Colors.grey.shade200,
+          child: Icon(
+            isVideo ? Icons.videocam_rounded : Icons.image_rounded,
+            size: 64,
+            color: Colors.grey.shade500,
+          ),
         );
       }
       return Container(

@@ -1,9 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
+import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -58,12 +63,98 @@ class MasterChurchDetailSheet extends StatefulWidget {
 class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   final _notesCtrl = TextEditingController();
   bool _busy = false;
+  int? _membersTotal;
+  String? _panelCacheLabel;
+  bool _panelCacheStale = true;
 
   @override
   void initState() {
     super.initState();
     final n = (widget.churchData['masterNotes'] ?? '').toString();
     _notesCtrl.text = n;
+    unawaited(_loadTechnicalHealth());
+  }
+
+  Future<void> _loadTechnicalHealth() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .get();
+      final data = snap.data() ?? widget.churchData;
+      final total = data['membersTotalCount'] ?? data['totalMembros'];
+      int? members;
+      if (total is num) {
+        members = total.toInt();
+      }
+
+      final cache = await PanelDashboardSnapshotService.readOnce(
+        widget.tenantId,
+      );
+      if (members == null && cache.membersTotalCount > 0) {
+        members = cache.membersTotalCount;
+      }
+      String? label;
+      var stale = true;
+      if (cache.cacheUpdatedAt != null) {
+        final dt = cache.cacheUpdatedAt!.toDate();
+        final diff = DateTime.now().difference(dt);
+        if (diff.inHours < 24) {
+          label = diff.inMinutes < 120
+              ? 'Painel igreja: há ${diff.inMinutes} min'
+              : 'Painel igreja: há ${diff.inHours} h';
+          stale = diff.inHours >= 24;
+        } else {
+          label = 'Painel igreja: desatualizado';
+        }
+      } else {
+        label = 'Painel igreja: sem cache';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _membersTotal = members;
+        _panelCacheLabel = label;
+        _panelCacheStale = stale;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _warmPanelCache() async {
+    setState(() => _busy = true);
+    try {
+      await MasterDashboardCacheService.warmChurchPanel(widget.tenantId);
+      await _loadTechnicalHealth();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Cache do painel da igreja atualizado.',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('Erro ao atualizar painel: $e'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openChurchWeb() async {
+    final slug = (widget.churchData['slug'] ??
+            widget.churchData['slugId'] ??
+            '')
+        .toString()
+        .trim();
+    final url = slug.isNotEmpty
+        ? Uri.parse('https://gestaoyahweh-21e23.web.app/igreja/$slug')
+        : Uri.parse('https://gestaoyahweh-21e23.web.app');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
   }
 
   @override
@@ -201,6 +292,39 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
           ),
           Text('Plano: $plano · Venc.: $venc',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          if (_membersTotal != null)
+            Text(
+              'Membros (resumo): $_membersTotal',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          if (_panelCacheLabel != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  _panelCacheStale
+                      ? Icons.warning_amber_rounded
+                      : Icons.check_circle_outline_rounded,
+                  size: 16,
+                  color: _panelCacheStale
+                      ? Colors.orange.shade800
+                      : Colors.green.shade700,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _panelCacheLabel!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _panelCacheStale
+                          ? Colors.orange.shade900
+                          : Colors.green.shade800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -237,6 +361,16 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
                 },
                 icon: const Icon(Icons.copy_rounded, size: 18),
                 label: const Text('Copiar ID'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _warmPanelCache,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Atualizar painel'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _openChurchWeb,
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('Abrir web'),
               ),
             ],
           ),

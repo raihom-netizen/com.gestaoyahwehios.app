@@ -1154,7 +1154,7 @@ service cloud.firestore {
           && request.resource.data.mediaUrl is string
           && request.resource.data.mediaUrl.size() > 8
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress'
+            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress', 'thumbUrl'
           ]);
       }
 
@@ -1399,6 +1399,15 @@ service cloud.firestore {
     match /global_announcement_audit/{id} {
       allow read, create, delete: if isMaster();
       allow update: if false;
+    }
+
+    // Resumo KPIs Painel Master — escrita só Admin SDK (Cloud Functions).
+    match /config/master_dashboard_summary {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+    match /config/_master_dashboard_lock {
+      allow read, write: if false;
     }
 
     match /config/analytics {

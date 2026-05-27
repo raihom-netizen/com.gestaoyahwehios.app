@@ -80,6 +80,7 @@ class SafeMemberProfilePhoto extends StatefulWidget {
 
 class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   String? _displayUrl;
+  String? _variantFallbackUrl;
   bool _resolving = false;
 
   int _defaultCacheDim(BuildContext context) {
@@ -116,15 +117,28 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
 
   Future<void> _resolveDisplayUrl() async {
     final hint = widget.memberFirestoreHint;
+    final primary = sanitizeImageUrl(widget.imageUrl);
     final variantUrl = widget.preferListThumbnail
         ? MemberProfileVariantsService.listPhotoUrl(hint)
         : MemberProfileVariantsService.profilePhotoUrl(hint);
     final fromVariant = sanitizeImageUrl(variantUrl);
-    final norm = isValidImageUrl(fromVariant)
+    // URL principal (fotoUrl) antes de variantes WebP — thumbs inexistentes ou
+    // gravados no doc/pasta errada deixavam listas e perfil sem foto.
+    final norm = isValidImageUrl(primary)
+        ? primary
+        : (isValidImageUrl(fromVariant) ? fromVariant : '');
+    _variantFallbackUrl = isValidImageUrl(fromVariant) &&
+            isValidImageUrl(primary) &&
+            fromVariant != primary
         ? fromVariant
-        : sanitizeImageUrl(widget.imageUrl);
+        : null;
     if (!isValidImageUrl(norm)) {
-      if (mounted) setState(() => _displayUrl = null);
+      if (mounted) {
+        setState(() {
+          _displayUrl = null;
+          _variantFallbackUrl = null;
+        });
+      }
       return;
     }
     final needsFresh = StorageMediaService.isFirebaseStorageMediaUrl(norm);
@@ -153,6 +167,74 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       _displayUrl = isValidImageUrl(out) ? out : norm;
       _resolving = false;
     });
+  }
+
+  Widget _buildLoadErrorFallback({
+    required String currentUrl,
+    required bool canStorage,
+    required String tid,
+    required String mid,
+    required int mcW,
+    required int mcH,
+    required Widget err,
+  }) {
+    final alt = _variantFallbackUrl;
+    if (alt != null &&
+        isValidImageUrl(alt) &&
+        sanitizeImageUrl(alt) != sanitizeImageUrl(currentUrl)) {
+      return ResilientNetworkImage(
+        key: ValueKey<String>('smp_alt_${alt}_${tid}_$mid'),
+        imageUrl: alt,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        memCacheWidth: mcW,
+        memCacheHeight: mcH,
+        skipFreshDisplayUrl: true,
+        placeholder: widget.placeholder ?? err,
+        errorWidget: canStorage
+            ? _MemberPhotoStorageFallback(
+                tenantId: tid,
+                memberId: mid,
+                cpfDigits: widget.cpfDigits,
+                authUid: widget.authUid,
+                nomeCompleto: widget.nomeCompleto,
+                memberFirestoreHint: widget.memberFirestoreHint,
+                sourceImageUrl: widget.imageUrl,
+                imageCacheRevision: widget.imageCacheRevision,
+                preferListThumbnail: widget.preferListThumbnail,
+                width: widget.width,
+                height: widget.height,
+                memCacheW: mcW,
+                memCacheH: mcH,
+                fit: widget.fit,
+                placeholder: widget.placeholder,
+                errorChild: err,
+              )
+            : err,
+      );
+    }
+    if (canStorage) {
+      return _MemberPhotoStorageFallback(
+        tenantId: tid,
+        memberId: mid,
+        cpfDigits: widget.cpfDigits,
+        authUid: widget.authUid,
+        nomeCompleto: widget.nomeCompleto,
+        memberFirestoreHint: widget.memberFirestoreHint,
+        sourceImageUrl: widget.imageUrl,
+        imageCacheRevision: widget.imageCacheRevision,
+        preferListThumbnail: widget.preferListThumbnail,
+        width: widget.width,
+        height: widget.height,
+        memCacheW: mcW,
+        memCacheH: mcH,
+        fit: widget.fit,
+        placeholder: widget.placeholder,
+        errorChild: err,
+      );
+    }
+    return err;
   }
 
   @override
@@ -248,26 +330,15 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         memCacheHeight: mcH,
         skipFreshDisplayUrl: true,
         placeholder: widget.placeholder ?? err,
-        errorWidget: canStorage
-            ? _MemberPhotoStorageFallback(
-                tenantId: tid,
-                memberId: mid,
-                cpfDigits: widget.cpfDigits,
-                authUid: widget.authUid,
-                nomeCompleto: widget.nomeCompleto,
-                memberFirestoreHint: widget.memberFirestoreHint,
-                sourceImageUrl: widget.imageUrl,
-                imageCacheRevision: widget.imageCacheRevision,
-                preferListThumbnail: widget.preferListThumbnail,
-                width: widget.width,
-                height: widget.height,
-                memCacheW: mcW,
-                memCacheH: mcH,
-                fit: widget.fit,
-                placeholder: widget.placeholder,
-                errorChild: err,
-              )
-            : err,
+        errorWidget: _buildLoadErrorFallback(
+          currentUrl: url,
+          canStorage: canStorage,
+          tid: tid,
+          mid: mid,
+          mcW: mcW,
+          mcH: mcH,
+          err: err,
+        ),
       ),
     );
   }

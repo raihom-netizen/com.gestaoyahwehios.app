@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
@@ -78,6 +79,11 @@ abstract final class MuralPublishOutboxService {
   /// Arranque da app — conclui uploads com ficheiros ainda em cache.
   static void resumePendingOnAppStart() {
     unawaited(() async {
+      try {
+        await ensureFirebaseInitialized();
+      } catch (_) {
+        return;
+      }
       try {
         final prefs = await SharedPreferences.getInstance();
         final raw = prefs.getString(_prefsKey);

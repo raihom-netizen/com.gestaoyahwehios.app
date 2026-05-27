@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
@@ -19,6 +20,7 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
@@ -30,6 +32,7 @@ import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
@@ -1302,11 +1305,25 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
       final path = x.path!;
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        localPath: path,
+        title: 'Enviar foto',
+        isVideo: false,
+      );
+      if (!ok || !mounted) return;
       unawaited(_uploadAndSendFromPath(path, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
+    final ok = await showChurchChatMediaPreviewSheet(
+      context,
+      previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      title: 'Enviar foto',
+      isVideo: false,
+    );
+    if (!ok || !mounted) return;
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
@@ -1324,7 +1341,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
+      final path = x.path!;
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        localPath: path,
+        title: 'Enviar vídeo',
+        isVideo: true,
+      );
+      if (!ok || !mounted) return;
+      unawaited(_uploadAndSendFromPath(path, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
@@ -1336,6 +1361,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
+    final previewBytes = bytes.length <= 6 * 1024 * 1024
+        ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+        : null;
+    final ok = await showChurchChatMediaPreviewSheet(
+      context,
+      previewBytes: previewBytes,
+      localPath: previewBytes == null && !kIsWeb && (x.path ?? '').isNotEmpty
+          ? x.path
+          : null,
+      title: 'Enviar vídeo',
+      isVideo: true,
+    );
+    if (!ok || !mounted) return;
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
@@ -1452,6 +1490,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     ).timeout(const Duration(seconds: 20));
     pending.firestoreMessageId = begun.messageId;
     pending.storagePath = begun.storagePath;
+    unawaited(ChurchChatMediaOutboxService.updateStub(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      localId: pending.localId,
+      firestoreMessageId: begun.messageId,
+      storagePath: begun.storagePath,
+    ));
     if (mounted) setState(() => _replyDraft = null);
   }
 
@@ -1468,7 +1513,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       localPath: localPath,
       replyTo: null,
       onProgress: (p) => _setPendingProgress(pending.localId, p),
-      onSuccess: () => _removePending(pending.localId),
+      onSuccess: () {
+        unawaited(ChurchChatMediaOutboxService.clearJob(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          localId: pending.localId,
+        ));
+        _removePending(pending.localId);
+      },
       onFailed: (msg) {
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -1486,6 +1538,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required List<int>? bytes,
     required String? localPath,
   }) async {
+    await ensureFirebaseInitialized();
+    final bytesCopy = bytes != null && bytes.isNotEmpty
+        ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+        : pending.previewBytes;
+    unawaited(ChurchChatMediaOutboxService.registerJob(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      localId: pending.localId,
+      kind: pending.kind,
+      fileName: pending.fileName,
+      mime: pending.mime,
+      localPath: localPath ?? pending.localPath,
+      bytes: bytesCopy,
+    ));
     _enqueuePending(pending);
     try {
       await _startPendingFirestoreStub(pending);
@@ -1882,18 +1948,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecording() async {
-    if (kIsWeb) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Na web use «Anexos» → ficheiro de áudio. Gravação de voz só na app.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
     if (!await _chatAudio.hasPermission()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1966,11 +2020,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
 
-    final file = await _chatAudio.stopRecording(send: true);
-    if (file == null || kIsWeb) return;
+    final voicePath = await _chatAudio.stopRecording(send: true);
+    if (kIsWeb) {
+      final bytes = _chatAudio.takeWebRecordingBytes();
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Não foi possível obter o áudio gravado. Tente de novo ou use Anexos → áudio.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final name =
+          'voice_${DateTime.now().millisecondsSinceEpoch}.${bytes.length > 4 && bytes[0] == 0x4F && bytes[1] == 0x67 ? 'ogg' : 'm4a'}';
+      final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
+      try {
+        await _uploadAndSend(bytes, name, mime, 'audio');
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao enviar áudio: $e')),
+          );
+        }
+      }
+      return;
+    }
+    if (voicePath == null || voicePath.isEmpty) return;
 
     try {
-      final path = file.path;
+      final path = voicePath;
       final lower = path.toLowerCase();
       final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
       final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
@@ -2874,7 +2956,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           ),
                           Flexible(
                             child: Text(
-                              'Solte para enviar o áudio',
+                              kIsWeb
+                                  ? 'Toque em parar para enviar'
+                                  : 'Solte para enviar · deslize para cancelar',
                               maxLines: 2,
                               textAlign: TextAlign.end,
                               style: TextStyle(
@@ -2909,29 +2993,33 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       ),
                       tooltip: 'Mencionar membro (@)',
                     ),
-                  if (!kIsWeb)
-                    GestureDetector(
-                      onLongPressStart: (_) =>
-                          unawaited(_startVoiceRecording()),
-                      onLongPressEnd: (_) =>
-                          unawaited(_finishVoiceRecording(send: true)),
-                      onLongPressCancel: () =>
-                          unawaited(_finishVoiceRecording(send: false)),
-                      child: IconButton(
-                        onPressed: _toggleVoiceRecordSend,
-                        icon: Icon(
-                          _voiceRecording
-                              ? Icons.stop_circle_rounded
-                              : Icons.mic_rounded,
-                          color: _voiceRecording
-                              ? ThemeCleanPremium.error
-                              : ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                        tooltip: _voiceRecording
-                            ? 'Soltar para enviar'
-                            : 'Segure para gravar · toque para modo alternativo',
+                  GestureDetector(
+                    onLongPressStart: kIsWeb
+                        ? null
+                        : (_) => unawaited(_startVoiceRecording()),
+                    onLongPressEnd: kIsWeb
+                        ? null
+                        : (_) => unawaited(_finishVoiceRecording(send: true)),
+                    onLongPressCancel: kIsWeb
+                        ? null
+                        : () => unawaited(_finishVoiceRecording(send: false)),
+                    child: IconButton(
+                      onPressed: _toggleVoiceRecordSend,
+                      icon: Icon(
+                        _voiceRecording
+                            ? Icons.stop_circle_rounded
+                            : Icons.mic_rounded,
+                        color: _voiceRecording
+                            ? ThemeCleanPremium.error
+                            : ThemeCleanPremium.onSurfaceVariant,
                       ),
+                      tooltip: _voiceRecording
+                          ? (kIsWeb ? 'Toque para enviar' : 'Soltar para enviar')
+                          : (kIsWeb
+                              ? 'Toque para gravar voz'
+                              : 'Segure para gravar · toque para modo alternativo'),
                     ),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _ctrl,

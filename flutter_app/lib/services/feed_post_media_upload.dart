@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -14,6 +15,7 @@ abstract final class FeedPostMediaUpload {
 
   /// Um refresh de token antes do lote — evita N× `getIdToken(true)` por foto.
   static Future<void> warmAuthToken() async {
+    await ensureFirebaseInitialized();
     try {
       await FirebaseAuth.instance.currentUser
           ?.getIdToken(true)

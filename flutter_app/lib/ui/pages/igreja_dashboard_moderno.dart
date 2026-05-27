@@ -76,6 +76,11 @@ import 'package:gestao_yahweh/ui/widgets/church_ministry_health_panel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
     show ChurchHostedVideoSurface, showChurchHostedVideoDialog;
 import 'aniversariantes_ano_page.dart';
+import 'lideranca_page.dart';
+import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
+import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
+import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
+import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
@@ -107,15 +112,14 @@ import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
-/// Painel: usa cache `_panel_cache` enquanto o stream de `membros` ainda não trouxe docs.
+/// Painel: prioriza `_panel_cache` (scan servidor até ~800 membros) sobre stream local limitado.
 bool dashboardPreferPanelCacheMembers(
   bool sectionHasCache,
   AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> membersSnap,
 ) {
   if (!sectionHasCache) return false;
-  if (membersSnap.hasError) return false;
-  if (!membersSnap.hasData) return true;
-  return membersSnap.data!.docs.isEmpty;
+  if (membersSnap.hasError) return true;
+  return true;
 }
 
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
@@ -178,6 +182,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   /// Cache `_panel_cache/dashboard_summary` — pintura instantânea do topo do painel.
   PanelDashboardSnapshot _panelCache = const PanelDashboardSnapshot();
 
+  final ScrollController _panelScroll = ScrollController();
+  final GlobalKey _corpoAdminSectionKey = GlobalKey();
+  List<String> _corpoAdminRoles = ChurchCorpoAdminRoles.defaultRoleKeys;
+
   /// KPIs pré-processados (`_performance_cache/dashboard_current`).
   ChurchDashboardCurrent _dashboardKpis = const ChurchDashboardCurrent();
 
@@ -236,6 +244,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     YahwehPerformanceMonitor.markScreenStart('igreja_dashboard');
     WidgetsBinding.instance.addObserver(this);
     _effectiveTenantId = widget.tenantId;
+    PanelScrollBridge.scrollToCorpoAdministrativo =
+        _scrollToCorpoAdministrativo;
     _loadStreams();
   }
 
@@ -259,7 +269,34 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _engagementCtrl.dispose();
+    _panelScroll.dispose();
+    if (PanelScrollBridge.scrollToCorpoAdministrativo ==
+        _scrollToCorpoAdministrativo) {
+      PanelScrollBridge.scrollToCorpoAdministrativo = null;
+    }
     super.dispose();
+  }
+
+  void _openAniversariantesAnoPage() {
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty) return;
+    Navigator.of(context).push(
+      ThemeCleanPremium.fadeSlideRoute(
+        AniversariantesAnoPage(tenantId: tid),
+      ),
+    );
+  }
+
+  void _scrollToCorpoAdministrativo() {
+    final ctx = _corpoAdminSectionKey.currentContext;
+    if (ctx != null) {
+      unawaited(Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+        alignment: 0.02,
+      ));
+    }
   }
 
   @override
@@ -315,12 +352,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       final id = igSnap.data() ?? {};
       churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
+      _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
       try {
         final igSnap = await tenantRef.get();
         final id = igSnap.data() ?? {};
         churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
         churchNome = (id['name'] ?? id['nome'] ?? '').toString();
+        _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
         allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved);
       } catch (_) {
         allIds = [resolved];
@@ -547,6 +586,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                 );
               }
               return SingleChildScrollView(
+                    controller: _panelScroll,
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: Padding(
                       padding: ThemeCleanPremium.pagePadding(context).copyWith(
@@ -571,7 +611,36 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _AniversariantesCard(
+                                PanelCacheUpdatedBadge(
+                                  updatedAt: panel.cacheUpdatedAt,
+                                ),
+                                PanelQuickShortcuts(
+                                  onOpenAniversariantesAno:
+                                      _openAniversariantesAnoPage,
+                                  onOpenGaleriaEventos: () =>
+                                      widget.onNavigateToShellModule(7),
+                                  onOpenOrganograma: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => LiderancaPage(
+                                          tenantId: _effectiveTenantId,
+                                          role: widget.role,
+                                          viewerCpfDigits: widget.cpf
+                                              .replaceAll(RegExp(r'\D'), ''),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  onOpenPainelCorpoAdmin:
+                                      _scrollToCorpoAdministrativo,
+                                ),
+                                const SizedBox(
+                                    height: ThemeCleanPremium.spaceMd),
+                                PanelCollapsibleSection(
+                                  sectionKey: 'aniversariantes',
+                                  title: 'Aniversariantes',
+                                  icon: Icons.cake_rounded,
+                                  child: _AniversariantesCard(
                                   snap: mergedSnap,
                                   panelCache: panel,
                                   tenantId: _effectiveTenantId,
@@ -580,6 +649,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                       .replaceAll(RegExp(r'\D'), ''),
                                   engagement: _engagementCtrl,
                                   onRetry: _loadStreams,
+                                  ),
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceLg),
@@ -592,27 +662,41 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceLg),
-                                _LideresGaleria(
-                                  membersSnap: mergedSnap,
-                                  deptStream: deptStream,
-                                  panelCache: panel,
-                                  tenantId: _effectiveTenantId,
-                                  role: widget.role,
-                                  viewerCpfDigits: widget.cpf
-                                      .replaceAll(RegExp(r'\D'), ''),
-                                  onRetry: _loadStreams,
+                                PanelCollapsibleSection(
+                                  sectionKey: 'lideres_departamento',
+                                  title: 'Líderes de departamento',
+                                  icon: Icons.leaderboard_rounded,
+                                  child: _LideresGaleria(
+                                    membersSnap: mergedSnap,
+                                    deptStream: deptStream,
+                                    panelCache: panel,
+                                    tenantId: _effectiveTenantId,
+                                    role: widget.role,
+                                    viewerCpfDigits: widget.cpf
+                                        .replaceAll(RegExp(r'\D'), ''),
+                                    onRetry: _loadStreams,
+                                  ),
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceLg),
-                                _CorpoAdministrativoGaleria(
-                                  membersSnap: mergedSnap,
-                                  deptStream: deptStream,
-                                  panelCache: panel,
-                                  tenantId: _effectiveTenantId,
-                                  role: widget.role,
-                                  viewerCpfDigits: widget.cpf
-                                      .replaceAll(RegExp(r'\D'), ''),
-                                  onRetry: _loadStreams,
+                                KeyedSubtree(
+                                  key: _corpoAdminSectionKey,
+                                  child: PanelCollapsibleSection(
+                                    sectionKey: 'corpo_administrativo',
+                                    title: 'Corpo administrativo',
+                                    icon: Icons.groups_rounded,
+                                    child: _CorpoAdministrativoGaleria(
+                                      membersSnap: mergedSnap,
+                                      deptStream: deptStream,
+                                      panelCache: panel,
+                                      tenantId: _effectiveTenantId,
+                                      role: widget.role,
+                                      viewerCpfDigits: widget.cpf
+                                          .replaceAll(RegExp(r'\D'), ''),
+                                      corpoAdminRoles: _corpoAdminRoles,
+                                      onRetry: _loadStreams,
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceLg),
@@ -1638,6 +1722,9 @@ class _AniversariantesCard extends StatelessWidget {
       }
       return const SizedBox.shrink();
     }
+    if (panelCache.hasBirthdayData) {
+      return _premiumContainer(child: _buildContentFromCache(context));
+    }
     return _premiumContainer(child: _buildContent(context));
   }
 
@@ -1675,6 +1762,20 @@ class _AniversariantesCard extends StatelessWidget {
         .where((u) => u.trim().isNotEmpty)
         .take(24)
         .toList();
+    ChurchGalleryPhotoWarmup.schedule(
+      context: context,
+      tenantId: tenantId,
+      members: lista.map((lite) {
+        final data = lite.toMemberDataMap();
+        return ChurchGalleryMemberPhotoRef(
+          memberDocId: lite.memberDocId,
+          memberData: data,
+          cpfDigits: lite.cpfDigits,
+          authUid: lite.authUid ?? _dashboardMemberAuthUid(data),
+        );
+      }),
+      maxMembers: 24,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
       preloadNetworkImages(context, preloadUrls, maxItems: 16);
@@ -2444,7 +2545,7 @@ class _AniversariantesCard extends StatelessWidget {
             onPressed: () {
               Navigator.of(context).push(
                 ThemeCleanPremium.fadeSlideRoute(
-                  AniversariantesAnoPage(docs: docs, tenantId: tenantId),
+                  AniversariantesAnoPage(tenantId: tenantId),
                 ),
               );
             },
@@ -3091,7 +3192,7 @@ class _LideresGaleria extends StatelessWidget {
   Widget build(BuildContext context) {
     if (membersSnap.hasError) {
       return _CleanCard(
-        title: 'Galeria de Líderes',
+        title: 'Líderes de departamento',
         icon: Icons.leaderboard_rounded,
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -3108,13 +3209,13 @@ class _LideresGaleria extends StatelessWidget {
       membersSnap,
     )) {
       return _CleanCard(
-        title: 'Galeria de Líderes',
+        title: 'Líderes de departamento',
         icon: Icons.leaderboard_rounded,
         child: _buildFromCacheLeaders(context),
       );
     }
     return _CleanCard(
-      title: 'Galeria de Líderes',
+      title: 'Líderes de departamento',
       icon: Icons.leaderboard_rounded,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: deptStream,
@@ -3338,6 +3439,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
   final String tenantId;
   final String role;
   final String viewerCpfDigits;
+  final List<String> corpoAdminRoles;
   final Future<void> Function() onRetry;
 
   const _CorpoAdministrativoGaleria({
@@ -3347,77 +3449,27 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
     required this.tenantId,
     required this.role,
     required this.viewerCpfDigits,
+    required this.corpoAdminRoles,
     required this.onRetry,
   });
 
-  /// Normaliza para comparar cargo com/sem acento (ex.: secretário → secretario).
-  static String _foldFuncaoKey(String raw) {
-    var s = raw.trim().toLowerCase();
-    const pairs = <String, String>{
-      'ã': 'a', 'â': 'a', 'á': 'a', 'à': 'a', 'ä': 'a',
-      'é': 'e', 'ê': 'e', 'è': 'e',
-      'í': 'i', 'ì': 'i',
-      'ó': 'o', 'ô': 'o', 'õ': 'o', 'ò': 'o',
-      'ú': 'u', 'ü': 'u',
-      'ç': 'c',
-    };
-    pairs.forEach((a, b) => s = s.replaceAll(a, b));
-    return s;
+  static bool _memberHasFuncaoCorpo(
+    Map<String, dynamic> data,
+    List<String> configured,
+  ) =>
+      ChurchCorpoAdminRoles.rolesFromMember(data, configured).isNotEmpty;
+
+  static List<String> _memberFuncoes(
+    Map<String, dynamic> data,
+    List<String> configured,
+  ) {
+    return ChurchCorpoAdminRoles.rolesFromMember(data, configured)
+        .map(ChurchCorpoAdminRoles.canonicalDisplayKey)
+        .toList();
   }
 
-  /// Pastores (incl. pastora), secretário/secretária, tesoureiro/tesoureira — exclui diácono, músico, etc.
-  static bool _isAllowedCorpoAdminRole(String raw) {
-    final k = _foldFuncaoKey(raw);
-    if (k == 'pastor' || k == 'pastora') return true;
-    if (k == 'secretario' || k == 'secretaria') return true;
-    if (k == 'tesoureiro' || k == 'tesoureira') return true;
-    return false;
-  }
-
-  /// Chaves aceites por [churchRoleDisplayLabel] (sem acento).
-  static String _canonicalCorpoFuncao(String foldedKey) {
-    if (foldedKey == 'pastor' || foldedKey == 'pastora') return foldedKey;
-    if (foldedKey == 'secretario' || foldedKey == 'secretaria') {
-      return 'secretario';
-    }
-    if (foldedKey == 'tesoureiro' || foldedKey == 'tesoureira') {
-      return 'tesoureiro';
-    }
-    return foldedKey;
-  }
-
-  static bool _memberHasFuncaoCorpo(Map<String, dynamic> data) {
-    final f = (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString();
-    if (_isAllowedCorpoAdminRole(f)) return true;
-    final flist = data['FUNCOES'] ?? data['funcoes'];
-    if (flist is! List) return false;
-    for (final x in flist) {
-      if (_isAllowedCorpoAdminRole(x.toString())) return true;
-    }
-    return false;
-  }
-
-  static List<String> _memberFuncoes(Map<String, dynamic> data) {
-    final seen = <String>{};
-    final out = <String>[];
-    void tryAdd(String raw) {
-      final t = raw.trim();
-      if (t.isEmpty || !_isAllowedCorpoAdminRole(t)) return;
-      final key = _foldFuncaoKey(t);
-      if (seen.contains(key)) return;
-      seen.add(key);
-      out.add(_canonicalCorpoFuncao(key));
-    }
-
-    tryAdd((data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '').toString());
-    final flist = data['FUNCOES'] ?? data['funcoes'];
-    if (flist is List) {
-      for (final x in flist) {
-        tryAdd(x.toString());
-      }
-    }
-    return out;
-  }
+  static int _corpoSortRank(List<String> roles) =>
+      ChurchCorpoAdminRoles.memberSortRank(roles);
 
   static String _nomeMembroDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
     final data = d.data();
@@ -3425,7 +3477,15 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
   }
 
   Widget _buildFromCacheCorpo(BuildContext context) {
-    final list = panelCache.homeCorpoAdmin;
+    final list = List<PanelHomeMemberLite>.from(panelCache.homeCorpoAdmin)
+      ..sort((a, b) {
+        final ra = _corpoSortRank(a.corpoRoles);
+        final rb = _corpoSortRank(b.corpoRoles);
+        if (ra != rb) return rb.compareTo(ra);
+        return a.displayName
+            .toLowerCase()
+            .compareTo(b.displayName.toLowerCase());
+      });
     if (list.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(16),
@@ -3558,8 +3618,13 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
             deptNamesById[d.id] = (data['name'] ?? data['nome'] ?? d.id).toString();
           }
           final members = membersSnap.data!.docs;
-          final list = members.where((m) => _memberHasFuncaoCorpo(m.data())).toList();
+          final list = members
+              .where((m) => _memberHasFuncaoCorpo(m.data(), corpoAdminRoles))
+              .toList();
           list.sort((a, b) {
+            final ra = _corpoSortRank(_memberFuncoes(a.data(), corpoAdminRoles));
+            final rb = _corpoSortRank(_memberFuncoes(b.data(), corpoAdminRoles));
+            if (ra != rb) return rb.compareTo(ra);
             final na = _nomeMembroDoc(a);
             final nb = _nomeMembroDoc(b);
             return na.toLowerCase().compareTo(nb.toLowerCase());
@@ -3582,7 +3647,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                 final foto = imageUrlFromMap(data);
                 final hasFoto = isValidImageUrl(foto);
                 final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
-                final funcoes = _memberFuncoes(data);
+                final funcoes = _memberFuncoes(data, corpoAdminRoles);
                 final cpfMembro = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
                 final rawDepts = data['DEPARTAMENTOS'] ?? data['departamentos'];
                 final deptIds = rawDepts is List ? rawDepts.map((e) => e.toString()).toList() : <String>[];

@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -232,16 +234,25 @@ class DashboardPage extends StatelessWidget {
           return;
         }
         if (title == 'Carteirinha') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => MemberCardPage(
-                tenantId: tenantId,
-                role: role,
-                cpf: cpf,
+          if (AppPermissions.isRestrictedMember(role)) {
+            openMemberCardCnhFullscreen(
+              context,
+              tenantId: tenantId,
+              role: role,
+              cpf: cpf,
+            );
+          } else {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MemberCardPage(
+                  tenantId: tenantId,
+                  role: role,
+                  cpf: cpf,
+                ),
               ),
-            ),
-          );
+            );
+          }
           return;
         }
         if (title == 'Usuarios') {
@@ -963,7 +974,7 @@ class DashboardPage extends StatelessWidget {
                                       child: tile(
                                         Icons.badge_rounded,
                                         'Carteirinha',
-                                        'Sua carteirinha digital com QR Code e PDF.',
+                                        'Sua carteira membro digital (CNH) em tela cheia.',
                                       ),
                                     ),
                                     SizedBox(

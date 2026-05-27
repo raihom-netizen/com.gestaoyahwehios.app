@@ -8,6 +8,7 @@ import { topicPushNovo } from "./pushNovoConteudo";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
 import { fetchPaymentForWebhook, tryHandleChurchDonationPayment } from "./churchMercadoPago";
+import { ensureCodigoMembroOnMember } from "./memberCodigo";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -5158,6 +5159,15 @@ export const setMemberApproved = functions
       },
       { merge: true }
     );
+    try {
+      await ensureCodigoMembroOnMember(
+        tenantId,
+        memberId,
+        found.data as Record<string, unknown>
+      );
+    } catch (codErr) {
+      console.warn("setMemberApproved codigoMembro", codErr);
+    }
     const after = await memberRef.get();
     const d = after.data() || {};
     let authUid = String(d.authUid || "").trim();
@@ -7132,7 +7142,15 @@ export {
   scheduledRefreshPanelCaches,
 } from "./panelDashboardCache";
 
+export {
+  getMasterDashboardSnapshot,
+  warmChurchPanelFromMaster,
+  scheduledRefreshMasterDashboard,
+} from "./masterDashboardCache";
+
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
 
 export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
+
+export { backfillMemberCodigos } from "./memberCodigo";
 

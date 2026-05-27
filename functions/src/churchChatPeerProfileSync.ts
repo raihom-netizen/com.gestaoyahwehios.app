@@ -11,6 +11,8 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
 
 function pickPhotoUrl(data: Record<string, unknown>): string {
   const keys = [
+    "imagem_url",
+    "imagemUrl",
     "fotoUrl",
     "fotoURL",
     "FOTO_URL",
@@ -25,6 +27,8 @@ function pickPhotoUrl(data: Record<string, unknown>): string {
     "profilePhotoUrl",
     "logoProcessedUrl",
     "logoUrl",
+    "photoMedium",
+    "photoThumb",
   ];
   for (const k of keys) {
     const v = data[k];

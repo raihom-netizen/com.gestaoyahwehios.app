@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:gestao_yahweh/firebase_options.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -59,6 +59,7 @@ import 'package:gestao_yahweh/services/church_chat_alert_notification_service.da
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
@@ -459,12 +460,7 @@ void main() async {
   }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  try {
-    await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform);
-  } catch (e) {
-    // Firebase já inicializado
-  }
+  await ensureFirebaseInitialized();
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
@@ -551,6 +547,7 @@ void main() async {
     await AppConnectivityService.instance.start();
     StorageUploadQueueService.instance.start();
     MuralPublishOutboxService.resumePendingOnAppStart();
+    ChurchChatMediaOutboxService.resumePendingOnAppStart();
     unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
   } catch (_) {}
   String initialRoute =

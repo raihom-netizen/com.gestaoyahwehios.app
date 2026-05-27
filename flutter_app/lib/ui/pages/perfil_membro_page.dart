@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
@@ -305,6 +306,75 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                         child: Text(telefone, style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
                       ),
                     ),
+                  if (canEditAvailabilityCalendar) ...[
+                    const SizedBox(height: 20),
+                    Material(
+                      color: const Color(0xFF0D2C54),
+                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      elevation: 0,
+                      child: InkWell(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        onTap: () => openMemberCardCnhFullscreen(
+                          context,
+                          tenantId: widget.tenantId,
+                          role: 'membro',
+                          memberId: widget.memberId,
+                          cpf: cpfForPhoto,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 16,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.badge_rounded,
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Carteira membro digital',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'Padrão CNH · toque para ver em tela cheia',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.fullscreen_rounded,
+                                color: Colors.white,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.only(top: 8),

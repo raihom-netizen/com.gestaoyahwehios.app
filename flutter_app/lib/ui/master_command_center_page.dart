@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/admin_dashboard_page.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:intl/intl.dart';
@@ -91,6 +92,26 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     }
   }
 
+  Future<void> _exportMasterSummaryCsv(MasterDashboardSummary s) async {
+    final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    final b = StringBuffer()
+      ..writeln('metrica,valor')
+      ..writeln('igrejas,${s.igrejas}')
+      ..writeln('usuarios,${s.usuarios}')
+      ..writeln('receita,${brl.format(s.receita)}')
+      ..writeln('licencas_ativas,${s.licencasAtivas}')
+      ..writeln('alertas,${s.alertas}')
+      ..writeln('vencimentos_7d,${s.vencimentos7d}')
+      ..writeln('bloqueadas,${s.blockedCount}')
+      ..writeln('free,${s.freeCount}');
+    await Clipboard.setData(ClipboardData(text: b.toString()));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Resumo KPI copiado (CSV).')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
@@ -137,13 +158,25 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                       title: 'Command Center',
                       subtitle:
                           'Centro de comando SaaS — métricas, alertas e atalhos.',
-                      trailing: IconButton(
-                        onPressed: () => _loadSummary(force: true),
-                        icon: const Icon(Icons.refresh_rounded),
-                        tooltip: 'Atualizar métricas',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (s != null)
+                            IconButton(
+                              onPressed: () => _exportMasterSummaryCsv(s),
+                              icon: const Icon(Icons.download_rounded),
+                              tooltip: 'Exportar KPIs (CSV)',
+                            ),
+                          IconButton(
+                            onPressed: () => _loadSummary(force: true),
+                            icon: const Icon(Icons.refresh_rounded),
+                            tooltip: 'Atualizar métricas',
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    MasterCacheUpdatedBadge(summary: s),
+                    const SizedBox(height: 8),
                     if (_loadingSummary)
                       const Center(child: CircularProgressIndicator())
                     else if (s != null) ...[
@@ -207,6 +240,13 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                           );
                         },
                       ),
+                      if (s.hasActionQueue) ...[
+                        const SizedBox(height: 16),
+                        MasterActionQueueCard(
+                          items: s.actionQueue,
+                          onNavigateTo: widget.onNavigateTo,
+                        ),
+                      ],
                     ],
                     const SizedBox(height: 20),
                     _QuickModulesGrid(

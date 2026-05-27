@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Avatar de parceiro no chat — usa [StableMemberAvatar] (revisão `fotoUrlCacheRevision`).
@@ -54,6 +55,21 @@ class ChurchChatPeerAvatar extends StatelessWidget {
         fallbackIcon: Icons.person_rounded,
         fallbackColor: ThemeCleanPremium.primary,
         backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+      );
+    }
+
+    // Sem doc membro ligado: tenta foto em `membros/{authUid}/` (pasta comum).
+    final peer = peerAuthUid.trim();
+    if (peer.isNotEmpty) {
+      return FotoMembroWidget(
+        key: ValueKey('chat_peer_uid_${tenantId}_$peer'),
+        tenantId: tenantId,
+        memberId: peer,
+        authUid: peer,
+        size: size,
+        memCacheWidth: cachePx,
+        memCacheHeight: cachePx,
+        preferListThumbnail: true,
       );
     }
 

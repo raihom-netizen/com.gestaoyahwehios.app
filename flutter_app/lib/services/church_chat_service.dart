@@ -9,6 +9,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_member_prefs.dart';
 import 'firestore_stream_utils.dart';
@@ -1278,6 +1279,7 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
+    await ensureFirebaseInitialized();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1354,7 +1356,19 @@ class ChurchChatService {
     if (fileName != null && fileName.trim().isNotEmpty) {
       patch['fileName'] = fileName.trim();
     }
-    await messagesCol(tenantId, threadId).doc(messageId).update(patch);
+    final ref = messagesCol(tenantId, threadId).doc(messageId);
+    try {
+      await ref.update(patch);
+    } on FirebaseException catch (e) {
+      if (thumbUrl != null &&
+          patch.containsKey('thumbUrl') &&
+          e.code == 'permission-denied') {
+        patch.remove('thumbUrl');
+        await ref.update(patch);
+      } else {
+        rethrow;
+      }
+    }
     return true;
   }
 
@@ -1395,6 +1409,7 @@ class ChurchChatService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
+    await ensureFirebaseInitialized();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,

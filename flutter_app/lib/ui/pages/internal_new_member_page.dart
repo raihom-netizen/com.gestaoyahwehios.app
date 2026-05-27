@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -434,9 +435,12 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
       final slug = _tenantSlug.isNotEmpty ? _tenantSlug : widget.tenantId;
 
+      final codigoMembro = await MemberCodigoService.allocateNext(widget.tenantId);
+
       final data = {
         'MEMBER_ID': uid,
         'authUid': uid,
+        ...MemberCodigoService.fieldsForFirestore(codigoMembro),
         'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : uid,
         'alias': alias,
         'slug': slug,

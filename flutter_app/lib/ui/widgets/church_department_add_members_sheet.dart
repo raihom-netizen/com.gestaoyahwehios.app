@@ -4,8 +4,8 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show SafeCircleAvatarImage, imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 
 /// Folha para vincular membros ao departamento (mesmo fluxo do módulo Departamentos) e
 /// incluir contas no thread do grupo em [ChurchChatService.ensureDepartmentThread].
@@ -366,27 +366,15 @@ class _ChurchDepartmentAddMembersBodyState
                                         }
                                       });
                                     },
-                              secondary: fotoUrl.isEmpty
-                                  ? CircleAvatar(
-                                      backgroundColor: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12),
-                                      child: Text(
-                                        label.isNotEmpty
-                                            ? label[0].toUpperCase()
-                                            : '?',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w800),
-                                      ),
-                                    )
-                                  : SafeCircleAvatarImage(
-                                      imageUrl: fotoUrl,
-                                      radius: 22,
-                                      memCacheSize: mem,
-                                      fallbackIcon: Icons.person_rounded,
-                                      fallbackColor: ThemeCleanPremium.primary,
-                                      backgroundColor: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.1),
-                                    ),
+                              secondary: FotoMembroWidget(
+                                tenantId: widget.tenantId,
+                                memberId: doc.id,
+                                memberData: d,
+                                imageUrl: fotoUrl.isEmpty ? null : fotoUrl,
+                                size: 44,
+                                memCacheWidth: mem,
+                                preferListThumbnail: true,
+                              ),
                               title: Text(
                                 label,
                                 maxLines: 1,

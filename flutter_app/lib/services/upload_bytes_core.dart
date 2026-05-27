@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
 /// Upload direto ao Storage com várias tentativas — usado por [MediaUploadService]
@@ -17,6 +18,7 @@ Future<String> uploadStoragePutDataWithRetry({
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
+  await ensureFirebaseInitialized();
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     try {

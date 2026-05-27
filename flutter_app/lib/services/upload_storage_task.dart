@@ -21,6 +21,9 @@ String formatUploadErrorForUser(Object error) {
   if (raw.contains('network') || raw.contains('Network')) {
     return 'Sem conexão estável. Verifique a internet e tente de novo.';
   }
+  if (raw.contains('No Firebase App') || raw.contains('firebase.initializeapp')) {
+    return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
+  }
   if (raw.length > 160) {
     return 'Não foi possível enviar o ficheiro. Tente de novo.';
   }

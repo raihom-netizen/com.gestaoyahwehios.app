@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
@@ -24,6 +25,7 @@ abstract final class MuralFastPublishService {
   static const String stateUploading = 'uploading';
   static const String statePublished = 'published';
   static const String stateFailed = 'failed';
+  static const String stateDraft = 'draft';
 
   static const Duration _batchTimeout = Duration(minutes: 12);
 
@@ -177,6 +179,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
+    await ensureFirebaseInitialized();
     try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
@@ -257,6 +260,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
+    await ensureFirebaseInitialized();
     if (kIsWeb) {
       throw StateError('uploadImagesAndFinalizePostFromPaths só no mobile.');
     }

@@ -58,7 +58,13 @@ ChurchChatMemberRef? churchChatMemberRefFromMemberDoc(
   String memberId,
   Map<String, dynamic> d,
 ) {
-  final au = (d['authUid'] ?? d['firebaseUid'] ?? '').toString().trim();
+  var au = (d['authUid'] ?? d['firebaseUid'] ?? '').toString().trim();
+  if (au.isEmpty &&
+      memberId.length >= 20 &&
+      memberId.length <= 128 &&
+      !RegExp(r'^\d{11}$').hasMatch(memberId)) {
+    au = memberId;
+  }
   if (au.isEmpty) return null;
   final url = sanitizeImageUrl(imageUrlFromMap(d));
   return ChurchChatMemberRef(

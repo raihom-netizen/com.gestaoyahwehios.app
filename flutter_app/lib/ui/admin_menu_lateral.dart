@@ -128,7 +128,7 @@ class AdminMenuLateral extends StatelessWidget {
                   if (itemVisible?.call(AdminMenuItem.sistemaSuporte) ?? true) _tile(AdminMenuItem.sistemaSuporte, Icons.support_agent, 'Suporte', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaSugestoes) ?? true) _tile(AdminMenuItem.sistemaSugestoes, Icons.feedback, 'Sugestões', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.igrejasTorreComando) ?? true) _tile(AdminMenuItem.igrejasTorreComando, Icons.apartment_rounded, 'Torre SaaS (legado)', isCollapsed),
-                  if (itemVisible?.call(AdminMenuItem.igrejasDashboard) ?? true) _tile(AdminMenuItem.igrejasDashboard, Icons.dashboard_rounded, 'Painel igrejas (legado)', isCollapsed),
+                  if (itemVisible?.call(AdminMenuItem.igrejasDashboard) ?? true) _tile(AdminMenuItem.igrejasDashboard, Icons.dashboard_rounded, 'Command Center', isCollapsed),
                   if (itemVisible?.call(AdminMenuItem.sistemaHome) ?? true) _tile(AdminMenuItem.sistemaHome, Icons.home, 'Voltar ao Início', isCollapsed),
                   const SizedBox(height: 24),
                 ],

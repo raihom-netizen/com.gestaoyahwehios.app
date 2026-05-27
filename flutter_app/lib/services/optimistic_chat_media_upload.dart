@@ -3,11 +3,13 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show VoidCallback, kIsWeb;
+import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
@@ -116,6 +118,7 @@ abstract final class OptimisticChatMediaUpload {
     }
 
     try {
+      await ensureFirebaseInitialized();
       if (messageId == null || messageId.isEmpty) {
         final can = await ChurchChatMemberPrefs.canSendToDmThread(
           tenantId: tenantId,
@@ -165,45 +168,77 @@ abstract final class OptimisticChatMediaUpload {
       } else if (pending.kind == 'image') {
         reportProgress(0.38);
         final stem = pending.fileName.replaceAll(RegExp(r'\.[a-z0-9]+$'), '');
-        final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
-          bytes: uploadBytes is Uint8List && uploadBytes.isNotEmpty
-              ? Uint8List.fromList(uploadBytes)
-              : null,
-          localPath: uploadPath,
-        );
-        final thumbPath = ChurchStorageLayout.chatMediaVariantPath(
-          tenantId,
-          threadId,
-          stem,
-          MediaImageVariantsService.tierThumb,
-        );
-        final fullPath = ChurchStorageLayout.chatMediaVariantPath(
-          tenantId,
-          threadId,
-          stem,
-          MediaImageVariantsService.tierFull,
-        );
         void uploadProgress(double t) =>
             _mapProgress(reportProgress, 0.42, 0.96, t);
-        final chatUp = await MediaImageVariantsService.uploadChatTiers(
-          thumbPath: thumbPath,
-          fullPath: fullPath,
-          thumbBytes: tiers.thumb,
-          fullBytes: tiers.full,
-          onProgress: uploadProgress,
-        );
-        await ChurchChatService.completeMediaUploadMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          messageId: messageId,
-          downloadUrl: chatUp.primaryUrl,
-          storagePath: fullPath,
-          fileName: pending.fileName,
-          thumbUrl: chatUp.thumbUrl,
-        );
-        reportProgress(1.0);
-        onSuccess();
-        return;
+        try {
+          final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
+            bytes: uploadBytes is Uint8List && uploadBytes.isNotEmpty
+                ? Uint8List.fromList(uploadBytes)
+                : null,
+            localPath: uploadPath,
+          );
+          final thumbPath = ChurchStorageLayout.chatMediaVariantPath(
+            tenantId,
+            threadId,
+            stem,
+            MediaImageVariantsService.tierThumb,
+          );
+          final fullPath = ChurchStorageLayout.chatMediaVariantPath(
+            tenantId,
+            threadId,
+            stem,
+            MediaImageVariantsService.tierFull,
+          );
+          final chatUp = await MediaImageVariantsService.uploadChatTiers(
+            thumbPath: thumbPath,
+            fullPath: fullPath,
+            thumbBytes: tiers.thumb,
+            fullBytes: tiers.full,
+            onProgress: uploadProgress,
+          );
+          await ChurchChatService.completeMediaUploadMessage(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: messageId,
+            downloadUrl: chatUp.primaryUrl,
+            storagePath: fullPath,
+            fileName: pending.fileName,
+            thumbUrl: chatUp.thumbUrl,
+          );
+          reportProgress(1.0);
+          onSuccess();
+          return;
+        } catch (_) {
+          // Fallback: JPEG/PNG original (web ou compressão WebP indisponível).
+          final raw = uploadBytes is Uint8List && uploadBytes.isNotEmpty
+              ? uploadBytes
+              : (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb)
+                  ? await churchChatReadFileBytes(uploadPath)
+                  : null;
+          if (raw == null || raw.isEmpty) {
+            rethrow;
+          }
+          final up = await ChurchChatService.uploadChatBytes(
+            tenantId: tenantId,
+            threadId: threadId,
+            bytes: raw,
+            fileName: pending.fileName,
+            contentType: pending.mime,
+            storagePathOverride: storagePath,
+            onProgress: uploadProgress,
+          );
+          await ChurchChatService.completeMediaUploadMessage(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: messageId,
+            downloadUrl: up.url,
+            storagePath: up.path,
+            fileName: pending.fileName,
+          );
+          reportProgress(1.0);
+          onSuccess();
+          return;
+        }
       }
 
       final ({String url, String path}) up;
