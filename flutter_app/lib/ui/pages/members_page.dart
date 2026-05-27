@@ -76,9 +76,12 @@ import '../../services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_page.dart';
+import 'member_card_cnh_nav.dart';
 import 'change_password_page.dart';
 import 'internal_new_member_page.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
@@ -775,6 +778,20 @@ class _MembersPageState extends State<MembersPage> {
           _membersListInstantCap,
         );
       }
+    });
+    if (!cache.hasEntries || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final tid = _effectiveTenantId.trim().isNotEmpty
+          ? _effectiveTenantId.trim()
+          : widget.tenantId.trim();
+      if (tid.isEmpty) return;
+      ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
+        context: context,
+        tenantId: tid,
+        directory: cache,
+        maxMembers: cache.entries.length.clamp(24, 80),
+      );
     });
   }
 
@@ -2049,6 +2066,52 @@ class _MembersPageState extends State<MembersPage> {
                   ),
                 ),
               ),
+              if (!_memberDocIsPending(member.data) &&
+                  !_isSelfMember(member)) ...[
+                const SizedBox(height: 14),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _ActionChip(
+                      icon: Icons.forum_rounded,
+                      label: 'Chat igreja',
+                      color: const Color(0xFF0D9488),
+                      onTap: () {
+                        unawaited(
+                          ChurchMemberContactChat.openChatIgreja(
+                            context: ctx,
+                            tenantId: _effectiveTenantId,
+                            memberRole: widget.role,
+                            viewerCpfDigits:
+                                widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ??
+                                    '',
+                            memberData: member.data,
+                            displayName: name,
+                            popSheetBeforeNavigate: true,
+                          ),
+                        );
+                      },
+                    ),
+                    _ActionChip(
+                      iconWidget: FaIcon(
+                        FontAwesomeIcons.whatsapp,
+                        size: 18,
+                        color: const Color(0xFF25D366),
+                      ),
+                      label: 'WhatsApp',
+                      color: const Color(0xFF25D366),
+                      onTap: () {
+                        unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(
+                          ctx,
+                          member.data,
+                        ));
+                      },
+                    ),
+                  ],
+                ),
+              ],
               if (phone.isNotEmpty || email.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Wrap(
@@ -2056,19 +2119,6 @@ class _MembersPageState extends State<MembersPage> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    if (phone.replaceAll(RegExp(r'\D'), '').length >= 10)
-                      _ActionChip(
-                        icon: Icons.chat_rounded,
-                        label: 'WhatsApp',
-                        color: const Color(0xFF25D366),
-                        onTap: () {
-                          final w = _whatsAppUriDigits(phone);
-                          if (w.length >= 12) {
-                            unawaited(_launchExternalUri(
-                                Uri.parse('https://wa.me/$w')));
-                          }
-                        },
-                      ),
                     if (email.isNotEmpty)
                       _ActionChip(
                         icon: Icons.mail_outline_rounded,
@@ -2144,16 +2194,6 @@ class _MembersPageState extends State<MembersPage> {
                           Navigator.pop(ctx);
                           _editMember(context, member);
                         }),
-                  if (_canOpenChatWithMember(member))
-                    _ActionChip(
-                      icon: Icons.chat_rounded,
-                      label: 'Conversar no chat',
-                      color: const Color(0xFF0D9488),
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        unawaited(_openChatWithMember(context, member));
-                      },
-                    ),
                   if (_canOpenCarteirinhaFor(member))
                     _ActionChip(
                         icon: Icons.badge_rounded,
@@ -2161,13 +2201,25 @@ class _MembersPageState extends State<MembersPage> {
                         color: const Color(0xFF7C3AED),
                         onTap: () {
                           Navigator.pop(ctx);
-                          Navigator.push(
+                          if (_isSelfMember(member)) {
+                            openMemberCardCnhFullscreen(
+                              context,
+                              tenantId: _effectiveTenantId,
+                              role: widget.role,
+                              memberId: member.id,
+                            );
+                          } else {
+                            Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => MemberCardPage(
-                                      tenantId: _effectiveTenantId,
-                                      role: widget.role,
-                                      memberId: member.id)));
+                                builder: (_) => MemberCardPage(
+                                  tenantId: _effectiveTenantId,
+                                  role: widget.role,
+                                  memberId: member.id,
+                                ),
+                              ),
+                            );
+                          }
                         }),
                   if (_isSelfMember(member) && _memberHasLogin(member))
                     _ActionChip(
@@ -2654,7 +2706,7 @@ class _MembersPageState extends State<MembersPage> {
                                 decoration: InputDecoration(
                                   labelText: 'Cód. membro (igreja)',
                                   helperText:
-                                      'Sequencial único desta igreja — usado no cartão CNH digital.',
+                                      'Sequencial único desta igreja — usado no cartão membro digital.',
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(
                                       ThemeCleanPremium.radiusSm,
@@ -5120,8 +5172,8 @@ class _MembersPageState extends State<MembersPage> {
       ChurchGalleryPhotoWarmup.schedule(
         context: context,
         tenantId: tid,
-        maxMembers: (visibleCount + 12).clamp(8, 32),
-        members: docs.take(visibleCount + 12).map((m) {
+        maxMembers: (visibleCount + 16).clamp(16, 72),
+        members: docs.take(visibleCount + 16).map((m) {
           final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '')
               .toString()
               .replaceAll(RegExp(r'\D'), '');
@@ -5166,11 +5218,8 @@ class _MembersPageState extends State<MembersPage> {
           final status = _str(data, 'STATUS', 'status').isEmpty
               ? 'ativo'
               : _str(data, 'STATUS', 'status');
-          final loadPhotoNow = instantList && i < 48;
-          final photo = loadPhotoNow ? _photoUrlForMember(docs[i].id, data) : '';
-          final optimisticBytes = loadPhotoNow
-              ? _optimisticProfilePhotoBytes[docs[i].id]
-              : null;
+          final photo = _photoUrlForMember(docs[i].id, data);
+          final optimisticBytes = _optimisticProfilePhotoBytes[docs[i].id];
           final isInativo = status.toLowerCase().contains('inativ');
           final isPendingRow = _memberDocIsPending(data);
           final avatarColor =
@@ -5831,15 +5880,7 @@ class _MembersPageState extends State<MembersPage> {
               FilledButton(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    if (iosReader && IosPaymentsGate.isIosNative) {
-                      IosPaymentsGate.openUpgradePlansExternally(
-                          source: 'members_add_limit_dialog');
-                      return;
-                    }
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const RenewPlanPage()));
+                    IosPaymentsGate.navigateToUpgradePlans(context);
                   },
                   child: Text(iosReader ? 'Atualizar plano' : 'Ver planos')),
             ],
@@ -8685,16 +8726,19 @@ class _CollapsibleSection extends StatelessWidget {
 }
 
 class _ActionChip extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final String label;
   final Color color;
   final VoidCallback onTap;
 
-  const _ActionChip(
-      {required this.icon,
-      required this.label,
-      required this.color,
-      required this.onTap});
+  const _ActionChip({
+    this.icon,
+    this.iconWidget,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  }) : assert(icon != null || iconWidget != null);
 
   @override
   Widget build(BuildContext context) {
@@ -8711,7 +8755,7 @@ class _ActionChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: color),
+            iconWidget ?? Icon(icon!, size: 18, color: color),
             const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
@@ -9051,16 +9095,7 @@ class _MembersLimitBanner extends StatelessWidget {
                           : 'Ver planos',
                       textColor: Colors.white,
                       onPressed: () {
-                        if (IosPaymentsGate.shouldHidePayments &&
-                            IosPaymentsGate.isIosNative) {
-                          IosPaymentsGate.openUpgradePlansExternally(
-                              source: 'members_limit_snackbar');
-                          return;
-                        }
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const RenewPlanPage()));
+                        IosPaymentsGate.navigateToUpgradePlans(context);
                       })
                   : null,
             ));
@@ -9468,7 +9503,7 @@ class _MemberAvatar extends StatelessWidget {
     final memberWidget = FotoMembroWidget(
       key: ValueKey<String>(
           'mav_${tid}_${mid}_${urlKey}_${rev}_${memoryPreviewBytes?.length ?? 0}'),
-      imageUrl: photoUrl,
+      imageUrl: urlKey.isNotEmpty ? urlKey : photoUrl,
       memoryPreviewBytes: memoryPreviewBytes,
       size: size,
       tenantId: tid.isNotEmpty ? tid : null,
@@ -9479,6 +9514,7 @@ class _MemberAvatar extends StatelessWidget {
       backgroundColor: backgroundColor,
       memCacheWidth: mc,
       memCacheHeight: mc,
+      imageCacheRevision: rev,
       preferListThumbnail: true,
       fallbackChild: letter,
     );

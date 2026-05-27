@@ -1,14 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Abre https/http no navegador (app externo). Não depende só de [canLaunchUrl]
-/// (no Android 11+ falha sem `<queries>` no manifest; mesmo assim tentamos [launchUrl]).
+/// Abre link público: no app nativo prioriza rota in-app (instantâneo); senão Safari/Chrome.
 Future<void> openHttpsUrlInBrowser(BuildContext context, String rawUrl) async {
   var t = rawUrl.trim();
   if (t.isEmpty) return;
+  if (!kIsWeb &&
+      PublicMemberSignupNavigation.tryOpenInAppFromUrl(context, t)) {
+    return;
+  }
   var uri = Uri.tryParse(t);
   if (uri == null || !uri.hasScheme) {
     uri = Uri.tryParse('https://$t');
@@ -22,16 +26,10 @@ Future<void> openHttpsUrlInBrowser(BuildContext context, String rawUrl) async {
     return;
   }
   try {
-    var ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final launched = launchUrl(uri, mode: LaunchMode.externalApplication);
+    final ok = await launched;
     if (!ok && context.mounted) {
-      ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
-    }
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível abrir o navegador. Use «Copiar link» e cole no browser.',
-        ),
-      );
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
     }
   } catch (e) {
     if (context.mounted) {

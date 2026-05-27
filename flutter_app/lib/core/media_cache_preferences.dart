@@ -1,6 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Fotos de perfil (Storage) em cache no disco do aparelho — listas e módulos abrem mais rápido.
+/// Fotos e capas do Storage em cache no disco (membros, avisos, eventos) — listas e feed abrem mais rápido.
 const String kPrefMemberPhotoDiskCacheV1 = 'yahweh_pref_member_photo_disk_cache_v1';
 
 class MediaCachePreferences {

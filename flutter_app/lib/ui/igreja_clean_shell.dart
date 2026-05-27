@@ -38,6 +38,7 @@ import 'pages/member_card_page.dart';
 import 'pages/members_page.dart';
 import 'pages/mural_page.dart';
 import 'pages/my_schedules_page.dart';
+import 'pages/plans/express_renew_gate_page.dart';
 import 'pages/plans/renew_plan_page.dart';
 import 'pages/subscription_expired_page.dart';
 import 'pages/schedules_page.dart';
@@ -185,22 +186,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
   Future<void> _openUpgradePlans() async {
+    if (!mounted) return;
+    // iPhone: fluxo in-app (expresso) — evita cold start do Safari.
     if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
       final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
-      final uri = IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(
-        utmMedium: 'church_shell',
-        email: email.isEmpty ? null : email,
+      Navigator.push(
+        context,
+        ThemeCleanPremium.fadeSlideRoute(
+          ExpressRenewGatePage(
+            prefillEmail: email.isEmpty ? null : email,
+            openedFromIosApp: true,
+          ),
+        ),
       );
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok && mounted) {
-        _showPanelSnack(
-          'Não foi possível abrir o navegador. Acesse /igreja/login/apple no site manualmente.',
-          isError: true,
-        );
-      }
       return;
     }
-    if (!mounted) return;
     Navigator.push(
       context,
       ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage()),
@@ -1914,6 +1914,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           role: widget.role,
           cpf: widget.cpf,
           embeddedInShell: true,
+          cnhFullscreenOnly:
+              AppPermissions.isRestrictedMember(widget.role),
           onNavigateToMembers: AppPermissions.isRestrictedMember(widget.role)
               ? null
               : () => setState(() => _selectedIndex = 2),

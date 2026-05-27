@@ -447,11 +447,30 @@ class _MemberPhotoStorageFallback extends StatefulWidget {
 
 class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback> {
   late Future<String?> _future;
+  String? _instantUrl;
 
   @override
   void initState() {
     super.initState();
+    _instantUrl = _peekCachedUrl();
     _future = _resolveFallbackUrl();
+  }
+
+  String? _peekCachedUrl() {
+    final raw = (widget.sourceImageUrl ?? '').trim();
+    if (raw.isNotEmpty) {
+      final s = sanitizeImageUrl(raw);
+      if (isValidImageUrl(s)) return s;
+    }
+    return FirebaseStorageService.peekMemberProfilePhotoDownloadUrl(
+      tenantId: widget.tenantId,
+      memberId: widget.memberId,
+      cpfDigits: widget.cpfDigits,
+      authUid: widget.authUid,
+      nomeCompleto: widget.nomeCompleto,
+      memberFirestoreHint: widget.memberFirestoreHint,
+      preferListThumbnail: widget.preferListThumbnail,
+    );
   }
 
   @override
@@ -469,6 +488,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
         !identical(
             oldWidget.memberFirestoreHint, widget.memberFirestoreHint);
     if (sourceChanged || idChanged) {
+      _instantUrl = _peekCachedUrl();
       _future = _resolveFallbackUrl();
     }
   }
@@ -515,8 +535,30 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
     }
   }
 
+  Widget _photoFromUrl(String clean) {
+    final rev = widget.imageCacheRevision ?? 0;
+    return ResilientNetworkImage(
+      key: ValueKey<String>('mfs_${clean}_$rev'),
+      imageUrl: clean,
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      memCacheWidth: widget.memCacheW,
+      memCacheHeight: widget.memCacheH,
+      skipFreshDisplayUrl: true,
+      storageCacheRevision: rev,
+      placeholder: widget.placeholder,
+      errorWidget: widget.errorChild,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final instant = _instantUrl != null ? sanitizeImageUrl(_instantUrl!) : '';
+    if (instant.isNotEmpty && isValidImageUrl(instant)) {
+      return _photoFromUrl(instant);
+    }
+
     return FutureBuilder<String?>(
       future: _future,
       builder: (context, snap) {
@@ -529,19 +571,7 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
         final u = snap.data;
         final clean = u != null ? sanitizeImageUrl(u) : '';
         if (clean.isNotEmpty && isValidImageUrl(clean)) {
-          final rev = widget.imageCacheRevision ?? 0;
-          return ResilientNetworkImage(
-            key: ValueKey<String>('mfs_${clean}_$rev'),
-            imageUrl: clean,
-            width: widget.width,
-            height: widget.height,
-            fit: widget.fit,
-            memCacheWidth: widget.memCacheW,
-            memCacheHeight: widget.memCacheH,
-            skipFreshDisplayUrl: true,
-            placeholder: widget.placeholder,
-            errorWidget: widget.errorChild,
-          );
+          return _photoFromUrl(clean);
         }
         return widget.errorChild;
       },

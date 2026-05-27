@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, unawaited;
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 import 'dart:convert' show jsonDecode;
@@ -160,12 +160,14 @@ class InstagramMural extends StatefulWidget {
   final String role;
   final String churchSlug;
   final List<String>? permissions;
+  final Map<String, dynamic>? initialTenantData;
   const InstagramMural({
     super.key,
     required this.tenantId,
     required this.role,
     required this.churchSlug,
     this.permissions,
+    this.initialTenantData,
   });
 
   @override
@@ -178,6 +180,8 @@ class InstagramMuralState extends State<InstagramMural> {
     unawaited(_openEditor(type: 'aviso'));
   }
 
+  Future<void> refreshFeed() => _loadFeedPage(reset: true);
+
   Map<String, dynamic>? _tenantData;
   static const int _feedPageSize = 15;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _feedRawDocs = [];
@@ -188,9 +192,11 @@ class InstagramMuralState extends State<InstagramMural> {
   Object? _feedLoadError;
   int _feedRequestEpoch = 0;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _feedLiveSub;
-  /// Busca local (título/texto) — produtividade sem novo índice Firestore.
   String _feedSearchQuery = '';
-  static const double _kMuralWideColumnsBreakpoint = 960;
+  String _feedSearchQueryApplied = '';
+  Timer? _feedSearchDebounce;
+  final _feedSearchCtrl = TextEditingController();
+  String _lastFeedMediaWarmupKey = '';
 
   User? get _user => FirebaseAuth.instance.currentUser;
   String get uid => _user?.uid ?? '';
@@ -250,9 +256,12 @@ class InstagramMuralState extends State<InstagramMural> {
   void initState() {
     super.initState();
     logYahwehModuleScreen('avisos');
-    _loadTenant();
+    if (widget.initialTenantData != null) {
+      _tenantData = widget.initialTenantData;
+    } else {
+      _loadTenant();
+    }
     _startFeedLiveSync();
-    unawaited(_loadFeedPage(reset: true));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_canManageAll) {
@@ -433,7 +442,7 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   bool _docMatchesFeedSearch(Map<String, dynamic> data) {
-    final q = _feedSearchQuery.trim().toLowerCase();
+    final q = _feedSearchQueryApplied.trim().toLowerCase();
     if (q.isEmpty) return true;
     final title = (data['title'] ?? '').toString().toLowerCase();
     final text = churchPostPlainText(Map<String, dynamic>.from(data))
@@ -489,13 +498,17 @@ class InstagramMuralState extends State<InstagramMural> {
             _docVisibleInFeed(d.data()) && _docMatchesFeedSearch(d.data()))
         .toList();
     if (rawDocs.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        unawaited(scheduleFeedMediaWarmup(
-          context,
-          rawDocs.map((d) => d.data()).toList(),
-        ));
-      });
+      final warmupKey = rawDocs.take(8).map((d) => d.id).join(',');
+      if (warmupKey != _lastFeedMediaWarmupKey) {
+        _lastFeedMediaWarmupKey = warmupKey;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          unawaited(scheduleFeedMediaWarmup(
+            context,
+            rawDocs.map((d) => d.data()).toList(),
+          ));
+        });
+      }
     }
     if (docs.isEmpty) {
       return SizedBox(
@@ -518,143 +531,112 @@ class InstagramMuralState extends State<InstagramMural> {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wideCols = constraints.maxWidth >= _kMuralWideColumnsBreakpoint;
-        Widget postAt(int i) {
-          final doc = docs[i];
-          return RepaintBoundary(
-            child: YahwehInstagramHoverCard(
-              child: _PostCard(
-                doc: doc,
-                feedIndex: i,
-                feedDocs: docs,
-                nomeIgreja: _nomeIgreja,
-                logoUrl: _logoUrl,
-                tenantData: _tenantData,
-                churchSlug: widget.churchSlug,
-                canEdit: _canEditDoc(doc),
-                onEdit: () => _openEditor(doc: doc, type: type),
-                onDelete: () => _deletePost(doc),
-                onShare: (Rect? shareOrigin) async {
-                  final d = doc.data();
-                  DateTime? sdt;
-                  try {
-                    sdt = (d['startAt'] as Timestamp).toDate();
-                  } catch (_) {}
-                  final lat = d['locationLat'];
-                  final lng = d['locationLng'];
-                  final texto =
-                      churchPostPlainText(Map<String, dynamic>.from(d));
-                  final slug = widget.churchSlug.trim();
-                  final inviteCardUrl = slug.isNotEmpty
-                      ? AppConstants.shareNoticiaIgrejaEventoUrl(
-                          widget.churchSlug, doc.id)
-                      : AppConstants.shareNoticiaCardUrl(widget.tenantId, doc.id);
-                  final publicSite = AppConstants.publicSiteShortUrl(slug);
-                  final churchName = _nomeIgreja.trim().isNotEmpty
-                      ? _nomeIgreja.trim()
-                      : 'Nossa igreja';
-                  final msg = buildNoticiaInviteShareMessage(
-                    churchName: churchName,
-                    noticiaKind: 'aviso',
-                    title: (d['title'] ?? '').toString(),
-                    bodyText: texto,
-                    startAt: sdt,
-                    location: (d['location'] ?? '').toString(),
-                    locationLat: lat is num
-                        ? lat.toDouble()
-                        : (lat != null ? double.tryParse(lat.toString()) : null),
-                    locationLng: lng is num
-                        ? lng.toDouble()
-                        : (lng != null ? double.tryParse(lng.toString()) : null),
-                    publicSiteUrl: publicSite,
-                    inviteCardUrl: inviteCardUrl,
-                  );
-                  if (!context.mounted) return;
-                  await showChurchNoticiaShareSheet(
-                    context,
-                    shareLink: inviteCardUrl,
-                    shareMessage: msg,
-                    shareSubject: churchName,
-                    previewImageUrl: null,
-                    videoPlayUrl: null,
-                    noticiaDataForLazyMedia: d,
-                    sharePositionOrigin: shareOrigin,
-                  );
-                },
-                timeAgo: _timeAgo,
-                tenantId: widget.tenantId,
-              ),
-            ),
+    Widget postAt(int i) {
+      final doc = docs[i];
+      return RepaintBoundary(
+        child: YahwehInstagramHoverCard(
+          child: _PostCard(
+            doc: doc,
+            feedIndex: i,
+            feedDocs: docs,
+            nomeIgreja: _nomeIgreja,
+            logoUrl: _logoUrl,
+            tenantData: _tenantData,
+            churchSlug: widget.churchSlug,
+            canEdit: _canEditDoc(doc),
+            onEdit: () => _openEditor(doc: doc, type: type),
+            onDelete: () => _deletePost(doc),
+            onShare: (Rect? shareOrigin) async {
+              final d = doc.data();
+              DateTime? sdt;
+              try {
+                sdt = (d['startAt'] as Timestamp).toDate();
+              } catch (_) {}
+              final lat = d['locationLat'];
+              final lng = d['locationLng'];
+              final texto =
+                  churchPostPlainText(Map<String, dynamic>.from(d));
+              final slug = widget.churchSlug.trim();
+              final inviteCardUrl = slug.isNotEmpty
+                  ? AppConstants.shareNoticiaIgrejaEventoUrl(
+                      widget.churchSlug, doc.id)
+                  : AppConstants.shareNoticiaCardUrl(widget.tenantId, doc.id);
+              final publicSite = AppConstants.publicSiteShortUrl(slug);
+              final churchName = _nomeIgreja.trim().isNotEmpty
+                  ? _nomeIgreja.trim()
+                  : 'Nossa igreja';
+              final msg = buildNoticiaInviteShareMessage(
+                churchName: churchName,
+                noticiaKind: 'aviso',
+                title: (d['title'] ?? '').toString(),
+                bodyText: texto,
+                startAt: sdt,
+                location: (d['location'] ?? '').toString(),
+                locationLat: lat is num
+                    ? lat.toDouble()
+                    : (lat != null ? double.tryParse(lat.toString()) : null),
+                locationLng: lng is num
+                    ? lng.toDouble()
+                    : (lng != null ? double.tryParse(lng.toString()) : null),
+                publicSiteUrl: publicSite,
+                inviteCardUrl: inviteCardUrl,
+              );
+              if (!context.mounted) return;
+              await showChurchNoticiaShareSheet(
+                context,
+                shareLink: inviteCardUrl,
+                shareMessage: msg,
+                shareSubject: churchName,
+                previewImageUrl: null,
+                videoPlayUrl: null,
+                noticiaDataForLazyMedia: d,
+                sharePositionOrigin: shareOrigin,
+              );
+            },
+            timeAgo: _timeAgo,
+            tenantId: widget.tenantId,
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: 1600,
+      itemCount: docs.length + 1,
+      itemBuilder: (context, i) {
+        if (i < docs.length) return postAt(i);
+        if (_isFeedPageLoading) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
           );
         }
-
-        Widget listContent;
-        if (!wideCols) {
-          listContent = ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            cacheExtent: 1600,
-            itemCount: docs.length,
-            itemBuilder: (context, i) => postAt(i),
-          );
-        } else {
-          final left = <Widget>[];
-          final right = <Widget>[];
-          for (var i = 0; i < docs.length; i++) {
-            if (i.isEven) {
-              left.add(postAt(i));
-            } else {
-              right.add(postAt(i));
-            }
-          }
-          listContent = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ListView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(right: 8),
-                  children: left,
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(left: 8),
-                  children: right,
-                ),
-              ),
-            ],
+        if (_hasMoreFeedPages) {
+          return TextButton.icon(
+            onPressed: () => _loadFeedPage(),
+            icon: const Icon(Icons.expand_more_rounded),
+            label: const Text('Carregar mais'),
           );
         }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            listContent,
-            if (_isFeedPageLoading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              )
-            else if (_hasMoreFeedPages)
-              TextButton.icon(
-                onPressed: () => _loadFeedPage(),
-                icon: const Icon(Icons.expand_more_rounded),
-                label: const Text('Carregar mais'),
-              ),
-          ],
-        );
+        return const SizedBox(height: 16);
       },
     );
   }
 
+  void _onFeedSearchChanged(String value) {
+    _feedSearchQuery = value;
+    _feedSearchDebounce?.cancel();
+    _feedSearchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      setState(() => _feedSearchQueryApplied = _feedSearchQuery);
+    });
+  }
+
   @override
   void dispose() {
+    _feedSearchDebounce?.cancel();
+    _feedSearchCtrl.dispose();
     _feedLiveSub?.cancel();
     super.dispose();
   }
@@ -698,7 +680,8 @@ class InstagramMuralState extends State<InstagramMural> {
                     constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
                 final pad = isNarrow ? ThemeCleanPremium.spaceSm : 24.0;
                 final searchField = TextField(
-                  onChanged: (v) => setState(() => _feedSearchQuery = v),
+                  controller: _feedSearchCtrl,
+                  onChanged: _onFeedSearchChanged,
                   decoration: InputDecoration(
                     isDense: true,
                     hintText: 'Buscar avisos por título ou texto…',
@@ -707,8 +690,13 @@ class InstagramMuralState extends State<InstagramMural> {
                     suffixIcon: _feedSearchQuery.isNotEmpty
                         ? IconButton(
                             tooltip: 'Limpar',
-                            onPressed: () =>
-                                setState(() => _feedSearchQuery = ''),
+                            onPressed: () {
+                              _feedSearchCtrl.clear();
+                              _feedSearchQuery = '';
+                              _feedSearchQueryApplied = '';
+                              _feedSearchDebounce?.cancel();
+                              setState(() {});
+                            },
                             icon: Icon(Icons.close_rounded,
                                 color: Colors.grey.shade600),
                           )
@@ -852,13 +840,10 @@ class InstagramMuralState extends State<InstagramMural> {
                 );
               },
             ),
-            Padding(
-              padding: ThemeCleanPremium.pagePadding(context),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildFeedBody(),
-                ],
+            Expanded(
+              child: Padding(
+                padding: ThemeCleanPremium.pagePadding(context),
+                child: _buildFeedBody(),
               ),
             ),
           ],
@@ -1124,7 +1109,7 @@ class _PostCardState extends State<_PostCard>
   late final AnimationController _heartBurst;
 
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => widget.feedIndex < 6;
 
   @override
   void initState() {

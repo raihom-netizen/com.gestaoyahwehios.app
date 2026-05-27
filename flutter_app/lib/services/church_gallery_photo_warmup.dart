@@ -1,10 +1,19 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show isValidImageUrl, preloadNetworkImages, sanitizeImageUrl;
+    show
+        MemberProfilePhotoBytesCache,
+        firebaseStorageBytesFromDownloadUrl,
+        imageUrlFromMap,
+        isValidImageUrl,
+        preloadNetworkImages,
+        sanitizeImageUrl;
 
 /// Referência mínima para aquecer fotos da galeria (líderes / corpo administrativo).
 class ChurchGalleryMemberPhotoRef {
@@ -21,18 +30,86 @@ class ChurchGalleryMemberPhotoRef {
   });
 }
 
-/// Pré-resolve URLs de miniatura no Storage e pré-carrega decode — lista mais rápida.
+/// Pré-resolve URLs e bytes (RAM) — listas de líderes / corpo admin abrem com foto visível.
 abstract final class ChurchGalleryPhotoWarmup {
   ChurchGalleryPhotoWarmup._();
 
   static DateTime? _lastRun;
   static String _lastKey = '';
+  static const int _listMaxBytes = 112 * 1024;
+
+  /// Líderes + corpo administrativo do `_panel_cache` — prioridade ao abrir o painel.
+  static void schedulePanelHome({
+    required BuildContext context,
+    required String tenantId,
+    required PanelDashboardSnapshot panel,
+  }) {
+    final refs = <ChurchGalleryMemberPhotoRef>[];
+    final seen = <String>{};
+    void addLite(PanelHomeMemberLite lite) {
+      if (lite.memberDocId.isEmpty || seen.contains(lite.memberDocId)) return;
+      seen.add(lite.memberDocId);
+      final data = lite.toMemberDataMap();
+      refs.add(
+        ChurchGalleryMemberPhotoRef(
+          memberDocId: lite.memberDocId,
+          memberData: data,
+          cpfDigits: lite.cpfDigits,
+          authUid: lite.authUid,
+        ),
+      );
+    }
+
+    for (final lite in panel.homeLeaders) {
+      addLite(lite);
+    }
+    for (final lite in panel.homeCorpoAdmin) {
+      addLite(lite);
+    }
+    if (refs.isEmpty) return;
+    schedule(
+      context: context,
+      tenantId: tenantId,
+      members: refs,
+      maxMembers: 40,
+      highPriority: true,
+    );
+  }
+
+  /// Lista de membros (`_panel_cache/members_directory`) — fotos antes do scroll.
+  static void scheduleMembersDirectory({
+    required BuildContext context,
+    required String tenantId,
+    required MembersDirectorySnapshot directory,
+    int maxMembers = 64,
+  }) {
+    if (!directory.hasEntries) return;
+    final refs = directory.entries
+        .take(maxMembers)
+        .map(
+          (e) => ChurchGalleryMemberPhotoRef(
+            memberDocId: e.memberDocId,
+            memberData: e.toMemberDataMap(),
+            cpfDigits: e.cpfDigits,
+            authUid: e.authUid,
+          ),
+        )
+        .toList();
+    schedule(
+      context: context,
+      tenantId: tenantId,
+      members: refs,
+      maxMembers: maxMembers,
+      highPriority: true,
+    );
+  }
 
   static Future<void> schedule({
     required BuildContext context,
     required String tenantId,
     required Iterable<ChurchGalleryMemberPhotoRef> members,
     int maxMembers = 28,
+    bool highPriority = false,
   }) async {
     final tid = tenantId.trim();
     if (tid.isEmpty || !context.mounted) return;
@@ -42,9 +119,13 @@ abstract final class ChurchGalleryPhotoWarmup {
 
     final key = '$tid:${list.map((e) => e.memberDocId).join(',')}';
     final now = DateTime.now();
-    if (_lastKey == key &&
+    final debounce = highPriority
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 40);
+    if (!highPriority &&
+        _lastKey == key &&
         _lastRun != null &&
-        now.difference(_lastRun!) < const Duration(seconds: 40)) {
+        now.difference(_lastRun!) < debounce) {
       return;
     }
     _lastKey = key;
@@ -58,44 +139,90 @@ abstract final class ChurchGalleryPhotoWarmup {
     String tenantId,
     List<ChurchGalleryMemberPhotoRef> list,
   ) async {
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    if (!context.mounted) return;
+    try {
+      await ensureFirebaseInitialized();
+    } catch (_) {}
 
-    final urls = <String>[];
-    const batch = 6;
-    for (var i = 0; i < list.length; i += batch) {
+    const batchRefs = 8;
+    for (var i = 0; i < list.length; i += batchRefs) {
       if (!context.mounted) return;
       final slice = list.sublist(
         i,
-        i + batch > list.length ? list.length : i + batch,
+        i + batchRefs > list.length ? list.length : i + batchRefs,
       );
-      final batchUrls = await Future.wait(
-        slice.map((ref) async {
-          final md = ref.memberData;
-          final nome = md != null
-              ? (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
-                  .toString()
-                  .trim()
-              : null;
-          final u = await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
-            tenantId: tenantId,
-            memberId: ref.memberDocId,
-            cpfDigits: ref.cpfDigits,
-            authUid: ref.authUid,
-            nomeCompleto:
-                (nome == null || nome.isEmpty) ? null : nome,
-            memberFirestoreHint: md,
-            preferListThumbnail: true,
-          );
-          return u != null ? sanitizeImageUrl(u) : '';
-        }),
-      );
-      for (final u in batchUrls) {
-        if (u.isNotEmpty && isValidImageUrl(u)) urls.add(u);
+      await Future.wait(slice.map((ref) => _warmOne(tenantId, ref)));
+    }
+
+    if (!context.mounted) return;
+    final urls = <String>[];
+    for (final ref in list) {
+      final md = ref.memberData;
+      if (md == null) continue;
+      final u = sanitizeImageUrl(imageUrlFromMap(md));
+      if (u.isNotEmpty && isValidImageUrl(u)) urls.add(u);
+    }
+    if (urls.isNotEmpty) {
+      await preloadNetworkImages(context, urls, maxItems: urls.length);
+    }
+  }
+
+  static Future<void> _warmOne(
+    String tenantId,
+    ChurchGalleryMemberPhotoRef ref,
+  ) async {
+    final md = ref.memberData;
+    final nome = md != null
+        ? (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
+            .toString()
+            .trim()
+        : null;
+
+    String? url;
+    if (md != null) {
+      final fromDoc = sanitizeImageUrl(imageUrlFromMap(md));
+      if (isValidImageUrl(fromDoc)) {
+        url = fromDoc;
       }
     }
 
-    if (!context.mounted || urls.isEmpty) return;
-    await preloadNetworkImages(context, urls, maxItems: urls.length);
+    url ??= FirebaseStorageService.peekMemberProfilePhotoDownloadUrl(
+      tenantId: tenantId,
+      memberId: ref.memberDocId,
+      cpfDigits: ref.cpfDigits,
+      authUid: ref.authUid,
+      nomeCompleto: (nome == null || nome.isEmpty) ? null : nome,
+      memberFirestoreHint: md,
+      preferListThumbnail: true,
+    );
+
+    url ??= await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
+      tenantId: tenantId,
+      memberId: ref.memberDocId,
+      cpfDigits: ref.cpfDigits,
+      authUid: ref.authUid,
+      nomeCompleto: (nome == null || nome.isEmpty) ? null : nome,
+      memberFirestoreHint: md,
+      preferListThumbnail: true,
+    );
+
+    final clean = url != null ? sanitizeImageUrl(url) : '';
+    if (clean.isEmpty || !isValidImageUrl(clean)) return;
+
+    final cached = MemberProfilePhotoBytesCache.get(clean);
+    if (cached != null && cached.length > 24) return;
+
+    Uint8List? bytes;
+    try {
+      bytes = await firebaseStorageBytesFromDownloadUrl(
+        clean,
+        maxBytes: _listMaxBytes,
+        skipFreshDisplayUrl: true,
+      );
+    } catch (_) {
+      bytes = null;
+    }
+    if (bytes != null && bytes.length > 24) {
+      MemberProfilePhotoBytesCache.put(clean, bytes);
+    }
   }
 }

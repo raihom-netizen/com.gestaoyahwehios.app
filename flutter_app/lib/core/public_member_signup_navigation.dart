@@ -22,7 +22,7 @@ abstract final class PublicMemberSignupNavigation {
   }) =>
       AppConstants.publicChurchMemberSignupUrl(slug, church: church);
 
-  /// No app nativo, abre cadastro público a partir da URL HTTPS; retorna false se não for rota conhecida.
+  /// No app nativo, abre site/cadastro público a partir da URL HTTPS (sem Safari).
   static bool tryOpenInAppFromUrl(BuildContext context, String url) {
     if (kIsWeb) return false;
     final route = PublicWebRouteParser.inAppRouteFromUrl(url);
@@ -30,6 +30,16 @@ abstract final class PublicMemberSignupNavigation {
     Navigator.pushNamed(context, route);
     return true;
   }
+
+  /// Site público da igreja dentro do app (`/igreja/{slug}`).
+  static void openChurchPublicSite(BuildContext context, {required String slug}) {
+    final s = slug.trim();
+    if (s.isEmpty) return;
+    Navigator.pushNamed(context, inAppChurchPublicRoute(s));
+  }
+
+  static String inAppChurchPublicRoute(String slug) =>
+      '/igreja/${Uri.encodeComponent(slug.trim())}';
 
   /// Abre o formulário **dentro** do app (nunca Safari) — mesma página [PublicMemberSignupPage].
   static void open(

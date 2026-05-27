@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited, Timer;
+﻿import 'dart:async' show unawaited, Timer;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -57,7 +58,7 @@ import 'package:gestao_yahweh/ui/pdf/carteirinha_a4_cut_guides.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pdf_fonts.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
-    show memberPhotoDisplayCacheRevision;
+    show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:share_plus/share_plus.dart';
@@ -92,33 +93,33 @@ String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
   return null;
 }
 
-/// Layout ao emitir várias carteirinhas (PDF).
+/// Layout ao emitir vÃ¡rias carteirinhas (PDF).
 enum _PdfManyLayout {
   /// A4 com uma carteirinha centralizada por folha.
   a4OnePerPage,
 
-  /// A4: 5 membros por folha — em cada linha, frente e verso lado a lado (economia de papel).
+  /// A4: 5 membros por folha â€” em cada linha, frente e verso lado a lado (economia de papel).
   a4FrenteVerso5PorFolha,
 
-  /// A4: 2 membros/folha — frente sobre verso (igual à carteirinha digital no ecrã).
+  /// A4: 2 membros/folha â€” frente sobre verso (igual Ã  carteirinha digital no ecrÃ£).
   a4FrenteSobreVerso2Digital,
 
-  /// Grade 2×2 (4) no A4.
+  /// Grade 2Ã—2 (4) no A4.
   a4Grid2x2,
 
-  /// Grade 2×3 (6) no A4.
+  /// Grade 2Ã—3 (6) no A4.
   a4Grid2x3,
 
-  /// Grade 2×4 (8) no A4 — ideal para impressora jato de tinta.
+  /// Grade 2Ã—4 (8) no A4 â€” ideal para impressora jato de tinta.
   a4Grid2x4,
 
-  /// Grade 2×5 (10) no A4.
+  /// Grade 2Ã—5 (10) no A4.
   a4Grid2x5,
 
-  /// Página no tamanho físico CR80 (~cartão PVC / papel fotográfico cortado).
+  /// PÃ¡gina no tamanho fÃ­sico CR80 (~cartÃ£o PVC / papel fotogrÃ¡fico cortado).
   cr80sheet,
 
-  /// CR80 com sangria e marcas de corte para gráfica.
+  /// CR80 com sangria e marcas de corte para grÃ¡fica.
   cr80grafica,
 }
 
@@ -218,10 +219,10 @@ class MemberCardPage extends StatefulWidget {
   /// Chamado ao clicar em "Ir para Membros"; troca para a aba Membros no shell (evita pop que deslogava).
   final VoidCallback? onNavigateToMembers;
 
-  /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; ações em barra compacta no corpo.
+  /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; aÃ§Ãµes em barra compacta no corpo.
   final bool embeddedInShell;
 
-  /// Só o cartão CNH centralizado (usado por [MemberCardCnhFullscreenPage]).
+  /// SÃ³ o cartÃ£o CNH centralizado (usado por [MemberCardCnhFullscreenPage]).
   final bool cnhFullscreenOnly;
 
   const MemberCardPage({
@@ -244,7 +245,7 @@ class _MemberItem {
   final String name;
   final String? photoUrl;
 
-  /// Dados brutos do Firestore para filtros (gênero, idade, departamento, CPF).
+  /// Dados brutos do Firestore para filtros (gÃªnero, idade, departamento, CPF).
   final Map<String, dynamic> data;
   _MemberItem(
       {required this.id,
@@ -255,7 +256,7 @@ class _MemberItem {
 }
 
 class _MemberCardPageState extends State<MemberCardPage> {
-  /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
+  /// Tamanho fÃ­sico CR80 â€” export Ãºnico legÃ­vel (evita folha A4 com cartÃ£o â€œgiganteâ€).
   static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
     85.6 * 72 / 25.4,
     53.98 * 72 / 25.4,
@@ -263,46 +264,46 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<_CardData?>? _loadFuture;
 
-  /// Doc `igrejas/{id}` após [resolveEffectiveTenantId] (cache por sessão desta página).
+  /// Doc `igrejas/{id}` apÃ³s [resolveEffectiveTenantId] (cache por sessÃ£o desta pÃ¡gina).
   String? _cachedIgrejaDocId;
 
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
 
-  /// Departamentos da igreja (para filtro e correspondência com nome legado).
+  /// Departamentos da igreja (para filtro e correspondÃªncia com nome legado).
   List<({String id, String name})> _deptFilterItems = [];
   String? _lastWarmupKey;
 
-  /// Gênero: todos | masculino | feminino
+  /// GÃªnero: todos | masculino | feminino
   String _filtroGeneroCarteira = 'todos';
 
-  /// Faixa etária: todas | criancas | adolescentes | adultos | idosos
+  /// Faixa etÃ¡ria: todas | criancas | adolescentes | adultos | idosos
   String _filtroFaixaCarteira = 'todas';
 
   /// id do documento em departamentos ou 'todos'
   String _filtroDepartamentoCarteira = 'todos';
 
-  /// Busca com debounce — evita setState a cada tecla (travava filtros/lista).
+  /// Busca com debounce â€” evita setState a cada tecla (travava filtros/lista).
   late final TextEditingController _memberSearchController;
   Timer? _memberSearchDebounce;
   String? _memberListPreloadFingerprint;
   String _signatureEnhanceMode = kSignatureEnhanceModeUltra;
 
-  /// Seleção na lista de membros (emissão / assinatura em bloco).
+  /// SeleÃ§Ã£o na lista de membros (emissÃ£o / assinatura em bloco).
   final Set<String> _carteiraListaSelecionados = {};
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
 
-  /// Durante exportação PDF (captura da carteira): assinatura/nome no verso antes do [Screenshot].
+  /// Durante exportaÃ§Ã£o PDF (captura da carteira): assinatura/nome no verso antes do [Screenshot].
   String? _walletPdfExportSigUrl;
   String? _walletPdfExportSignatoryNome;
   String? _walletPdfExportSignatoryCargo;
   String? _walletPdfExportSignatoryCpf;
 
-  /// `true` = PNG/PDF com imagem da assinatura digital; `false` = área para assinar à mão.
+  /// `true` = PNG/PDF com imagem da assinatura digital; `false` = Ã¡rea para assinar Ã  mÃ£o.
   bool _walletIncluirAssinaturaDigital = true;
 
-  /// Captura raster em lote (mesmo visual da carteira digital) — fora do ecrã.
+  /// Captura raster em lote (mesmo visual da carteira digital) â€” fora do ecrÃ£.
   final ScreenshotController _rasterBatchScreenshotController =
       ScreenshotController();
   _CardData? _rasterBatchCard;
@@ -314,7 +315,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// `true` = captura em lote com [MemberDigitalWalletFront] e [MemberDigitalWalletBack] na mesma linha.
   bool _rasterBatchLadoALado = false;
 
-  /// Mesmas cores da [MemberDigitalWalletFront] / config — PDF vetorial não usa hex com fallback errado.
+  /// Mesmas cores da [MemberDigitalWalletFront] / config â€” PDF vetorial nÃ£o usa hex com fallback errado.
   ({PdfColor bg, PdfColor bgEnd, PdfColor fg}) _pdfCarteiraColors(
       _CardConfig cfg, bool inkEco) {
     if (inkEco) {
@@ -416,7 +417,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<List<_MemberItem>> _loadMembersList() =>
       _loadMemberItemsForPicker(limit: 200);
 
-  /// Filtro por departamento alinhado à página Membros (lista de ids ou campo texto legado).
+  /// Filtro por departamento alinhado Ã  pÃ¡gina Membros (lista de ids ou campo texto legado).
   bool _memberMatchesDepartment(Map<String, dynamic> data, String deptDocId,
       List<({String id, String name})> deptList) {
     if (deptDocId == 'todos') return true;
@@ -503,7 +504,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     super.dispose();
   }
 
-  /// Se a URL da assinatura não foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
+  /// Se a URL da assinatura nÃ£o foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
   Future<Map<String, dynamic>> _enrichMemberCarteirinhaSignatureFromSignatory(
     Map<String, dynamic> raw, {
     String? igrejaDocId,
@@ -551,8 +552,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return out;
   }
 
-  /// Configurar carteirinha, seleção em lote e PDF em massa — alinhado a quem edita membros / perfil da igreja.
-  /// Inclui pastores/secretários ([editAnyMember]) e corrige papéis compostos via [ChurchRolePermissions.normalize].
+  /// SeleÃ§Ã£o em lote e PDF em massa â€” alinhado a quem edita membros / perfil da igreja.
+  /// Inclui pastores/secretÃ¡rios ([editAnyMember]) e corrige papÃ©is compostos via [ChurchRolePermissions.normalize].
   bool get _canManage {
     if (AppPermissions.isRestrictedMember(widget.role)) return false;
     final n = ChurchRolePermissions.normalize(widget.role);
@@ -565,15 +566,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return s.editAnyMember || s.editChurchProfile;
   }
 
-  /// Membro só vê e emite a própria carteirinha (acesso restrito).
-  /// Perfil básico no painel: só a própria carteirinha (membro ou visitante com menu restrito).
+  /// Membro sÃ³ vÃª e emite a prÃ³pria carteirinha (acesso restrito).
+  /// Perfil bÃ¡sico no painel: sÃ³ a prÃ³pria carteirinha (membro ou visitante com menu restrito).
   bool get _isRestrictedMember {
     final r = widget.role.toLowerCase();
     return r == 'membro' || r == 'visitante';
   }
 
-  /// Gestor/admin só carrega ficha quando há [memberId] explícito.
-  /// O CPF do usuário logado na shell não deve pré-selecionar membro (senão só emite a própria).
+  /// Gestor/admin sÃ³ carrega ficha quando hÃ¡ [memberId] explÃ­cito.
+  /// O CPF do usuÃ¡rio logado na shell nÃ£o deve prÃ©-selecionar membro (senÃ£o sÃ³ emite a prÃ³pria).
   bool get _hasExplicitMemberTarget =>
       widget.memberId != null && widget.memberId!.trim().isNotEmpty;
 
@@ -583,8 +584,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final membersCol =
         db.collection('igrejas').doc(igrejaDocId).collection('membros');
 
-    // Carrega tenant (obrigatório) e config do card (opcional)
-    Map<String, dynamic> cardCfg = {};
+    // Carrega tenant (obrigatÃ³rio) e config automÃ¡tica do cartÃ£o
     Map<String, dynamic> tenant = {};
 
     try {
@@ -594,59 +594,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ..['id'] = igrejaDocId;
     } catch (_) {}
 
-    // Config por igreja (carteira editável: cor, logo)
-    try {
-      final carteiraSnap = await db
-          .collection('igrejas')
-          .doc(igrejaDocId)
-          .collection('config')
-          .doc('carteira')
-          .get();
-      if (carteiraSnap.exists && carteiraSnap.data() != null) {
-        cardCfg.addAll(Map<String, dynamic>.from(carteiraSnap.data()!));
-      }
-    } catch (_) {}
-
-    // Fallback: config global e depois tenant (logo pode ser logoUrl ou logoDataBase64)
-    final hasLogo = (cardCfg['logoUrl'] ?? '').toString().trim().isNotEmpty ||
-        ((cardCfg['logoDataBase64'] ?? '').toString().trim().isNotEmpty);
-    if (cardCfg['title'] == null || !hasLogo) {
-      try {
-        final cfgSnap = await db.doc('config/memberCard').get();
-        if (cfgSnap.exists && cfgSnap.data() != null) {
-          final global = cfgSnap.data()!;
-          if (cardCfg['title'] == null && global['title'] != null)
-            cardCfg['title'] = global['title'];
-          if (cardCfg['logoUrl'] == null && global['logoUrl'] != null)
-            cardCfg['logoUrl'] = global['logoUrl'];
-          if (cardCfg['bgColor'] == null && global['bgColor'] != null) {
-            cardCfg['bgColor'] = global['bgColor'];
-          }
-          if (cardCfg['textColor'] == null && global['textColor'] != null) {
-            cardCfg['textColor'] = global['textColor'];
-          }
-          if (cardCfg['bgColorSecondary'] == null &&
-              global['bgColorSecondary'] != null) {
-            cardCfg['bgColorSecondary'] = global['bgColorSecondary'];
-          }
-          if (cardCfg['accentColor'] == null && global['accentColor'] != null) {
-            cardCfg['accentColor'] = global['accentColor'];
-          }
-          if (cardCfg['accentGold'] == null && global['accentGold'] != null) {
-            cardCfg['accentGold'] = global['accentGold'];
-          }
-        }
-      } catch (_) {}
-    }
-    if (cardCfg['title'] == null && tenant['name'] != null) {
-      cardCfg['title'] = tenant['name'] ?? tenant['nome'] ?? 'Gestão YAHWEH';
-    }
-    if (cardCfg['logoUrl'] == null) {
-      final u = churchTenantLogoUrl(tenant);
-      if (u.isNotEmpty) cardCfg['logoUrl'] = u;
-    }
-    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg, igrejaDocId);
-    cardCfg = _mergeChurchLogoIntoCardConfig(cardCfg, tenant);
+    // Logo, nome e cores automÃ¡ticos (cadastro da igreja; sem painel de configuraÃ§Ã£o).
+    final cardCfg =
+        await _resolveAutomaticCardConfig(tenant: tenant, igrejaDocId: igrejaDocId);
 
     DocumentSnapshot<Map<String, dynamic>>? memberDoc;
     final isMembro = _isRestrictedMember;
@@ -793,17 +743,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
         .trim();
   }
 
-  /// Frente da carteira: estado civil + admissão + batismo (uma linha; rótulos por extenso).
+  /// Frente da carteira: estado civil + admissÃ£o + batismo (uma linha; rÃ³tulos por extenso).
   String _admissionBatismoLine(Map<String, dynamic> member) {
     final parts = <String>[];
     final ec = _estadoCivilFromMember(member);
     if (ec.isNotEmpty) parts.add('Estado civil: $ec');
     final adm = _admissionForWallet(member);
     final bat = _fmtDate(_dateFromMember(member, 'DATA_BATISMO')).trim();
-    if (adm.isNotEmpty) parts.add('Admissão: $adm');
+    if (adm.isNotEmpty) parts.add('AdmissÃ£o: $adm');
     if (bat.isNotEmpty) parts.add('Batismo: $bat');
     if (parts.isEmpty) return '';
-    return parts.join('  ·  ');
+    return parts.join('  Â·  ');
   }
 
   String _telefoneFromMember(Map<String, dynamic> m) {
@@ -852,14 +802,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return _fmtDate(DateTime(now.year + 1, now.month, now.day));
   }
 
+  String _churchNameFromTenant(Map<String, dynamic> tenant) {
+    final n = (tenant['name'] ?? tenant['nome'] ?? '').toString().trim();
+    return n.isNotEmpty ? n : 'Igreja';
+  }
+
   MemberCardCnhViewData _cnhViewDataFrom(_CardData data, _CardConfig cfg) {
     return MemberCardCnhViewData.fromMaps(
       tenantId: data.igrejaDocId,
       memberId: data.memberId,
       member: data.member,
       tenant: data.tenant,
-      churchTitle: cfg.title,
-      churchSubtitle: cfg.subtitle,
+      churchTitle: _churchNameFromTenant(data.tenant),
+      churchSubtitle: 'Credencial de Membro',
       qrPayload: CarteirinhaConsultaUrl.validationUrl(
         data.igrejaDocId,
         data.memberId,
@@ -868,22 +823,22 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  Widget _cnhLogoSlot(_CardData data, _CardConfig cfg) {
-    if (cfg.logoDataBase64 != null && cfg.logoDataBase64!.isNotEmpty) {
-      return Image.memory(
-        base64Decode(cfg.logoDataBase64!),
+  Widget _cnhLogoSlot(_CardData data) {
+    final logoUrl = churchTenantLogoUrl(data.tenant);
+    if (logoUrl.isEmpty) {
+      return Image.asset(
+        'assets/logo.png',
+        width: 160,
+        height: 160,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => Image.asset(
-          'assets/LOGO_GESTAO_YAHWEH.png',
-          fit: BoxFit.contain,
-        ),
+        filterQuality: FilterQuality.medium,
       );
     }
     return StableChurchLogo(
       tenantId: data.igrejaDocId,
       tenantData: data.tenant,
       storagePath: ChurchImageFields.logoStoragePath(data.tenant),
-      imageUrl: cfg.logoUrl.trim().isNotEmpty ? cfg.logoUrl.trim() : null,
+      imageUrl: logoUrl.isEmpty ? null : logoUrl,
       width: 160,
       height: 160,
       fit: BoxFit.contain,
@@ -896,17 +851,24 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final cpf = _memberCpfRaw(data.member);
     final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
     final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
-    return FotoMembroWidget(
+    final nome = (data.member['NOME_COMPLETO'] ?? data.member['nome'] ?? '')
+        .toString()
+        .trim();
+    return SafeMemberProfilePhoto(
       key: ValueKey<String>(
-        'cnh_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
+        'carteira_photo_${data.memberId}_${memberPhotoDisplayCacheRevision(data.member) ?? 0}',
       ),
       imageUrl: photoUrlPreview.isEmpty ? null : photoUrlPreview,
       tenantId: data.igrejaDocId,
       memberId: data.memberId,
       cpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
-      memberData: data.member,
+      memberFirestoreHint: data.member,
       authUid: _memberAuthUidForCarteiraFoto(data.member),
-      size: 112,
+      nomeCompleto: nome.isEmpty ? null : nome,
+      width: 90,
+      height: 114,
+      circular: false,
+      fit: BoxFit.cover,
       memCacheWidth: 280,
       memCacheHeight: 350,
       imageCacheRevision: memberPhotoDisplayCacheRevision(data.member),
@@ -920,7 +882,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }) {
     return MemberCardCnhDigital(
       data: _cnhViewDataFrom(data, cfg),
-      logoSlot: _cnhLogoSlot(data, cfg),
+      logoSlot: _cnhLogoSlot(data),
       photoSlot: _cnhPhotoSlot(data),
       showPhoto: cfg.showPhoto,
       maxWidth: maxWidth,
@@ -959,7 +921,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   Text(
                     snap.hasError
                         ? snap.error.toString()
-                        : 'Cartão não disponível.',
+                        : 'CartÃ£o nÃ£o disponÃ­vel.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
                   ),
@@ -979,39 +941,35 @@ class _MemberCardPageState extends State<MemberCardPage> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             child: Column(
               children: [
+                if (widget.embeddedInShell) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Minha carteirinha',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Compartilhe por WhatsApp, PNG ou PDF. Toque em Voltar na barra do app para sair.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.72),
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 Screenshot(
                   controller: _walletScreenshotController,
                   child: _buildCnhCardPreview(data, cfg, maxWidth: w),
                 ),
                 const SizedBox(height: 20),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    if (!kIsWeb)
-                      OutlinedButton.icon(
-                        onPressed: () => _saveWalletImageToGallery(context),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white54),
-                        ),
-                        icon: const Icon(Icons.photo_library_outlined),
-                        label: const Text('Salvar na galeria'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: () => _shareWalletPng(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white54),
-                      ),
-                      icon: const Icon(Icons.ios_share_rounded),
-                      label: Text(
-                        kIsWeb ? 'Baixar PNG' : 'Compartilhar',
-                      ),
-                    ),
-                  ],
-                ),
+                _buildCnhFullscreenShareActions(context, data, cfg),
               ],
             ),
           ),
@@ -1025,7 +983,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final igrejaDocId = await _effectiveIgrejaDocId();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Gerando códigos de membro em falta…')),
+      const SnackBar(content: Text('Gerando cÃ³digos de membro em faltaâ€¦')),
     );
     try {
       final r = await MemberCodigoService.backfillMissing(
@@ -1035,7 +993,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          '${r.assigned} código(s) atribuído(s). ${r.skipped} já tinham código.'
+          '${r.assigned} cÃ³digo(s) atribuÃ­do(s). ${r.skipped} jÃ¡ tinham cÃ³digo.'
           '${r.errors > 0 ? " ${r.errors} erro(s)." : ""}',
         ),
       );
@@ -1043,7 +1001,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao gerar códigos: $e'),
+          ThemeCleanPremium.feedbackSnackBar('Erro ao gerar cÃ³digos: $e'),
         );
       }
     }
@@ -1057,7 +1015,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Cadastre a assinatura do pastor/gestor em Membros → Editar.',
+            'Cadastre a assinatura do pastor/gestor em Membros â†’ Editar.',
           ),
         ),
       );
@@ -1090,7 +1048,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Assinar cartão de ${_memberNome(data.member)}',
+                  'Assinar cartÃ£o de ${_memberNome(data.member)}',
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -1115,7 +1073,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         (o) => DropdownMenuItem(
                           value: o,
                           child: Text(
-                            '${o.nome} — ${o.cargo}',
+                            '${o.nome} â€” ${o.cargo}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1144,7 +1102,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           }
                         },
                   icon: const Icon(Icons.draw_rounded),
-                  label: const Text('Assinar cartão'),
+                  label: const Text('Assinar cartÃ£o'),
                 ),
               ],
             ),
@@ -1178,7 +1136,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     var selectedSignatory = _selectSignatory(
         signatoryOptions, defaultSigId.isEmpty ? null : defaultSigId);
     var pdfLayout = _PdfManyLayout.a4FrenteVerso5PorFolha;
-    /// Igual à carteira digital na app (degradê + borda ouro). Só desligar para modo pouca tinta.
+    /// Igual Ã  carteira digital na app (degradÃª + borda ouro). SÃ³ desligar para modo pouca tinta.
     var pdfInkEconomy = false;
     var modalSearch = '';
     var modalGenero = 'todos';
@@ -1299,7 +1257,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         const Text(
-                                          'Emitir várias carteirinhas',
+                                          'Emitir vÃ¡rias carteirinhas',
                                           style: TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.w800,
@@ -1308,7 +1266,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'Selecione os membros e gere um único PDF.',
+                                          'Selecione os membros e gere um Ãºnico PDF.',
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: Colors.grey.shade700,
@@ -1361,7 +1319,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         .map((o) => DropdownMenuItem(
                                             value: o,
                                             child: Text(
-                                                '${o.nome} — ${o.cargo}',
+                                                '${o.nome} â€” ${o.cargo}',
                                                 overflow:
                                                     TextOverflow.ellipsis)))
                                         .toList(),
@@ -1383,9 +1341,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   value: pdfLayout,
                                   isExpanded: true,
                                   decoration: InputDecoration(
-                                    labelText: 'Papel / disposição na folha',
+                                    labelText: 'Papel / disposiÃ§Ã£o na folha',
                                     helperText:
-                                        '“5 por folha” = modelo da carteira digital, frente e verso na mesma linha por membro. Grades 2×N = 1.ª folha só frentes, 2.ª só versos.',
+                                        'â€œ5 por folhaâ€ = modelo da carteira digital, frente e verso na mesma linha por membro. Grades 2Ã—N = 1.Âª folha sÃ³ frentes, 2.Âª sÃ³ versos.',
                                     border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(
                                             ThemeCleanPremium.radiusSm)),
@@ -1397,40 +1355,40 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         value:
                                             _PdfManyLayout.a4FrenteVerso5PorFolha,
                                         child: Text(
-                                            'A4 — 5 por folha (frente e verso na mesma linha — modelo digital — predefinição)')),
+                                            'A4 â€” 5 por folha (frente e verso na mesma linha â€” modelo digital â€” predefiniÃ§Ã£o)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout
                                             .a4FrenteSobreVerso2Digital,
                                         child: Text(
-                                            'A4 — 2 por folha (frente sobre verso, como no ecrã vertical)')),
+                                            'A4 â€” 2 por folha (frente sobre verso, como no ecrÃ£ vertical)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4OnePerPage,
                                         child: Text(
-                                            'A4 — 1 por folha (centralizada)')),
+                                            'A4 â€” 1 por folha (centralizada)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x2,
                                         child: Text(
-                                            'A4 — 4 por folha (grade 2×2)')),
+                                            'A4 â€” 4 por folha (grade 2Ã—2)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x3,
                                         child: Text(
-                                            'A4 — 6 por folha (grade 2×3)')),
+                                            'A4 â€” 6 por folha (grade 2Ã—3)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x4,
                                         child: Text(
-                                            'A4 — 8 por folha (grade 2×4, jato de tinta)')),
+                                            'A4 â€” 8 por folha (grade 2Ã—4, jato de tinta)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x5,
                                         child: Text(
-                                            'A4 — 10 por folha (grade 2×5)')),
+                                            'A4 â€” 10 por folha (grade 2Ã—5)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.cr80sheet,
                                         child: Text(
-                                            'Só cartão CR80 — 1 por folha (papel especial)')),
+                                            'SÃ³ cartÃ£o CR80 â€” 1 por folha (papel especial)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.cr80grafica,
                                         child: Text(
-                                            'CR80 + marcas de corte (gráfica / PVC)')),
+                                            'CR80 + marcas de corte (grÃ¡fica / PVC)')),
                                   ],
                                   onChanged: (v) => setModal(() => pdfLayout =
                                       v ??
@@ -1457,7 +1415,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             Icons.grid_on_rounded,
                                             size: 20),
                                         label: const Text(
-                                            'Predefinição: A4 com 8 cartões + menos tinta'),
+                                            'PredefiniÃ§Ã£o: A4 com 8 cartÃµes + menos tinta'),
                                       ),
                                     ),
                                   ),
@@ -1469,9 +1427,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       onChanged: (v) => setModal(
                                           () => pdfInkEconomy = v ?? false),
                                       title: const Text(
-                                          'Visual econômico (menos tinta)'),
+                                          'Visual econÃ´mico (menos tinta)'),
                                       subtitle: const Text(
-                                          'Desligado = mesmo modelo da carteirinha digital (cores e degradê). Ligado = fundo claro, ideal para jato de tinta.'),
+                                          'Desligado = mesmo modelo da carteirinha digital (cores e degradÃª). Ligado = fundo claro, ideal para jato de tinta.'),
                                       controlAffinity:
                                           ListTileControlAffinity.leading,
                                       contentPadding: EdgeInsets.zero,
@@ -1533,7 +1491,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                 value: modalGenero,
                                                 isExpanded: true,
                                                 decoration: InputDecoration(
-                                                  labelText: 'Gênero',
+                                                  labelText: 'GÃªnero',
                                                   border: OutlineInputBorder(
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -1571,7 +1529,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                 value: modalFaixa,
                                                 isExpanded: true,
                                                 decoration: InputDecoration(
-                                                  labelText: 'Faixa etária',
+                                                  labelText: 'Faixa etÃ¡ria',
                                                   border: OutlineInputBorder(
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -1591,7 +1549,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                   DropdownMenuItem(
                                                       value: 'criancas',
                                                       child: Text(
-                                                          'Crianças (<13)')),
+                                                          'CrianÃ§as (<13)')),
                                                   DropdownMenuItem(
                                                       value: 'adolescentes',
                                                       child: Text(
@@ -1799,7 +1757,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                           content: Text(
-                                              'Nenhum membro válido selecionado.')));
+                                              'Nenhum membro vÃ¡lido selecionado.')));
                                 return;
                               }
                               try {
@@ -1851,7 +1809,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     );
                                   } catch (e, st) {
                                     debugPrint(
-                                        'emitir vários: raster falhou, PDF vetorial: $e\n$st');
+                                        'emitir vÃ¡rios: raster falhou, PDF vetorial: $e\n$st');
                                     bytes = await _buildPdfMulti(
                                       list,
                                       lay.format,
@@ -1899,7 +1857,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     );
                                   } catch (e, st) {
                                     debugPrint(
-                                        'emitir vários: raster frente|verso falhou, PDF vetorial: $e\n$st');
+                                        'emitir vÃ¡rios: raster frente|verso falhou, PDF vetorial: $e\n$st');
                                     bytes = await _buildPdfMulti(
                                       list,
                                       lay.format,
@@ -1960,7 +1918,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 pdfLayout == _PdfManyLayout.a4Grid2x3 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x4 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x5)
-                            ? 'Gerar PDF para impressão (A4) — ${selectedIds.length}'
+                            ? 'Gerar PDF para impressÃ£o (A4) â€” ${selectedIds.length}'
                             : 'Gerar PDF (${selectedIds.length} selecionados)',
                       ),
                       style: FilledButton.styleFrom(
@@ -2039,10 +1997,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     final lastErr = r.lastErr;
     final errTail = lastErr == null
-        ? 'Verifique permissões e conexão.'
+        ? 'Verifique permissÃµes e conexÃ£o.'
         : (lastErr.length > 120
-            ? 'Último erro: ${lastErr.substring(0, 120)}…'
-            : 'Último erro: $lastErr');
+            ? 'Ãšltimo erro: ${lastErr.substring(0, 120)}â€¦'
+            : 'Ãšltimo erro: $lastErr');
     final msg = r.fail == 0
         ? '${r.ok} carteirinha(s) assinada(s) com sucesso.'
         : '${r.ok} ok, ${r.fail} falha(s). $errTail';
@@ -2071,7 +2029,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Cadastre assinatura em Membros → Editar para quem tem cargo além de membro (pastor, tesoureiro, líder etc.).'),
+              'Cadastre assinatura em Membros â†’ Editar para quem tem cargo alÃ©m de membro (pastor, tesoureiro, lÃ­der etc.).'),
         ),
       );
       return;
@@ -2139,7 +2097,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Text(
-                    'Escolha o signatário e assine todas ou por seleção. Os dados são gravados no Firestore em lotes (mais rápido e confiável).',
+                    'Escolha o signatÃ¡rio e assine todas ou por seleÃ§Ã£o. Os dados sÃ£o gravados no Firestore em lotes (mais rÃ¡pido e confiÃ¡vel).',
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 16),
@@ -2162,7 +2120,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     items: options
                         .map((o) => DropdownMenuItem(
                             value: o,
-                            child: Text('${o.nome} — ${o.cargo}',
+                            child: Text('${o.nome} â€” ${o.cargo}',
                                 overflow: TextOverflow.ellipsis)))
                         .toList(),
                     onChanged: (v) => _refreshSignatoryFromFirestore(
@@ -2174,7 +2132,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(
-                        'Atenção: este signatário não tem imagem de assinatura no cadastro. O nome aparecerá no PDF, mas a imagem só após cadastrar a assinatura em Membros → Editar.',
+                        'AtenÃ§Ã£o: este signatÃ¡rio nÃ£o tem imagem de assinatura no cadastro. O nome aparecerÃ¡ no PDF, mas a imagem sÃ³ apÃ³s cadastrar a assinatura em Membros â†’ Editar.',
                         style: TextStyle(
                             fontSize: 12, color: Colors.orange.shade800),
                       ),
@@ -2284,7 +2242,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             );
                           },
                     icon: const Icon(Icons.list_rounded),
-                    label: const Text('Assinar por seleção'),
+                    label: const Text('Assinar por seleÃ§Ã£o'),
                   ),
                 ],
               ),
@@ -2301,12 +2259,575 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return mid.isEmpty;
   }
 
+  bool _carteirinhaJaAssinada(Map<String, dynamic> member) {
+    final assinadaEm = member['carteirinhaAssinadaEm'];
+    final assinadaPorNome =
+        (member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    final assinaturaUrl =
+        (member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+    return assinadaEm != null ||
+        assinadaPorNome.isNotEmpty ||
+        assinaturaUrl.isNotEmpty;
+  }
+
+  DateTime? _dataCadastroMembro(Map<String, dynamic> member) {
+    for (final k in const [
+      'createdAt',
+      'DATA_CADASTRO',
+      'dataCadastro',
+      'cadastradoEm',
+      'data_cadastro',
+    ]) {
+      final v = member[k];
+      if (v == null) continue;
+      if (v is Timestamp) return v.toDate();
+      if (v is DateTime) return v;
+      if (v is String && v.trim().isNotEmpty) {
+        final p = DateTime.tryParse(v.trim());
+        if (p != null) return p;
+      }
+    }
+    return null;
+  }
+
+  Future<List<String>> _idsMembrosRecemCadastradosNaoAssinados() async {
+    final all = await _membersListFuture;
+    final cutoff = DateTime.now().subtract(const Duration(days: 30));
+    final ids = <String>[];
+    for (final m in all) {
+      if (_carteirinhaJaAssinada(m.data)) continue;
+      final d = _dataCadastroMembro(m.data);
+      if (d != null && d.isAfter(cutoff)) ids.add(m.id);
+    }
+    return ids;
+  }
+
+  Future<void> _selecionarTodosNaListaGestor() async {
+    final all = await _membersListFuture;
+    if (!mounted) return;
+    setState(() {
+      _carteiraListaSelecionados
+        ..clear()
+        ..addAll(all.map((e) => e.id));
+    });
+  }
+
+  Future<void> _assinarIdsComSignatarioPadrao(
+    BuildContext context,
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty || !_canManage) return;
+    final options = await _loadSignatoryOptions();
+    if (!context.mounted) return;
+    if (options.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cadastre a assinatura de um lÃ­der em Membros â†’ Editar (pastor, tesoureiro, etc.).',
+          ),
+        ),
+      );
+      return;
+    }
+    String? defaultSigId;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('config')
+          .doc('carteira')
+          .get();
+      defaultSigId =
+          (snap.data()?['defaultSignatoryMemberId'] ?? '').toString().trim();
+    } catch (_) {}
+    final signat = _selectSignatory(
+      options,
+      (defaultSigId ?? '').isEmpty ? null : defaultSigId,
+    );
+    if (signat == null) {
+      if (context.mounted) await _abrirAssinarEmLote(context);
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Assinar ${ids.length} carteirinha(s)?'),
+        content: Text(
+          'SignatÃ¡rio: ${signat.nome} (${signat.cargo}). '
+          'A assinatura serÃ¡ gravada no cadastro de cada membro.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Assinar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    final r = await _firestoreAssinaturaLote(ids, signat);
+    _snackFirestoreAssinaturaResult(context, r);
+    if (mounted) setState(() => _loadFuture = _load());
+  }
+
+  Future<Uint8List?> _capturarPngCarteiraDigital(
+    BuildContext context,
+    _CardData data, {
+    String pastorSigFallback = '',
+  }) async {
+    final cfg = _effectiveCardConfig(data);
+    _warmupCarteiraAssets(data, cfg);
+    final fromMember =
+        (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
+    final resolvedSig =
+        fromMember.isNotEmpty ? fromMember : pastorSigFallback.trim();
+    final sigLabels = await _resolveSignatoryLabelsForWallet(
+      data.member,
+      data.cardConfig,
+      data.igrejaDocId,
+    );
+    if (!mounted) return null;
+    setState(() {
+      _rasterBatchCard = data;
+      _rasterBatchLadoALado = false;
+      _rasterBatchSigUrl = resolvedSig;
+      _rasterBatchSignatoryNome = sigLabels.nome;
+      _rasterBatchSignatoryCargo = sigLabels.cargo;
+      _rasterBatchSignatoryCpf = sigLabels.cpf;
+      _rasterBatchShowDigitalSig = _walletIncluirAssinaturaDigital;
+    });
+    for (var j = 0; j < 6; j++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 140));
+    if (resolvedSig.isNotEmpty) {
+      await _precacheWalletSigForExport(context, resolvedSig);
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+    }
+    final pr = MediaQuery.devicePixelRatioOf(context).clamp(2.0, 3.0);
+    final png = await _rasterBatchScreenshotController.capture(pixelRatio: pr);
+    if (mounted) {
+      setState(() {
+        _rasterBatchCard = null;
+        _rasterBatchSigUrl = '';
+        _rasterBatchSignatoryNome = '';
+        _rasterBatchSignatoryCargo = '';
+        _rasterBatchSignatoryCpf = '';
+        _rasterBatchShowDigitalSig = true;
+      });
+    }
+    return png;
+  }
+
+  Future<void> _exportarPngZipGestor(
+    BuildContext context, {
+    required List<String> memberIds,
+  }) async {
+    if (memberIds.isEmpty || !_canManage) return;
+    final prog = ValueNotifier<double>(0);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ValueListenableBuilder<double>(
+        valueListenable: prog,
+        builder: (_, p, __) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Gerando PNGâ€¦ ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  try {
+      final tpl = await _loadCarteiraTemplateContext();
+      var pastorSig = '';
+      try {
+        pastorSig = (await FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
+                tpl.igrejaDocId) ??
+            '')
+            .trim();
+      } catch (_) {}
+      final zipEntries = <String, Uint8List>{};
+      for (var i = 0; i < memberIds.length; i++) {
+        prog.value = (i + 1) / memberIds.length;
+        final id = memberIds[i];
+        final card = await _cardDataForMemberId(
+          id,
+          tpl.tenant,
+          tpl.cardCfg,
+          tpl.igrejaDocId,
+        );
+        if (card == null || !context.mounted) continue;
+        await preLoadImages(card);
+        final png = await _capturarPngCarteiraDigital(
+          context,
+          card,
+          pastorSigFallback: pastorSig,
+        );
+        if (png != null && png.isNotEmpty) {
+          zipEntries['carteirinha_${_safeMemberFileStub(id)}.png'] = png;
+        }
+      }
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      if (zipEntries.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum PNG gerado.')),
+        );
+        return;
+      }
+      final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
+      await Share.shareXFiles([
+        XFile.fromData(
+          zipBytes,
+          name:
+              'carteirinhas_png_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
+          mimeType: 'application/zip',
+        ),
+      ]);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${zipEntries.length} PNG(s) no ZIP â€” envie por WhatsApp ou salve no dispositivo.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro ao exportar PNG: $e')));
+      }
+    }
+  }
+
+  Future<void> _exportarPdfCr80ZipGestor(
+    BuildContext context, {
+    required List<String> memberIds,
+  }) async {
+    if (memberIds.isEmpty || !_canManage) return;
+    final prog = ValueNotifier<double>(0);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ValueListenableBuilder<double>(
+        valueListenable: prog,
+        builder: (_, p, __) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'PDF tamanho real (CR80)â€¦ ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      final tpl = await _loadCarteiraTemplateContext();
+      final zipEntries = <String, Uint8List>{};
+      for (var i = 0; i < memberIds.length; i++) {
+        prog.value = (i + 1) / memberIds.length;
+        final id = memberIds[i];
+        final card = await _cardDataForMemberId(
+          id,
+          tpl.tenant,
+          tpl.cardCfg,
+          tpl.igrejaDocId,
+        );
+        if (card == null) continue;
+        await preLoadImages(card);
+        final cfgPdf = _cardConfigForPdf(card);
+        final bytes = await _buildPdf(
+          card,
+          _kPdfCr80Export,
+          configOverride: cfgPdf,
+        );
+        zipEntries['carteirinha_${_safeMemberFileStub(id)}.pdf'] = bytes;
+      }
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      if (zipEntries.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum PDF gerado.')),
+        );
+        return;
+      }
+      final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
+      await Share.shareXFiles([
+        XFile.fromData(
+          zipBytes,
+          name:
+              'carteirinhas_cr80_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
+          mimeType: 'application/zip',
+        ),
+      ]);
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
+    }
+  }
+
+  Future<void> _abrirMenuExportacaoMassaGestor(BuildContext context) async {
+    final all = await _membersListFuture;
+    if (!context.mounted || all.isEmpty) return;
+    final usarSelecionados = _carteiraListaSelecionados.isNotEmpty;
+    final ids = usarSelecionados
+        ? _carteiraListaSelecionados.toList()
+        : all.map((e) => e.id).toList();
+    final rotulo = usarSelecionados
+        ? '${ids.length} selecionado(s)'
+        : 'todos (${ids.length})';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          20,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(ThemeCleanPremium.radiusLg),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Exportar $rotulo',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'PNG individual (ZIP), PDF tamanho real CR80 (ZIP) ou PDF Ãºnico A4 para visualizar e imprimir.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.image_rounded),
+              title: const Text('ZIP com PNG (cada carteirinha)'),
+              subtitle: const Text('WhatsApp, galeria ou arquivos'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportarPngZipGestor(context, memberIds: ids);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.credit_card_rounded),
+              title: const Text('ZIP com PDF tamanho real (CR80)'),
+              subtitle: const Text('Um PDF por membro, medida fÃ­sica do cartÃ£o'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportarPdfCr80ZipGestor(context, memberIds: ids);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_rounded),
+              title: const Text('PDF Ãºnico (vÃ¡rias por folha A4)'),
+              subtitle: const Text('Visualizar, imprimir ou compartilhar'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                if (!usarSelecionados) await _selecionarTodosNaListaGestor();
+                if (context.mounted) await _gerarPdfUnicoLote(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGestorPainelAcoesRapidas(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.primary.withValues(alpha: 0.1),
+            ThemeCleanPremium.primary.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bolt_rounded, color: ThemeCleanPremium.primary),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'AÃ§Ãµes rÃ¡pidas (gestor)',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Assinar recÃ©m-cadastrados, exportar todos em PNG/PDF (tamanho real) e enviar por WhatsApp.',
+            style: TextStyle(fontSize: 12, height: 1.35, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: () async {
+                  final ids = await _idsMembrosRecemCadastradosNaoAssinados();
+                  if (!context.mounted) return;
+                  if (ids.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Nenhum membro dos Ãºltimos 30 dias pendente de assinatura.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  await _assinarIdsComSignatarioPadrao(context, ids);
+                },
+                icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                label: const Text('Assinar recÃ©m-cadastrados'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final all = await _membersListFuture;
+                  final ids = all.map((e) => e.id).toList();
+                  if (!context.mounted) return;
+                  await _assinarIdsComSignatarioPadrao(context, ids);
+                },
+                icon: const Icon(Icons.draw_rounded, size: 18),
+                label: const Text('Assinar todos'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _abrirMenuExportacaoMassaGestor(context),
+                icon: const Icon(Icons.folder_zip_rounded, size: 18),
+                label: const Text('PNG / PDF (todos)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await _selecionarTodosNaListaGestor();
+                  if (context.mounted) await _gerarPdfUnicoLote(context);
+                },
+                icon: const Icon(Icons.visibility_rounded, size: 18),
+                label: const Text('Visualizar PDF Ãºnico'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCnhFullscreenShareActions(
+    BuildContext context,
+    _CardData data,
+    _CardConfig cfg,
+  ) {
+    final validade = _validityLabel(data.member);
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.center,
+      children: [
+        FilledButton.icon(
+          onPressed: () => _openWhatsAppCarteira(
+            context,
+            data,
+            cfg,
+            validade.isEmpty ? 'â€”' : validade,
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF25D366),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+          icon: const Icon(Icons.chat_rounded),
+          label: const Text('WhatsApp'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => _shareWalletPng(context),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: const BorderSide(color: Colors.white54),
+          ),
+          icon: const Icon(Icons.image_outlined),
+          label: Text(kIsWeb ? 'Baixar PNG' : 'Compartilhar PNG'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => _showGerarPdfComAssinatura(context, data),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: const BorderSide(color: Colors.white54),
+          ),
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          label: const Text('PDF'),
+        ),
+        if (!kIsWeb)
+          OutlinedButton.icon(
+            onPressed: () => _saveWalletImageToGallery(context),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white54),
+            ),
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Salvar no celular'),
+          ),
+      ],
+    );
+  }
+
   String _safeMemberFileStub(String id) {
     final s = id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     return s.isEmpty ? 'membro' : s.substring(0, s.length > 40 ? 40 : s.length);
   }
 
-  /// Lista da tela inicial: assinatura em bloco com ZIP e opção certificado (PAdES = stub até integração).
+  /// Lista da tela inicial: assinatura em bloco com ZIP e opÃ§Ã£o certificado (PAdES = stub atÃ© integraÃ§Ã£o).
   Future<void> _abrirAssinaturaBlocoSelecionados(BuildContext context) async {
     final ids = _carteiraListaSelecionados.toList();
     if (ids.isEmpty) return;
@@ -2331,13 +2852,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             Text(
-                'Assinatura visual: um PDF único para visualizar (frente + verso por membro), depois gravamos a assinatura no cadastro. Certificado digital continua em ZIP com um PDF por membro.',
+                'Assinatura visual: um PDF Ãºnico para visualizar (frente + verso por membro), depois gravamos a assinatura no cadastro. Certificado digital continua em ZIP com um PDF por membro.',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: () => Navigator.pop(ctx, 'visual'),
               icon: const Icon(Icons.draw_rounded),
-              label: const Text('Assinatura visual (imagem do líder)'),
+              label: const Text('Assinatura visual (imagem do lÃ­der)'),
               style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -2347,7 +2868,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               onPressed: () => Navigator.pop(ctx, 'cert'),
               icon: const Icon(Icons.verified_user_rounded),
               label: const Text(
-                  'Certificado digital (A1 / A3 — PAdES em roadmap)'),
+                  'Certificado digital (A1 / A3 â€” PAdES em roadmap)'),
             ),
             const SizedBox(height: 8),
             TextButton(
@@ -2365,7 +2886,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text(
-                  'Cadastre a assinatura visual dos líderes em Membros → Editar.')),
+                  'Cadastre a assinatura visual dos lÃ­deres em Membros â†’ Editar.')),
         );
       }
       return;
@@ -2415,7 +2936,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 value: selected,
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: 'Signatário',
+                  labelText: 'SignatÃ¡rio',
                   border: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -2423,7 +2944,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 items: options
                     .map((o) => DropdownMenuItem(
                         value: o,
-                        child: Text('${o.nome} — ${o.cargo}',
+                        child: Text('${o.nome} â€” ${o.cargo}',
                             overflow: TextOverflow.ellipsis)))
                     .toList(),
                 onChanged: (v) async {
@@ -2524,8 +3045,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
               const SizedBox(width: 20),
               Expanded(
                   child: Text(modo == 'cert'
-                      ? 'Gerando PDFs e preparando certificado…'
-                      : 'Gerando PDFs e gravando assinaturas…')),
+                      ? 'Gerando PDFs e preparando certificadoâ€¦'
+                      : 'Gerando PDFs e gravando assinaturasâ€¦')),
             ],
           ),
         ),
@@ -2562,7 +3083,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         if (list.isEmpty) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Nenhum PDF gerado (membros não encontrados).')));
+                content: Text('Nenhum PDF gerado (membros nÃ£o encontrados).')));
           }
           return;
         }
@@ -2661,7 +3182,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (zipEntries.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Nenhum PDF gerado (membros não encontrados).')));
+              content: Text('Nenhum PDF gerado (membros nÃ£o encontrados).')));
         }
         return;
       }
@@ -2693,7 +3214,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Um único PDF (frente + verso por membro) para gráfica ou WhatsApp — com progresso.
+  /// Um Ãºnico PDF (frente + verso por membro) para grÃ¡fica ou WhatsApp â€” com progresso.
   Future<void> _gerarPdfUnicoLote(BuildContext context) async {
     final ids = List<String>.from(_carteiraListaSelecionados);
     if (ids.isEmpty || !_canManage) return;
@@ -2735,12 +3256,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('PDF em lote — ${ids.length} carteirinha(s)',
+              Text('PDF em lote â€” ${ids.length} carteirinha(s)',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               Text(
-                'Um único PDF: por defeito, cada membro com frente e verso na mesma linha (até 5 por folha A4), igual ao modelo da carteira no módulo Membro.',
+                'Um Ãºnico PDF: por defeito, cada membro com frente e verso na mesma linha (atÃ© 5 por folha A4), igual ao modelo da carteira no mÃ³dulo Membro.',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 12),
@@ -2748,9 +3269,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 value: pdfLayoutLote,
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: 'Disposição no papel A4',
+                  labelText: 'DisposiÃ§Ã£o no papel A4',
                   helperText:
-                      'Predefinição: 5 por folha, frente e verso lado a lado (captura do ecrã). Grades 2×N: 1.ª folha só frentes, 2.ª só versos.',
+                      'PredefiniÃ§Ã£o: 5 por folha, frente e verso lado a lado (captura do ecrÃ£). Grades 2Ã—N: 1.Âª folha sÃ³ frentes, 2.Âª sÃ³ versos.',
                   border: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -2761,26 +3282,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4FrenteVerso5PorFolha,
                       child: Text(
-                          '5 por folha — frente e verso na mesma linha (modelo digital — predefinição)')),
+                          '5 por folha â€” frente e verso na mesma linha (modelo digital â€” predefiniÃ§Ã£o)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4FrenteSobreVerso2Digital,
                       child: Text(
-                          '2 por folha — frente sobre verso (como no ecrã vertical)')),
+                          '2 por folha â€” frente sobre verso (como no ecrÃ£ vertical)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4OnePerPage,
                       child: Text('1 por folha (maior no centro)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x2,
-                      child: Text('4 por folha — grelha 2×2')),
+                      child: Text('4 por folha â€” grelha 2Ã—2')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x3,
-                      child: Text('6 por folha — grelha 2×3')),
+                      child: Text('6 por folha â€” grelha 2Ã—3')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x4,
-                      child: Text('8 por folha — grelha 2×4')),
+                      child: Text('8 por folha â€” grelha 2Ã—4')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x5,
-                      child: Text('10 por folha — grelha 2×5')),
+                      child: Text('10 por folha â€” grelha 2Ã—5')),
                 ],
                 onChanged: (v) => setModal(
                     () => pdfLayoutLote =
@@ -2794,7 +3315,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     : (v) => setModal(() {
                           incluirAssinatura = v ?? false;
                         }),
-                title: const Text('Incluir assinatura visual do líder'),
+                title: const Text('Incluir assinatura visual do lÃ­der'),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
               ),
@@ -2819,7 +3340,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   items: options
                       .map((o) => DropdownMenuItem(
                           value: o,
-                          child: Text('${o.nome} — ${o.cargo}',
+                          child: Text('${o.nome} â€” ${o.cargo}',
                               overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (v) async {
@@ -2888,12 +3409,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 const SizedBox(height: 16),
                 Text(
                   p < 0.14
-                      ? 'A carregar membros e identidade visual (logo)…'
+                      ? 'A carregar membros e identidade visual (logo)â€¦'
                       : (p < 0.24
-                          ? 'A finalizar branding…'
+                          ? 'A finalizar brandingâ€¦'
                           : (p < 0.93
-                              ? 'A preparar fotos (em paralelo)…'
-                              : 'A montar o PDF…')),
+                              ? 'A preparar fotos (em paralelo)â€¦'
+                              : 'A montar o PDFâ€¦')),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                 ),
@@ -2928,7 +3449,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
 
       prog.value = 0.04;
-      // Membros (Firestore) em paralelo com logo da igreja — reduz tempo em que o diálogo fica em “preparar logo”.
+      // Membros (Firestore) em paralelo com logo da igreja â€” reduz tempo em que o diÃ¡logo fica em â€œpreparar logoâ€.
       final batch = await Future.wait<dynamic>([
         Future.wait(
           ids.map(
@@ -2960,11 +3481,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
 
       final sigUrl = signat?.assinaturaUrl;
-      // Assinatura do líder (perfil Membros — URL fresca acima).
+      // Assinatura do lÃ­der (perfil Membros â€” URL fresca acima).
       await _prefetchSharedPdfBrandingForLote(list, signatoryAssinaturaUrl: sigUrl);
       prog.value = 0.24;
 
-      // Só fotos por membro (logo já está em cache).
+      // SÃ³ fotos por membro (logo jÃ¡ estÃ¡ em cache).
       const preloadBatch = 30;
       for (var i = 0; i < list.length; i += preloadBatch) {
         final end = min(i + preloadBatch, list.length);
@@ -3145,7 +3666,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (mounted) setState(() => _loadFuture = _load());
   }
 
-  /// Nome mascarado para o verso do PDF / validação pública.
+  /// Nome mascarado para o verso do PDF / validaÃ§Ã£o pÃºblica.
   String _maskNomePublico(String nome) {
     final p =
         nome.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
@@ -3160,7 +3681,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '${p.first} $ini.';
   }
 
-  /// Contexto comum para gerar várias carteirinhas (tenant + config mesclada).
+  /// Contexto comum para gerar vÃ¡rias carteirinhas (tenant + config mesclada).
   Future<
           ({
             Map<String, dynamic> tenant,
@@ -3170,7 +3691,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       _loadCarteiraTemplateContext() async {
     final db = FirebaseFirestore.instance;
     final igrejaDocId = await _effectiveIgrejaDocId();
-    Map<String, dynamic> cardCfg = {};
     Map<String, dynamic> tenant = {};
     try {
       final tenantSnap =
@@ -3178,63 +3698,79 @@ class _MemberCardPageState extends State<MemberCardPage> {
       tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
         ..['id'] = igrejaDocId;
     } catch (_) {}
+    final cardCfg =
+        await _resolveAutomaticCardConfig(tenant: tenant, igrejaDocId: igrejaDocId);
+    return (tenant: tenant, cardCfg: cardCfg, igrejaDocId: igrejaDocId);
+  }
+
+  String _churchDisplayNameForCard(Map<String, dynamic> tenant) {
+    for (final k in const ['name', 'nome', 'NOME', 'churchName', 'nomeIgreja']) {
+      final s = (tenant[k] ?? '').toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return 'GestÃ£o YAHWEH';
+  }
+
+  /// Modelo Ãºnico CNH: nome/logo do cadastro da igreja + cores fixas do app.
+  /// Em [config/carteira] sÃ³ lÃª signatÃ¡rio predefinido e intensidade da assinatura no PDF.
+  Future<Map<String, dynamic>> _resolveAutomaticCardConfig({
+    required Map<String, dynamic> tenant,
+    required String igrejaDocId,
+  }) async {
+    final cfg = <String, dynamic>{
+      'title': _churchDisplayNameForCard(tenant),
+      'subtitle': 'Credencial de Membro',
+      'bgColor': '#0D2C54',
+      'textColor': '#FFFFFF',
+      'bgColorSecondary': '1E3A5F',
+      'accentColor': 'E8C478',
+      'showPhoto': true,
+      'visualModel': 'padrao',
+      'carteiraVisualModel': 'padrao',
+    };
+
+    var logoUrl = churchTenantLogoUrl(tenant);
+    if (logoUrl.isEmpty) {
+      await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cfg, igrejaDocId);
+      logoUrl = sanitizeImageUrl((cfg['logoUrl'] ?? '').toString());
+    }
+    if (logoUrl.isEmpty) {
+      try {
+        final global =
+            await FirebaseFirestore.instance.doc('config/memberCard').get();
+        logoUrl = sanitizeImageUrl(
+            (global.data()?['logoUrl'] ?? '').toString());
+      } catch (_) {}
+    }
+    if (logoUrl.isNotEmpty) {
+      cfg['logoUrl'] = logoUrl;
+    }
+
+    cfg.remove('logoDataBase64');
+    final merged = _mergeChurchLogoIntoCardConfig(cfg, tenant);
+
     try {
-      final carteiraSnap = await db
+      final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(igrejaDocId)
           .collection('config')
           .doc('carteira')
           .get();
-      if (carteiraSnap.exists && carteiraSnap.data() != null) {
-        cardCfg.addAll(Map<String, dynamic>.from(carteiraSnap.data()!));
+      if (snap.exists && snap.data() != null) {
+        final d = snap.data()!;
+        final def = (d['defaultSignatoryMemberId'] ?? '').toString().trim();
+        if (def.isNotEmpty) merged['defaultSignatoryMemberId'] = def;
+        final mode = (d['signatureEnhanceMode'] ?? '').toString();
+        if (mode.isNotEmpty) {
+          _signatureEnhanceMode = normalizeSignatureEnhanceMode(mode);
+        }
       }
     } catch (_) {}
-    final hasLogo = (cardCfg['logoUrl'] ?? '').toString().trim().isNotEmpty ||
-        ((cardCfg['logoDataBase64'] ?? '').toString().trim().isNotEmpty);
-    if (cardCfg['title'] == null || !hasLogo) {
-      try {
-        final cfgSnap = await db.doc('config/memberCard').get();
-        if (cfgSnap.exists && cfgSnap.data() != null) {
-          final global = cfgSnap.data()!;
-          if (cardCfg['title'] == null && global['title'] != null)
-            cardCfg['title'] = global['title'];
-          if (cardCfg['logoUrl'] == null && global['logoUrl'] != null)
-            cardCfg['logoUrl'] = global['logoUrl'];
-          if (cardCfg['bgColor'] == null && global['bgColor'] != null) {
-            cardCfg['bgColor'] = global['bgColor'];
-          }
-          if (cardCfg['textColor'] == null && global['textColor'] != null) {
-            cardCfg['textColor'] = global['textColor'];
-          }
-          if (cardCfg['bgColorSecondary'] == null &&
-              global['bgColorSecondary'] != null) {
-            cardCfg['bgColorSecondary'] = global['bgColorSecondary'];
-          }
-          if (cardCfg['accentColor'] == null && global['accentColor'] != null) {
-            cardCfg['accentColor'] = global['accentColor'];
-          }
-          if (cardCfg['accentGold'] == null && global['accentGold'] != null) {
-            cardCfg['accentGold'] = global['accentGold'];
-          }
-        }
-      } catch (_) {}
-    }
-    if (cardCfg['title'] == null && tenant['name'] != null) {
-      cardCfg['title'] = tenant['name'] ?? tenant['nome'] ?? 'Gestão YAHWEH';
-    }
-    if (cardCfg['logoUrl'] == null) {
-      final u = churchTenantLogoUrl(tenant);
-      if (u.isNotEmpty) cardCfg['logoUrl'] = u;
-    }
-    await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cardCfg, igrejaDocId);
-    cardCfg = _mergeChurchLogoIntoCardConfig(cardCfg, tenant);
-    _signatureEnhanceMode = normalizeSignatureEnhanceMode(
-      (cardCfg['signatureEnhanceMode'] ?? '').toString(),
-    );
-    return (tenant: tenant, cardCfg: cardCfg, igrejaDocId: igrejaDocId);
+
+    return merged;
   }
 
-  /// Se não houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
+  /// Se nÃ£o houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
   Future<void> _hydrateCardCfgLogoFromIdentityPathIfNeeded(
     Map<String, dynamic> cardCfg,
     String igrejaDocId,
@@ -3302,14 +3838,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (sig.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(sig);
   }
 
-  /// Alias explícito para pré-carregamento de imagens antes da montagem do PDF.
+  /// Alias explÃ­cito para prÃ©-carregamento de imagens antes da montagem do PDF.
   Future<void> preLoadImages(_CardData data,
       {String? signatoryAssinaturaUrl}) async {
     await _prefetchPdfAssetsForCard(data,
         signatoryAssinaturaUrl: signatoryAssinaturaUrl);
   }
 
-  /// Pré-carrega o logo assim que existe contexto de template — corre em paralelo a [Future.wait] dos membros.
+  /// PrÃ©-carrega o logo assim que existe contexto de template â€” corre em paralelo a [Future.wait] dos membros.
   Future<void> _prefetchLogoFromCarteiraContext(
     ({
       Map<String, dynamic> tenant,
@@ -3328,7 +3864,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     await _pdfLogoProvider(cfg, synthetic);
   }
 
-  /// Assinatura do líder + logo só se ainda não estiver em cache (após [_prefetchLogoFromCarteiraContext]).
+  /// Assinatura do lÃ­der + logo sÃ³ se ainda nÃ£o estiver em cache (apÃ³s [_prefetchLogoFromCarteiraContext]).
   Future<void> _prefetchSharedPdfBrandingForLote(
     List<_CardData> list, {
     String? signatoryAssinaturaUrl,
@@ -3346,16 +3882,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (s.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(s);
   }
 
-  /// Mesmo tamanho físico da frente e do verso (CR80 ~ ISO/IEC 7810).
+  /// Mesmo tamanho fÃ­sico da frente e do verso (CR80 ~ ISO/IEC 7810).
   static const double _pdfCardSlotW = VersoCarteirinhaPdfWidget.cardWidthPt;
   static const double _pdfCardSlotH = VersoCarteirinhaPdfWidget.cardHeightPt;
 
-  /// Cache de imagens na mesma geração de PDF (evita baixar a mesma foto/logo várias vezes).
+  /// Cache de imagens na mesma geraÃ§Ã£o de PDF (evita baixar a mesma foto/logo vÃ¡rias vezes).
   final Map<String, pw.ImageProvider?> _pdfImageSessionCache = {};
   final Map<String, Uint8List?> _pdfImageBytesSessionCache = {};
-  /// Assinatura no PDF: bytes realçados (cache separado da URL genérica).
+  /// Assinatura no PDF: bytes realÃ§ados (cache separado da URL genÃ©rica).
   final Map<String, pw.ImageProvider?> _pdfSignatureImageSessionCache = {};
-  /// Logo resolvida uma vez por `igrejaDocId` — evita [loadReportPdfBranding] N vezes no lote.
+  /// Logo resolvida uma vez por `igrejaDocId` â€” evita [loadReportPdfBranding] N vezes no lote.
   final Map<String, pw.ImageProvider?> _pdfLogoProviderMemo = {};
 
   void _clearPdfImageSessionCache() {
@@ -3365,7 +3901,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     _pdfLogoProviderMemo.clear();
   }
 
-  /// Redimensiona fora da UI no mobile (decode JPEG/PNG é pesado); na web mantém na thread atual.
+  /// Redimensiona fora da UI no mobile (decode JPEG/PNG Ã© pesado); na web mantÃ©m na thread atual.
   Future<Uint8List?> _resizeForPdf(Uint8List bytes, {int maxSide = 200}) async {
     if (bytes.length < 33) return null;
     try {
@@ -3408,7 +3944,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (_pdfImageBytesSessionCache.containsKey(u)) {
       return _pdfImageBytesSessionCache[u];
     }
-    // URLs do Firebase Storage: na web o HTTP direto costuma falhar (CORS) — SDK primeiro.
+    // URLs do Firebase Storage: na web o HTTP direto costuma falhar (CORS) â€” SDK primeiro.
     if (isFirebaseStorageHttpUrl(u)) {
       try {
         if (kIsWeb) {
@@ -3464,7 +4000,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return p;
   }
 
-  /// Bytes **originais** da assinatura (sem JPEG 68% do fluxo de fotos — preserva traços finos).
+  /// Bytes **originais** da assinatura (sem JPEG 68% do fluxo de fotos â€” preserva traÃ§os finos).
   Future<Uint8List?> _downloadRawBytesForSignaturePdf(String rawUrl) async {
     final u = sanitizeImageUrl(rawUrl.trim());
     if (u.isEmpty || !isValidImageUrl(u)) return null;
@@ -3505,7 +4041,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return null;
   }
 
-  /// Assinatura visual no PDF: pipeline PNG (redimensiona + realça) sem esmagar traços em JPEG.
+  /// Assinatura visual no PDF: pipeline PNG (redimensiona + realÃ§a) sem esmagar traÃ§os em JPEG.
   Future<pw.ImageProvider?> _pdfSignatureImageProviderFromUrlCached(
       String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
@@ -3544,7 +4080,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Só preenche logo a partir do cadastro da igreja quando a carteirinha não tem logo própria (URL ou base64).
+  /// SÃ³ preenche logo a partir do cadastro da igreja quando a carteirinha nÃ£o tem logo prÃ³pria (URL ou base64).
   Map<String, dynamic> _mergeChurchLogoIntoCardConfig(
       Map<String, dynamic> cardCfg, Map<String, dynamic> tenant) {
     final m = Map<String, dynamic>.from(cardCfg);
@@ -3561,7 +4097,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return m;
   }
 
-  /// Config efetiva para prévia e PDF (cores, logo e modelo visual da igreja).
+  /// Config efetiva para prÃ©via e PDF (cores, logo e modelo visual da igreja).
   _CardConfig _cardConfigForPdf(_CardData data) {
     return _CardConfig.from(
         _mergeChurchLogoIntoCardConfig(data.cardConfig, data.tenant));
@@ -3672,7 +4208,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return options.first;
   }
 
-  /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (módulo Membros).
+  /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (mÃ³dulo Membros).
   Future<
       ({
         String memberId,
@@ -3716,7 +4252,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Nome/cargo/CPF do signatário para verso da carteirinha: override explícito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
+  /// Nome/cargo/CPF do signatÃ¡rio para verso da carteirinha: override explÃ­cito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
   Future<({String nome, String cargo, String cpf})> _resolveSignatoryLabelsForWallet(
     Map<String, dynamic> member,
     Map<String, dynamic> cardCfg,
@@ -3772,7 +4308,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return (nome: nome, cargo: cargo, cpf: cpf);
   }
 
-  /// URL da assinatura institucional + nome/cargo/CPF do pastor (config ou membro signatário).
+  /// URL da assinatura institucional + nome/cargo/CPF do pastor (config ou membro signatÃ¡rio).
   Future<({String pastorUrl, String sigNome, String sigCargo, String sigCpf})>
       _walletDisplayContext(_CardData data) async {
     final url = await FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
@@ -3793,8 +4329,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// PDF: [networkImage] do pacote `pdf` falha com frequência em URLs do Firebase Storage (web/token).
-  /// Bytes vêm de [_loadCachedImageBytes] (SDK no Storage); último recurso [networkImage].
+  /// PDF: [networkImage] do pacote `pdf` falha com frequÃªncia em URLs do Firebase Storage (web/token).
+  /// Bytes vÃªm de [_loadCachedImageBytes] (SDK no Storage); Ãºltimo recurso [networkImage].
   Future<pw.ImageProvider?> _pdfImageProviderFromUrl(String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
     if (u.isEmpty || !isValidImageUrl(u)) return null;
@@ -3859,6 +4395,18 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
         } catch (_) {}
       }
+      if (logo == null) {
+        try {
+          final raw = await rootBundle.load('assets/logo.png');
+          final out = await _resizeForPdf(
+            raw.buffer.asUint8List(),
+            maxSide: 400,
+          );
+          if (out != null && out.length > 32) {
+            logo = pw.MemoryImage(out);
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
     if (igrejaId.isNotEmpty) {
       _pdfLogoProviderMemo[igrejaId] = logo;
@@ -3877,7 +4425,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required String nomeMae,
     required String sexo,
 
-    /// Mesma linha da carteira digital (admissão / batismo).
+    /// Mesma linha da carteira digital (admissÃ£o / batismo).
     required String admissionLine,
 
     required _CardConfig cfg,
@@ -3892,11 +4440,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? signatoryCargo,
     double width = 360,
 
-    /// Quando preenchidos, o degradê cobre exatamente o retângulo CR80 (igual ao verso).
+    /// Quando preenchidos, o degradÃª cobre exatamente o retÃ¢ngulo CR80 (igual ao verso).
     double? outerSlotWidth,
     double? outerSlotHeight,
   }) {
-    // Modelo único (igual à carteira digital): degradê, logo em caixa clara, painel vidro.
+    // Modelo Ãºnico (igual Ã  carteira digital): degradÃª, logo em caixa clara, painel vidro.
     const cardHeight = 228.0;
     final inkEco = bgColor == PdfColors.white && bgColorSec == null;
     final ac = accentColor;
@@ -3920,7 +4468,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final glassBorder =
         inkEco ? PdfColors.grey500 : PdfColor(1, 1, 1, 0.24);
     final adm =
-        admissionLine.trim().isEmpty ? 'Admissão: —' : admissionLine.trim();
+        admissionLine.trim().isEmpty ? 'AdmissÃ£o: â€”' : admissionLine.trim();
 
     final columnChildren = <pw.Widget>[
       if (!inkEco)
@@ -4092,7 +4640,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         child: pw.Text(
                           () {
                             final v = validade.trim();
-                            if (v.isEmpty || v == '---') return '—';
+                            if (v.isEmpty || v == '---') return 'â€”';
                             return v;
                           }(),
                           maxLines: 1,
@@ -4190,7 +4738,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return VersoCarteirinhaPdfWidget(
       nomeIgreja: igreja,
       regrasUso: cfg.versoRegrasUso,
-      // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradê.
+      // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradÃª.
       gradientStart: g2,
       gradientEnd: g1,
       foregroundColor: fg,
@@ -4276,7 +4824,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final sexo = _memberSexo(data.member);
     final admissionLinePdf = () {
       final s = _admissionBatismoLine(data.member).trim();
-      return s.isEmpty ? 'Admissão: —' : s;
+      return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
     }();
     final incluirAssinaturaDig =
         includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
@@ -4373,7 +4921,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final compactCard =
         format.width <= cw + 1 && format.height <= ch + 1;
     if (compactCard) {
-      /// CR80: frente sobre verso (igual à carteirinha digital e ao PNG exportado).
+      /// CR80: frente sobre verso (igual Ã  carteirinha digital e ao PNG exportado).
       const gap = 12.0;
       final tall = PdfPageFormat(cw, ch * 2 + gap);
       doc.addPage(
@@ -4415,7 +4963,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// Cartão CNH digital para captura raster (lote / PNG / PDF).
+  /// CartÃ£o CNH digital para captura raster (lote / PNG / PDF).
   Widget _walletDigitalFrontBackForRaster({
     required BuildContext context,
     required _CardData data,
@@ -4443,8 +4991,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return im.height / im.width;
   }
 
-  /// Várias carteirinhas num único PDF — **mesmo visual** da carteira digital (captura raster),
-  /// página A4 por membro (como o PDF único “Visualizar”).
+  /// VÃ¡rias carteirinhas num Ãºnico PDF â€” **mesmo visual** da carteira digital (captura raster),
+  /// pÃ¡gina A4 por membro (como o PDF Ãºnico â€œVisualizarâ€).
   Future<Uint8List> _buildPdfMultiWalletRaster(
     BuildContext context,
     List<_CardData> list, {
@@ -4488,7 +5036,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         final sc = sigLabels.cargo;
         final scpf = sigLabels.cpf;
 
-        if (!mounted) throw StateError('contexto inválido');
+        if (!mounted) throw StateError('contexto invÃ¡lido');
         setState(() {
           _rasterBatchCard = data;
           _rasterBatchLadoALado = false;
@@ -4542,8 +5090,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return doc.save();
   }
 
-  /// A4: até 5 membros por folha; **por membro**, frente e verso na mesma linha, com captura raster
-  /// dos widgets da carteira digital (fidelidade ao ecrã).
+  /// A4: atÃ© 5 membros por folha; **por membro**, frente e verso na mesma linha, com captura raster
+  /// dos widgets da carteira digital (fidelidade ao ecrÃ£).
   Future<Uint8List> _buildPdfMultiWalletRasterFrenteVersoLinhaA4(
     BuildContext context,
     List<_CardData> list, {
@@ -4601,7 +5149,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final sc = sigLabels.cargo;
           final scpf = sigLabels.cpf;
 
-          if (!mounted) throw StateError('contexto inválido');
+          if (!mounted) throw StateError('contexto invÃ¡lido');
           setState(() {
             _rasterBatchCard = data;
             _rasterBatchLadoALado = true;
@@ -4626,7 +5174,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           final ar = _aspectRatioFromPngBytes(png);
           if (ar == null) {
-            throw StateError('Imagem inválida após captura (${data.memberId})');
+            throw StateError('Imagem invÃ¡lida apÃ³s captura (${data.memberId})');
           }
           pngBytesList.add(png);
           aspects.add(ar);
@@ -4690,21 +5238,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return doc.save();
   }
 
-  /// PDF com o **mesmo layout** da área “Carteira digital (Wallet)” na tela — captura
+  /// PDF com o **mesmo layout** da Ã¡rea â€œCarteira digital (Wallet)â€ na tela â€” captura
   /// [MemberDigitalWalletFront] + [MemberDigitalWalletBack] (logo [StableChurchLogo],
-  /// foto [FotoMembroWidget]). Evita divergência do modelo só em PDF vetorial.
+  /// foto [FotoMembroWidget]). Evita divergÃªncia do modelo sÃ³ em PDF vetorial.
   Future<Uint8List> _buildPdfFromWalletScreenshot(BuildContext context) async {
     // Aguarda pintura completa da carteira (glass/gradient) sem atraso fixo longo.
     for (var i = 0; i < 3; i++) {
       await WidgetsBinding.instance.endOfFrame;
     }
     if (!context.mounted) {
-      throw StateError('Contexto inválido para exportar PDF.');
+      throw StateError('Contexto invÃ¡lido para exportar PDF.');
     }
     final pr = MediaQuery.devicePixelRatioOf(context).clamp(1.25, 2.25);
     final png = await _walletScreenshotController.capture(pixelRatio: pr);
     if (png == null || png.isEmpty) {
-      throw StateError('Não foi possível capturar a carteirinha.');
+      throw StateError('NÃ£o foi possÃ­vel capturar a carteirinha.');
     }
     final doc = await _newCarteirinhaPdfDoc();
     final img = pw.MemoryImage(png);
@@ -4734,8 +5282,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (_) {}
   }
 
-  /// PDF único: **prioriza** o mesmo layout da carteira na tela (captura raster).
-  /// Recua para PDF vetorial se a captura falhar (ex.: widget ainda não pintado).
+  /// PDF Ãºnico: **prioriza** o mesmo layout da carteira na tela (captura raster).
+  /// Recua para PDF vetorial se a captura falhar (ex.: widget ainda nÃ£o pintado).
   Future<Uint8List> _exportCarteirinhaPdfPreferringWalletModel(
     BuildContext context,
     _CardData data,
@@ -4811,7 +5359,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Sua carteirinha ainda não está assinada. Solicite assinatura ao pastor/gestor para liberar a exportação.',
+              'Sua carteirinha ainda nÃ£o estÃ¡ assinada. Solicite assinatura ao pastor/gestor para liberar a exportaÃ§Ã£o.',
             ),
           ),
         );
@@ -4854,7 +5402,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Text(
-                    'Assinatura visual (imagem no cadastro) ou lote com certificado A1/A3 em Configurar carteirinha — PAdES completo via integração futura.',
+                    'Assinatura visual (imagem no cadastro do membro) ou em lote pelo gestor â€” certificado A1/A3 conforme integraÃ§Ã£o disponÃ­vel.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 16),
@@ -4862,7 +5410,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        'Nenhuma pessoa com cargo de liderança (além de membro) encontrada. Atribua funções em Membros → Editar e cadastre a assinatura.',
+                        'Nenhuma pessoa com cargo de lideranÃ§a (alÃ©m de membro) encontrada. Atribua funÃ§Ãµes em Membros â†’ Editar e cadastre a assinatura.',
                         style: TextStyle(
                             fontSize: 13, color: Colors.grey.shade700),
                       ),
@@ -4885,7 +5433,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ),
                       items: options
                           .map((o) => DropdownMenuItem(
-                              value: o, child: Text('${o.nome} — ${o.cargo}')))
+                              value: o, child: Text('${o.nome} â€” ${o.cargo}')))
                           .toList(),
                       onChanged: (v) => _refreshSignatoryFromFirestore(
                           ctx, setModal, v, (nv) => selected = nv),
@@ -4898,7 +5446,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     title: const Text(
                         'Gravar assinatura na carteirinha do membro'),
                     subtitle: const Text(
-                        'A carteirinha ficará assinada para o membro visualizar'),
+                        'A carteirinha ficarÃ¡ assinada para o membro visualizar'),
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -5011,7 +5559,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Frente + verso PDF (sem escala) — mesmo modelo da carteira digital.
+  /// Frente + verso PDF (sem escala) â€” mesmo modelo da carteira digital.
   Future<({pw.Widget face, pw.Widget verso})> _pdfMemberFaceVersoUnscaled(
     _CardData data, {
     required bool inkEconomy,
@@ -5055,7 +5603,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     final admissionLinePdf = () {
       final s = _admissionBatismoLine(data.member).trim();
-      return s.isEmpty ? 'Admissão: —' : s;
+      return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
     }();
     final face = _pdfCardFace(
       name: name,
@@ -5132,8 +5680,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     bool frontVersoPorLinha = false,
     bool digitalVerticalStack = false,
   }) async {
-    // Não limpar cache no início: [_gerarPdfUnicoLote] / assinatura em lote já rodaram
-    // [preLoadImages] — limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
+    // NÃ£o limpar cache no inÃ­cio: [_gerarPdfUnicoLote] / assinatura em lote jÃ¡ rodaram
+    // [preLoadImages] â€” limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
     try {
       final doc = await _newCarteirinhaPdfDoc();
       pw.ImageProvider? signatoryImage;
@@ -5142,8 +5690,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         signatoryImage =
             await _pdfSignatureImageProviderFromUrlCached(sigUrlParam);
       }
-      // Só usa assinatura gravada na ficha do **membro** quando o PDF não pediu
-      // assinatura explícita do líder (evita misturar outro signatário).
+      // SÃ³ usa assinatura gravada na ficha do **membro** quando o PDF nÃ£o pediu
+      // assinatura explÃ­cita do lÃ­der (evita misturar outro signatÃ¡rio).
       final incluirPdfSig =
           includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
       if (!incluirPdfSig) {
@@ -5181,7 +5729,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final rowH = innerH / nRows;
           final halfW = (innerW - gapMid) / 2;
 
-          // Paralelo: [_gerarPdfUnicoLote] já pré-carregou fotos; aqui só monta widgets (antes era sequencial).
+          // Paralelo: [_gerarPdfUnicoLote] jÃ¡ prÃ©-carregou fotos; aqui sÃ³ monta widgets (antes era sequencial).
           final pairs = await Future.wait([
             for (final data in chunk)
               _pdfMemberFaceVersoUnscaled(
@@ -5298,7 +5846,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return doc.save();
       }
 
-      // Mesmo tamanho físico CR80 que a folha “1 por página” / modelo no ecrã.
+      // Mesmo tamanho fÃ­sico CR80 que a folha â€œ1 por pÃ¡ginaâ€ / modelo no ecrÃ£.
       const crW = VersoCarteirinhaPdfWidget.cardWidthPt;
       const crH = VersoCarteirinhaPdfWidget.cardHeightPt;
       final slots = gridCols * gridRows;
@@ -5351,7 +5899,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           final admissionLinePdf = () {
             final s = _admissionBatismoLine(data.member).trim();
-            return s.isEmpty ? 'Admissão: —' : s;
+            return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
           }();
           final face = _pdfCardFace(
             name: name,
@@ -5532,7 +6080,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return (data[key] ?? fallback).toString();
   }
 
-  /// Mesmos aliases do cadastro — evita PDF/prévia com "Membro" genérico quando só existe [nome].
+  /// Mesmos aliases do cadastro â€” evita PDF/prÃ©via com "Membro" genÃ©rico quando sÃ³ existe [nome].
   String _memberNome(Map<String, dynamic> m) {
     final r = _memberNomeOrEmpty(m);
     return r.isNotEmpty ? r : 'Membro';
@@ -5588,11 +6136,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       'nomeMae',
       'NOME_MAE',
       'mae',
-      'mãe',
+      'mÃ£e',
       'MAE',
-      'MÃE',
+      'MÃƒE',
       'nome_da_mae',
-      'nome_da_mãe'
+      'nome_da_mÃ£e'
     ]) {
       final s = (member[k] ?? '').toString().trim();
       if (s.isNotEmpty) return s;
@@ -5608,13 +6156,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '';
   }
 
-  /// Foto do cadastro do membro — mesma lógica de [imageUrlFromMap] para não perder URL (Storage, defaultImageUrl, listas).
+  /// Foto do cadastro do membro â€” mesma lÃ³gica de [imageUrlFromMap] para nÃ£o perder URL (Storage, defaultImageUrl, listas).
   String _photoUrlFromMember(Map<String, dynamic> member) {
     final s = imageUrlFromMap(member);
     return isValidImageUrl(s) ? s : '';
   }
 
-  /// URL para PDF / impressão: path/`gs://`/https via [AppStorageImageService], depois `membros/{id}.jpg`.
+  /// URL para PDF / impressÃ£o: path/`gs://`/https via [AppStorageImageService], depois `membros/{id}.jpg`.
   Future<String> _resolvedMemberPhotoUrlForPdf(
     String memberId,
     Map<String, dynamic> member, {
@@ -5767,7 +6315,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               const SizedBox(width: 12),
               const Expanded(
                 child: Text(
-                  'Histórico financeiro',
+                  'HistÃ³rico financeiro',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -5781,8 +6329,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
           const SizedBox(height: 8),
           Text(
             _isRestrictedMember
-                ? 'Lançamentos em que este cadastro é o titular (ex.: dízimos e recorrências).'
-                : 'Lançamentos do financeiro que referenciam este membro (memberDocId).',
+                ? 'LanÃ§amentos em que este cadastro Ã© o titular (ex.: dÃ­zimos e recorrÃªncias).'
+                : 'LanÃ§amentos do financeiro que referenciam este membro (memberDocId).',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,
@@ -5797,7 +6345,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
-                    'Não foi possível carregar o histórico. Verifique permissão ou conexão.',
+                    'NÃ£o foi possÃ­vel carregar o histÃ³rico. Verifique permissÃ£o ou conexÃ£o.',
                     style: TextStyle(fontSize: 13, color: Colors.orange.shade800),
                   ),
                 );
@@ -5820,7 +6368,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 return Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Nenhum lançamento vinculado a este cadastro.',
+                    'Nenhum lanÃ§amento vinculado a este cadastro.',
                     style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 );
@@ -5853,7 +6401,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ? '${ts.toDate().day.toString().padLeft(2, '0')}/${ts.toDate().month.toString().padLeft(2, '0')}/${ts.toDate().year}'
                       : '';
                   final valorStr =
-                      '${isEntrada ? '+' : '−'} ${brl.format(valor.abs())}';
+                      '${isEntrada ? '+' : 'âˆ’'} ${brl.format(valor.abs())}';
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
@@ -5880,7 +6428,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     [
                                       if (cat.isNotEmpty) cat,
                                       if (comp.isNotEmpty) 'Comp. $comp',
-                                    ].join(' · '),
+                                    ].join(' Â· '),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade700,
@@ -5931,9 +6479,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final cons =
         _fmtDate(_dateFromMember(member, 'DATA_CONSAGRACAO')).trim();
     if (cons.isNotEmpty && base.trim().isNotEmpty) {
-      return '$base · Consagração $cons';
+      return '$base Â· ConsagraÃ§Ã£o $cons';
     }
-    if (cons.isNotEmpty) return 'Consagração $cons';
+    if (cons.isNotEmpty) return 'ConsagraÃ§Ã£o $cons';
     return base;
   }
 
@@ -5961,7 +6509,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     icon: const Icon(Icons.picture_as_pdf_rounded,
                         color: Colors.white),
                     label: Text(
-                      'Vários em PDF (${_carteiraListaSelecionados.length})',
+                      'VÃ¡rios em PDF (${_carteiraListaSelecionados.length})',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w600),
                     ),
@@ -5993,7 +6541,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 onPressed: () => Navigator.maybePop(context),
                 tooltip: 'Voltar',
               ),
-              title: const Text('Cartão membro — CNH digital',
+              title: const Text('CartÃ£o membro digital',
                   style: TextStyle(
                       fontWeight: FontWeight.w800, letterSpacing: -0.3)),
               flexibleSpace: Container(
@@ -6030,27 +6578,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       await _showGerarPdfComAssinatura(context, data);
                     },
                   ),
-                if (_canManage)
-                  IconButton(
-                    tooltip: 'Configurar cor e logo',
-                    icon: const Icon(Icons.palette_rounded),
-                    style: IconButton.styleFrom(
-                        minimumSize: const Size(
-                            ThemeCleanPremium.minTouchTarget,
-                            ThemeCleanPremium.minTouchTarget)),
-                    onPressed: () async {
-                      await Navigator.push<void>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              _CarteiraConfigPage(tenantId: widget.tenantId),
-                        ),
-                      );
-                      setState(() {
-                        _loadFuture = _load();
-                      });
-                    },
-                  ),
                 const SizedBox(width: 8),
               ],
             ),
@@ -6084,28 +6611,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           final data = await future;
                           if (data == null || !context.mounted) return;
                           await _showGerarPdfComAssinatura(context, data);
-                        },
-                      ),
-                    if (_canManage)
-                      IconButton(
-                        tooltip: 'Configurar logo da igreja',
-                        icon: const Icon(Icons.palette_rounded),
-                        color: ThemeCleanPremium.primary,
-                        style: IconButton.styleFrom(
-                            minimumSize: const Size(
-                                ThemeCleanPremium.minTouchTarget,
-                                ThemeCleanPremium.minTouchTarget)),
-                        onPressed: () async {
-                          await Navigator.push<void>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  _CarteiraConfigPage(tenantId: widget.tenantId),
-                            ),
-                          );
-                          setState(() {
-                            _loadFuture = _load();
-                          });
                         },
                       ),
                   ],
@@ -6194,7 +6699,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceSm),
                             Text(
-                              'Cadastro de membro não encontrado. Entre em contato com o gestor da igreja.',
+                              'Cadastro de membro nÃ£o encontrado. Entre em contato com o gestor da igreja.',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 fontSize: 14,
@@ -6268,7 +6773,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'Emissão de Carteirinha',
+                                      'EmissÃ£o de Carteirinha',
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w800,
@@ -6278,7 +6783,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      'Carteirinha digital: personalize cores, logo e modelo em “Configurar cor e logo”.',
+                                      'A logo e o nome vÃªm do cadastro da igreja. '
+                                      'Sem logo cadastrada, usamos a marca GestÃ£o YAHWEH. '
+                                      'Selecione o membro e assine ou exporte em PDF.',
                                       style: TextStyle(
                                         fontSize: 13,
                                         height: 1.4,
@@ -6290,38 +6797,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                               ),
                             ],
                           ),
-                          if (_canManage) ...[
-                            const SizedBox(height: 14),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                await Navigator.push<void>(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => _CarteiraConfigPage(
-                                        tenantId: widget.tenantId),
-                                  ),
-                                );
-                                setState(() => _loadFuture = _load());
-                              },
-                              icon: const Icon(Icons.palette_rounded, size: 20),
-                              label: const Text(
-                                  'Configurar cor e logo da carteirinha'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: ThemeCleanPremium.primary,
-                                side: BorderSide(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.35),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                          ],
                           const SizedBox(height: 18),
+                          if (_canManage) ...[
+                            _buildGestorPainelAcoesRapidas(context),
+                            const SizedBox(height: 16),
+                          ],
                           Text(
-                            'Selecione um membro abaixo para emitir a carteirinha ou use o botão para ir à lista completa.',
+                            'Selecione um membro abaixo para emitir a carteirinha ou use o botÃ£o para ir Ã  lista completa.',
                             style: TextStyle(
                               fontSize: 14,
                               height: 1.45,
@@ -6417,7 +6899,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     value: _filtroGeneroCarteira,
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      labelText: 'Gênero',
+                                      labelText: 'GÃªnero',
                                       border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
                                               ThemeCleanPremium.radiusSm)),
@@ -6446,7 +6928,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     value: _filtroFaixaCarteira,
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      labelText: 'Faixa etária',
+                                      labelText: 'Faixa etÃ¡ria',
                                       border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
                                               ThemeCleanPremium.radiusSm)),
@@ -6460,7 +6942,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           value: 'todas', child: Text('Todas')),
                                       DropdownMenuItem(
                                           value: 'criancas',
-                                          child: Text('Crianças')),
+                                          child: Text('CrianÃ§as')),
                                       DropdownMenuItem(
                                           value: 'adolescentes',
                                           child: Text('Adolescentes')),
@@ -6592,7 +7074,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     Text(
                                       all.isEmpty
                                           ? 'Nenhum membro cadastrado.'
-                                          : 'Nenhum membro corresponde à busca e aos filtros.',
+                                          : 'Nenhum membro corresponde Ã  busca e aos filtros.',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         fontSize: 14,
@@ -6645,7 +7127,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          '${_carteiraListaSelecionados.length} selecionado(s) • ${filtered.length} visível(is) nesta lista',
+                                          '${_carteiraListaSelecionados.length} selecionado(s) â€¢ ${filtered.length} visÃ­vel(is) nesta lista',
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
@@ -6666,12 +7148,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           _carteiraListaSelecionados.add(x.id);
                                         }
                                       }),
-                                      child: const Text('Marcar visíveis'),
+                                      child: const Text('Marcar visÃ­veis'),
                                     ),
                                     TextButton(
                                       onPressed: () => setState(
                                           _carteiraListaSelecionados.clear),
-                                      child: const Text('Limpar seleção'),
+                                      child: const Text('Limpar seleÃ§Ã£o'),
                                     ),
                                   ],
                                 ),
@@ -6774,7 +7256,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         OutlinedButton.icon(
                           onPressed: () => _abrirAssinarEmLote(context),
                           icon: const Icon(Icons.draw_rounded),
-                          label: const Text('Assinar cartões em lote'),
+                          label: const Text('Assinar cartÃµes em lote'),
                         ),
                       ],
                     ],
@@ -6849,7 +7331,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Emissão para',
+                                        'EmissÃ£o para',
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -6944,12 +7426,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           OutlinedButton.icon(
                             onPressed: () => _backfillCodigosMembro(context),
                             icon: const Icon(Icons.pin_outlined),
-                            label: const Text('Gerar códigos em falta'),
+                            label: const Text('Gerar cÃ³digos em falta'),
                           ),
                           FilledButton.icon(
                             onPressed: () => _assinarMembroAtual(context, data),
                             icon: const Icon(Icons.draw_rounded),
-                            label: const Text('Assinar este cartão'),
+                            label: const Text('Assinar este cartÃ£o'),
                           ),
                           OutlinedButton.icon(
                             onPressed: () =>
@@ -6966,7 +7448,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Modelo único CNH digital — só a logo da igreja muda. Membros usam só no celular; impressão não é necessária.',
+                        'Modelo Ãºnico GestÃ£o YAHWEH â€” logo e nome da igreja vÃªm do cadastro '
+                        '(sem logo: marca GestÃ£o YAHWEH). Cores fixas do cartÃ£o CNH.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -6977,7 +7460,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ] else ...[
                       const SizedBox(height: 8),
                       Text(
-                        'Seu cartão digital oficial — apresente no celular. Não precisa imprimir.',
+                        'Seu cartÃ£o digital oficial â€” apresente no celular. NÃ£o precisa imprimir.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -7041,7 +7524,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Carteirinha não assinada.',
+                                Text('Carteirinha nÃ£o assinada.',
                                     style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -7064,7 +7547,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(const SnackBar(
                                                 content: Text(
-                                                    'Solicitação enviada. O pastor/gestor irá assinar sua carteirinha.')));
+                                                    'SolicitaÃ§Ã£o enviada. O pastor/gestor irÃ¡ assinar sua carteirinha.')));
                                     } catch (e) {
                                       if (context.mounted)
                                         ScaffoldMessenger.of(context)
@@ -7090,7 +7573,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Cartão membro — padrão CNH digital',
+                        'CartÃ£o membro digital',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -7100,8 +7583,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Visual único em todo o Gestão YAHWEH. Apenas a logo e o nome da sua igreja mudam. '
-                      'O QR Code abre a validação oficial no app.',
+                      'Visual Ãºnico em todo o GestÃ£o YAHWEH. Apenas a logo e o nome da sua igreja mudam. '
+                      'O QR Code abre a validaÃ§Ã£o oficial no app.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
@@ -7180,7 +7663,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             context,
                             data,
                             cfg,
-                            validade.isEmpty ? '—' : validade,
+                            validade.isEmpty ? 'â€”' : validade,
                           ),
                           icon: const Icon(Icons.chat_rounded),
                           label: const Text('Enviar (WhatsApp / compart.)'),
@@ -7194,7 +7677,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     if (_maskNomePublico(name).isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(
-                        'Titular público (mascarado): ${_maskNomePublico(name)}',
+                        'Titular pÃºblico (mascarado): ${_maskNomePublico(name)}',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11,
@@ -7272,14 +7755,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível gerar a imagem.')),
+        const SnackBar(content: Text('NÃ£o foi possÃ­vel gerar a imagem.')),
       );
       return;
     }
     try {
       await Gal.putImageBytes(
         bytes,
-        album: 'Gestão YAHWEH',
+        album: 'GestÃ£o YAHWEH',
         name: 'carteira_yahweh_${DateTime.now().millisecondsSinceEpoch}',
       );
       if (context.mounted) {
@@ -7302,7 +7785,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível gerar a imagem.')),
+        const SnackBar(content: Text('NÃ£o foi possÃ­vel gerar a imagem.')),
       );
       return;
     }
@@ -7372,13 +7855,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (digits.isEmpty) {
       await Share.share(
-        'Carteirinha digital — $church. Validade: $validade',
-        subject: 'Carteirinha — $church',
+        'Carteirinha digital â€” $church. Validade: $validade',
+        subject: 'Carteirinha â€” $church',
       );
       return;
     }
     final text = Uri.encodeComponent(
-      'Olá! Segue a imagem da carteirinha digital ($church).',
+      'OlÃ¡! Segue a imagem da carteirinha digital ($church).',
     );
     final uri = Uri.parse('https://wa.me/$digits?text=$text');
     try {
@@ -7388,7 +7871,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível compartilhar: $e')),
+          SnackBar(content: Text('NÃ£o foi possÃ­vel compartilhar: $e')),
         );
       }
     }
@@ -7551,7 +8034,7 @@ class _CardData {
   final Map<String, dynamic> cardConfig;
   final Map<String, dynamic> tenant;
 
-  /// Doc `igrejas/{id}` canónico (Storage + logo institucional).
+  /// Doc `igrejas/{id}` canÃ³nico (Storage + logo institucional).
   final String igrejaDocId;
 
   const _CardData({
@@ -7568,13 +8051,13 @@ class _CardConfig {
   final String subtitle;
   final String logoUrl;
 
-  /// Logo em base64 (galeria); usado quando não há permissão no Storage.
+  /// Logo em base64 (galeria); usado quando nÃ£o hÃ¡ permissÃ£o no Storage.
   final String? logoDataBase64;
   final String bgColor;
   final String textColor;
   final String? bgColorSecondary;
 
-  /// Hex 6 dígitos (sem #) — faixa dourada / detalhes; Firestore: `accentColor` ou `accentGold`.
+  /// Hex 6 dÃ­gitos (sem #) â€” faixa dourada / detalhes; Firestore: `accentColor` ou `accentGold`.
   final String? accentColorHex;
   final String cargoLabel;
   final bool showPhoto;
@@ -7583,10 +8066,10 @@ class _CardConfig {
   /// Firestore: `regrasVerso`, `carteiraRegrasVerso` ou `regrasUsoVerso` (lista ou texto com linhas).
   final List<String>? versoRegrasUso;
 
-  /// Legado Firestore; o app usa um único modelo visual (`padrao`).
+  /// Legado Firestore; o app usa um Ãºnico modelo visual (`padrao`).
   final String visualModel;
 
-  /// Frase no rodapé do verso (PDF e carteira digital).
+  /// Frase no rodapÃ© do verso (PDF e carteira digital).
   final String fraseRodape;
 
   const _CardConfig({
@@ -7684,7 +8167,7 @@ class _CardConfig {
       : _hexToColor(bgColorSecondary!, const Color(0xFF1E3A5F));
   Color get textColorValue => _hexToColor(textColor, Colors.white);
 
-  /// Cor de destaque (bordas, selo) — igual à carteirinha digital e ao PDF.
+  /// Cor de destaque (bordas, selo) â€” igual Ã  carteirinha digital e ao PDF.
   Color get accentColorValue {
     if (accentColorHex == null || accentColorHex!.length != 6) {
       return CarteirinhaVisualTokens.accentGoldFlutter;
@@ -7701,994 +8184,5 @@ class _CardConfig {
     final v = int.tryParse(clean, radix: 16);
     if (v == null) return fallback;
     return Color(0xFF000000 + v);
-  }
-}
-
-/// Cores disponíveis para a carteirinha (fundo e texto).
-const _carteiraCores = [
-  Color(0xFF0B2F6B), // azul escuro (padrão)
-  Color(0xFF1E3A5F),
-  Color(0xFF2563EB),
-  Color(0xFF16A34A),
-  Color(0xFF059669),
-  Color(0xFF7C3AED),
-  Color(0xFF4338CA),
-  Color(0xFFDC2626),
-  Color(0xFFB45309),
-  Color(0xFF1F2937),
-  Color(0xFFFFFFFF),
-  Color(0xFFF3F4F6),
-];
-
-/// Logo da carteirinha — mesmo pipeline que o restante do app para URLs Firebase Storage ([SafeNetworkImage]).
-class _CarteiraLogoImage extends StatefulWidget {
-  final String imageUrl;
-  final double width;
-  final double height;
-  final BoxFit fit;
-  final Widget? errorWidget;
-
-  const _CarteiraLogoImage({
-    required this.imageUrl,
-    required this.width,
-    required this.height,
-    this.fit = BoxFit.contain,
-    this.errorWidget,
-  });
-
-  @override
-  State<_CarteiraLogoImage> createState() => _CarteiraLogoImageState();
-}
-
-class _CarteiraLogoImageState extends State<_CarteiraLogoImage> {
-  late Future<String> _resolvedUrlFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _resolvedUrlFuture = _resolveUrl(widget.imageUrl);
-  }
-
-  @override
-  void didUpdateWidget(covariant _CarteiraLogoImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.imageUrl != widget.imageUrl) {
-      _resolvedUrlFuture = _resolveUrl(widget.imageUrl);
-    }
-  }
-
-  Future<String> _resolveUrl(String raw) async {
-    final u = sanitizeImageUrl(raw);
-    if (u.isEmpty || !isValidImageUrl(u)) return '';
-    if (!isFirebaseStorageHttpUrl(u)) return u;
-    final fresh = await refreshFirebaseStorageDownloadUrl(u);
-    final resolved = sanitizeImageUrl(fresh ?? u);
-    return isValidImageUrl(resolved) ? resolved : '';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final err = widget.errorWidget ??
-        Icon(Icons.broken_image_rounded, color: Colors.grey.shade400);
-    if (isDataImageUrl(widget.imageUrl)) {
-      try {
-        final bytes = base64Decode(
-            widget.imageUrl.substring(widget.imageUrl.indexOf(',') + 1));
-        if (bytes.length > 24) {
-          return Image.memory(
-            bytes,
-            fit: widget.fit,
-            width: widget.width,
-            height: widget.height,
-            errorBuilder: (_, __, ___) => err,
-          );
-        }
-      } catch (_) {}
-      return err;
-    }
-    return FutureBuilder<String>(
-      future: _resolvedUrlFuture,
-      builder: (context, snap) {
-        final u = snap.data ?? '';
-        if (u.isEmpty) return err;
-        final mcW = (widget.width * MediaQuery.devicePixelRatioOf(context))
-            .round()
-            .clamp(48, 512);
-        final mcH = (widget.height * MediaQuery.devicePixelRatioOf(context))
-            .round()
-            .clamp(48, 512);
-        return SafeNetworkImage(
-          imageUrl: u,
-          fit: widget.fit,
-          width: widget.width,
-          height: widget.height,
-          memCacheWidth: mcW,
-          memCacheHeight: mcH,
-          errorWidget: err,
-        );
-      },
-    );
-  }
-}
-
-class _CarteiraConfigPage extends StatefulWidget {
-  final String tenantId;
-
-  const _CarteiraConfigPage({required this.tenantId});
-
-  @override
-  State<_CarteiraConfigPage> createState() => _CarteiraConfigPageState();
-}
-
-class _CarteiraConfigPageState extends State<_CarteiraConfigPage> {
-  final _tituloCtrl = TextEditingController();
-  final _subtituloCtrl = TextEditingController();
-  final _fraseRodapeCtrl = TextEditingController();
-  final _cargoCtrl = TextEditingController();
-  String _bgColor = '#0B2F6B';
-  String _textColor = '#FFFFFF';
-  String? _bgColorSecondary;
-  /// Bordas / faixa superior / selo — mesmo valor na carteirinha e no PDF.
-  String _accentColor = 'E8C478';
-  bool _showPhoto = true;
-  bool _loading = true;
-  bool _saving = false;
-
-  /// Membros com cargo além de "membro" (podem assinar carteirinha).
-  List<MapEntry<String, String>> _signatoryChoices = [];
-
-  /// Pré-seleção ao gerar PDF (Firestore: `defaultSignatoryMemberId`).
-  String? _defaultSignatoryMemberId;
-  String _signatureEnhanceMode = kSignatureEnhanceModeUltra;
-
-  /// URL da logo do cadastro (quando não usa galeria). Logo da galeria fica em base64.
-  String? _customLogoUrl;
-
-  /// Logo escolhida da galeria em base64 (evita Firebase Storage sem permissão).
-  String? _customLogoBase64;
-  String? _tenantLogoUrl;
-  Map<String, dynamic> _tenantData = {};
-
-  bool _uploadingLogo = false;
-  bool _uploadingCert = false;
-
-  /// Nome do .p12 no perfil do usuário logado (referência em Storage restrito).
-  String? _certDisplayName;
-
-  static String _colorToHex(Color c) {
-    final r = c.red.toRadixString(16).padLeft(2, '0');
-    final g = c.green.toRadixString(16).padLeft(2, '0');
-    final b = c.blue.toRadixString(16).padLeft(2, '0');
-    return '$r$g$b';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _tituloCtrl.dispose();
-    _subtituloCtrl.dispose();
-    _fraseRodapeCtrl.dispose();
-    _cargoCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickLogoFromGallery() async {
-    final file =
-        await MediaHandlerService.instance.pickAndProcessLogoFromGallery();
-    if (file == null || !mounted) return;
-    setState(() => _uploadingLogo = true);
-    try {
-      final raw = await file.readAsBytes();
-      final compressed = await ImageHelper.compressImage(
-        raw,
-        minWidth: 800,
-        minHeight: 600,
-        quality: 70,
-      );
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-      final prevLogo = (_customLogoUrl ?? '').trim();
-      if (prevLogo.isNotEmpty) {
-        await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(
-            sanitizeImageUrl(prevLogo));
-      }
-      await FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix(
-          ChurchStorageLayout.cartaoMembroMediaPrefix(widget.tenantId));
-      await FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix(
-          'carteira_logos/${widget.tenantId}');
-      final upload = await MediaUploadService.uploadBytesDetailed(
-        storagePath: ChurchStorageLayout.cartaoMembroLogoPath(widget.tenantId),
-        bytes: compressed,
-        contentType: 'image/jpeg',
-        skipClientPrepare: true,
-      );
-      final url = upload.downloadUrl;
-      FirebaseStorageCleanupService.scheduleCleanupAfterCartaoMembroLogoUpload(
-        tenantId: widget.tenantId,
-      );
-      await CachedNetworkImage.evictFromCache(url);
-      AppStorageImageService.instance.invalidateStoragePrefix(
-          ChurchStorageLayout.cartaoMembroMediaPrefix(widget.tenantId));
-      if (!mounted) return;
-      setState(() {
-        _customLogoUrl = url;
-        _customLogoBase64 = null;
-        _uploadingLogo = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Logo selecionada (4K) — pronto para usar.')));
-    } catch (e) {
-      if (mounted) {
-        setState(() => _uploadingLogo = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao carregar imagem: $e')));
-      }
-    }
-  }
-
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    final db = FirebaseFirestore.instance;
-    Map<String, dynamic> cfg = {};
-    Map<String, dynamic> tenant = {};
-    try {
-      final snap = await db
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('config')
-          .doc('carteira')
-          .get();
-      if (snap.exists && snap.data() != null) cfg = snap.data()!;
-      final tenantSnap =
-          await db.collection('igrejas').doc(widget.tenantId).get();
-      tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
-        ..['id'] = widget.tenantId;
-      _tenantData = Map<String, dynamic>.from(tenant);
-    } catch (_) {}
-    final tenantLogo = churchTenantLogoUrl(tenant);
-    _tenantLogoUrl = tenantLogo.isEmpty ? null : tenantLogo;
-    final savedB64 = (cfg['logoDataBase64'] ?? '').toString().trim();
-    _customLogoBase64 = savedB64.isEmpty ? null : savedB64;
-    final savedLogo = (cfg['logoUrl'] ?? '').toString().trim();
-    _customLogoUrl = savedLogo.isEmpty ? null : savedLogo;
-    _tituloCtrl.text =
-        (cfg['title'] ?? tenant['name'] ?? tenant['nome'] ?? 'Gestão YAHWEH')
-            .toString();
-    _subtituloCtrl.text =
-        (cfg['subtitle'] ?? 'Credencial de Membro').toString();
-    _fraseRodapeCtrl.text = (cfg['fraseRodape'] ??
-            cfg['fraseRodapeVerso'] ??
-            cfg['mottoCarteira'] ??
-            '')
-        .toString();
-    _cargoCtrl.text = (cfg['cargoLabel'] ?? '').toString();
-    _showPhoto = cfg['showPhoto'] != false;
-    final bg =
-        (cfg['bgColor'] ?? '#0B2F6B').toString().replaceAll('#', '').trim();
-    final tx =
-        (cfg['textColor'] ?? '#FFFFFF').toString().replaceAll('#', '').trim();
-    _bgColor = bg.length == 6 ? bg : '0B2F6B';
-    _textColor = tx.length == 6 ? tx : 'FFFFFF';
-    final sec =
-        (cfg['bgColorSecondary'] ?? '').toString().replaceAll('#', '').trim();
-    _bgColorSecondary = sec.length == 6 ? sec : null;
-    final ac = (cfg['accentColor'] ?? cfg['accentGold'] ?? 'E8C478')
-        .toString()
-        .replaceAll('#', '')
-        .trim();
-    _accentColor = ac.length == 6 ? ac : 'E8C478';
-    final savedDef = (cfg['defaultSignatoryMemberId'] ?? '').toString().trim();
-    _defaultSignatoryMemberId = savedDef.isEmpty ? null : savedDef;
-    _signatureEnhanceMode = normalizeSignatureEnhanceMode(
-      (cfg['signatureEnhanceMode'] ?? '').toString(),
-    );
-
-    _signatoryChoices = [];
-    try {
-      final ms = await db
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('membros')
-          .limit(500)
-          .get();
-      for (final doc in ms.docs) {
-        final d = doc.data();
-        if (!memberHasLeadershipForAssinatura(d)) continue;
-        final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
-        if (nome.isEmpty) continue;
-        final cargo = signatoryCargoDisplayLabel(d);
-        _signatoryChoices.add(MapEntry(doc.id, '$nome — $cargo'));
-      }
-      _signatoryChoices.sort(
-          (a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
-    } catch (_) {}
-    if (_defaultSignatoryMemberId != null &&
-        !_signatoryChoices.any((e) => e.key == _defaultSignatoryMemberId)) {
-      _defaultSignatoryMemberId = null;
-    }
-    _certDisplayName = null;
-    try {
-      _certDisplayName =
-          await CertificadoDigitalService.certificateFileNameForCurrentUser();
-    } catch (_) {}
-    setState(() => _loading = false);
-  }
-
-  Future<void> _pickP12Certificado() async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['p12', 'pfx'],
-      withData: true,
-    );
-    if (!mounted || res == null || res.files.isEmpty) return;
-    final f = res.files.first;
-    final bytes = f.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível ler o arquivo.')));
-      return;
-    }
-    setState(() => _uploadingCert = true);
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await CertificadoDigitalService.uploadPfxForCurrentUser(
-        tenantId: widget.tenantId,
-        bytes: bytes,
-        originalFileName: f.name,
-      );
-      if (!mounted) return;
-      setState(() {
-        _certDisplayName = f.name;
-        _uploadingCert = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Certificado enviado ao Storage (acesso restrito). A senha do .p12 não é salva no Firestore — informe-a ao assinar em lote.')),
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _uploadingCert = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro: $e')));
-      }
-    }
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final ref = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('config')
-          .doc('carteira');
-      final payload = <String, dynamic>{
-        'logoUrl': _customLogoBase64 != null
-            ? ''
-            : (_customLogoUrl ?? _tenantLogoUrl ?? ''),
-        'logoDataBase64': _customLogoBase64 ?? '',
-        'title': _tituloCtrl.text.trim().isEmpty
-            ? 'Gestão YAHWEH'
-            : _tituloCtrl.text.trim(),
-        'subtitle': _subtituloCtrl.text.trim().isEmpty
-            ? 'Credencial de Membro'
-            : _subtituloCtrl.text.trim(),
-        'fraseRodape': _fraseRodapeCtrl.text.trim(),
-        'cargoLabel': _cargoCtrl.text.trim(),
-        'bgColor': _bgColor.length == 6 ? _bgColor : '0B2F6B',
-        'textColor': _textColor.length == 6 ? _textColor : 'FFFFFF',
-        'bgColorSecondary':
-            _bgColorSecondary != null && _bgColorSecondary!.length == 6
-                ? _bgColorSecondary
-                : null,
-        'accentColor': _accentColor.length == 6 ? _accentColor : 'E8C478',
-        'showPhoto': _showPhoto,
-        'visualModel': 'padrao',
-        'carteiraVisualModel': 'padrao',
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      if (_defaultSignatoryMemberId != null &&
-          _defaultSignatoryMemberId!.trim().isNotEmpty) {
-        payload['defaultSignatoryMemberId'] = _defaultSignatoryMemberId!.trim();
-      } else {
-        payload['defaultSignatoryMemberId'] = FieldValue.delete();
-      }
-      payload['signatureEnhanceMode'] = _signatureEnhanceMode;
-      await ref.set(payload, SetOptions(merge: true));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Aparência da carteirinha salva.')));
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return Scaffold(
-        appBar: AppBar(
-            title: const Text('Configurar carteirinha'),
-            backgroundColor: ThemeCleanPremium.primary,
-            foregroundColor: Colors.white),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-    final effectiveLogoUrl = _customLogoBase64 != null
-        ? 'data:image/jpeg;base64,$_customLogoBase64'
-        : (_customLogoUrl ?? _tenantLogoUrl ?? '');
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        title: const Text('Logo do cartão membro (CNH)'),
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.pop(context)),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(
-              horizontal: ThemeCleanPremium.spaceLg,
-              vertical: ThemeCleanPremium.spaceMd),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2F0D9),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  border: Border.all(color: const Color(0xFF2E7D32)),
-                ),
-                child: Text(
-                  'Modelo único CNH digital em todo o Gestão YAHWEH. '
-                  'Aqui você altera só a logo e o nome da igreja — cores do cartão são fixas.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.4,
-                    color: Colors.green.shade900,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
-                title: 'Logo do cartão',
-                icon: Icons.image_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Use o logo do cadastro da igreja ou escolha outro da galeria.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          height: 1.35),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    Row(
-                      children: [
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: effectiveLogoUrl.isNotEmpty
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  child: _CarteiraLogoImage(
-                                    imageUrl: effectiveLogoUrl,
-                                    fit: BoxFit.contain,
-                                    width: 72,
-                                    height: 72,
-                                    errorWidget: StableChurchLogo(
-                                      tenantId: widget.tenantId,
-                                      tenantData: _tenantData,
-                                      width: 72,
-                                      height: 72,
-                                      fit: BoxFit.contain,
-                                      memCacheWidth: 144,
-                                      memCacheHeight: 144,
-                                    ),
-                                  ),
-                                )
-                              : ClipRRect(
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  child: StableChurchLogo(
-                                    tenantId: widget.tenantId,
-                                    tenantData: _tenantData,
-                                    width: 72,
-                                    height: 72,
-                                    fit: BoxFit.contain,
-                                    memCacheWidth: 144,
-                                    memCacheHeight: 144,
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(width: ThemeCleanPremium.spaceMd),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              FilledButton.tonalIcon(
-                                onPressed: _uploadingLogo
-                                    ? null
-                                    : () => setState(() {
-                                          _customLogoBase64 = null;
-                                          _customLogoUrl = null;
-                                        }),
-                                icon:
-                                    const Icon(Icons.church_rounded, size: 20),
-                                label: const Text('Usar logo do cadastro'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: (_customLogoBase64 == null &&
-                                          _customLogoUrl == null)
-                                      ? ThemeCleanPremium.primary
-                                          .withOpacity(0.12)
-                                      : null,
-                                  foregroundColor: ThemeCleanPremium.primary,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton.icon(
-                                onPressed: _uploadingLogo
-                                    ? null
-                                    : _pickLogoFromGallery,
-                                icon: _uploadingLogo
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2))
-                                    : const Icon(Icons.photo_library_rounded,
-                                        size: 20),
-                                label: Text(_uploadingLogo
-                                    ? 'Enviando...'
-                                    : 'Escolher da galeria'),
-                                style: OutlinedButton.styleFrom(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
-                title: 'Texto da carteirinha',
-                icon: Icons.text_fields_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLabel('Título (nome da igreja)'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _tituloCtrl,
-                      decoration: _inputDecoration(
-                          hint: 'Ex: Assembleia de Deus - Sede'),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Subtítulo'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _subtituloCtrl,
-                      decoration:
-                          _inputDecoration(hint: 'Ex: Credencial de Membro'),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Frase oficial (rodapé do verso)'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _fraseRodapeCtrl,
-                      maxLines: 2,
-                      decoration: _inputDecoration(
-                          hint:
-                              'Ex: Uma igreja, uma fé, uma esperança — opcional'),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Cargo / função padrão'),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _cargoCtrl,
-                      decoration: _inputDecoration(
-                          hint:
-                              'Ex: OBREIRO, MEMBRO (deixe vazio se cada membro tiver seu cargo)'),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    SwitchListTile(
-                      title: const Text('Mostrar foto do membro na carteirinha',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: const Text(
-                          'Desative para layout só com nome e dados',
-                          style: TextStyle(fontSize: 12)),
-                      value: _showPhoto,
-                      onChanged: (v) => setState(() => _showPhoto = v),
-                      contentPadding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
-                title: 'Assinatura padrão (PDF)',
-                icon: Icons.draw_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Quem assina a carteirinha ao gerar o PDF: pastor, secretário ou qualquer cargo de liderança. O padrão pode ser alterado na hora de emitir.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          height: 1.35),
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    DropdownButtonFormField<String?>(
-                      isExpanded: true,
-                      value: _defaultSignatoryMemberId,
-                      decoration: _inputDecoration(hint: 'Signatário padrão'),
-                      items: [
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('Automático (primeiro da lista)'),
-                        ),
-                        ..._signatoryChoices.map(
-                          (e) => DropdownMenuItem<String?>(
-                            value: e.key,
-                            child: Text(e.value,
-                                maxLines: 2, overflow: TextOverflow.ellipsis),
-                          ),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setState(() => _defaultSignatoryMemberId = v),
-                    ),
-                    if (_signatoryChoices.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          'Nenhum membro com cargo além de "membro". Atribua funções em Membros → Editar.',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.orange.shade800),
-                        ),
-                      ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      value: _signatureEnhanceMode,
-                      decoration: _inputDecoration(
-                          hint: 'Intensidade da assinatura (PDF)'),
-                      items: const [
-                        DropdownMenuItem<String>(
-                          value: kSignatureEnhanceModeNormal,
-                          child: Text('Normal (equilibrado)'),
-                        ),
-                        DropdownMenuItem<String>(
-                          value: kSignatureEnhanceModeUltra,
-                          child: Text('Ultra legível (traço reforçado)'),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() {
-                        _signatureEnhanceMode =
-                            normalizeSignatureEnhanceMode(v ?? '');
-                      }),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Normal mantém o traço mais natural. Ultra reforça assinaturas claras para impressão.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
-                title: 'Certificado digital (A1 / A3)',
-                icon: Icons.verified_user_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Envie o arquivo .p12 ou .pfx do gestor logado. O PAdES completo no PDF está em roadmap; o fluxo em lote já gera ZIP e orienta integração ICP-Brasil.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          height: 1.35),
-                    ),
-                    const SizedBox(height: 12),
-                    if ((_certDisplayName ?? '').isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('Arquivo vinculado: $_certDisplayName',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: _uploadingCert ? null : _pickP12Certificado,
-                      icon: _uploadingCert
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.upload_file_rounded),
-                      label: Text(_uploadingCert
-                          ? 'Enviando...'
-                          : 'Selecionar .p12 / .pfx'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _buildPremiumCard(
-                title: 'Cores',
-                icon: Icons.palette_rounded,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'O modelo na tela, o PNG exportado e o PDF são o mesmo: só mudam as cores que você escolher abaixo.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.35,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildLabel('Cor de fundo'),
-                    const SizedBox(height: 10),
-                    Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: _carteiraCores
-                            .map((c) => _colorChip(
-                                c,
-                                _bgColor,
-                                () =>
-                                    setState(() => _bgColor = _colorToHex(c))))
-                            .toList()),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Cor secundária (gradiente)'),
-                    Text('Opcional. Se escolher, o fundo terá gradiente.',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _colorChip(
-                            null,
-                            _bgColorSecondary == null
-                                ? 'none'
-                                : _bgColorSecondary!,
-                            () => setState(() => _bgColorSecondary = null),
-                            isNone: true),
-                        ..._carteiraCores.map((c) => _colorChip(
-                            c,
-                            _bgColorSecondary ?? '',
-                            () => setState(
-                                () => _bgColorSecondary = _colorToHex(c)))),
-                      ],
-                    ),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Cor do texto'),
-                    const SizedBox(height: 10),
-                    Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: _carteiraCores
-                            .map((c) => _colorChip(
-                                c,
-                                _textColor,
-                                () => setState(
-                                    () => _textColor = _colorToHex(c))))
-                            .toList()),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildLabel('Cor de destaque (bordas e faixa)'),
-                    Text(
-                      'Aplica na carteirinha digital e no PDF — ouro por defeito.',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _carteiraCores
-                          .map((c) => _colorChip(
-                              c,
-                              _accentColor,
-                              () => setState(
-                                  () => _accentColor = _colorToHex(c))))
-                          .toList(),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceLg),
-              SizedBox(
-                height: 52,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.check_rounded),
-                  label: Text(_saving ? 'Salvando...' : 'Salvar',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ThemeCleanPremium.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    elevation: 0,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPremiumCard(
-      {required String title, required IconData icon, required Widget child}) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: ThemeCleanPremium.primary.withOpacity(0.08),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                ),
-                child: Icon(icon, color: ThemeCleanPremium.primary, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Text(title,
-                  style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1E293B),
-                      letterSpacing: -0.2)),
-            ],
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceMd),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLabel(String text) {
-    return Text(text,
-        style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey.shade800));
-  }
-
-  InputDecoration _inputDecoration({String? hint}) {
-    return InputDecoration(
-      hintText: hint,
-      filled: true,
-      fillColor: const Color(0xFFF8FAFC),
-      border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-          borderSide: BorderSide(color: Colors.grey.shade300)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-    );
-  }
-
-  Widget _colorChip(Color? c, String selectedHex, VoidCallback onTap,
-      {bool isNone = false}) {
-    if (isNone) {
-      final sel = selectedHex == 'none';
-      return GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            shape: BoxShape.circle,
-            border: Border.all(
-                color: sel ? ThemeCleanPremium.primary : Colors.grey.shade300,
-                width: sel ? 3 : 1),
-          ),
-          child: const Center(
-              child: Text('—',
-                  style: TextStyle(fontSize: 16, color: Colors.black54))),
-        ),
-      );
-    }
-    final hex = _colorToHex(c!);
-    final sel =
-        selectedHex.toUpperCase().replaceAll('#', '') == hex.toUpperCase();
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: c,
-          shape: BoxShape.circle,
-          border: Border.all(
-              color: sel ? ThemeCleanPremium.primary : Colors.grey.shade300,
-              width: sel ? 3 : 1),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
-          ],
-        ),
-      ),
-    );
   }
 }

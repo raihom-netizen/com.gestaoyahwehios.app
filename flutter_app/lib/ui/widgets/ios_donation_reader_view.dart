@@ -3,11 +3,12 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
 
-/// iOS — Guideline 3.2.2(iv): dízimos e ofertas só no **site** (Safari), não no app.
+/// iOS — Guideline 3.2.2(iv): checkout PIX/cartão no site; navegação **in-app** instantânea.
 ///
 /// Android/Web mantêm [ChurchDonationsPage] com PIX/cartão no painel.
 class IosDonationReaderView extends StatefulWidget {
@@ -25,80 +26,66 @@ class IosDonationReaderView extends StatefulWidget {
 }
 
 class _IosDonationReaderViewState extends State<IosDonationReaderView> {
-  bool _opening = false;
-  bool _autoOpened = false;
+  bool _openingSafari = false;
   String? _churchSlug;
   Map<String, dynamic>? _churchData;
   String _churchName = 'sua igreja';
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadChurch());
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _autoOpened) return;
-      _autoOpened = true;
-      _openSite();
-    });
+    _churchSlug = widget.tenantId.trim().isEmpty ? null : widget.tenantId.trim();
+    unawaited(_loadChurchMeta());
   }
 
-  Future<void> _loadChurch() async {
+  Future<void> _loadChurchMeta() async {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .get();
-      final d = snap.data() ?? {};
-      var slug = (d['slug'] ?? '').toString().trim();
-      if (slug.isEmpty) slug = widget.tenantId;
+          .get(const GetOptions(source: Source.cache));
+      var d = snap.data() ?? {};
+      var slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
+      if (slug.isEmpty) {
+        final server = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .get();
+        d = server.data() ?? {};
+        slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
+      }
       final nome = (d['nome'] ?? d['NOME'] ?? d['name'] ?? '').toString().trim();
       if (!mounted) return;
       setState(() {
         _churchData = d;
-        _churchSlug = slug;
+        if (slug.isNotEmpty) _churchSlug = slug;
         if (nome.isNotEmpty) _churchName = nome;
-        _loading = false;
       });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _churchSlug = widget.tenantId;
-        _loading = false;
-      });
-    }
+    } catch (_) {}
   }
 
-  Future<void> _openSite() async {
-    if (_opening) return;
-    final slug = _churchSlug ?? widget.tenantId;
-    setState(() => _opening = true);
+  String get _effectiveSlug {
+    final s = (_churchSlug ?? widget.tenantId).trim();
+    return s.isEmpty ? widget.tenantId : s;
+  }
+
+  void _openSiteInApp() {
+    final slug = _effectiveSlug;
+    if (slug.isEmpty || !mounted) return;
+    PublicMemberSignupNavigation.openChurchPublicSite(context, slug: slug);
+  }
+
+  Future<void> _openSafariCheckout() async {
+    if (_openingSafari) return;
+    final slug = _effectiveSlug;
+    setState(() => _openingSafari = true);
     try {
-      final ok = await IosPaymentsGate.openChurchDonationsExternally(
+      await IosPaymentsGate.openChurchDonationsExternally(
         churchSlug: slug,
         churchData: _churchData,
       );
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não foi possível abrir o navegador. Toque no botão abaixo para tentar de novo.',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Não foi possível abrir o site da igreja.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
     } finally {
-      if (mounted) setState(() => _opening = false);
+      if (mounted) setState(() => _openingSafari = false);
     }
   }
 
@@ -131,9 +118,8 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
               ),
               const SizedBox(height: 12),
               Text(
-                _loading
-                    ? 'A preparar o link da igreja…'
-                    : 'No iPhone, as contribuições (PIX e ofertas) são feitas no site oficial de $_churchName, em ambiente seguro — conforme as regras da App Store.',
+                'Abra o site de $_churchName no app e use o botão de doação (PIX ou cartão). '
+                'No iPhone o pagamento final pode abrir no Safari, conforme a App Store.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
@@ -146,22 +132,11 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                 width: double.infinity,
                 height: 52,
                 child: FilledButton.icon(
-                  onPressed: _opening || _loading ? null : _openSite,
-                  icon: _opening
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.open_in_new_rounded),
-                  label: Text(
-                    _opening
-                        ? 'Abrindo site…'
-                        : 'Abrir dízimos e ofertas no site',
-                    style: const TextStyle(
+                  onPressed: _openSiteInApp,
+                  icon: const Icon(Icons.public_rounded),
+                  label: const Text(
+                    'Abrir site da igreja',
+                    style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
                     ),
@@ -175,15 +150,32 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'No site, use o botão de doação para PIX ou cartão. '
-                'O lançamento entra no financeiro da igreja automaticamente.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  color: Colors.grey.shade600,
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _openingSafari ? null : _openSafariCheckout,
+                  icon: _openingSafari
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.primary,
+                          ),
+                        )
+                      : const Icon(Icons.open_in_new_rounded, size: 20),
+                  label: Text(
+                    _openingSafari ? 'Abrindo Safari…' : 'Abrir no Safari',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: cs.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                 ),
               ),
             ],

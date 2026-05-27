@@ -20,6 +20,8 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show ChurchPublicConstrainedMedia, ChurchPublicPremiumFeedCard, ChurchPublicPremiumPlayOrb;
 import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
+import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart'
+    show feedMediaCacheRevisionFromPost;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
@@ -95,8 +97,15 @@ class YahwehPostCard extends StatelessWidget {
     required this.onOpenVideo,
   });
 
+  int get _coverStorageCacheRevision {
+    final p = postFirestoreData;
+    if (p == null || p.isEmpty) return 0;
+    return feedMediaCacheRevisionFromPost(p);
+  }
+
   Widget _coverImage(String url) {
     final u = sanitizeImageUrl(url);
+    final cacheRev = _coverStorageCacheRevision;
     if (looksLikeHostedVideoFileUrl(u)) return _broken();
     final storageLike = isFirebaseStorageHttpUrl(u) ||
         firebaseStorageMediaUrlLooksLike(u) ||
@@ -117,6 +126,7 @@ class YahwehPostCard extends StatelessWidget {
         placeholder: ph,
         errorWidget: err,
         skipFreshDisplayUrl: false,
+        storageCacheRevision: cacheRev,
       );
     }
     // Caminho `igrejas/.../noticias/...` ou `gs://` sem https: [SafeNetworkImage] rejeita —
@@ -131,6 +141,7 @@ class YahwehPostCard extends StatelessWidget {
         memCacheHeight: memCacheH,
         placeholder: ph,
         errorWidget: err,
+        storageCacheRevision: cacheRev,
       );
     }
     return SafeNetworkImage(
@@ -143,6 +154,7 @@ class YahwehPostCard extends StatelessWidget {
       placeholder: ph,
       errorWidget: err,
       skipFreshDisplayUrl: false,
+      storageCacheRevision: cacheRev,
     );
   }
 

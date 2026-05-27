@@ -109,6 +109,7 @@ import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
@@ -401,6 +402,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     _scheduleHeavyDashboardStreams(allIds);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      ChurchGalleryPhotoWarmup.schedulePanelHome(
+        context: context,
+        tenantId: resolved,
+        panel: _panelCache,
+      );
       unawaited(scheduleYahwehPanelImageWarmup(
         context,
         resolved,
@@ -598,6 +604,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         _LinksPublicosStrip(
                           tenantId: _effectiveTenantId,
                           role: widget.role,
+                          initialSlug: _churchSlug.trim().isNotEmpty
+                              ? _churchSlug.trim()
+                              : null,
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceLg),
                         StreamBuilder<PanelDashboardSnapshot>(
@@ -2631,8 +2640,13 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
 class _LinksPublicosStrip extends StatefulWidget {
   final String tenantId;
   final String role;
+  final String? initialSlug;
 
-  const _LinksPublicosStrip({required this.tenantId, required this.role});
+  const _LinksPublicosStrip({
+    required this.tenantId,
+    required this.role,
+    this.initialSlug,
+  });
 
   @override
   State<_LinksPublicosStrip> createState() => _LinksPublicosStripState();
@@ -2640,30 +2654,62 @@ class _LinksPublicosStrip extends StatefulWidget {
 
 class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   String? _slug;
-  bool _loading = true;
+  bool _loading = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSlug();
+    final seed = widget.initialSlug?.trim();
+    if (seed != null && seed.isNotEmpty) {
+      _slug = seed;
+    } else {
+      _loading = true;
+      unawaited(_loadSlug());
+    }
   }
 
   Future<void> _loadSlug() async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).get();
-      final slug = (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '').toString().trim();
-      if (mounted) setState(() { _slug = slug.isEmpty ? null : slug; _loading = false; });
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .get(const GetOptions(source: Source.cache));
+      var slug = (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
+          .toString()
+          .trim();
+      if (slug.isEmpty) {
+        final server = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .get();
+        slug = (server.data()?['slug'] ?? server.data()?['slugId'] ?? '')
+            .toString()
+            .trim();
+      }
+      if (mounted) {
+        setState(() {
+          _slug = slug.isEmpty ? null : slug;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() { _slug = null; _loading = false; });
+      if (mounted) setState(() {
+        _slug = null;
+        _loading = false;
+      });
     }
   }
 
-  Future<void> _openUrl(String url) async {
-    if (!mounted) return;
-    if (PublicMemberSignupNavigation.tryOpenInAppFromUrl(context, url)) {
-      return;
-    }
-    await openHttpsUrlInBrowser(context, url);
+  void _openSitePublico() {
+    final slug = _slug?.trim();
+    if (slug == null || slug.isEmpty || !mounted) return;
+    PublicMemberSignupNavigation.openChurchPublicSite(context, slug: slug);
+  }
+
+  void _openCadastroPublico() {
+    final slug = _slug?.trim();
+    if (slug == null || slug.isEmpty || !mounted) return;
+    PublicMemberSignupNavigation.open(context, slug: slug, tenantId: widget.tenantId);
   }
 
   void _shareUrl(String url, String label) {
@@ -2806,7 +2852,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           label: 'Site público da igreja',
           badge: 'Site',
           url: siteUrl,
-          onOpen: () => _openUrl(siteUrl),
+          onOpen: _openSitePublico,
           onShare: () => _shareUrl(siteUrl, 'Site da igreja'),
           onCopy: () => _copyUrl(siteUrl),
         ),
@@ -2816,7 +2862,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           label: 'Cadastro de usuários (público)',
           badge: 'Cadastro',
           url: cadastroUrl,
-          onOpen: () => _openUrl(cadastroUrl),
+          onOpen: _openCadastroPublico,
           onShare: () => _shareUrl(cadastroUrl, 'Cadastro de membro'),
           onCopy: () => _copyUrl(cadastroUrl),
         ),
@@ -2942,6 +2988,33 @@ String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
   return null;
 }
 
+void _leaderGalleryOpenChat(
+  BuildContext context, {
+  required Map<String, dynamic> memberData,
+  required String tenantId,
+  required String memberRole,
+  required String viewerCpfDigits,
+  required String displayName,
+}) {
+  unawaited(
+    ChurchMemberContactChat.openChatIgreja(
+      context: context,
+      tenantId: tenantId,
+      memberRole: memberRole,
+      viewerCpfDigits: viewerCpfDigits,
+      memberData: memberData,
+      displayName: displayName,
+    ),
+  );
+}
+
+void _leaderGalleryOpenWhatsApp(
+  BuildContext context,
+  Map<String, dynamic> memberData,
+) {
+  unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(context, memberData));
+}
+
 /// Cartão premium para Galeria de Líderes / Corpo Administrativo (lista no telefone, grelha no desktop).
 class _PremiumLeaderGalleryTile extends StatelessWidget {
   const _PremiumLeaderGalleryTile({
@@ -2950,6 +3023,8 @@ class _PremiumLeaderGalleryTile extends StatelessWidget {
     required this.subtitle,
     required this.avatar,
     required this.onTap,
+    this.onChat,
+    this.onWhatsApp,
   });
 
   final bool narrow;
@@ -2957,6 +3032,8 @@ class _PremiumLeaderGalleryTile extends StatelessWidget {
   final String subtitle;
   final Widget avatar;
   final VoidCallback onTap;
+  final VoidCallback? onChat;
+  final VoidCallback? onWhatsApp;
 
   static Widget _ringAvatar(Widget inner, double diameter) {
     return Container(
@@ -3012,52 +3089,114 @@ class _PremiumLeaderGalleryTile extends StatelessWidget {
       color: ThemeCleanPremium.onSurfaceVariant,
     );
 
+    Widget contactButtons() {
+      if (onChat == null && onWhatsApp == null) return const SizedBox.shrink();
+      return Padding(
+        padding: EdgeInsets.only(top: narrow ? 10 : 12),
+        child: Row(
+          children: [
+            if (onChat != null)
+              Expanded(
+                child: YahwehSuperPremiumActionButton.chat(
+                  compact: true,
+                  label: 'Chat',
+                  onPressed: onChat,
+                ),
+              ),
+            if (onChat != null && onWhatsApp != null) const SizedBox(width: 6),
+            if (onWhatsApp != null)
+              Expanded(
+                child: YahwehSuperPremiumActionButton.whatsapp(
+                  compact: true,
+                  label: 'WhatsApp',
+                  onPressed: onWhatsApp,
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: narrow ? 14 : 14,
+          vertical: narrow ? 12 : 14,
+        ),
+        decoration: _shellDecoration,
         child: narrow
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: _shellDecoration,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    _ringAvatar(avatar, 52),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: nameStyle),
-                          if (subtitle.trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: subStyle),
-                          ],
-                        ],
-                      ),
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: onTap,
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _ringAvatar(avatar, 52),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(nome,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: nameStyle),
+                              if (subtitle.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(subtitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: subStyle),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            color: ThemeCleanPremium.primary
+                                .withValues(alpha: 0.55)),
+                      ],
                     ),
-                    Icon(Icons.chevron_right_rounded, color: ThemeCleanPremium.primary.withValues(alpha: 0.55)),
-                  ],
-                ),
+                  ),
+                  contactButtons(),
+                ],
               )
-            : Container(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
-                decoration: _shellDecoration,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ringAvatar(avatar, 72),
-                    const SizedBox(height: 12),
-                    Text(nome, style: nameStyle, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    if (subtitle.trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(subtitle, style: subStyle, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ],
-                  ],
-                ),
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: onTap,
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ringAvatar(avatar, 72),
+                        const SizedBox(height: 12),
+                        Text(nome,
+                            style: nameStyle,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        if (subtitle.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(subtitle,
+                              style: subStyle,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis),
+                        ],
+                      ],
+                    ),
+                  ),
+                  contactButtons(),
+                ],
               ),
       ),
     );
@@ -3151,7 +3290,7 @@ class _LideresGaleria extends StatelessWidget {
           final avatarSize = narrow ? 52.0 : 72.0;
           final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context))
               .round()
-              .clamp(120, 360);
+              .clamp(96, 280);
           final avatarWidget = FotoMembroWidget(
             imageUrl: hasFoto ? foto : null,
             memberData: data,
@@ -3162,6 +3301,7 @@ class _LideresGaleria extends StatelessWidget {
             size: avatarSize,
             memCacheWidth: memPx,
             memCacheHeight: memPx,
+            imageCacheRevision: lite.fotoUrlCacheRevision,
             preferListThumbnail: true,
             backgroundColor:
                 avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
@@ -3181,6 +3321,15 @@ class _LideresGaleria extends StatelessWidget {
               memberRole: role,
               viewerCpfDigits: viewerCpfDigits,
             ),
+            onChat: () => _leaderGalleryOpenChat(
+              context,
+              memberData: data,
+              tenantId: tenantId,
+              memberRole: role,
+              viewerCpfDigits: viewerCpfDigits,
+              displayName: nome,
+            ),
+            onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
           );
         }).toList();
         return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3374,7 +3523,7 @@ class _LideresGaleria extends StatelessWidget {
                   }
                 }
                 final avatarSize = narrow ? 52.0 : 72.0;
-                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 360);
+                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(96, 280);
                 final avatarWidget = memberDocId != null
                     ? FotoMembroWidget(
                         imageUrl: hasFoto ? foto : null,
@@ -3401,6 +3550,8 @@ class _LideresGaleria extends StatelessWidget {
                           ),
                         ),
                       );
+                final contactData = memberData ??
+                    {'NOME_COMPLETO': nome, 'TELEFONES': ''};
                 return _PremiumLeaderGalleryTile(
                   narrow: narrow,
                   nome: nome,
@@ -3410,8 +3561,7 @@ class _LideresGaleria extends StatelessWidget {
                     if (memberDocId == null) return;
                     openChurchLeaderContactPage(
                       context,
-                      memberData: memberData ??
-                          {'NOME_COMPLETO': nome, 'TELEFONES': ''},
+                      memberData: contactData,
                       departmentNames: deptNames,
                       funcoes: funcoes,
                       tenantId: tenantId,
@@ -3420,6 +3570,16 @@ class _LideresGaleria extends StatelessWidget {
                       viewerCpfDigits: viewerCpfDigits,
                     );
                   },
+                  onChat: () => _leaderGalleryOpenChat(
+                    context,
+                    memberData: contactData,
+                    tenantId: tenantId,
+                    memberRole: role,
+                    viewerCpfDigits: viewerCpfDigits,
+                    displayName: nome,
+                  ),
+                  onWhatsApp: () =>
+                      _leaderGalleryOpenWhatsApp(context, contactData),
                 );
               }).toList();
               return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3524,7 +3684,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
           final avatarSize = narrow ? 52.0 : 72.0;
           final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context))
               .round()
-              .clamp(120, 360);
+              .clamp(96, 280);
           final subtitle = funcoes
               .map((f) => churchRoleDisplayLabel(f))
               .join(', ');
@@ -3538,6 +3698,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
             size: avatarSize,
             memCacheWidth: memPx,
             memCacheHeight: memPx,
+            imageCacheRevision: lite.fotoUrlCacheRevision,
             preferListThumbnail: true,
             backgroundColor:
                 avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
@@ -3557,6 +3718,15 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
               memberRole: role,
               viewerCpfDigits: viewerCpfDigits,
             ),
+            onChat: () => _leaderGalleryOpenChat(
+              context,
+              memberData: data,
+              tenantId: tenantId,
+              memberRole: role,
+              viewerCpfDigits: viewerCpfDigits,
+              displayName: nome,
+            ),
+            onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
           );
         }).toList();
         return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3653,7 +3823,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                 final deptIds = rawDepts is List ? rawDepts.map((e) => e.toString()).toList() : <String>[];
                 final deptNames = deptIds.map((id) => deptNamesById[id] ?? id).where((s) => s.isNotEmpty).toList();
                 final avatarSize = narrow ? 52.0 : 72.0;
-                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(120, 360);
+                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(96, 280);
                 final subtitle = funcoes
                     .map((f) => churchRoleDisplayLabel(f))
                     .join(', ');
@@ -3685,6 +3855,15 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                     memberRole: role,
                     viewerCpfDigits: viewerCpfDigits,
                   ),
+                  onChat: () => _leaderGalleryOpenChat(
+                    context,
+                    memberData: data,
+                    tenantId: tenantId,
+                    memberRole: role,
+                    viewerCpfDigits: viewerCpfDigits,
+                    displayName: nome.trim().isEmpty ? 'Membro' : nome.trim(),
+                  ),
+                  onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
                 );
               }).toList();
               ChurchGalleryPhotoWarmup.schedule(

@@ -208,22 +208,21 @@ class ChurchLeaderContactPage extends StatelessWidget {
                   displayName: titulo,
                 ),
               ),
-              if (phone.length >= 10) ...[
-                const SizedBox(height: 10),
-                YahwehSuperPremiumActionButton.whatsapp(
-                  label: 'WhatsApp — Fale comigo',
-                  onPressed: () => ChurchMemberContactChat.openWhatsAppFaleComigo(
-                    context,
-                    memberData,
-                  ),
+              const SizedBox(height: 10),
+              YahwehSuperPremiumActionButton.whatsapp(
+                label: 'WhatsApp — Fale comigo',
+                onPressed: () => ChurchMemberContactChat.openWhatsAppFaleComigo(
+                  context,
+                  memberData,
                 ),
-              ] else ...[
-                const SizedBox(height: 10),
+              ),
+              if (phone.length < 10) ...[
+                const SizedBox(height: 8),
                 Text(
-                  'Telefone não cadastrado — use o chat da igreja se o membro tiver conta no app.',
+                  'Sem telefone cadastrado — cadastre em Membros > Editar para usar o WhatsApp.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     height: 1.35,
                     color: ThemeCleanPremium.onSurfaceVariant,
                   ),

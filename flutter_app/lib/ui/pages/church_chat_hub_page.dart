@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
@@ -101,9 +102,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
-  /// Grupo com mensagem mais recente do que a última leitura neste aparelho.
-  bool _unreadGroupMessages = false;
-  late AnimationController _gruposPulseCtrl;
   _HubConversasFilter _conversasFilter = _HubConversasFilter.all;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
@@ -127,11 +125,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
-    _hubTabController = TabController(length: 3, vsync: this);
-    _gruposPulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
+    _hubTabController = TabController(length: 2, vsync: this);
     _hubTabController.addListener(_hubTabListener);
     _membersFilterCtrl.addListener(() => setState(() {}));
     _deptFilterCtrl.addListener(() => setState(() {}));
@@ -164,7 +158,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         .unregisterChatOpenListener(_onChatPendingFromBridge);
     _hubTabController.removeListener(_hubTabListener);
     _hubTabController.dispose();
-    _gruposPulseCtrl.dispose();
     _searchCtrl.dispose();
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
@@ -181,14 +174,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   void _hubTabListener() {
-    _syncGruposPulse();
     if (_hubTabController.indexIsChanging) return;
     if (_hubTabController.index != 0 && _dmSelectMode) {
       setState(_clearDmSelectUi);
     }
     if (_hubTabController.index == 0) {
       _requestConversasResync();
-    } else if (_hubTabController.index == 2) {
+    } else if (_hubTabController.index == 1) {
       _requestGruposResync();
     }
   }
@@ -223,19 +215,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
   }
 
-  void _syncGruposPulse() {
-    if (!mounted) return;
-    final blink = _unreadGroupMessages && _hubTabController.index != 2;
-    if (blink) {
-      if (!_gruposPulseCtrl.isAnimating) {
-        _gruposPulseCtrl.repeat(reverse: true);
-      }
-    } else {
-      _gruposPulseCtrl.stop();
-      _gruposPulseCtrl.value = 1.0;
-    }
-  }
-
   static bool _docIsDepartmentThread(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
@@ -258,6 +237,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       for (final p in peers) {
         if (p != myUid) out.add(p);
       }
+    }
+    return out;
+  }
+
+  static Set<String> _lastSenderUidsFromThreads(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String myUid,
+  ) {
+    final out = <String>{};
+    for (final d in docs) {
+      final sender = (d.data()['lastSenderUid'] ?? '').toString().trim();
+      if (sender.isNotEmpty && sender != myUid) out.add(sender);
     }
     return out;
   }
@@ -325,17 +316,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       const Duration(seconds: 22),
       (_) => unawaited(poll()),
     );
-  }
-
-  static bool _computeUnreadGroupThreads(
-    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-    String uid,
-  ) {
-    for (final d in docs) {
-      if (!_docIsDepartmentThread(d)) continue;
-      if (_chatHubThreadIsUnreadForUser(d.data(), uid)) return true;
-    }
-    return false;
   }
 
   void _onChatPendingFromBridge() {
@@ -717,6 +697,55 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     final t = title.trim();
     return t.isNotEmpty ? t : peer;
+  }
+
+  String _deptDisplayTitle(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final t = (data['title'] ?? '').toString().trim();
+    if (t.isNotEmpty) return t;
+    var deptId = (data['departmentId'] ?? '').toString().trim();
+    if (deptId.isEmpty && doc.id.startsWith('dept_')) {
+      deptId = doc.id.substring(5);
+    }
+    for (final d in _departments) {
+      if (d.id == deptId) return d.name;
+    }
+    return 'Grupo';
+  }
+
+  String? _departmentIdFromThreadDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    var deptId = (doc.data()['departmentId'] ?? '').toString().trim();
+    if (deptId.isEmpty && doc.id.startsWith('dept_')) {
+      deptId = doc.id.substring(5);
+    }
+    return deptId.isEmpty ? null : deptId;
+  }
+
+  String _threadListSortTitle(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String myUid,
+  ) {
+    if (_docIsDepartmentThread(doc)) {
+      return _deptDisplayTitle(doc);
+    }
+    return _dmDisplayTitle(doc, myUid);
+  }
+
+  _DeptEntry? _deptEntryById(String? departmentId) {
+    if (departmentId == null || departmentId.isEmpty) return null;
+    for (final d in _departments) {
+      if (d.id == departmentId) return d;
+    }
+    return null;
+  }
+
+  String _memberDisplayName(ChurchChatMemberRef ref) {
+    final data = ref.data;
+    final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
+    if (nome.isNotEmpty) return nome;
+    return ref.authUid;
   }
 
   /// Primeiro nome na lista (estilo WhatsApp).
@@ -1271,10 +1300,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: _PremiumHubTabBar(
-              controller: _hubTabController,
-              gruposOpacity: _gruposPulseCtrl,
-            ),
+            child: _PremiumHubTabBar(controller: _hubTabController),
           ),
           AnimatedBuilder(
             animation: _hubTabController,
@@ -1286,17 +1312,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   onChanged: () => setState(() {}),
                 );
               }
-              if (i == 1) {
-                return _HubScopedSearchBar(
-                  controller: _membersFilterCtrl,
-                  hintText: 'Pesquisar membros…',
-                  icon: Icons.person_search_rounded,
-                );
-              }
               return _HubScopedSearchBar(
-                controller: _deptFilterCtrl,
-                hintText: 'Pesquisar grupos por departamento…',
-                icon: Icons.filter_alt_rounded,
+                controller: _membersFilterCtrl,
+                hintText: 'Pesquisar membros ou departamentos…',
+                icon: Icons.person_search_rounded,
               );
             },
           ),
@@ -1308,10 +1327,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   child: _buildConversasTab(context, tid, uid),
                 ),
                 _KeepAliveHubTab(
-                  child: _buildMembrosTab(context, tid, uid),
-                ),
-                _KeepAliveHubTab(
-                  child: _buildGruposTab(context, tid, uid),
+                  child: _buildContatosTab(context, tid, uid),
                 ),
               ],
             ),
@@ -1352,7 +1368,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             final streamError = snap.hasError ? snap.error : null;
 
             final dmDocs = snapForList?.docs ?? [];
-            final peerIds = _peerUidsFromDmThreads(dmDocs, uid);
+            final peerIds = {
+              ..._peerUidsFromDmThreads(dmDocs, uid),
+              ..._lastSenderUidsFromThreads(dmDocs, uid),
+            };
             _schedulePeerProfilesLoad(tid, peerIds);
             _schedulePresencePolling(tid, peerIds);
             final memberByPeer = _peerMemberByUid;
@@ -1361,16 +1380,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 if (e.value.photoUrl != null && e.value.photoUrl!.isNotEmpty)
                   e.key: e.value.photoUrl!,
             };
-                final unreadG = _computeUnreadGroupThreads(dmDocs, uid);
-                if (unreadG != _unreadGroupMessages) {
-                  Future.microtask(() {
-                    if (mounted && unreadG != _unreadGroupMessages) {
-                      setState(() => _unreadGroupMessages = unreadG);
-                      _syncGruposPulse();
-                    }
-                  });
-                }
-
                 if (streamError != null && snapForList == null) {
                   return RefreshIndicator(
                     onRefresh: _pullRefreshConversas,
@@ -1458,19 +1467,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
                 threads.add(
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
-                    child: Text(
-                      'Só conversas diretas — grupos na aba Grupos.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                );
-                threads.add(
-                  Padding(
                     padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
                     child: SegmentedButton<_HubConversasFilter>(
                       segments: const [
@@ -1504,13 +1500,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   ),
                 );
 
-                final dmFiltered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                final conversasFiltered =
+                    <QueryDocumentSnapshot<Map<String, dynamic>>>[];
                 for (final doc in dmDocs) {
-                  if (_docIsDepartmentThread(doc)) {
-                    continue;
-                  }
+                  final isDept = _docIsDepartmentThread(doc);
                   final data = doc.data();
-                  if (prefs.isHiddenDmThread(doc.id)) continue;
+                  if (!isDept && prefs.isHiddenDmThread(doc.id)) continue;
                   final archived = prefs.isArchived(doc.id);
                   if (_conversasFilter == _HubConversasFilter.archived) {
                     if (!archived) continue;
@@ -1522,21 +1517,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           .where((e) => e.isNotEmpty)
                           .toList() ??
                       [];
-                  final others = peers.where((p) => p != uid).toList();
-                  if (others.isEmpty) continue;
-                  final peer = others.first;
-                  if (prefs.isBlockedPeer(peer)) continue;
-                  final disp = _dmDisplayTitle(doc, uid);
-                  final preview = (data['lastMessagePreview'] ?? '').toString();
+                  if (!peers.contains(uid)) continue;
+                  late final String disp;
+                  late final String preview;
+                  if (isDept) {
+                    disp = _deptDisplayTitle(doc);
+                    preview = (data['lastMessagePreview'] ?? '').toString();
+                  } else {
+                    final others = peers.where((p) => p != uid).toList();
+                    if (others.isEmpty) continue;
+                    final peer = others.first;
+                    if (prefs.isBlockedPeer(peer)) continue;
+                    disp = _dmDisplayTitle(doc, uid);
+                    preview = (data['lastMessagePreview'] ?? '').toString();
+                  }
                   if (q.isNotEmpty) {
                     if (!disp.toLowerCase().contains(ql) &&
                         !preview.toLowerCase().contains(ql)) {
                       continue;
                     }
                   }
-                  dmFiltered.add(doc);
+                  conversasFiltered.add(doc);
                 }
-                dmFiltered.sort((a, b) {
+                conversasFiltered.sort((a, b) {
                   final ap = prefs.isPinned(a.id);
                   final bp = prefs.isPinned(b.id);
                   if (ap != bp) return ap ? -1 : 1;
@@ -1544,19 +1547,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   final tb = _threadLastActivityMs(b.data());
                   final c = tb.compareTo(ta);
                   if (c != 0) return c;
-                  return _dmDisplayTitle(a, uid)
+                  return _threadListSortTitle(a, uid)
                       .toLowerCase()
-                      .compareTo(_dmDisplayTitle(b, uid).toLowerCase());
+                      .compareTo(_threadListSortTitle(b, uid).toLowerCase());
                 });
 
                 Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> sel =
-                    dmFiltered;
+                    conversasFiltered;
                 switch (_conversasFilter) {
                   case _HubConversasFilter.favorites:
-                    sel = dmFiltered.where((d) => prefs.isFavorite(d.id));
+                    sel = conversasFiltered.where((d) => prefs.isFavorite(d.id));
                     break;
                   case _HubConversasFilter.unread:
-                    sel = dmFiltered.where(
+                    sel = conversasFiltered.where(
                       (d) => _chatHubThreadIsUnreadForUser(d.data(), uid),
                     );
                     break;
@@ -1566,7 +1569,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     break;
                 }
                 final displayed = sel.toList();
-                final displayedThreadIds = displayed.map((d) => d.id).toList();
+                final displayedDmThreadIds = displayed
+                    .where((d) => !_docIsDepartmentThread(d))
+                    .map((d) => d.id)
+                    .toList();
 
                 threads.add(_buildDmSelectionToolbar(displayed.length));
 
@@ -1583,10 +1589,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                 : _conversasFilter == _HubConversasFilter.archived
                                     ? 'Sem conversas arquivadas.'
                                     : _conversasFilter == _HubConversasFilter.unread
-                                    ? 'Sem mensagens não lidas nas conversas diretas.'
+                                    ? 'Sem mensagens não lidas.'
                                     : _syncingChatThreads
                                         ? 'A sincronizar conversas…'
-                                        : 'Sem conversas diretas ainda. Use o botão + ou a aba Membros.',
+                                        : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,
@@ -1597,8 +1603,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     ),
                   );
                 } else {
-                  threads.add(_sectionHeader('Mensagens diretas'));
-                  threads.add(_dmConversationListRows(
+                  threads.add(_sectionHeader('Conversas'));
+                  threads.add(_unifiedConversationListRows(
                     context,
                     tid,
                     uid,
@@ -1623,7 +1629,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   children: [
                     Expanded(child: listView),
                     if (_dmSelectMode)
-                      _buildDmBulkSelectBar(tid, displayedThreadIds),
+                      _buildDmBulkSelectBar(tid, displayedDmThreadIds),
                   ],
                 );
               },
@@ -1632,22 +1638,167 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         );
   }
 
-  Widget _buildMembrosTab(BuildContext context, String tid, String uid) {
+  Widget _buildContatosTab(BuildContext context, String tid, String uid) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ChurchChatMemberPrefs.watch(tid),
       builder: (context, prefSnap) {
         final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return _AllMembersDirectoryView(
-          tenantId: tid,
-          myUid: uid,
-          prefs: prefs,
-          filterCtrl: _membersFilterCtrl,
-          role: widget.role,
-          cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-          onOpenDm: (peerUid, displayName) =>
-              _startDmWithPeer(context, tid, uid, peerUid, displayName),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_departments.isNotEmpty)
+              _buildDepartmentGroupsQuickAccess(context, tid, uid),
+            Expanded(
+              child: _AllMembersDirectoryView(
+                tenantId: tid,
+                myUid: uid,
+                prefs: prefs,
+                filterCtrl: _membersFilterCtrl,
+                role: widget.role,
+                cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+                onOpenDm: (peerUid, displayName) =>
+                    _startDmWithPeer(context, tid, uid, peerUid, displayName),
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  Widget _buildDepartmentGroupsQuickAccess(
+    BuildContext context,
+    String tid,
+    String uid,
+  ) {
+    final ql = _membersFilterCtrl.text.trim().toLowerCase();
+    final filtered = _departments.where((d) {
+      if (ql.isEmpty) return true;
+      return d.name.toLowerCase().contains(ql);
+    }).toList();
+    if (filtered.isEmpty) return const SizedBox.shrink();
+
+    return Material(
+      color: ThemeCleanPremium.primary.withValues(alpha: 0.04),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.groups_rounded,
+                  size: 20,
+                  color: ThemeCleanPremium.primary,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Grupos (departamentos)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${filtered.length}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _openAllDepartmentGroups(context, tid, uid),
+                  child: const Text(
+                    'Ver todos',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 92,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, i) {
+                  final d = filtered[i];
+                  final threadId = ChurchChatService.deptThreadId(d.id);
+                  return InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          fullscreenDialog: true,
+                          builder: (_) => ChurchChatThreadPage(
+                            tenantId: tid,
+                            threadId: threadId,
+                            title: d.name,
+                            isDepartment: true,
+                            departmentId: d.id,
+                            memberRole: widget.role,
+                            memberCpfDigits:
+                                widget.cpf.replaceAll(RegExp(r'\D'), ''),
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      width: 76,
+                      child: Column(
+                        children: [
+                          ChurchChatDepartmentAvatar(
+                            deptData: d.deptData,
+                            fallbackName: d.name,
+                            radius: 28,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _firstNameForChatRow(d.name),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              height: 1.15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openAllDepartmentGroups(
+    BuildContext context,
+    String tid,
+    String uid,
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (ctx) => Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            title: const Text('Grupos (departamentos)'),
+            backgroundColor: ThemeCleanPremium.primary,
+            foregroundColor: Colors.white,
+          ),
+          body: _buildGruposTab(ctx, tid, uid),
+        ),
+      ),
     );
   }
 
@@ -1980,9 +2131,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
-  /// Lista estilo WhatsApp: foto do perfil, primeiro nome, pré-visualização estável
-  /// (dados do documento em `chat_threads` — sem segundo listener no mesmo thread).
-  Widget _dmConversationListRows(
+  /// Lista unificada estilo WhatsApp — DM + grupos de departamento.
+  Widget _unifiedConversationListRows(
     BuildContext context,
     String tid,
     String uid,
@@ -2002,18 +2152,28 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               color: Colors.grey.shade200,
               indent: 72,
             ),
-          _dmChatRow(
-            context,
-            tid,
-            uid,
-            docs[i],
-            prefs,
-            photoByPeerUid,
-            memberByPeerUid,
-            selectionMode: _dmSelectMode,
-            selected: _selectedDmThreadIds.contains(docs[i].id),
-            onToggleSelected: () => _toggleDmThreadSelected(docs[i].id),
-          ),
+          if (_docIsDepartmentThread(docs[i]))
+            _deptChatRow(
+              context,
+              tid,
+              uid,
+              docs[i],
+              prefs,
+              memberByPeerUid,
+            )
+          else
+            _dmChatRow(
+              context,
+              tid,
+              uid,
+              docs[i],
+              prefs,
+              photoByPeerUid,
+              memberByPeerUid,
+              selectionMode: _dmSelectMode,
+              selected: _selectedDmThreadIds.contains(docs[i].id),
+              onToggleSelected: () => _toggleDmThreadSelected(docs[i].id),
+            ),
         ],
       ],
     );
@@ -2042,11 +2202,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final peer = others.first;
     final fullTitle = _dmDisplayTitle(doc, uid);
     final rowTitle = _firstNameForChatRow(fullTitle);
-    var preview =
+    final rawPreview =
         (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
     final typingPreview = _chatHubActiveTypingPreview(data, uid);
     final isTyping = typingPreview != null;
-    if (isTyping) preview = typingPreview;
+    final preview = churchChatHubRowSubtitle(
+      rawPreview: rawPreview,
+      isTyping: isTyping,
+      typingPreview: typingPreview,
+    );
     final ts = data['lastMessageAt'];
     final memberRef = memberByPeerUid[peer];
     final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
@@ -2114,6 +2278,96 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               peerUid: peer,
               prefs: prefs,
             ),
+    );
+  }
+
+  Widget _deptChatRow(
+    BuildContext context,
+    String tid,
+    String uid,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    ChurchChatMemberPrefsModel prefs,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
+  ) {
+    final data = doc.data();
+    final fullTitle = _deptDisplayTitle(doc);
+    final deptId = _departmentIdFromThreadDoc(doc);
+    final deptEntry = _deptEntryById(deptId);
+    final rawPreview =
+        (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
+    final typingPreview = _chatHubActiveTypingPreview(data, uid);
+    final isTyping = typingPreview != null;
+    var preview = churchChatHubRowSubtitle(
+      rawPreview: rawPreview,
+      isTyping: isTyping,
+      typingPreview: typingPreview,
+    );
+    if (!isTyping) {
+      final lastSender = (data['lastSenderUid'] ?? '').toString();
+      final senderRef = memberByPeerUid[lastSender];
+      final senderName = senderRef != null
+          ? _firstNameForChatRow(_memberDisplayName(senderRef))
+          : '';
+      preview = churchChatHubGroupPreviewLine(
+        preview: preview,
+        myUid: uid,
+        lastSenderUid: lastSender,
+        senderFirstName: senderName,
+      );
+    }
+    final ts = data['lastMessageAt'];
+    final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
+
+    return _chatTile(
+      title: fullTitle,
+      subtitle: preview,
+      subtitleIsTyping: isTyping,
+      subtitleMaxLines: 2,
+      timeLabel: _fmtTime(ts),
+      photo: ChurchChatDepartmentAvatar(
+        deptData: deptEntry?.deptData,
+        fallbackName: fullTitle,
+        radius: 24,
+      ),
+      showPresence: false,
+      isUnread: isUnread,
+      isFavorite: prefs.isFavorite(doc.id),
+      isPinned: prefs.isPinned(doc.id),
+      isMuted: prefs.isMutedThread(doc.id),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ChurchChatThreadPage(
+              tenantId: tid,
+              threadId: doc.id,
+              title: fullTitle,
+              isDepartment: true,
+              departmentId: deptId,
+              memberRole: widget.role,
+              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+            ),
+          ),
+        );
+      },
+      onLongPress: () => _showThreadActionsSheet(
+        context: context,
+        tenantId: tid,
+        threadId: doc.id,
+        title: fullTitle,
+        isDepartment: true,
+        peerUid: null,
+        prefs: prefs,
+      ),
+      onMoreTap: () => _showThreadActionsSheet(
+        context: context,
+        tenantId: tid,
+        threadId: doc.id,
+        title: fullTitle,
+        isDepartment: true,
+        peerUid: null,
+        prefs: prefs,
+      ),
     );
   }
 
@@ -2446,7 +2700,7 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
                 fontWeight: FontWeight.w500,
               ),
               decoration: InputDecoration(
-                hintText: 'Pesquisar conversas',
+                hintText: 'Pesquisar conversas e grupos',
                 hintStyle:
                     TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
                 prefixIcon: const Icon(
@@ -2480,20 +2734,12 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
 
 class _PremiumHubTabBar extends StatelessWidget {
   final TabController controller;
-  final Animation<double> gruposOpacity;
 
-  const _PremiumHubTabBar({
-    required this.controller,
-    required this.gruposOpacity,
-  });
+  const _PremiumHubTabBar({required this.controller});
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([controller, gruposOpacity]),
-      builder: (context, _) {
-        final gPulse = gruposOpacity.value.clamp(0.0, 1.0);
-        return Container(
+    return Container(
           padding: const EdgeInsets.all(1.5),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(17.5),
@@ -2554,34 +2800,16 @@ class _PremiumHubTabBar extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.people_rounded, size: 18),
+                      Icon(Icons.contacts_rounded, size: 18),
                       SizedBox(width: 6),
-                      Text('Membros'),
+                      Text('Contatos'),
                     ],
-                  ),
-                ),
-                Tab(
-                  height: 46,
-                  child: Opacity(
-                    opacity: controller.index != 2
-                        ? (0.58 + 0.42 * gPulse)
-                        : 1.0,
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.groups_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Grupos'),
-                      ],
-                    ),
                   ),
                 ),
               ],
             ),
           ),
         );
-      },
-    );
   }
 }
 

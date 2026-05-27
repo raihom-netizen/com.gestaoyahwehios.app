@@ -25,11 +25,12 @@ abstract final class FeedMediaPublishService {
   static const int kMaxPhotosPerPost = 5;
   static const int kMaxVideosPerPost = 1;
 
-  static DocumentReference<Map<String, dynamic>> postRef({
+  static Future<DocumentReference<Map<String, dynamic>>> postRef({
     required String tenantId,
     required String postType,
     String? postId,
-  }) {
+  }) async {
+    await ensureFirebaseInitialized();
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.noticias;
@@ -52,10 +53,12 @@ abstract final class FeedMediaPublishService {
       Map<String, dynamic>.from(payload),
     );
     patch['publishState'] = statusProcessing;
-    if (pendingPhotoCount > 0) {
-      patch['pendingImageCount'] = pendingPhotoCount;
-    }
-    patch['publishError'] = FieldValue.delete();
+    FirestoreWriteGuard.applyMuralPublishMetaPatch(
+      patch,
+      isNewDoc: isNewDoc,
+      pendingPhotoCount: pendingPhotoCount > 0 ? pendingPhotoCount : null,
+      clearPublishError: true,
+    );
     if (isNewDoc) {
       await docRef.set(patch);
     } else {
@@ -73,8 +76,12 @@ abstract final class FeedMediaPublishService {
     await ensureFirebaseInitialized();
     final patch = Map<String, dynamic>.from(payload);
     patch['publishState'] = statusPublished;
-    patch['pendingImageCount'] = FieldValue.delete();
-    patch['publishError'] = FieldValue.delete();
+    FirestoreWriteGuard.applyMuralPublishMetaPatch(
+      patch,
+      isNewDoc: isNewDoc,
+      clearPendingImageCount: true,
+      clearPublishError: true,
+    );
     if (isNewDoc) {
       await docRef.set(patch);
     } else {
@@ -94,8 +101,12 @@ abstract final class FeedMediaPublishService {
       Map<String, dynamic>.from(payload),
     );
     patch['publishState'] = statusDraft;
-    patch['pendingImageCount'] = FieldValue.delete();
-    patch['publishError'] = FieldValue.delete();
+    FirestoreWriteGuard.applyMuralPublishMetaPatch(
+      patch,
+      isNewDoc: isNewDoc,
+      clearPendingImageCount: true,
+      clearPublishError: true,
+    );
     if (isNewDoc) {
       await docRef.set(patch);
     } else {

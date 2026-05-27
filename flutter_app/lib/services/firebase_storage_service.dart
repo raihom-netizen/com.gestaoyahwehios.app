@@ -243,6 +243,57 @@ class FirebaseStorageService {
   /// ou `.../foto_perfil.jpg`). Usado quando a URL no Firestore está vazia
   /// ou expirada — padrão alinhado ao Ecofire (fallback após falha de rede/cache).
   /// Cache em memória para evitar chamadas repetidas (lista de membros, modal, etc.).
+  static String _memberProfilePhotoUrlCacheKey({
+    required String tenantId,
+    required String memberId,
+    String? cpfDigits,
+    String? authUid,
+    String? nomeCompleto,
+    Map<String, dynamic>? memberFirestoreHint,
+    bool preferListThumbnail = false,
+  }) {
+    final tid = tenantId.trim();
+    final mid = memberId.trim();
+    final cpfNorm = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
+    final authNorm = (authUid ?? '').trim();
+    final nomeNorm = (nomeCompleto ?? '').trim();
+    final stemNamed = MemberPhotoStorageNaming.profileFolderStem(
+      nomeCompleto: nomeNorm,
+      memberDocId: mid,
+      authUid: authNorm.isNotEmpty ? authNorm : null,
+    );
+    final hintStems = memberFirestoreHint != null
+        ? StorageMediaService.memberProfileFolderStemsFromFirestoreMap(
+            memberFirestoreHint)
+        : const <String>[];
+    final hintKey = hintStems.isEmpty
+        ? '-'
+        : (List<String>.from(hintStems)..sort()).join(',');
+    return '$tid:$mid:$cpfNorm:${authNorm.isEmpty ? '-' : authNorm}:$stemNamed:$hintKey:${preferListThumbnail ? 't' : 'f'}';
+  }
+
+  /// URL já resolvida nesta sessão (lista de líderes / corpo admin).
+  static String? peekMemberProfilePhotoDownloadUrl({
+    required String tenantId,
+    required String memberId,
+    String? cpfDigits,
+    String? authUid,
+    String? nomeCompleto,
+    Map<String, dynamic>? memberFirestoreHint,
+    bool preferListThumbnail = false,
+  }) {
+    final key = _memberProfilePhotoUrlCacheKey(
+      tenantId: tenantId,
+      memberId: memberId,
+      cpfDigits: cpfDigits,
+      authUid: authUid,
+      nomeCompleto: nomeCompleto,
+      memberFirestoreHint: memberFirestoreHint,
+      preferListThumbnail: preferListThumbnail,
+    );
+    return _memberPhotoUrlCache[key];
+  }
+
   static Future<String?> getMemberProfilePhotoDownloadUrl({
     required String tenantId,
     required String memberId,
@@ -271,11 +322,15 @@ class FirebaseStorageService {
         ? StorageMediaService.memberProfileFolderStemsFromFirestoreMap(
             memberFirestoreHint)
         : const <String>[];
-    final hintKey = hintStems.isEmpty
-        ? '-'
-        : (List<String>.from(hintStems)..sort()).join(',');
-    final cacheKey =
-        '$tid:$mid:$cpfNorm:${authNorm.isEmpty ? '-' : authNorm}:$stemNamed:$hintKey:${preferListThumbnail ? 't' : 'f'}';
+    final cacheKey = _memberProfilePhotoUrlCacheKey(
+      tenantId: tid,
+      memberId: mid,
+      cpfDigits: cpfNorm,
+      authUid: authNorm,
+      nomeCompleto: nomeNorm,
+      memberFirestoreHint: memberFirestoreHint,
+      preferListThumbnail: preferListThumbnail,
+    );
     if (_memberPhotoUrlCache.containsKey(cacheKey)) {
       return _memberPhotoUrlCache[cacheKey];
     }

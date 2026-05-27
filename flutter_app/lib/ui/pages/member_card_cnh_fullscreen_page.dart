@@ -54,6 +54,22 @@ class MemberCardCnhFullscreenPage extends StatelessWidget {
             onPressed: () => Navigator.maybePop(context),
             tooltip: 'Voltar',
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.info_outline_rounded),
+              tooltip: 'Compartilhar',
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Use os botões abaixo do cartão: WhatsApp, PNG, PDF ou salvar no celular.',
+                    ),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              },
+            ),
+          ],
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

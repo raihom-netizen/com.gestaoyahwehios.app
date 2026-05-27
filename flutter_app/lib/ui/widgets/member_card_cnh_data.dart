@@ -1,8 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart'
     show walletFiliacaoFromMember;
 
-/// Dados normalizados para o cartão membro padrão (estilo CNH digital).
+/// Dados normalizados para o cartão membro digital padrão Gestão YAHWEH.
 class MemberCardCnhViewData {
   const MemberCardCnhViewData({
     required this.tenantId,
@@ -22,6 +23,7 @@ class MemberCardCnhViewData {
     this.assinada = false,
     this.assinadaPorNome = '',
     this.assinadaPorCargo = '',
+    this.assinadaEmTexto = '',
   });
 
   final String tenantId;
@@ -41,6 +43,18 @@ class MemberCardCnhViewData {
   final bool assinada;
   final String assinadaPorNome;
   final String assinadaPorCargo;
+  /// Data e hora da assinatura (ex.: 27/05/2026 17:45).
+  final String assinadaEmTexto;
+
+  /// Ex.: «Paulo Oliveira  Pastor».
+  String get assinanteNomeCargo {
+    final n = assinadaPorNome.trim();
+    final c = assinadaPorCargo.trim();
+    if (n.isEmpty && c.isEmpty) return '';
+    if (n.isEmpty) return c;
+    if (c.isEmpty) return n;
+    return '$n  $c';
+  }
 
   static String _pick(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
@@ -58,24 +72,35 @@ class MemberCardCnhViewData {
     return '${d.substring(0, 3)}.${d.substring(3, 6)}.${d.substring(6, 9)}-${d.substring(9)}';
   }
 
-  static String _fmtDate(dynamic v) {
-    if (v == null) return '';
-    DateTime? dt;
-    if (v is DateTime) {
-      dt = v;
-    } else if (v is Map) {
+  static DateTime? _parseDateTime(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return v.toLocal();
+    if (v is Timestamp) return v.toDate().toLocal();
+    if (v is Map) {
       final sec = v['seconds'] ?? v['_seconds'];
       if (sec is num) {
-        dt = DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
+        return DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000).toLocal();
       }
-    } else {
-      final t = DateTime.tryParse(v.toString());
-      dt = t;
     }
+    return DateTime.tryParse(v.toString())?.toLocal();
+  }
+
+  static String _fmtDate(dynamic v) {
+    final dt = _parseDateTime(v);
     if (dt == null) return '';
     final d = dt.day.toString().padLeft(2, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     return '$d/$mo/${dt.year}';
+  }
+
+  static String _fmtDateTime(dynamic v) {
+    final dt = _parseDateTime(v);
+    if (dt == null) return '';
+    final d = dt.day.toString().padLeft(2, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final mi = dt.minute.toString().padLeft(2, '0');
+    return '$d/$mo/${dt.year} $h:$mi';
   }
 
   static String _memberCode(Map<String, dynamic> m, String memberId) {
@@ -174,10 +199,14 @@ class MemberCardCnhViewData {
     final assinadaEm = member['carteirinhaAssinadaEm'];
     final assinadaPorNome =
         (member['carteirinhaAssinadaPorNome'] ?? '').toString().trim();
+    final assinadaPorCargo =
+        (member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim();
+    final assinadaEmTexto = _fmtDateTime(assinadaEm);
     final assinaturaUrl =
         (member['carteirinhaAssinaturaUrl'] ?? '').toString().trim();
     final assinada = assinadaEm != null ||
         assinadaPorNome.isNotEmpty ||
+        assinadaPorCargo.isNotEmpty ||
         assinaturaUrl.isNotEmpty;
 
     return MemberCardCnhViewData(
@@ -201,8 +230,8 @@ class MemberCardCnhViewData {
       qrPayload: qrPayload,
       assinada: assinada,
       assinadaPorNome: assinadaPorNome,
-      assinadaPorCargo:
-          (member['carteirinhaAssinadaPorCargo'] ?? '').toString().trim(),
+      assinadaPorCargo: assinadaPorCargo,
+      assinadaEmTexto: assinadaEmTexto,
     );
   }
 }

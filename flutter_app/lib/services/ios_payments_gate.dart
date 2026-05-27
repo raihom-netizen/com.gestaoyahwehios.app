@@ -6,6 +6,9 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/ui/pages/plans/express_renew_gate_page.dart';
+import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -145,6 +148,26 @@ class IosPaymentsGate {
     String? email,
   }) =>
       churchAtualizarPlanoExpressUri(utmMedium: utmMedium, email: email);
+
+  /// Navegação unificada — iPhone: [ExpressRenewGatePage] in-app; demais: [RenewPlanPage].
+  static void navigateToUpgradePlans(BuildContext context) {
+    if (!context.mounted) return;
+    if (shouldHidePayments && !kIsWeb) {
+      final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      Navigator.of(context).push(
+        ThemeCleanPremium.fadeSlideRoute(
+          ExpressRenewGatePage(
+            prefillEmail: email.isEmpty ? null : email,
+            openedFromIosApp: true,
+          ),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage()),
+    );
+  }
 
   /// Em iOS Reader/SaaS: abre o site no **login da igreja**; depois do login
   /// segue para alteração de plano (PIX/cartão na própria página web).

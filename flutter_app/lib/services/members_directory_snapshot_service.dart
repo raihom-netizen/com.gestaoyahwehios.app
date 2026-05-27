@@ -87,7 +87,11 @@ class MemberDirectoryEntry {
   Map<String, dynamic> toMemberDataMap() {
     return <String, dynamic>{
       'NOME_COMPLETO': displayName,
-      if (photoUrl != null && photoUrl!.isNotEmpty) 'fotoUrl': photoUrl,
+      if (photoUrl != null && photoUrl!.isNotEmpty) ...{
+        'fotoUrl': photoUrl,
+        'photoThumb': photoUrl,
+        'photoMedium': photoUrl,
+      },
       if (fotoUrlCacheRevision > 0)
         'fotoUrlCacheRevision': fotoUrlCacheRevision,
       if (authUid != null && authUid!.isNotEmpty) 'authUid': authUid,

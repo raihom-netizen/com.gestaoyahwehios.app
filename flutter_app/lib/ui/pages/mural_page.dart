@@ -31,6 +31,7 @@ class _MuralPageState extends State<MuralPage>
     with SingleTickerProviderStateMixin {
   int _slugRetryKey = 0;
   late TabController _tab;
+  bool _insightsTabActivated = false;
   final GlobalKey<InstagramMuralState> _muralFeedKey =
       GlobalKey<InstagramMuralState>();
 
@@ -75,6 +76,7 @@ class _MuralPageState extends State<MuralPage>
     super.initState();
     _tab = TabController(length: 2, vsync: this);
     _tab.addListener(() {
+      if (_tab.index == 1) _insightsTabActivated = true;
       if (mounted) setState(() {});
     });
   }
@@ -87,8 +89,11 @@ class _MuralPageState extends State<MuralPage>
 
   /// Resolve o tenant com o mesmo ID que as regras Firestore usam para [sameChurch],
   /// depois lê slug / fallback com rede ou cache.
-  Future<({String firestoreTenantId, String churchSlug})>
-      _loadTenantAndSlug() async {
+  Future<({
+    String firestoreTenantId,
+    String churchSlug,
+    Map<String, dynamic> tenantData,
+  })> _loadTenantAndSlug() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     final tid =
         await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
@@ -110,10 +115,15 @@ class _MuralPageState extends State<MuralPage>
     final data = snap.data() ?? {};
     final slug = (data['slug'] ?? '').toString().trim();
     final churchSlug = slug.isEmpty ? tid : slug;
-    return (firestoreTenantId: tid, churchSlug: churchSlug);
+    return (
+      firestoreTenantId: tid,
+      churchSlug: churchSlug,
+      tenantData: data,
+    );
   }
 
   Future<void> _onRefresh() async {
+    await _muralFeedKey.currentState?.refreshFeed();
     setState(() => _slugRetryKey++);
   }
 
@@ -125,15 +135,6 @@ class _MuralPageState extends State<MuralPage>
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final basePad = ThemeCleanPremium.pagePadding(context);
-    final padding = widget.embeddedInShell
-        ? EdgeInsets.fromLTRB(
-            basePad.left,
-            ThemeCleanPremium.spaceSm,
-            basePad.right,
-            basePad.bottom,
-          )
-        : basePad;
     final showAppBar =
         !widget.embeddedInShell && (!isMobile || Navigator.canPop(context));
     return Scaffold(
@@ -206,7 +207,12 @@ class _MuralPageState extends State<MuralPage>
               ),
             ),
       body: SafeArea(
-        child: FutureBuilder<({String firestoreTenantId, String churchSlug})>(
+        child: FutureBuilder<
+            ({
+              String firestoreTenantId,
+              String churchSlug,
+              Map<String, dynamic> tenantData,
+            })>(
           key: ValueKey(_slugRetryKey),
           future: _loadTenantAndSlug(),
           builder: (context, snap) {
@@ -249,25 +255,23 @@ class _MuralPageState extends State<MuralPage>
                       RefreshIndicator(
                         onRefresh: _onRefresh,
                         child: SaaSContentViewport(
-                          child: ListView(
-                            padding: padding,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: [
-                              InstagramMural(
-                                key: _muralFeedKey,
-                                tenantId: data.firestoreTenantId,
-                                role: widget.role,
-                                churchSlug: data.churchSlug,
-                                permissions: widget.permissions,
-                              ),
-                            ],
+                          child: InstagramMural(
+                            key: _muralFeedKey,
+                            tenantId: data.firestoreTenantId,
+                            role: widget.role,
+                            churchSlug: data.churchSlug,
+                            initialTenantData: data.tenantData,
+                            permissions: widget.permissions,
                           ),
                         ),
                       ),
-                      ChurchAvisosInsightsDashboard(
-                        tenantId: data.firestoreTenantId,
-                        canModerateComments: _canModerateAvisosComments,
-                      ),
+                      if (_insightsTabActivated)
+                        ChurchAvisosInsightsDashboard(
+                          tenantId: data.firestoreTenantId,
+                          canModerateComments: _canModerateAvisosComments,
+                        )
+                      else
+                        const SizedBox.shrink(),
                     ],
                   ),
                 ),

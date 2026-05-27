@@ -4,7 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
 
-/// Padrão único Gestão YAHWEH — estilo CNH digital premium.
+/// Padrão único Gestão YAHWEH — carteira membro digital premium.
 /// Somente [data.churchTitle], [data.churchSubtitle] e [logoSlot] variam por igreja.
 class MemberCardCnhDigital extends StatelessWidget {
   const MemberCardCnhDigital({
@@ -126,7 +126,16 @@ class MemberCardCnhDigital extends StatelessWidget {
                                 ],
                               ),
                               clipBehavior: Clip.antiAlias,
-                              child: photoSlot,
+                              child: FittedBox(
+                                fit: BoxFit.cover,
+                                alignment: Alignment.topCenter,
+                                clipBehavior: Clip.hardEdge,
+                                child: SizedBox(
+                                  width: 90,
+                                  height: 114,
+                                  child: photoSlot,
+                                ),
+                              ),
                             ),
                           if (showPhoto) const SizedBox(width: 12),
                           Expanded(
@@ -137,8 +146,8 @@ class MemberCardCnhDigital extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Container(
-                                      width: 54,
-                                      height: 54,
+                                      width: 68,
+                                      height: 68,
                                       decoration: BoxDecoration(
                                         color: Colors.white,
                                         shape: BoxShape.circle,
@@ -158,7 +167,7 @@ class MemberCardCnhDigital extends StatelessWidget {
                                       ),
                                       clipBehavior: Clip.antiAlias,
                                       child: Padding(
-                                        padding: const EdgeInsets.all(5),
+                                        padding: const EdgeInsets.all(4),
                                         child: logoSlot,
                                       ),
                                     ),
@@ -262,28 +271,73 @@ class MemberCardCnhDigital extends StatelessWidget {
                     ),
                     if (data.assinada)
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.verified_rounded,
-                              size: 15,
-                              color: Color(0xFF0F5132),
+                        padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F5132).withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF0F5132).withValues(alpha: 0.28),
                             ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                data.assinadaPorNome.isNotEmpty
-                                    ? 'Assinado: ${data.assinadaPorNome}'
-                                    : 'Credencial assinada digitalmente',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF0F5132),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.verified_rounded,
+                                  size: 18,
+                                  color: Color(0xFF0F5132),
                                 ),
-                              ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'ASSINATURA DIGITAL',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
+                                          color: _labelColor,
+                                          letterSpacing: 0.35,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        data.assinanteNomeCargo.isNotEmpty
+                                            ? data.assinanteNomeCargo
+                                            : 'Credencial assinada',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFF0F5132),
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                      if (data.assinadaEmTexto.isNotEmpty) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          data.assinadaEmTexto,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: _labelColor,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     Padding(
@@ -370,7 +424,7 @@ class MemberCardCnhDigital extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(vertical: 5),
                       color: _headerNavy.withValues(alpha: 0.06),
                       child: Text(
-                        'VALIDAÇÃO VIA GESTÃO YAHWEH · CNH DIGITAL',
+                        'VALIDAÇÃO VIA GESTÃO YAHWEH',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.poppins(
                           fontSize: 8,

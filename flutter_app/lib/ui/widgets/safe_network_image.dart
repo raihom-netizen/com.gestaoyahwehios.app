@@ -9,10 +9,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shimmer/shimmer.dart';
-import 'package:gestao_yahweh/core/media_cache_preferences.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
-import 'package:gestao_yahweh/services/member_profile_image_disk_cache.dart';
+import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
+import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 
 /// Tratamento definitivo de imagens em rede: logo, cadastro igreja, eventos, avisos.
 /// Garante exibição no painel e feed — evita tela preta ou erro ao carregar.
@@ -397,6 +398,7 @@ Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
       await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
   } else {
+    await ensureFirebaseInitialized();
     // App autenticado: getData no SDK — URL tokenizada do Firestore costuma bastar.
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
@@ -1055,6 +1057,8 @@ class FreshFirebaseStorageImage extends StatefulWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final void Function(String url, Object? error)? onLoadError;
+  /// Invalida disco quando o post/mídia muda (ex.: [feedMediaCacheRevisionFromPost]).
+  final int storageCacheRevision;
 
   const FreshFirebaseStorageImage({
     super.key,
@@ -1067,6 +1071,7 @@ class FreshFirebaseStorageImage extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.onLoadError,
+    this.storageCacheRevision = 0,
   });
 
   @override
@@ -1087,7 +1092,8 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
   void didUpdateWidget(covariant FreshFirebaseStorageImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (sanitizeImageUrl(oldWidget.imageUrl) !=
-        sanitizeImageUrl(widget.imageUrl)) {
+            sanitizeImageUrl(widget.imageUrl) ||
+        oldWidget.storageCacheRevision != widget.storageCacheRevision) {
       _future = _resolve();
     }
   }
@@ -1154,6 +1160,7 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
           placeholder: widget.placeholder,
           errorWidget: err,
           skipFreshDisplayUrl: true,
+          storageCacheRevision: widget.storageCacheRevision,
           onLoadError: widget.onLoadError,
         );
       },
@@ -1175,6 +1182,8 @@ class ResilientNetworkImage extends StatelessWidget {
   final void Function(String url, Object? error)? onLoadError;
   /// `true` quando [AppStorageImageService]/[StableStorageImage] já renovou o token.
   final bool skipFreshDisplayUrl;
+  /// Revisão Firestore (foto de membro ou capa de aviso/evento) — disco só atualiza ao mudar.
+  final int storageCacheRevision;
 
   const ResilientNetworkImage({
     super.key,
@@ -1188,6 +1197,7 @@ class ResilientNetworkImage extends StatelessWidget {
     this.memCacheHeight,
     this.onLoadError,
     this.skipFreshDisplayUrl = false,
+    this.storageCacheRevision = 0,
   });
 
   @override
@@ -1209,6 +1219,7 @@ class ResilientNetworkImage extends StatelessWidget {
             placeholder: ph,
             errorWidget: err,
             skipFreshDisplayUrl: true,
+            storageCacheRevision: storageCacheRevision,
             onLoadError: onLoadError,
           );
         }
@@ -1221,6 +1232,7 @@ class ResilientNetworkImage extends StatelessWidget {
           memCacheHeight: memCacheHeight,
           placeholder: ph,
           errorWidget: err,
+          storageCacheRevision: storageCacheRevision,
           onLoadError: onLoadError,
         );
       }
@@ -1242,6 +1254,7 @@ class ResilientNetworkImage extends StatelessWidget {
           placeholder: ph,
           errorWidget: err,
           skipFreshDisplayUrl: true,
+          storageCacheRevision: storageCacheRevision,
           onLoadError: onLoadError,
         );
       }
@@ -1254,6 +1267,7 @@ class ResilientNetworkImage extends StatelessWidget {
         memCacheHeight: memCacheHeight,
         placeholder: ph,
         errorWidget: err,
+        storageCacheRevision: storageCacheRevision,
         onLoadError: onLoadError,
       );
     }
@@ -1267,6 +1281,7 @@ class ResilientNetworkImage extends StatelessWidget {
       placeholder: ph,
       errorWidget: err,
       skipFreshDisplayUrl: skipFreshDisplayUrl,
+      storageCacheRevision: storageCacheRevision,
       onLoadError: onLoadError,
     );
   }
@@ -1303,6 +1318,8 @@ class SafeNetworkImage extends StatefulWidget {
   final int? memCacheHeight;
   /// Ver [FirebaseStorageMemoryImage.skipFreshDisplayUrl].
   final bool skipFreshDisplayUrl;
+  /// Revisão Firestore — cache em disco só muda quando a mídia do membro/post muda.
+  final int storageCacheRevision;
   /// Diagnóstico: falha em qualquer ramo (Storage, [CachedNetworkImage], URL inválida).
   final void Function(String url, Object? error)? onLoadError;
 
@@ -1317,6 +1334,7 @@ class SafeNetworkImage extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.skipFreshDisplayUrl = false,
+    this.storageCacheRevision = 0,
     this.onLoadError,
   });
 
@@ -1333,7 +1351,8 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
     super.didUpdateWidget(oldWidget);
     if (sanitizeImageUrl(oldWidget.imageUrl) !=
             sanitizeImageUrl(widget.imageUrl) ||
-        oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl) {
+        oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl ||
+        oldWidget.storageCacheRevision != widget.storageCacheRevision) {
       _imageError = false;
       _lastReportedBadUrl = '';
     }
@@ -1376,6 +1395,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
           memCacheHeight: widget.memCacheHeight,
           placeholder: widget.placeholder ?? defaultImagePlaceholder(),
           errorWidget: widget.errorWidget ?? defaultImageErrorWidget(),
+          storageCacheRevision: widget.storageCacheRevision,
           onLoadError: widget.onLoadError,
         );
       }
@@ -1399,7 +1419,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
     if (kIsWeb) {
       if (isFirebaseStorageHttpUrl(url)) {
         return FirebaseStorageMemoryImage(
-          key: ValueKey<String>('sn_web_fs_$url'),
+          key: ValueKey<String>('sn_web_fs_${url}_${widget.storageCacheRevision}'),
           imageUrl: url,
           fit: widget.fit,
           width: widget.width,
@@ -1409,6 +1429,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
           memCacheWidth: cacheW,
           memCacheHeight: cacheH,
           skipFreshDisplayUrl: widget.skipFreshDisplayUrl,
+          storageCacheRevision: widget.storageCacheRevision,
           onLoadError: widget.onLoadError,
         );
       }
@@ -1432,7 +1453,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
     // Android/iOS: [CachedNetworkImage] costuma falhar com URLs do Storage (googleapis ou *.firebasestorage.app).
     if (isFirebaseStorageHttpUrl(url)) {
       return FirebaseStorageMemoryImage(
-        key: ValueKey('snfi_$url'),
+        key: ValueKey('snfi_${url}_${widget.storageCacheRevision}'),
         imageUrl: url,
         fit: widget.fit,
         width: widget.width,
@@ -1442,6 +1463,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
         memCacheWidth: cacheW,
         memCacheHeight: cacheH,
         skipFreshDisplayUrl: widget.skipFreshDisplayUrl,
+        storageCacheRevision: widget.storageCacheRevision,
         onLoadError: widget.onLoadError,
       );
     }
@@ -1834,7 +1856,7 @@ class MemberProfilePhotoBytesCache {
     return 'u:$u';
   }
 
-  /// LRU em RAM, disco ([writeMemberProfileImageDisk]) e deduplicação de pré-carga.
+  /// LRU em RAM, disco ([writeYahwehMediaBytesDisk]) e deduplicação de pré-carga.
   static String stableKeyForUrl(String rawUrl) => _stableKey(rawUrl);
 
   static void clear() {
@@ -1891,6 +1913,45 @@ class MemberProfilePhotoBytesCache {
   }
 }
 
+bool _storagePathLooksLikeMember(String? path) {
+  final p = (path ?? '').trim();
+  return p.contains('/membros/');
+}
+
+Future<Uint8List?> _readStorageImageBytesFromDisk(
+  String url, {
+  int storageCacheRevision = 0,
+}) async {
+  if (kIsWeb) return null;
+  final path = firebaseStorageObjectPathFromHttpUrl(url);
+  final keys = YahwehMediaBytesDiskKeys.diskLookupKeys(
+    storagePath: path,
+    revision: storageCacheRevision,
+    preferMemberScope: _storagePathLooksLikeMember(path),
+  );
+  for (final k in keys) {
+    final bytes = await readYahwehMediaBytesDisk(k);
+    if (bytes != null) return bytes;
+  }
+  return null;
+}
+
+Future<void> _writeStorageImageBytesToDisk(
+  String url,
+  Uint8List bytes, {
+  int storageCacheRevision = 0,
+}) async {
+  if (kIsWeb || bytes.length < 24) return;
+  final path = firebaseStorageObjectPathFromHttpUrl(url);
+  final key = YahwehMediaBytesDiskKeys.primaryWriteKey(
+    storagePath: path,
+    revision: storageCacheRevision,
+    preferMemberScope: _storagePathLooksLikeMember(path),
+  );
+  if (key.isEmpty) return;
+  await writeYahwehMediaBytesDisk(key, bytes);
+}
+
 /// Carrega imagem via **Firebase Storage SDK** ([getData]) ou HTTP, depois [Image.memory].
 /// No Android, [CachedNetworkImage] costuma ficar indefinidamente em loading com URLs
 /// `firebasestorage.googleapis.com` tokenizadas; este widget contorna o problema.
@@ -1906,6 +1967,8 @@ class FirebaseStorageMemoryImage extends StatefulWidget {
   /// Quando a URL já passou por [freshFirebaseStorageDisplayUrl] / [AppStorageImageService.resolveImageUrl],
   /// evita segundo refresh em [firebaseStorageBytesFromDownloadUrl] (menos contenção do SDK na web).
   final bool skipFreshDisplayUrl;
+  /// Revisão Firestore — invalida cache em disco ao trocar foto/capa.
+  final int storageCacheRevision;
   /// Diagnóstico (ex.: mural): falha ao obter bytes ou decodificar.
   final void Function(String url, Object? error)? onLoadError;
 
@@ -1920,6 +1983,7 @@ class FirebaseStorageMemoryImage extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.skipFreshDisplayUrl = false,
+    this.storageCacheRevision = 0,
     this.onLoadError,
   });
 
@@ -1954,7 +2018,8 @@ class _FirebaseStorageMemoryImageState
     super.didUpdateWidget(oldWidget);
     if (sanitizeImageUrl(oldWidget.imageUrl) !=
             sanitizeImageUrl(widget.imageUrl) ||
-        oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl) {
+        oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl ||
+        oldWidget.storageCacheRevision != widget.storageCacheRevision) {
       _didFreshTokenRetry = false;
       _webBrowserImg = false;
       _webBrowserUrl = '';
@@ -2076,22 +2141,22 @@ class _FirebaseStorageMemoryImageState
     }
 
     if (!kIsWeb) {
-      final sk = MemberProfilePhotoBytesCache.stableKeyForUrl(url);
-      if (sk.isNotEmpty && await MediaCachePreferences.isMemberPhotoDiskCacheEnabled()) {
-        final fromDisk = await readMemberProfileImageDisk(sk);
-        if (fromDisk != null) {
-          if (await storageBytesRenderWithImageMemory(fromDisk)) {
-            MemberProfilePhotoBytesCache.put(url, fromDisk);
-            if (!mounted) return;
-            setState(() {
-              _bytes = fromDisk;
-              _loading = false;
-              _failed = false;
-              _webBrowserImg = false;
-              _webBrowserUrl = '';
-            });
-            return;
-          }
+      final fromDisk = await _readStorageImageBytesFromDisk(
+        url,
+        storageCacheRevision: widget.storageCacheRevision,
+      );
+      if (fromDisk != null) {
+        if (await storageBytesRenderWithImageMemory(fromDisk)) {
+          MemberProfilePhotoBytesCache.put(url, fromDisk);
+          if (!mounted) return;
+          setState(() {
+            _bytes = fromDisk;
+            _loading = false;
+            _failed = false;
+            _webBrowserImg = false;
+            _webBrowserUrl = '';
+          });
+          return;
         }
       }
     }
@@ -2146,10 +2211,11 @@ class _FirebaseStorageMemoryImageState
       }
       MemberProfilePhotoBytesCache.put(url, data);
       if (!kIsWeb) {
-        final sk = MemberProfilePhotoBytesCache.stableKeyForUrl(url);
-        if (sk.isNotEmpty) {
-          unawaited(writeMemberProfileImageDisk(sk, data));
-        }
+        unawaited(_writeStorageImageBytesToDisk(
+          url,
+          data,
+          storageCacheRevision: widget.storageCacheRevision,
+        ));
       }
       setState(() {
         _bytes = data;
@@ -2689,6 +2755,9 @@ Future<void> preloadNetworkImages(
           ).timeout(const Duration(seconds: 20), onTimeout: () => null);
           if (bytes != null && bytes.length > 32) {
             MemberProfilePhotoBytesCache.put(u, bytes);
+            if (!kIsWeb) {
+              unawaited(_writeStorageImageBytesToDisk(u, bytes));
+            }
             _preloadedMediaUrls.add(u);
           }
           return;

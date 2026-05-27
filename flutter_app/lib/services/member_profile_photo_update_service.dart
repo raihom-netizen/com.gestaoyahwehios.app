@@ -20,6 +20,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
+import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
 class MemberProfilePhotoUpdateResult {
@@ -60,7 +62,16 @@ class MemberProfilePhotoUpdateService {
       final p = firebaseStorageObjectPathFromHttpUrl(sanitizeImageUrl(raw));
       if (p != null && p.isNotEmpty) {
         MemberProfilePhotoBytesCache.removeByObjectPath(p);
+        unawaited(deleteYahwehMediaBytesDiskKeys(
+          YahwehMediaBytesDiskKeys.invalidateKeysForStoragePath(p),
+        ));
       }
+    }
+    final sp = (storagePath ?? '').trim();
+    if (sp.isNotEmpty) {
+      unawaited(deleteYahwehMediaBytesDiskKeys(
+        YahwehMediaBytesDiskKeys.invalidateKeysForStoragePath(sp),
+      ));
     }
   }
 

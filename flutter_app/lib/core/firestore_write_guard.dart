@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Impede gravação acidental de payloads pesados no Firestore (base64 de mídia).
 abstract final class FirestoreWriteGuard {
   FirestoreWriteGuard._();
@@ -30,5 +32,24 @@ abstract final class FirestoreWriteGuard {
       }
     });
     return out;
+  }
+
+  /// Metadados de publicação (avisos/eventos). Em `set`/`add` **sem** merge, não usar
+  /// [FieldValue.delete] — Firestore rejeita com `invalid-argument` (ex.: `publishError`).
+  static void applyMuralPublishMetaPatch(
+    Map<String, dynamic> patch, {
+    required bool isNewDoc,
+    int? pendingPhotoCount,
+    bool clearPendingImageCount = false,
+    bool clearPublishError = false,
+  }) {
+    if (pendingPhotoCount != null && pendingPhotoCount > 0) {
+      patch['pendingImageCount'] = pendingPhotoCount;
+    } else if (!isNewDoc && clearPendingImageCount) {
+      patch['pendingImageCount'] = FieldValue.delete();
+    }
+    if (!isNewDoc && clearPublishError) {
+      patch['publishError'] = FieldValue.delete();
+    }
   }
 }

@@ -166,10 +166,42 @@ abstract final class OptimisticChatMediaUpload {
           pending.localPath = uploadPath;
         }
       } else if (pending.kind == 'image') {
+        void uploadProgress(double t) =>
+            _mapProgress(reportProgress, 0.15, 0.96, t);
+        // Mobile: ficheiro direto ao Storage (rápido, estilo WhatsApp).
+        if (!kIsWeb &&
+            uploadPath != null &&
+            uploadPath.isNotEmpty &&
+            messageId != null &&
+            messageId.isNotEmpty) {
+          try {
+            final up = await ChurchChatService.uploadChatFile(
+              tenantId: tenantId,
+              threadId: threadId,
+              localPath: uploadPath,
+              fileName: pending.fileName,
+              contentType: pending.mime,
+              storagePathOverride: storagePath,
+              skipRecompress: true,
+              onProgress: uploadProgress,
+            );
+            await ChurchChatService.completeMediaUploadMessage(
+              tenantId: tenantId,
+              threadId: threadId,
+              messageId: messageId,
+              downloadUrl: up.url,
+              storagePath: up.path,
+              fileName: pending.fileName,
+            );
+            reportProgress(1.0);
+            onSuccess();
+            return;
+          } catch (_) {
+            // Fallback: variantes WebP abaixo.
+          }
+        }
         reportProgress(0.38);
         final stem = pending.fileName.replaceAll(RegExp(r'\.[a-z0-9]+$'), '');
-        void uploadProgress(double t) =>
-            _mapProgress(reportProgress, 0.42, 0.96, t);
         try {
           final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
             bytes: uploadBytes is Uint8List && uploadBytes.isNotEmpty

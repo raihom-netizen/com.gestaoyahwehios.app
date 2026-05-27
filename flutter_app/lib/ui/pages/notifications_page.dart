@@ -49,12 +49,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Future<List<String>> _loadMemberDepartments() async {
     if (_cpfDigits.isEmpty) return <String>[];
-    final byId = await _members.doc(_cpfDigits).get();
-    if (byId.exists) {
-      return _deptList(byId.data());
-    }
-    final q = await _members.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
-    if (q.docs.isNotEmpty) return _deptList(q.docs.first.data());
+    try {
+      final byId = await _members.doc(_cpfDigits).get(
+            const GetOptions(source: Source.serverAndCache),
+          );
+      if (byId.exists) {
+        return _deptList(byId.data());
+      }
+    } catch (_) {}
+    try {
+      final q = await _members
+          .where('CPF', isEqualTo: _cpfDigits)
+          .limit(1)
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (q.docs.isNotEmpty) return _deptList(q.docs.first.data());
+    } catch (_) {}
     return <String>[];
   }
 
@@ -87,6 +96,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return out;
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _memberNotificationsStream {
+    if (_cpfDigits.isEmpty) {
+      return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+    }
+    return _notifications
+        .where('memberCpfs', arrayContains: _cpfDigits)
+        .snapshots();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -94,57 +112,99 @@ class _NotificationsPageState extends State<NotificationsPage> {
       backgroundColor: const Color(0xFFF7F8FA),
       appBar: isMobile ? null : AppBar(title: const Text('Notificacoes')),
       body: SafeArea(
-        child: FutureBuilder<List<String>>(
-        future: _deptFuture,
-        builder: (context, deptSnap) {
-          if (deptSnap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        child: _isAdmin ? _buildAdminBody() : _buildMemberBody(),
+      ),
+    );
+  }
 
-          final deptIds = deptSnap.data ?? <String>[];
-          final deptStream = deptIds.isEmpty || deptIds.length > 10
-              ? Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
-              : _notifications.where('departmentId', whereIn: deptIds).snapshots();
+  Widget _buildAdminBody() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _notifications
+          .orderBy('createdAt', descending: true)
+          .limit(120)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return Center(
+            child: Text(
+              'Erro ao carregar.',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          );
+        }
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Center(child: Text('Nenhuma notificacao.'));
+        }
+        return _buildList(docs);
+      },
+    );
+  }
 
-          final memberStream = _cpfDigits.isEmpty
-              ? Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
-              : _notifications.where('memberCpfs', arrayContains: _cpfDigits).snapshots();
+  Widget _buildMemberBody() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _memberNotificationsStream,
+      builder: (context, memberSnap) {
+        return FutureBuilder<List<String>>(
+          future: _deptFuture,
+          builder: (context, deptSnap) {
+            final memberDocs =
+                memberSnap.data?.docs ??
+                    <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            final deptIds = deptSnap.data ?? <String>[];
+            final deptReady = deptSnap.connectionState == ConnectionState.done;
+            final canDeptStream =
+                deptReady && deptIds.isNotEmpty && deptIds.length <= 10;
 
-          if (_isAdmin) {
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _notifications.orderBy('createdAt', descending: true).limit(120).snapshots(),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return Center(child: Text('Erro ao carregar.', style: TextStyle(color: Colors.grey.shade600)));
+            if (!canDeptStream) {
+              if (memberSnap.connectionState == ConnectionState.waiting &&
+                  memberDocs.isEmpty &&
+                  !deptReady) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (memberDocs.isEmpty) {
+                if (!deptReady) {
+                  return const Center(child: CircularProgressIndicator());
                 }
-                final docs = snap.data?.docs ?? [];
-                if (docs.isEmpty) return const Center(child: Text('Nenhuma notificacao.'));
+                return const Center(child: Text('Nenhuma notificacao.'));
+              }
+              return _buildList(memberDocs);
+            }
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _notifications
+                  .where('departmentId', whereIn: deptIds)
+                  .snapshots(),
+              builder: (context, deptStreamSnap) {
+                if (memberSnap.hasError || deptStreamSnap.hasError) {
+                  return Center(
+                    child: Text(
+                      'Erro ao carregar.',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  );
+                }
+                final deptDocs = deptStreamSnap.data?.docs ??
+                    <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                final docs = _merge(memberDocs, deptDocs);
+                if (docs.isEmpty &&
+                    memberSnap.connectionState == ConnectionState.waiting &&
+                    deptStreamSnap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (docs.isEmpty) {
+                  return const Center(child: Text('Nenhuma notificacao.'));
+                }
                 return _buildList(docs);
               },
             );
-          }
-
-          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: memberStream,
-            builder: (context, memberSnap) {
-              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: deptStream,
-                builder: (context, deptSnap2) {
-                  if (memberSnap.hasError || deptSnap2.hasError) {
-                    return Center(child: Text('Erro ao carregar.', style: TextStyle(color: Colors.grey.shade600)));
-                  }
-                  final a = memberSnap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                  final b = deptSnap2.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                  final docs = _merge(a, b);
-                  if (docs.isEmpty) return const Center(child: Text('Nenhuma notificacao.'));
-                  return _buildList(docs);
-                },
-              );
-            },
-          );
-        },
-      ),
-      ),
+          },
+        );
+      },
     );
   }
 
@@ -165,10 +225,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ? ''
             : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
         return Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
-            title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text([body, dateTxt].where((e) => e.isNotEmpty).join(' • ')),
+            title: Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text(
+                [body, dateTxt].where((e) => e.isNotEmpty).join(' • ')),
           ),
         );
       },

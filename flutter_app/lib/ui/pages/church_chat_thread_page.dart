@@ -1158,6 +1158,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _showAttachmentSheet() async {
+    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1195,7 +1196,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
                       child: Text(
-                        'Super Premium · Mídia (estilo WhatsApp)',
+                        'Enviar foto, vídeo ou ficheiro',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.98),
@@ -1304,26 +1305,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
-      final path = x.path!;
-      final ok = await showChurchChatMediaPreviewSheet(
-        context,
-        localPath: path,
-        title: 'Enviar foto',
-        isVideo: false,
-      );
-      if (!ok || !mounted) return;
-      unawaited(_uploadAndSendFromPath(path, name, mime, kind));
+      // WhatsApp: envia logo após escolher (sem folha de confirmação).
+      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
-    final ok = await showChurchChatMediaPreviewSheet(
-      context,
-      previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-      title: 'Enviar foto',
-      isVideo: false,
-    );
-    if (!ok || !mounted) return;
+    if (kIsWeb) {
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        title: 'Enviar foto',
+        isVideo: false,
+      );
+      if (!ok || !mounted) return;
+    }
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
@@ -1341,15 +1337,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
-      final path = x.path!;
-      final ok = await showChurchChatMediaPreviewSheet(
-        context,
-        localPath: path,
-        title: 'Enviar vídeo',
-        isVideo: true,
-      );
-      if (!ok || !mounted) return;
-      unawaited(_uploadAndSendFromPath(path, name, mime, kind));
+      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
@@ -1361,19 +1349,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    final previewBytes = bytes.length <= 6 * 1024 * 1024
-        ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
-        : null;
-    final ok = await showChurchChatMediaPreviewSheet(
-      context,
-      previewBytes: previewBytes,
-      localPath: previewBytes == null && !kIsWeb && (x.path ?? '').isNotEmpty
-          ? x.path
-          : null,
-      title: 'Enviar vídeo',
-      isVideo: true,
-    );
-    if (!ok || !mounted) return;
+    if (kIsWeb) {
+      final previewBytes = bytes.length <= 6 * 1024 * 1024
+          ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+          : null;
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        previewBytes: previewBytes,
+        localPath: previewBytes == null && (x.path ?? '').isNotEmpty
+            ? x.path
+            : null,
+        title: 'Enviar vídeo',
+        isVideo: true,
+      );
+      if (!ok || !mounted) return;
+    }
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
@@ -1553,18 +1543,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       bytes: bytesCopy,
     ));
     _enqueuePending(pending);
-    try {
-      await _startPendingFirestoreStub(pending);
-    } catch (e) {
-      // Não sair aqui: o flush tenta criar o stub novamente.
-      // Isso evita "nada acontece" em falhas transitórias de rede/regras.
-      // Mantém `pending.failed=false` para a bolha continuar a mostrar envio.
-    }
-    unawaited(_flushPendingUpload(
-      pending: pending,
-      bytes: bytes,
-      localPath: localPath,
-    ));
+    // WhatsApp: bolha já na thread; stub Firestore + upload em paralelo.
+    unawaited(() async {
+      try {
+        await _startPendingFirestoreStub(pending);
+      } catch (_) {
+        // flush tenta criar o stub de novo
+      }
+      await _flushPendingUpload(
+        pending: pending,
+        bytes: bytes,
+        localPath: localPath,
+      );
+    }());
   }
 
   void _showChatAttachmentError(String message) {
@@ -2038,33 +2029,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final name =
           'voice_${DateTime.now().millisecondsSinceEpoch}.${bytes.length > 4 && bytes[0] == 0x4F && bytes[1] == 0x67 ? 'ogg' : 'm4a'}';
       final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-      try {
-        await _uploadAndSend(bytes, name, mime, 'audio');
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao enviar áudio: $e')),
-          );
-        }
-      }
+      unawaited(_uploadAndSend(bytes, name, mime, 'audio'));
       return;
     }
     if (voicePath == null || voicePath.isEmpty) return;
 
-    try {
-      final path = voicePath;
-      final lower = path.toLowerCase();
-      final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
-      final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
-      final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-      await _uploadAndSendFromPath(path, name, mime, 'audio');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao enviar áudio: $e')),
-        );
-      }
-    }
+    final path = voicePath;
+    final lower = path.toLowerCase();
+    final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
+    final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
+    unawaited(_uploadAndSendFromPath(path, name, mime, 'audio'));
   }
 
   @override

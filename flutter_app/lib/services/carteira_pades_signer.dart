@@ -27,7 +27,7 @@ class CarteiraPadesSigner {
       return PadesSignResult(
         pdfBytes: pdfBytes,
         applied: false,
-        message: 'Nenhum certificado .p12/.pfx carregado. Envie o arquivo em Configurar carteirinha → Certificado digital.',
+        message: 'Nenhum certificado .p12/.pfx carregado para assinatura digital.',
       );
     }
     if (certificatePassword.isEmpty) {

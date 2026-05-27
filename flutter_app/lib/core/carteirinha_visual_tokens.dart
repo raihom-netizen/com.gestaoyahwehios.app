@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 
 /// Padrão oficial Gestão YAHWEH — carteirinha na tela, PNG exportado e PDF compartilham estes tokens.
-/// O gestor altera só a cor principal (e opcionalmente secundária) em Configurar carteirinha.
+/// Logo e nome vêm do cadastro da igreja; cores fixas do modelo CNH digital.
 abstract final class CarteirinhaVisualTokens {
   CarteirinhaVisualTokens._();
 

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -82,6 +83,9 @@ class AppStorageImageService {
     if (!isValidImageUrl(norm) ||
         !StorageMediaService.isFirebaseStorageMediaUrl(norm)) {
       return isValidImageUrl(norm) ? norm : null;
+    }
+    if (!kIsWeb) {
+      await ensureFirebaseInitialized();
     }
     if (kIsWeb) {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();

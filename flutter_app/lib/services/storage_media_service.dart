@@ -1,5 +1,6 @@
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -51,6 +52,9 @@ class StorageMediaService {
 
   /// Resolve caminho `igrejas/...` ou URL antiga para URL atual de download.
   static Future<String?> downloadUrlFromPathOrUrl(String? raw) async {
+    if (!kIsWeb) {
+      await ensureFirebaseInitialized();
+    }
     if (raw == null) return null;
     final t = raw.trim();
     if (t.isEmpty) return null;

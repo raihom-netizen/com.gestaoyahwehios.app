@@ -356,7 +356,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                                     ),
                                     SizedBox(height: 4),
                                     Text(
-                                      'Padrão CNH · toque para ver em tela cheia',
+                                      'Toque para ver em tela cheia',
                                       style: TextStyle(
                                         color: Colors.white70,
                                         fontSize: 12,

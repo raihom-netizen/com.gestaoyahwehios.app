@@ -1083,6 +1083,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               churchSlug: (_tenantData?['slug'] ?? _tenantData?['slugId'] ?? '')
                   .toString()
                   .trim(),
+              churchData: _tenantData,
               noticias: _noticias,
               nomeIgreja: _nomeIgreja,
               logoUrl: _logoUrl,
@@ -1091,22 +1092,37 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               onEditEvento: (doc) => _novoEvento(doc: doc),
               onDeleteEvento: _excluirEvento,
               initialFeedSearchQuery: widget.initialFeedSearchQuery),
-          _GalleryArchiveTab(
-            tenantId: _tid,
-            noticias: _noticias,
+          _LazyEventsTabGate(
+            tabIndex: 1,
+            controller: _tab,
+            child: _GalleryArchiveTab(
+              tenantId: _tid,
+              noticias: _noticias,
+            ),
           ),
           if (_canWrite)
-            _FixosTab(
-                key: _fixosTabKey,
-                templates: _templates,
+            _LazyEventsTabGate(
+              tabIndex: 2,
+              controller: _tab,
+              child: _FixosTab(
+                  key: _fixosTabKey,
+                  templates: _templates,
+                  noticias: _noticias,
+                  canWrite: _canWrite,
+                  onEdit: _editTemplate,
+                  onDelete: _deleteTemplate,
+                  onGenerate: _generateFromTemplate,
+                  onOpenNoticiaEvento: (doc) => _novoEvento(doc: doc)),
+            ),
+          if (_canWrite)
+            _LazyEventsTabGate(
+              tabIndex: 3,
+              controller: _tab,
+              child: _DashboardEventosTab(
                 noticias: _noticias,
                 canWrite: _canWrite,
-                onEdit: _editTemplate,
-                onDelete: _deleteTemplate,
-                onGenerate: _generateFromTemplate,
-                onOpenNoticiaEvento: (doc) => _novoEvento(doc: doc)),
-          if (_canWrite)
-            _DashboardEventosTab(noticias: _noticias, canWrite: _canWrite),
+              ),
+            ),
         ])),
       ])),
       floatingActionButton: _canWrite && _tab.index == 0
@@ -2180,11 +2196,13 @@ class _FeedTab extends StatefulWidget {
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onEditEvento,
       onDeleteEvento;
   final String churchSlug;
+  final Map<String, dynamic>? churchData;
   final String? initialFeedSearchQuery;
   const _FeedTab(
       {super.key,
       required this.tenantId,
       this.churchSlug = '',
+      this.churchData,
       required this.noticias,
       required this.nomeIgreja,
       required this.logoUrl,
@@ -2223,8 +2241,6 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 150));
     return widget.noticias
         .orderBy('startAt', descending: true)
         .limit(200)
@@ -2435,149 +2451,153 @@ class _FeedTabState extends State<_FeedTab> {
               final narrowFeed = kIsWeb &&
                   avail.isFinite &&
                   avail > AppTheme.maxSocialFeedWidthWeb;
-              Widget feedList = ListView(
+              Widget feedList = ListView.builder(
             padding: const EdgeInsets.fromLTRB(
                 ThemeCleanPremium.spaceMd,
                 ThemeCleanPremium.spaceSm,
                 ThemeCleanPremium.spaceMd,
                 80),
-            children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          controller: _searchCtrl,
-                          decoration: InputDecoration(
-                            hintText: 'Buscar por evento',
-                            prefixIcon:
-                                const Icon(Icons.search_rounded, size: 20),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusMd)),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
+            cacheExtent: 1200,
+            itemCount: docs.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar por evento',
+                          prefixIcon:
+                              const Icon(Icons.search_rounded, size: 20),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd)),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _filterPeriod,
+                              decoration: const InputDecoration(
+                                  labelText: 'Período',
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8)),
+                              items: const [
+                                DropdownMenuItem(
+                                    value: 'all', child: Text('Todos')),
+                                DropdownMenuItem(
+                                    value: 'week',
+                                    child: Text('Esta semana')),
+                                DropdownMenuItem(
+                                    value: 'month', child: Text('Este mês')),
+                                DropdownMenuItem(
+                                    value: 'last_month',
+                                    child: Text('Mês anterior')),
+                                DropdownMenuItem(
+                                    value: 'year', child: Text('Este ano')),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _filterPeriod = v ?? 'all'),
+                            ),
                           ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                value: _filterPeriod,
-                                decoration: const InputDecoration(
-                                    labelText: 'Período',
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 8)),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: 'all', child: Text('Todos')),
-                                  DropdownMenuItem(
-                                      value: 'week',
-                                      child: Text('Esta semana')),
-                                  DropdownMenuItem(
-                                      value: 'month', child: Text('Este mês')),
-                                  DropdownMenuItem(
-                                      value: 'last_month',
-                                      child: Text('Mês anterior')),
-                                  DropdownMenuItem(
-                                      value: 'year', child: Text('Este ano')),
-                                ],
-                                onChanged: (v) =>
-                                    setState(() => _filterPeriod = v ?? 'all'),
-                              ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 110,
+                            child: DropdownButtonFormField<int>(
+                              value: _filterWeekday,
+                              decoration: const InputDecoration(
+                                  labelText: 'Dia',
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 8)),
+                              items: const [
+                                DropdownMenuItem(
+                                    value: 0, child: Text('Qualquer')),
+                                DropdownMenuItem(
+                                    value: 1, child: Text('Seg')),
+                                DropdownMenuItem(
+                                    value: 2, child: Text('Ter')),
+                                DropdownMenuItem(
+                                    value: 3, child: Text('Qua')),
+                                DropdownMenuItem(
+                                    value: 4, child: Text('Qui')),
+                                DropdownMenuItem(
+                                    value: 5, child: Text('Sex')),
+                                DropdownMenuItem(
+                                    value: 6, child: Text('Sáb')),
+                                DropdownMenuItem(
+                                    value: 7, child: Text('Dom')),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _filterWeekday = v ?? 0),
                             ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 110,
-                              child: DropdownButtonFormField<int>(
-                                value: _filterWeekday,
-                                decoration: const InputDecoration(
-                                    labelText: 'Dia',
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 8)),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: 0, child: Text('Qualquer')),
-                                  DropdownMenuItem(
-                                      value: 1, child: Text('Seg')),
-                                  DropdownMenuItem(
-                                      value: 2, child: Text('Ter')),
-                                  DropdownMenuItem(
-                                      value: 3, child: Text('Qua')),
-                                  DropdownMenuItem(
-                                      value: 4, child: Text('Qui')),
-                                  DropdownMenuItem(
-                                      value: 5, child: Text('Sex')),
-                                  DropdownMenuItem(
-                                      value: 6, child: Text('Sáb')),
-                                  DropdownMenuItem(
-                                      value: 7, child: Text('Dom')),
-                                ],
-                                onChanged: (v) =>
-                                    setState(() => _filterWeekday = v ?? 0),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        _MuralFeedSelectionRow(
-                          selectMode: _selectMode,
-                          selectedCount: _selectedEventIds.length,
-                          onToggleSelect: _toggleSelectMode,
-                          onExcluirPorPeriodo: _deleteByCurrentPeriod,
-                          onExcluirSelecionados: _deleteSelectedFeed,
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _MuralFeedSelectionRow(
+                        selectMode: _selectMode,
+                        selectedCount: _selectedEventIds.length,
+                        onToggleSelect: _toggleSelectMode,
+                        onExcluirPorPeriodo: _deleteByCurrentPeriod,
+                        onExcluirSelecionados: _deleteSelectedFeed,
+                      ),
+                    ],
                   ),
-                  ...docs.map((d) {
-                    final selected = _selectedEventIds.contains(d.id);
-                    return Stack(
-                      children: [
-                        _EventoPost(
-                          tenantId: widget.tenantId,
-                          churchSlug: widget.churchSlug,
-                          doc: d,
-                          nomeIgreja: widget.nomeIgreja,
-                          logoUrl: widget.logoUrl,
-                          canWrite: widget.canWrite,
-                          selectionMode: _selectMode,
-                          onEdit: () => widget.onEditEvento(d),
-                          onDelete: () => widget.onDeleteEvento(d),
+                );
+              }
+              final d = docs[index - 1];
+              final selected = _selectedEventIds.contains(d.id);
+              return Stack(
+                children: [
+                  _EventoPost(
+                    tenantId: widget.tenantId,
+                    churchSlug: widget.churchSlug,
+                    churchData: widget.churchData,
+                    doc: d,
+                    nomeIgreja: widget.nomeIgreja,
+                    logoUrl: widget.logoUrl,
+                    canWrite: widget.canWrite,
+                    selectionMode: _selectMode,
+                    onEdit: () => widget.onEditEvento(d),
+                    onDelete: () => widget.onDeleteEvento(d),
+                  ),
+                  if (_selectMode)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: SizedBox(
+                        width: ThemeCleanPremium.minTouchTarget,
+                        height: ThemeCleanPremium.minTouchTarget,
+                        child: Checkbox(
+                          value: selected,
+                          onChanged: (_) {
+                            setState(() {
+                              if (selected) {
+                                _selectedEventIds.remove(d.id);
+                              } else {
+                                _selectedEventIds.add(d.id);
+                              }
+                            });
+                          },
                         ),
-                        if (_selectMode)
-                          Positioned(
-                            top: 10,
-                            left: 10,
-                            child: SizedBox(
-                              width: ThemeCleanPremium.minTouchTarget,
-                              height: ThemeCleanPremium.minTouchTarget,
-                              child: Checkbox(
-                                value: selected,
-                                onChanged: (_) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedEventIds.remove(d.id);
-                                    } else {
-                                      _selectedEventIds.add(d.id);
-                                    }
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  }),
-            ],
+                      ),
+                    ),
+                ],
+              );
+            },
           );
               if (narrowFeed) {
                 feedList = Align(
@@ -3311,9 +3331,11 @@ class _EventoPost extends StatefulWidget {
   final bool selectionMode;
   final VoidCallback onEdit, onDelete;
   final String churchSlug;
+  final Map<String, dynamic>? churchData;
   const _EventoPost({
     required this.tenantId,
     this.churchSlug = '',
+    this.churchData,
     required this.doc,
     required this.nomeIgreja,
     required this.logoUrl,
@@ -4037,6 +4059,7 @@ class _EventoPostState extends State<_EventoPost>
         _EventPostLinksRow(
           tenantId: widget.tenantId,
           churchSlug: widget.churchSlug,
+          churchData: widget.churchData,
           shareInviteUrl: widget.churchSlug.trim().isNotEmpty
               ? AppConstants.shareNoticiaIgrejaEventoUrl(
                   widget.churchSlug, widget.doc.id)
@@ -4664,6 +4687,7 @@ double? _eventPostParseDouble(dynamic v) {
 class _EventPostLinksRow extends StatelessWidget {
   final String tenantId;
   final String churchSlug;
+  final Map<String, dynamic>? churchData;
   final String shareInviteUrl;
   final String eventLocation;
   final double? eventLat;
@@ -4672,24 +4696,18 @@ class _EventPostLinksRow extends StatelessWidget {
   const _EventPostLinksRow({
     required this.tenantId,
     required this.churchSlug,
+    this.churchData,
     required this.shareInviteUrl,
     required this.eventLocation,
     this.eventLat,
     this.eventLng,
   });
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildLinks(BuildContext context, Map<String, dynamic>? church) {
     final slug = churchSlug.trim();
     final publicSite = AppConstants.publicSiteShortUrl(slug);
-
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future:
-          FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get(),
-      builder: (context, snap) {
         double? lat = eventLat;
         double? lng = eventLng;
-        final church = snap.data?.data();
         if (church != null) {
           if (lat == null) lat = _eventPostParseDouble(church['latitude']);
           if (lng == null) lng = _eventPostParseDouble(church['longitude']);
@@ -4767,6 +4785,18 @@ class _EventPostLinksRow extends StatelessWidget {
             ],
           ),
         );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (churchData != null) {
+      return _buildLinks(context, churchData);
+    }
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future:
+          FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get(),
+      builder: (context, snap) {
+        return _buildLinks(context, snap.data?.data());
       },
     );
   }
@@ -7953,8 +7983,6 @@ class _FixosTabState extends State<_FixosTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 100));
     return widget.templates.get();
   }
 
@@ -9444,8 +9472,6 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await Future.delayed(const Duration(milliseconds: 100));
       QuerySnapshot<Map<String, dynamic>> snap;
       try {
         snap = await widget.noticias
@@ -9504,23 +9530,29 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         ci++;
       }
       var eventDocs = allSorted.take(_maxEvents).toList();
+      final commentCounts = await Future.wait<int>(
+        eventDocs.map((d) async {
+          try {
+            final countSnap =
+                await d.reference.collection('comentarios').count().get();
+            return countSnap.count ?? 0;
+          } catch (_) {
+            return 0;
+          }
+        }),
+      );
       final list = <_EventStats>[];
-      for (final d in eventDocs) {
+      for (var i = 0; i < eventDocs.length; i++) {
+        final d = eventDocs[i];
         final data = d.data();
         final title = (data['title'] ?? 'Evento').toString();
         final rsvp = (data['rsvp'] as List?)?.length ?? 0;
         final likes = (data['likes'] as List?)?.length ?? 0;
-        int comments = 0;
-        try {
-          final countSnap =
-              await d.reference.collection('comentarios').count().get();
-          comments = countSnap.count ?? 0;
-        } catch (_) {}
         list.add(_EventStats(
             title: title,
             rsvp: rsvp,
             likes: likes,
-            comments: comments,
+            comments: commentCounts[i],
             eventRef: d.reference));
       }
       if (mounted)
@@ -10163,5 +10195,52 @@ class _ChartCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Só monta abas pesadas (Galeria, Fixos, Dashboard) quando o utilizador as abre.
+class _LazyEventsTabGate extends StatefulWidget {
+  final int tabIndex;
+  final TabController controller;
+  final Widget child;
+
+  const _LazyEventsTabGate({
+    required this.tabIndex,
+    required this.controller,
+    required this.child,
+  });
+
+  @override
+  State<_LazyEventsTabGate> createState() => _LazyEventsTabGateState();
+}
+
+class _LazyEventsTabGateState extends State<_LazyEventsTabGate> {
+  bool _activated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _activated = widget.controller.index == widget.tabIndex;
+    widget.controller.addListener(_onTabChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTabChanged);
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (!_activated && widget.controller.index == widget.tabIndex) {
+      setState(() => _activated = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_activated) {
+      return const SizedBox.shrink();
+    }
+    return widget.child;
   }
 }
