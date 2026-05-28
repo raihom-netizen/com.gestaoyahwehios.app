@@ -65,7 +65,9 @@
 # (reutilizar perfil ou POST IOS_APP_STORE); (2) se já coincidir, salta fetch-signing-files; (3) senão
 # app-store-connect fetch-signing-files; (4) segunda passagem API. Chave API com papel Admin recomendado
 # para criar perfis. Desativar: CM_SKIP_ASC_PROFILE_SYNC=1.
-# Versão visível no IPA: lib/app_version.dart (build-name) + sufixo + do pubspec ou CM_BUILD_NUMBER.
+# Versão visível no IPA: lib/app_version.dart (marketing). CFBundleVersion em CI = timestamp
+# único por build (scripts/codemagic_ios_sync_version_from_app_version_dart.sh) — NÃO usar
+# CM_BUILD_NUMBER no iOS (causa 90189 Redundant Binary Upload). Android/Play usa +pubspec (ex. 1626).
 #
 # Sign In with Apple: o Runner.entitlements pode omitir o entitlement (padrão atual) para
 # o perfil App Store em Codemagic assinar sem capability. Para voltar a Apple Sign In no iOS,
@@ -222,28 +224,19 @@ workflows:
             exit 1
           fi
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
-          if [ -f /tmp/cm_ios_build_name ] && [ -f /tmp/cm_ios_build_number ]; then
-            BUILD_NAME="$(tr -d '\r\n' < /tmp/cm_ios_build_name)"
-            BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
-          else
-            VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
-            BUILD_NAME="${VERSION_LINE%%+*}"
-            if [ -z "$BUILD_NAME" ]; then
-              echo "ERRO: nao foi possivel ler version: do pubspec.yaml"
-              exit 1
-            fi
-            if [ -n "${CM_BUILD_NUMBER:-}" ]; then
-              BN="$CM_BUILD_NUMBER"
-            else
-              BN="$(date +%s)"
-              echo "CM_BUILD_NUMBER vazio — a usar timestamp único para iOS: $BN"
-            fi
-            if [ -z "$BN" ]; then
-              BN="1"
-              echo "AVISO: build number vazio — a usar 1"
-            fi
+          if [ ! -f /tmp/cm_ios_build_name ] || [ ! -f /tmp/cm_ios_build_number ]; then
+            echo "ERRO: execute o passo 'Versão iOS' antes do build (faltam /tmp/cm_ios_build_*)."
+            exit 1
           fi
-          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN (app_version.dart + pubspec)"
+          BUILD_NAME="$(tr -d '\r\n' < /tmp/cm_ios_build_name)"
+          BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
+          if [ -z "$BUILD_NAME" ] || [ -z "$BN" ]; then
+            echo "ERRO: build-name ou build-number vazio após sync iOS."
+            exit 1
+          fi
+          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
+          echo "  (CFBundleVersion único por execução CI — não reutilizar Retry só em Publishing)"
+          grep '^version:' pubspec.yaml || true
           set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \
