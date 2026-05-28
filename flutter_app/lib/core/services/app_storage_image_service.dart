@@ -334,6 +334,17 @@ class AppStorageImageService {
     return fut;
   }
 
+  /// URL do Firestore com token — no app nativo exibe já, sem varrer o bucket.
+  String? _churchLogoFastDisplayUrl(String? raw) {
+    final clean = sanitizeImageUrl(raw ?? '');
+    if (!_validResolved(clean)) return null;
+    if (!StorageMediaService.isFirebaseStorageMediaUrl(clean)) return clean;
+    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(clean)) {
+      return clean;
+    }
+    return null;
+  }
+
   Future<String?> _resolveChurchTenantLogoUrlUncached({
     required String tenantId,
     Map<String, dynamic>? tenantData,
@@ -350,25 +361,17 @@ class AppStorageImageService {
       } catch (_) {}
     }
 
-    if (tid.isNotEmpty) {
-      final fromBucket = await FirebaseStorageService.getChurchLogoDownloadUrl(
-        tid,
-        tenantData: tenantData,
-      );
-      final bucketOk = await _rejectIfTinyCanonicalChurchLogoUrl(fromBucket);
-      if (_validResolved(bucketOk)) return sanitizeImageUrl(bucketOk!);
-    }
-
-    if (tenantData != null) {
-      for (final key in ['logoProcessedUrl', 'logoProcessed']) {
-        final raw = tenantData[key];
-        final s = raw?.toString().trim();
-        if (s != null && s.isNotEmpty) {
-          final r = await resolveImageUrl(imageUrl: s);
-          final ok = await _rejectIfTinyCanonicalChurchLogoUrl(r);
-          if (_validResolved(ok)) return sanitizeImageUrl(ok!);
-        }
-      }
+    // 1) Firestore / prefer — pintura imediata (cadastro, carteirinha, mural).
+    final fastRaw = <String?>[
+      preferImageUrl,
+      preferGsUrl,
+      if (tenantData != null) churchTenantLogoUrl(tenantData),
+      if (tenantData != null) tenantData['logoProcessedUrl']?.toString(),
+      if (tenantData != null) tenantData['logoProcessed']?.toString(),
+    ];
+    for (final raw in fastRaw) {
+      final fast = _churchLogoFastDisplayUrl(raw);
+      if (fast != null) return fast;
     }
 
     final r0 = await resolveImageUrl(
@@ -392,6 +395,25 @@ class AppStorageImageService {
         final r2b = await _rejectIfTinyCanonicalChurchLogoUrl(r2);
         if (_validResolved(r2b)) return sanitizeImageUrl(r2b!);
       }
+      for (final key in ['logoProcessedUrl', 'logoProcessed']) {
+        final raw = tenantData[key];
+        final s = raw?.toString().trim();
+        if (s != null && s.isNotEmpty) {
+          final r = await resolveImageUrl(imageUrl: s);
+          final ok = await _rejectIfTinyCanonicalChurchLogoUrl(r);
+          if (_validResolved(ok)) return sanitizeImageUrl(ok!);
+        }
+      }
+    }
+
+    // 2) Bucket — só quando não há URL utilizável (legado / doc sem logo_url).
+    if (tid.isNotEmpty) {
+      final fromBucket = await FirebaseStorageService.getChurchLogoDownloadUrl(
+        tid,
+        tenantData: tenantData,
+      );
+      final bucketOk = await _rejectIfTinyCanonicalChurchLogoUrl(fromBucket);
+      if (_validResolved(bucketOk)) return sanitizeImageUrl(bucketOk!);
     }
 
     return null;

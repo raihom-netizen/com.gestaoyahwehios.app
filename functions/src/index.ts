@@ -9,6 +9,10 @@ import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
 import { fetchPaymentForWebhook, tryHandleChurchDonationPayment } from "./churchMercadoPago";
 import { ensureCodigoMembroOnMember } from "./memberCodigo";
+import {
+  parseCarteirinhaQueryParams,
+  validateCarteirinhaCore,
+} from "./carteirinhaValidarPublic";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -6751,48 +6755,7 @@ export const migrateAllIgrejasMembersToMembros = functions
     };
   });
 
-function maskNomePublico(nome: string): string {
-  const parts = String(nome || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (parts.length === 0) return "";
-  if (parts.length === 1) {
-    const p0 = parts[0];
-    return p0.length > 0 ? `${p0.charAt(0)}***` : "";
-  }
-  const last = parts[parts.length - 1];
-  return `${parts[0]} ${last.length > 0 ? last.charAt(0) : ""}.`;
-}
-
-function memberActiveFromData(m: Record<string, unknown>): boolean {
-  const statusRaw = m.STATUS ?? m.status ?? m.ativo ?? m.active;
-  if (typeof statusRaw === "boolean") return statusRaw;
-  if (typeof statusRaw === "string") {
-    const s = statusRaw.toLowerCase().trim();
-    if (["inativo", "inactive", "false", "0", "desligado", "bloqueado"].includes(s)) return false;
-    if (["ativo", "active", "true", "1", "membro"].includes(s)) return true;
-  }
-  if (typeof statusRaw === "number" && statusRaw === 0) return false;
-  return true;
-}
-
-function carteiraValidityHint(m: Record<string, unknown>): string {
-  const perm = m.CARTEIRA_PERMANENTE === true || String(m.CARTEIRA_PERMANENTE || "").toLowerCase() === "true";
-  if (perm) return "Permanente";
-  const v = m.CARTEIRA_VALIDADE;
-  if (v && typeof (v as { toDate?: () => Date }).toDate === "function") {
-    try {
-      const d = (v as { toDate: () => Date }).toDate();
-      if (d && !Number.isNaN(d.getTime())) {
-        return d.toISOString().slice(0, 10);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return "";
-}
+export { carteirinhaValidarHttp } from "./carteirinhaValidarPublic";
 
 /**
  * Validação pública de carteirinha (QR): confere se o membro existe e está ativo — sem expor dados sensíveis.
@@ -6803,69 +6766,11 @@ export const validateCarteirinhaPublic = functions
   .runWith({ timeoutSeconds: 30, memory: "256MB" })
   .https.onCall(async (data) => {
     const payload = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
-    const tenantId = String(payload.tenantId || payload.igrejaId || payload.igreja || "").trim();
-    const memberId = String(payload.memberId || payload.id || payload.membro || "").trim();
-    if (!tenantId || !memberId) {
+    const { tenantId, memberKey } = parseCarteirinhaQueryParams(payload);
+    if (!tenantId || !memberKey) {
       throw new functions.https.HttpsError("invalid-argument", "Informe tenantId e memberId.");
     }
-
-    const igrejaSnap = await db.collection("igrejas").doc(tenantId).get();
-    if (!igrejaSnap.exists) {
-      return {
-        ok: true,
-        found: false,
-        active: false,
-        churchName: "",
-        titularMascarado: "",
-        validityHint: "",
-        message: "Igreja não encontrada.",
-      };
-    }
-    const church = igrejaSnap.data() || {};
-    const churchName = String(church.nome || church.name || church.slug || tenantId);
-
-    const paths = [
-      db.collection("igrejas").doc(tenantId).collection("membros").doc(memberId),
-      db.collection("igrejas").doc(tenantId).collection("members").doc(memberId),
-    ];
-    let snap: admin.firestore.DocumentSnapshot | null = null;
-    for (const ref of paths) {
-      const s = await ref.get();
-      if (s.exists) {
-        snap = s;
-        break;
-      }
-    }
-
-    if (!snap || !snap.exists) {
-      return {
-        ok: true,
-        found: false,
-        active: false,
-        churchName,
-        titularMascarado: "",
-        validityHint: "",
-        message: "Credencial não encontrada nesta igreja.",
-      };
-    }
-
-    const m = (snap.data() || {}) as Record<string, unknown>;
-    const active = memberActiveFromData(m);
-    const nomeFull = String(m.NOME_COMPLETO || m.nome || m.name || "").trim();
-    const titularMascarado = maskNomePublico(nomeFull);
-    const validityHint = carteiraValidityHint(m);
-
-    return {
-      ok: true,
-      found: true,
-      active,
-      churchName,
-      titularMascarado,
-      validityHint,
-      message: active
-        ? "Credencial localizada e situação ativa no sistema."
-        : "Credencial localizada, porém o cadastro não está ativo.",
-    };
+    return validateCarteirinhaCore(tenantId, memberKey);
   });
 
 /**

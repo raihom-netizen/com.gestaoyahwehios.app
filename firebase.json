@@ -145,6 +145,8 @@
     ],
     "rewrites": [
       { "source": "/.well-known/assetlinks.json", "destination": "/assetlinks.json" },
+      { "source": "/carteirinha-validar", "function": "carteirinhaValidarHttp" },
+      { "source": "/carteirinha-validar/**", "function": "carteirinhaValidarHttp" },
       { "source": "/igreja/*/evento/*", "function": "shareEvento" },
       { "source": "/s/evento", "function": "shareEvento" },
       { "source": "**", "destination": "/index.html" }

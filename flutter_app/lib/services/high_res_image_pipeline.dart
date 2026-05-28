@@ -86,7 +86,9 @@ Future<XFile?> pickCropEncodeWebp({
   );
 }
 
-int get kEffectiveFeedCropParallel => kIsWeb ? 5 : 1;
+/// Web: 5 em paralelo. Mobile turbo: 4 (galeria aviso/evento). Legado: 1.
+int get kEffectiveFeedCropParallel =>
+    kIsWeb ? 5 : (kMediaTurboMobilePreset ? 4 : 1);
 
 /// Teto do recorte nativo no telemóvel (evita OOM no iPhone com fotos 12MP+).
 int get _mobileCropMaxDimension =>
@@ -216,6 +218,39 @@ Future<XFile?> _encodeFeedImageFile(String pathIn) async {
     if (kDebugMode) debugPrint('encodeFeedImageFile: $e');
     return null;
   }
+}
+
+/// Galeria mural (turbo mobile): WebP em paralelo **sem** ecrã de recorte por foto — alinhado à PWA.
+Future<List<XFile>> pickMultiEncodeFeedTurboFast(
+  List<XFile> picked, {
+  void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
+  void Function(XFile encoded, int index, int total)? onEachReady,
+  void Function(int index, int total)? onEncodeSkipped,
+}) async {
+  if (picked.isEmpty) return const [];
+  final out = <XFile>[];
+  final batch = kEffectiveFeedCropParallel.clamp(1, 6);
+  for (var start = 0; start < picked.length; start += batch) {
+    final chunk = picked.skip(start).take(batch).toList();
+    final encoded = await Future.wait(
+      chunk.asMap().entries.map((entry) async {
+        final globalIndex = start + entry.key;
+        onPickedBeforeEncode?.call(entry.value, globalIndex, picked.length);
+        return _encodeFeedImageFile(entry.value.path);
+      }),
+    );
+    for (var j = 0; j < encoded.length; j++) {
+      final file = encoded[j];
+      final globalIndex = start + j;
+      if (file != null) {
+        out.add(file);
+        onEachReady?.call(file, globalIndex, picked.length);
+      } else {
+        onEncodeSkipped?.call(globalIndex, picked.length);
+      }
+    }
+  }
+  return out;
 }
 
 /// Galeria mural — recorte + WebP **um a um** (evita OOM no iPhone).

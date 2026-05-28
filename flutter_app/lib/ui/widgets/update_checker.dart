@@ -96,7 +96,9 @@ Future<void> showPremiumVersionUpdateDialog(
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Sua versão: $appVersionLabel · Exigido: ${vr.current}',
+                                vr.installedLabel.isNotEmpty
+                                    ? 'Sua versão: v$appVersion+${vr.installedLabel} · Exigido: ${vr.current}'
+                                    : 'Sua versão: $appVersionLabel · Exigido: ${vr.current}',
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w600,

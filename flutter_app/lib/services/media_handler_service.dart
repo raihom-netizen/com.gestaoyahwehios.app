@@ -153,6 +153,14 @@ class MediaHandlerService {
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);
     // ignore: use_build_context_synchronously
+    if (kMediaTurboMobilePreset && !kIsWeb) {
+      return pickMultiEncodeFeedTurboFast(
+        list,
+        onPickedBeforeEncode: onPickedBeforeEncode,
+        onEachReady: onEachReady,
+        onEncodeSkipped: onEncodeSkipped,
+      );
+    }
     return pickMultiCropEncodeFeedWebpSequential(
       list,
       webCropContext: webCropContext,

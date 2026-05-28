@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/installed_app_build.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -25,6 +26,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
   final _storeIosCtrl = TextEditingController();
   final _latestVersionCtrl = TextEditingController();
   final _panelMessageCtrl = TextEditingController();
+  final _minBuildIosAscCtrl = TextEditingController();
 
   bool _webRefresh = true;
   bool _forceUpdate = true;
@@ -48,6 +50,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
     _storeIosCtrl.dispose();
     _latestVersionCtrl.dispose();
     _panelMessageCtrl.dispose();
+    _minBuildIosAscCtrl.dispose();
     super.dispose();
   }
 
@@ -75,6 +78,13 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
         _webRefresh = data?['webRefresh'] != false;
         _forceUpdate = data?['forceUpdate'] == true;
         _publishedBuild = (data?['publishedBuild'] ?? '').toString().trim();
+        final iosAscRaw = data?['minBuildNumberIosAsc'];
+        _minBuildIosAscCtrl.text = iosAscRaw == null
+            ? ''
+            : (iosAscRaw is num
+                    ? iosAscRaw.toInt()
+                    : int.tryParse('$iosAscRaw') ?? '')
+                .toString();
         setState(() => _loading = false);
       }
     } catch (e) {
@@ -90,6 +100,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
   void _fillCurrentBuildFields() {
     _minVersionCtrl.text = appVersion;
     _minBuildCtrl.text = appBuildNumber;
+    _minBuildIosAscCtrl.clear();
     _latestVersionCtrl.text = appVersionFull;
     if (_storeAndroidCtrl.text.trim().isEmpty) {
       _storeAndroidCtrl.text = AppConstants.gestaoYahwehPlayStoreUrl;
@@ -114,6 +125,25 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
   Future<void> _save({bool fromPublishButton = false}) async {
     final minVersion = _minVersionCtrl.text.trim();
     final minBuild = int.tryParse(_minBuildCtrl.text.trim());
+    final minIosAsc = int.tryParse(_minBuildIosAscCtrl.text.trim());
+    if (minBuild != null &&
+        isIosAscStyleBuildNumber(minBuild) &&
+        minIosAsc == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'O build +$minBuild parece número da App Store (TestFlight), não o +N do '
+              'app_version.dart ($appBuildNumber). Use «Publicar build atual» ou deixe o '
+              'campo Build mínimo com +$appBuildNumber — iPhone e Android usam o mesmo +N.',
+            ),
+            backgroundColor: Colors.orange.shade800,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+      return;
+    }
     if (minVersion.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Informe a versão mínima (ex: 11.2.295)')),
@@ -144,6 +174,11 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
         'publishedBuild': appVersionFull,
         'updatedAt': FieldValue.serverTimestamp(),
       };
+      if (minIosAsc != null && minIosAsc > 0) {
+        payload['minBuildNumberIosAsc'] = minIosAsc;
+      } else {
+        payload['minBuildNumberIosAsc'] = FieldValue.delete();
+      }
       await FirebaseFirestore.instance
           .doc(_path)
           .set(payload, SetOptions(merge: true));
@@ -224,9 +259,12 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Publica em `config/appVersion` a versão mínima e o número de build '
-                          'do app que acabou de subir às lojas. Utilizadores com build antigo '
-                          'veem diálogo com link Android (Play Store) e iOS (App Store / TestFlight).',
+                          'Publica em `config/appVersion` a versão mínima e o build +N '
+                          '(app_version.dart — igual Android e iPhone). Utilizadores abaixo '
+                          'disso veem o diálogo com Play Store ou TestFlight.\n\n'
+                          'No TestFlight o número longo (ex.: 1779982861) é só da Apple — '
+                          'não use esse valor em «Build mínimo». Use sempre o +$appBuildNumber '
+                          'deste painel ao clicar «Publicar build atual».',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: Colors.grey.shade700,
                                 height: 1.4,
@@ -315,10 +353,26 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                   TextField(
                     controller: _minBuildCtrl,
                     decoration: InputDecoration(
-                      labelText: 'Build mínimo (+N)',
+                      labelText: 'Build mínimo (+N) — Android e iOS',
                       hintText: 'ex: $appBuildNumber',
+                      helperText:
+                          'Mesmo número do pubspec/app_version.dart. Não coloque o número longo do TestFlight.',
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.numbers_rounded),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _minBuildIosAscCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Build mínimo iOS ASC (opcional)',
+                      hintText: 'Deixe vazio — quase sempre',
+                      helperText:
+                          'Só se precisar exigir um CFBundleVersion específico da App Store. '
+                          '«Publicar build atual» limpa este campo.',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.apple_rounded),
                     ),
                     keyboardType: TextInputType.number,
                   ),
@@ -384,6 +438,26 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                       prefixIcon: const Icon(Icons.apple_rounded),
                     ),
                     keyboardType: TextInputType.url,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : () async {
+                              _minVersionCtrl.text = appVersion;
+                              _minBuildCtrl.text = appBuildNumber;
+                              _minBuildIosAscCtrl.clear();
+                              _forceUpdate = false;
+                              setState(() {});
+                              await _save();
+                            },
+                      icon: const Icon(Icons.phone_iphone_rounded),
+                      label: const Text(
+                        'Parar aviso no iPhone (build atual, sem bloquear)',
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   SizedBox(

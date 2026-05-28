@@ -3,8 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -32,10 +31,7 @@ abstract final class MuralFastPublishService {
 
   static int _feedUploadConcurrency(int photoCount) {
     if (photoCount <= 1) return 1;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return photoCount >= 3 ? 2 : photoCount;
-    }
-    if (IosPublishImagePipeline.useNativeFastFeedUpload) {
+    if (!kIsWeb) {
       return mediaFeedUploadMaxConcurrent.clamp(1, photoCount);
     }
     return photoCount.clamp(1, 4);

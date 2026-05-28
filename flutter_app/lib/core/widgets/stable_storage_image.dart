@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
+import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Imagem estável: resolve path/gs/https via [AppStorageImageService] e exibe com [ResilientNetworkImage].
@@ -229,7 +232,36 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
     return '${churchTenantLogoUrl(m)}|${ChurchImageFields.logoStoragePath(m) ?? ''}|$uStr';
   }
 
+  String? _immediateLogoUrl() {
+    for (final raw in <String?>[
+      widget.imageUrl,
+      widget.gsUrl,
+      if (widget.tenantData != null) churchTenantLogoUrl(widget.tenantData!),
+    ]) {
+      final clean = sanitizeImageUrl(raw ?? '');
+      if (clean.isEmpty) continue;
+      if (!isValidImageUrl(clean) &&
+          !clean.toLowerCase().startsWith('gs://') &&
+          !firebaseStorageMediaUrlLooksLike(clean)) {
+        continue;
+      }
+      if (!kIsWeb &&
+          StorageMediaService.isFirebaseStorageMediaUrl(clean) &&
+          firebaseStorageDownloadUrlLooksTokenized(clean)) {
+        return clean;
+      }
+      if (!StorageMediaService.isFirebaseStorageMediaUrl(clean)) {
+        return clean;
+      }
+    }
+    return null;
+  }
+
   Future<String?> _load() {
+    final immediate = _immediateLogoUrl();
+    if (immediate != null) {
+      return Future<String?>.value(immediate);
+    }
     final tid = widget.tenantId?.trim() ?? '';
     if (tid.isNotEmpty) {
       return AppStorageImageService.instance.resolveChurchTenantLogoUrl(
@@ -248,15 +280,12 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
   }
 
   Widget _fallback() {
-    return Container(
+    return DefaultChurchLogoAsset(
       width: widget.width,
       height: widget.height,
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.church_rounded,
-        size: (widget.width < widget.height ? widget.width : widget.height) * 0.35,
-        color: Colors.grey.shade400,
-      ),
+      fit: widget.fit,
+      fractionOfBox: 0.9,
+      borderRadius: BorderRadius.circular(16),
     );
   }
 

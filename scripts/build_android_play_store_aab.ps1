@@ -69,6 +69,40 @@ function Get-LlvmReadelfPath {
     throw "llvm-readelf.exe nao encontrado em nenhuma versao do NDK dentro de '$ndkRoot'."
 }
 
+function Assert-ReleaseManifestHasAdIdPermission {
+    param([string] $FlutterAppPath)
+
+    $merged = Join-Path $FlutterAppPath "build\app\intermediates\merged_manifests\release\processReleaseManifest\AndroidManifest.xml"
+    if (-not (Test-Path $merged)) {
+        $androidDir = Join-Path $FlutterAppPath "android"
+        Write-Host "Manifest fundido nao encontrado; a gerar via Gradle..." -ForegroundColor DarkGray
+        Push-Location $androidDir
+        try {
+            .\gradlew.bat :app:processReleaseManifest 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Gradle processReleaseManifest falhou (exit $LASTEXITCODE)."
+            }
+        } finally {
+            Pop-Location
+        }
+    }
+
+    if (-not (Test-Path $merged)) {
+        throw "Nao foi possivel localizar o AndroidManifest release fundido em:`n  $merged"
+    }
+
+    $adId = "com.google.android.gms.permission.AD_ID"
+    $text = Get-Content -Path $merged -Raw -Encoding UTF8
+    if ($text -notmatch [regex]::Escape($adId)) {
+        throw @"
+ERRO Play Console: o AAB nao tera a permissao obrigatoria $adId.
+Corrija flutter_app\android\app\src\main\AndroidManifest.xml e volte a gerar o bundle.
+"@
+    }
+
+    Write-Host "Play AD_ID: permissao presente no manifesto release fundido." -ForegroundColor Green
+}
+
 function Test-SharedObject16k {
     param(
         [string] $ReadelfExe,
@@ -205,6 +239,10 @@ if (-not (Test-Path $OutAab)) {
     Write-Host "Erro: AAB nao gerado em $OutAab" -ForegroundColor Red
     exit 1
 }
+
+Write-Host "`n=== validacao Advertising ID (Play Console) ===" -ForegroundColor Cyan
+Assert-ReleaseManifestHasAdIdPermission -FlutterAppPath $FlutterApp
+Write-Host "Se a Play ainda acusar erro: Politica do app > ID de publicidade > confirme 'Sim' e carregue ESTE AAB (remova artefactos antigos da versao)." -ForegroundColor DarkGray
 
 Write-Host "`n=== validacao 16K page size no AAB ===" -ForegroundColor Cyan
 Assert-Aab16kCompatibility -AabPath $OutAab -FlutterAppPath $FlutterApp

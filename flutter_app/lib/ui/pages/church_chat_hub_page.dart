@@ -237,6 +237,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       for (final p in peers) {
         if (p != myUid) out.add(p);
       }
+      final legacyPeer = ChurchChatService.otherUidInDmThread(d.id, myUid);
+      if (legacyPeer != null && legacyPeer.isNotEmpty) out.add(legacyPeer);
     }
     return out;
   }
@@ -416,9 +418,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _syncingChatThreads = true;
     try {
       await ChurchChatService.syncDmThreadsIndex(tenantId);
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (uid.isNotEmpty) {
+        final fallback = await ChurchChatService.loadDmThreadsSnapshotFallback(
+          tenantId: tenantId,
+          uid: uid,
+        );
+        if (mounted && fallback.docs.isNotEmpty) {
+          _lastGoodChatThreadsSnap = fallback;
+        }
+      }
       if (mounted) {
         setState(() {
-          final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
           if (uid.isNotEmpty) {
             _chatThreadsStream =
                 ChurchChatService.chatThreadsSnapshotsForUser(tenantId, uid);
@@ -688,8 +699,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             ?.map((e) => e.toString())
             .toList() ??
         [];
-    final peer =
-        peers.firstWhere((p) => p != myUid, orElse: () => '');
+    var peer = peers.firstWhere((p) => p != myUid, orElse: () => '');
+    if (peer.isEmpty) {
+      peer = ChurchChatService.otherUidInDmThread(doc.id, myUid) ?? '';
+    }
     final titles = data['titlesByUid'];
     var title = peer;
     if (titles is Map && titles[peer] != null) {
@@ -1529,12 +1542,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   } else if (archived) {
                     continue;
                   }
+                  if (!ChurchChatService.userParticipatesInThread(
+                    threadId: doc.id,
+                    data: data,
+                    uid: uid,
+                  )) {
+                    continue;
+                  }
                   final peers = (data['participantUids'] as List?)
                           ?.map((e) => e.toString())
                           .where((e) => e.isNotEmpty)
                           .toList() ??
                       [];
-                  if (!peers.contains(uid)) continue;
                   late final String disp;
                   late final String preview;
                   if (isDept) {

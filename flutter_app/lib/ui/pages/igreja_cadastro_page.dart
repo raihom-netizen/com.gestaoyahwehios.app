@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
@@ -37,7 +38,9 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         imageUrlFromMap,
         sanitizeImageUrl,
         isValidImageUrl,
-        isFirebaseStorageHttpUrl;
+        isFirebaseStorageHttpUrl,
+        firebaseStorageDownloadUrlLooksTokenized;
+import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 
 /// Gera slug (link/domínio) a partir do nome da igreja: normaliza, remove acentos e palavras comuns, usa hífens.
@@ -239,25 +242,36 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  Widget _buildLogoPlaceholder({double iconSize = 56}) {
+  Widget _buildLogoPlaceholder({
+    double? boxWidth,
+    double? boxHeight,
+    bool showPickHint = true,
+  }) {
+    final w = boxWidth ?? 280.0;
+    final h = boxHeight ?? 158.0;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.add_photo_alternate_rounded,
-              size: iconSize, color: Colors.grey.shade400),
-          const SizedBox(height: 10),
-          Text(
-            'Toque para escolher a logo',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: iconSize > 50 ? 14 : 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600,
-              height: 1.25,
-            ),
+          DefaultChurchLogoAsset(
+            width: w,
+            height: h * 0.78,
+            fractionOfBox: 0.92,
           ),
+          if (showPickHint && _canEdit) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Toque para escolher a logo da igreja',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: w > 200 ? 13 : 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+                height: 1.25,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1545,8 +1559,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (u == null || u.isEmpty) return;
     final s = sanitizeImageUrl(u);
     if (!isFirebaseStorageHttpUrl(s)) return;
+    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(s)) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirebaseAuth.instance.currentUser?.getIdToken();
       final ref = FirebaseStorage.instance.refFromURL(s);
       final fresh = await ref.getDownloadURL();
       if (!mounted || fresh.isEmpty || fresh == s) return;
@@ -1570,7 +1585,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return;
     }
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirebaseAuth.instance.currentUser?.getIdToken();
       for (final path in [
         ChurchStorageLayout.churchIdentityLogoPath(tenantDocId),
         ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tenantDocId),
@@ -2375,7 +2390,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   _formHydrated = true;
                   if (!_logoTokenRefreshAttempted) {
                     _logoTokenRefreshAttempted = true;
-                    unawaited(_maybeRefreshStorageLogoUrl());
+                    Future<void>.delayed(const Duration(seconds: 4), () {
+                      if (!mounted) return;
+                      unawaited(_maybeRefreshStorageLogoUrl());
+                    });
                   }
                   if (_canEdit) {
                     await FirebaseStorageService
@@ -2732,7 +2750,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                             isAntiAlias: true,
                                                             errorBuilder: (_,
                                                                     __, ___) =>
-                                                                _buildLogoPlaceholder(),
+                                                                _buildLogoPlaceholder(
+                                                              boxWidth: previewW,
+                                                              boxHeight: boxH,
+                                                            ),
                                                           )
                                                         : resolvedId.isNotEmpty
                                                             ? StableChurchLogo(
@@ -2748,12 +2769,33 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                                 height: boxH,
                                                                 fit: BoxFit
                                                                     .contain,
+                                                                memCacheWidth:
+                                                                    (previewW *
+                                                                            MediaQuery.devicePixelRatioOf(context))
+                                                                        .round()
+                                                                        .clamp(
+                                                                            128,
+                                                                            560),
+                                                                memCacheHeight:
+                                                                    (boxH *
+                                                                            MediaQuery.devicePixelRatioOf(context))
+                                                                        .round()
+                                                                        .clamp(
+                                                                            96,
+                                                                            400),
                                                               )
                                                             : SizedBox(
                                                                 width: previewW,
                                                                 height: boxH,
                                                                 child:
-                                                                    _buildLogoPlaceholder(),
+                                                                    _buildLogoPlaceholder(
+                                                                  boxWidth:
+                                                                      previewW,
+                                                                  boxHeight:
+                                                                      boxH,
+                                                                  showPickHint:
+                                                                      _canEdit,
+                                                                ),
                                                               ),
                                                   ),
                                                 ),

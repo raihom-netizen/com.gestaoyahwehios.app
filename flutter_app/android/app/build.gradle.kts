@@ -105,4 +105,6 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     // Play / Android 15: enableEdgeToEdge() em MainActivity (activity-ktx 1.8+).
     implementation("androidx.activity:activity-ktx:1.9.3")
+    // Play Console: declaração "usa Advertising ID" exige permissão AD_ID no manifesto fundido.
+    implementation("com.google.android.gms:play-services-ads-identifier:18.2.0")
 }

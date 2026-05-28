@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/installed_app_build.dart';
 
 import 'version_service_stub.dart' if (dart.library.html) 'version_service_web.dart' as _reload;
 
@@ -29,6 +31,8 @@ class VersionResult {
   final String current;
   final String message;
   final String updateUrl;
+  /// Build instalado (rótulo UI) no momento da checagem.
+  final String installedLabel;
   /// Firestore/rede indisponível na checagem — o app segue; [UpdateChecker] pode repetir.
   final bool skippedDueToError;
   const VersionResult({
@@ -37,6 +41,7 @@ class VersionResult {
     this.current = '5.0',
     this.message = '',
     this.updateUrl = '',
+    this.installedLabel = '',
     this.skippedDueToError = false,
   });
 }
@@ -48,19 +53,57 @@ String kDefaultVersionUpdateMessage(String targetLabel) {
 }
 
 /// `true` se a versão instalada está abaixo de [minVersion] ou do [minBuildNumber] (mesmo X.Y.Z).
+/// Preferir [isInstalledBelowRequiredVersion] no mobile — usa build lógico no iOS (não o ASC longo).
 bool isAppBelowRequiredVersion({
   required String minVersion,
   int? minBuildNumber,
+  String? installedMarketingVersion,
+  int? installedLogicalBuild,
 }) {
   final min = minVersion.trim();
   if (min.isEmpty) return false;
-  final cmp = _compareVersions(appVersion, min);
+  final currentVer =
+      (installedMarketingVersion ?? appVersion).trim().isEmpty
+          ? appVersion
+          : (installedMarketingVersion ?? appVersion);
+  final cmp = _compareVersions(currentVer, min);
   if (cmp < 0) return true;
   if (cmp > 0) return false;
   final minB = minBuildNumber ?? 0;
   if (minB <= 0) return false;
-  final currentB = int.tryParse(appBuildNumber) ?? 0;
+  final currentB = installedLogicalBuild ?? int.tryParse(appBuildNumber) ?? 0;
   return currentB < minB;
+}
+
+/// Checagem com build real do dispositivo (Android versionCode; iOS +N lógico, não timestamp ASC).
+Future<bool> isInstalledBelowRequiredVersion({
+  required String minVersion,
+  int? minBuildNumber,
+  int? minBuildNumberIosAsc,
+}) async {
+  final min = minVersion.trim();
+  if (min.isEmpty) return false;
+
+  final currentVer = await resolveInstalledMarketingVersionForUpdateCheck();
+  final currentBuild = await resolveInstalledBuildForUpdateCheck();
+
+  if (!kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      minBuildNumberIosAsc != null &&
+      minBuildNumberIosAsc > 0) {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final iosNative = int.tryParse(info.buildNumber) ?? 0;
+      if (iosNative > 0 && iosNative < minBuildNumberIosAsc) return true;
+    } catch (_) {}
+  }
+
+  return isAppBelowRequiredVersion(
+    minVersion: min,
+    minBuildNumber: minBuildNumber,
+    installedMarketingVersion: currentVer,
+    installedLogicalBuild: currentBuild,
+  );
 }
 
 String _targetVersionLabel(String minVersion, int? minBuildNumber) {
@@ -100,13 +143,19 @@ class VersionService {
   /// Interpreta [data] de `config/appVersion` para o banner do painel.
   /// Usa `latestVersion` se existir; senão `minVersion`. Só retorna hint se o app estiver mais antigo.
   /// [storeUrlAndroid] vazio → [kDefaultPlayStoreUrl].
-  PanelUpdateHint? panelUpdateHintFromConfigData(Map<String, dynamic>? data) {
+  Future<PanelUpdateHint?> panelUpdateHintFromConfigData(
+    Map<String, dynamic>? data,
+  ) async {
     if (data == null) return null;
     final minVer = (data['minVersion'] ?? '').toString().trim();
     final minBuildRaw = data['minBuildNumber'];
     final minBuild = minBuildRaw is num
         ? minBuildRaw.toInt()
         : int.tryParse('$minBuildRaw') ?? 0;
+    final minIosAscRaw = data['minBuildNumberIosAsc'];
+    final minIosAsc = minIosAscRaw is num
+        ? minIosAscRaw.toInt()
+        : int.tryParse('$minIosAscRaw');
 
     var target = (data['latestVersion'] ?? '').toString().trim();
     if (target.isEmpty) {
@@ -125,9 +174,10 @@ class VersionService {
     } else if (compareVer.isEmpty) {
       compareVer = target;
     }
-    if (!isAppBelowRequiredVersion(
+    if (!await isInstalledBelowRequiredVersion(
       minVersion: compareVer,
       minBuildNumber: compareBuild,
+      minBuildNumberIosAsc: minIosAsc,
     )) {
       return null;
     }
@@ -174,15 +224,20 @@ class VersionService {
       final minBuildNumber = minBuildRaw is num
           ? minBuildRaw.toInt()
           : int.tryParse('$minBuildRaw');
+      final minIosAscRaw = data['minBuildNumberIosAsc'];
+      final minBuildNumberIosAsc = minIosAscRaw is num
+          ? minIosAscRaw.toInt()
+          : int.tryParse('$minIosAscRaw');
       final forceUpdate = data['forceUpdate'] == true;
       final message = (data['message'] ?? '').toString();
       final storeUrlAndroid = (data['storeUrlAndroid'] ?? '').toString().trim();
       final storeUrlIos = (data['storeUrlIos'] ?? '').toString().trim();
       final webRefresh = data['webRefresh'] == true;
 
-      final outdated = isAppBelowRequiredVersion(
+      final outdated = await isInstalledBelowRequiredVersion(
         minVersion: minVersion,
         minBuildNumber: minBuildNumber,
+        minBuildNumberIosAsc: minBuildNumberIosAsc,
       );
       if (!outdated) return const VersionResult();
 
@@ -210,10 +265,13 @@ class VersionService {
         }
       }
 
+      final installedLabel = await installedBuildLabelForUi();
+
       return VersionResult(
         outdated: true,
         force: forceUpdate,
         current: targetLabel,
+        installedLabel: installedLabel,
         message: message.trim().isNotEmpty
             ? message.trim()
             : kDefaultVersionUpdateMessage(targetLabel),

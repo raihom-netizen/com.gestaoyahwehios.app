@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -199,22 +200,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   /// Marca padrão quando não há logo ou falha 403/rede (padding adapta em telas baixas).
-  Widget _fallbackGestaoYahwehLogo(double maxHeight) {
-    final pad = maxHeight < 96 ? 6.0 : 14.0;
-    final imgH = (maxHeight - pad * 2).clamp(24.0, maxHeight);
-    return Center(
-      child: Container(
-        padding: EdgeInsets.all(pad),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Image.asset(
-          'assets/LOGO_GESTAO_YAHWEH.png',
-          height: imgH,
-          fit: BoxFit.contain,
-        ),
-      ),
+  Widget _fallbackGestaoYahwehLogo(double maxWidth, double maxHeight) {
+    return DefaultChurchLogoAsset(
+      width: maxWidth,
+      height: maxHeight,
+      fractionOfBox: 0.9,
+      borderRadius: BorderRadius.circular(16),
     );
   }
 
@@ -225,7 +216,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }) {
     final tid = _tenantId?.trim();
     final tenantMap = _tenantChurchData;
-    final fallback = _fallbackGestaoYahwehLogo(maxHeight);
+    final fallback = _fallbackGestaoYahwehLogo(maxWidth, maxHeight);
     if (tid == null || tid.isEmpty) return fallback;
 
     final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);

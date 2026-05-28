@@ -3517,7 +3517,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final remaining = (kMaxAvisoFeedPhotosPerPost -
               _existingUrls.length -
               _newPhotoCount)
@@ -3561,7 +3561,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -3770,7 +3770,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final hasNewImages = _newPhotoCount > 0;
     setState(() => _saving = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       // Publicação instantânea: evita leitura/compressão pesada antes do stub no Firestore.
       // Para novas fotos, usamos razão padrão e deixamos ajustes para o pipeline assíncrono.

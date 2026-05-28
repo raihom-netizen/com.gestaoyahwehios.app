@@ -128,6 +128,34 @@ class ChurchChatService {
     return threadId.startsWith('dm_${uid}_') || threadId.endsWith('_$uid');
   }
 
+  /// Outro participante num DM `dm_{menor}_{maior}` (legado sem `participantUids`).
+  static String? otherUidInDmThread(String threadId, String myUid) {
+    if (!threadId.startsWith('dm_') || myUid.isEmpty) return null;
+    final body = threadId.substring(3);
+    final i = body.indexOf('_');
+    if (i <= 0 || i >= body.length - 1) return null;
+    final u1 = body.substring(0, i);
+    final u2 = body.substring(i + 1);
+    if (u1 == myUid) return u2.isEmpty ? null : u2;
+    if (u2 == myUid) return u1.isEmpty ? null : u1;
+    return null;
+  }
+
+  /// Participação no thread — índice `participantUids` ou id `dm_{uid}_…` (Firestore rules).
+  static bool userParticipatesInThread({
+    required String threadId,
+    required Map<String, dynamic> data,
+    required String uid,
+  }) {
+    if (uid.isEmpty) return false;
+    final peers = data['participantUids'];
+    if (peers is List &&
+        peers.map((e) => e.toString()).where((e) => e.isNotEmpty).contains(uid)) {
+      return true;
+    }
+    return userInDmThreadId(threadId, uid);
+  }
+
   /// DM só entra na lista «Conversas» depois da primeira mensagem real (evita «Toque para conversar» de quem nunca falou).
   static bool threadHasListableConversation(
     Map<String, dynamic> data, {
@@ -144,6 +172,8 @@ class ChurchChatService {
     if (sender.isNotEmpty) return true;
     final mc = data['messageCount'];
     if (mc is num && mc > 0) return true;
+    final lm = data['lastMessageAt'];
+    if (lm is Timestamp) return true;
     return false;
   }
 
@@ -193,8 +223,61 @@ class ChurchChatService {
     return n;
   }
 
+  static Future<Map<String, dynamic>?> _lastMessageIndexPatch(
+    DocumentReference<Map<String, dynamic>> threadRef,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final last = await threadRef
+          .collection('messages')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+      if (last.docs.isEmpty) return null;
+      final msg = last.docs.first.data();
+      final created = msg['createdAt'];
+      if (created is! Timestamp) return null;
+      final t = (msg['type'] ?? 'text').toString();
+      var preview = (msg['text'] ?? '').toString().trim();
+      if (t == 'image') {
+        preview = '📷 Foto';
+      } else if (t == 'video') {
+        preview = '🎬 Vídeo';
+      } else if (t == 'audio') {
+        preview = '🎤 Áudio';
+      } else if (t == 'sticker') {
+        preview = '🎨 Figurinha';
+      }
+      if (preview.length > 120) preview = '${preview.substring(0, 117)}…';
+
+      final patch = <String, dynamic>{};
+      if (data['lastMessageAt'] == null) patch['lastMessageAt'] = created;
+      if ((data['lastMessagePreview'] ?? '').toString().trim().isEmpty &&
+          preview.isNotEmpty) {
+        patch['lastMessagePreview'] = preview;
+      }
+      final sender = (msg['senderUid'] ?? '').toString().trim();
+      if ((data['lastSenderUid'] ?? '').toString().trim().isEmpty &&
+          sender.isNotEmpty) {
+        patch['lastSenderUid'] = sender;
+      }
+      return patch.isEmpty ? null : patch;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<int> repairDmThreadsClient(String tenantId) async {
-    final snap = await chatThreadsBroadScanQuery(tenantId).get();
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await chatThreadsBroadScanQuery(tenantId).get();
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('repairDmThreadsClient broad scan: $e');
+      }
+      return 0;
+    }
     var n = 0;
     WriteBatch? batch = _db.batch();
     var batchCount = 0;
@@ -202,7 +285,12 @@ class ChurchChatService {
       if (!doc.id.startsWith('dm_')) continue;
       final data = doc.data();
       var patch = dmThreadIndexPatch(doc.id, data);
-      if (!threadHasListableConversation(data, threadId: doc.id) &&
+      final msgPatch = await _lastMessageIndexPatch(doc.reference, data);
+      if (msgPatch != null) {
+        patch ??= <String, dynamic>{};
+        patch.addAll(msgPatch);
+      }
+      if (!threadHasListableConversation({...data, ...?patch}, threadId: doc.id) &&
           data['lastMessageAt'] != null) {
         patch ??= <String, dynamic>{};
         patch['lastMessageAt'] = FieldValue.delete();
@@ -220,6 +308,55 @@ class ChurchChatService {
     }
     if (batchCount > 0 && batch != null) await batch.commit();
     return n;
+  }
+
+  /// Fallback quando a query ampla falha na web: lê threads DM por id (`dm_{uid}_peer`).
+  static Future<QuerySnapshot<Map<String, dynamic>>> loadDmThreadsSnapshotFallback({
+    required String tenantId,
+    required String uid,
+  }) async {
+    final peerUids = <String>{};
+    try {
+      final profiles = await _db
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('chat_peer_profiles')
+          .limit(220)
+          .get();
+      for (final p in profiles.docs) {
+        final id = p.id.trim();
+        if (id.isNotEmpty && id != uid) peerUids.add(id);
+      }
+    } catch (_) {}
+
+    final threadIds = peerUids.map((p) => dmThreadId(uid, p)).toSet();
+    if (threadIds.isEmpty) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
+
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final col = _db.collection('igrejas').doc(tenantId).collection('chat_threads');
+    final ids = threadIds.toList();
+    for (var i = 0; i < ids.length; i += 10) {
+      final end = (i + 10 < ids.length) ? i + 10 : ids.length;
+      final chunk = ids.sublist(i, end);
+      try {
+        final snap = await col
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (final doc in snap.docs) {
+          if (_docIsDmForUserList(doc, uid)) docs.add(doc);
+        }
+      } catch (_) {
+        // Chunk ignorado — reparo callable + query indexada cobrem o resto.
+      }
+    }
+
+    docs.sort(
+      (a, b) =>
+          _threadActivityMs(b.data()).compareTo(_threadActivityMs(a.data())),
+    );
+    return MergedFirestoreQuerySnapshot(docs);
   }
 
   static int _threadActivityMs(Map<String, dynamic> data) {
@@ -264,18 +401,9 @@ class ChurchChatService {
     final data = doc.data();
     final t = (data['type'] ?? '').toString();
     if (t == 'department' || doc.id.startsWith('dept_')) return false;
-    final inThread = () {
-      if (t == 'dm' || doc.id.startsWith('dm_')) {
-        final parts = data['participantUids'];
-        if (parts is List && parts.map((e) => e.toString()).contains(uid)) {
-          return true;
-        }
-        return userInDmThreadId(doc.id, uid);
-      }
-      final parts = data['participantUids'];
-      return parts is List && parts.map((e) => e.toString()).contains(uid);
-    }();
-    if (!inThread) return false;
+    if (!userParticipatesInThread(threadId: doc.id, data: data, uid: uid)) {
+      return false;
+    }
     return threadHasListableConversation(data, threadId: doc.id);
   }
 
@@ -291,10 +419,27 @@ class ChurchChatService {
     QuerySnapshot<Map<String, dynamic>>? lastBroad;
     var wireAttempts = 0;
     var wiring = false;
+    var fallbackInFlight = false;
 
     void emitMerged() {
       if (controller.isClosed) return;
-      controller.add(_mergeThreadSnapshots(uid, lastIndexed, lastBroad));
+      final merged = _mergeThreadSnapshots(uid, lastIndexed, lastBroad);
+      controller.add(merged);
+      if (merged.docs.isNotEmpty || fallbackInFlight) return;
+      fallbackInFlight = true;
+      unawaited(() async {
+        try {
+          final fb = await loadDmThreadsSnapshotFallback(
+            tenantId: tenantId,
+            uid: uid,
+          );
+          if (!controller.isClosed && fb.docs.isNotEmpty) {
+            controller.add(fb);
+          }
+        } finally {
+          fallbackInFlight = false;
+        }
+      }());
     }
 
     Future<void> wire() async {

@@ -58,13 +58,17 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
       stream: FirebaseFirestore.instance.doc('config/appVersion').snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data();
-        final hint = VersionService.instance.panelUpdateHintFromConfigData(data);
-        if (hint == null) return const SizedBox.shrink();
-        if (_dismissedTarget != null && _dismissedTarget == hint.targetVersion) {
-          return const SizedBox.shrink();
-        }
+        return FutureBuilder<PanelUpdateHint?>(
+          future: VersionService.instance.panelUpdateHintFromConfigData(data),
+          builder: (context, hintSnap) {
+            final hint = hintSnap.data;
+            if (hint == null) return const SizedBox.shrink();
+            if (_dismissedTarget != null &&
+                _dismissedTarget == hint.targetVersion) {
+              return const SizedBox.shrink();
+            }
 
-        return Padding(
+            return Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Material(
                 elevation: 0,
@@ -237,6 +241,8 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                 ),
               ),
             );
+          },
+        );
       },
     );
   }

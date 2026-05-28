@@ -43,6 +43,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
+import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
@@ -804,12 +805,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Widget _cnhLogoSlot(_CardData data) {
     final logoUrl = churchTenantLogoUrl(data.tenant);
     if (logoUrl.isEmpty) {
-      return Image.asset(
-        'assets/logo.png',
+      return const DefaultChurchLogoAsset(
         width: 272,
         height: 272,
         fit: BoxFit.contain,
-        filterQuality: FilterQuality.medium,
+        fractionOfBox: 0.92,
       );
     }
     return StableChurchLogo(

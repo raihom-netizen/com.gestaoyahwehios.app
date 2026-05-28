@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Reforço release: Play valida AD_ID nos artefactos activos do AAB. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+</manifest>

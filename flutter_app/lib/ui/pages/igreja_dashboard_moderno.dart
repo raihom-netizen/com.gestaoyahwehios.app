@@ -7442,9 +7442,8 @@ class _PainelDestaqueMediaCarouselState
     final d = widget.data;
     final refs = _painelDestaqueGalleryPhotos(d);
     final vOpen = _panelVideoOpenUrl(d);
-    // Sem página extra de vídeo quando já há fotos (evita 1/2 com uma única imagem).
-    final videoSlide =
-        vOpen != null && vOpen.isNotEmpty && refs.isEmpty;
+    // Vídeo como último slide do carrossel (fotos + vídeo — igual ao feed de eventos).
+    final videoSlide = vOpen != null && vOpen.isNotEmpty;
     final n = refs.length + (videoSlide ? 1 : 0);
     if (n == 0) {
       return _DestaqueCard._gradientBanner(widget.title, widget.isEvento);
@@ -8018,6 +8017,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
             widget.doc.reference) ==
         ChurchTenantPostsCollections.avisos;
     final galleryRefs = yahwehPostGalleryRefs(data);
+    final galleryPhotos = _painelDestaqueGalleryPhotos(data);
     var firstImg = '';
     for (final raw in galleryRefs) {
       final s = sanitizeImageUrl(raw);
@@ -8056,8 +8056,10 @@ class _DestaqueCardState extends State<_DestaqueCard> {
       if (videoUrl.isNotEmpty) return videoUrl;
       return '';
     }();
-    final showCarousel = galleryRefs.isNotEmpty ||
-        (panelVideoUrl.isNotEmpty && galleryRefs.isEmpty);
+    final hasPanelVideoSlide = panelVideoUrl.isNotEmpty;
+    final slideCount =
+        galleryPhotos.length + (hasPanelVideoSlide ? 1 : 0);
+    final showCarousel = slideCount > 0;
     DateTime? dt;
     try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
     try { dt ??= (data['createdAt'] as Timestamp).toDate(); } catch (_) {}
@@ -8118,7 +8120,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
         : null;
 
     final nPhotosForAr = showCarousel
-        ? galleryRefs.length
+        ? galleryPhotos.length
         : ((primaryPhotoUrl.isNotEmpty ||
                 (storagePathPrimary?.trim().isNotEmpty ?? false))
             ? 1
@@ -8134,11 +8136,11 @@ class _DestaqueCardState extends State<_DestaqueCard> {
             data: data,
             isEvento: isEvento,
             title: title,
-            onGalleryPhotoTap: galleryRefs.isEmpty
+            onGalleryPhotoTap: galleryPhotos.isEmpty
                 ? null
                 : (i) => _openPainelDestaqueFotoAmpliar(
                       context,
-                      galleryRefs: galleryRefs,
+                      galleryRefs: galleryPhotos,
                       data: data,
                       title: title,
                       isEvento: isEvento,
@@ -8148,10 +8150,10 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                 _painelDestaqueToggleLike(context, widget.doc, widget.tenantId),
             onCarouselPageChanged:
                 (i) => setState(() => _carouselPage = i),
-            onOpenAlbumTap: galleryRefs.length > 1
+            onOpenAlbumTap: galleryPhotos.length > 1
                 ? () => _openPainelDestaqueFotoAmpliar(
                       context,
-                      galleryRefs: galleryRefs,
+                      galleryRefs: galleryPhotos,
                       data: data,
                       title: title,
                       isEvento: isEvento,
