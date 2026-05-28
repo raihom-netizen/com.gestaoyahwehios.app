@@ -61,37 +61,51 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) {
-    unawaited(Future<void>(() async {
-      await ensureFirebaseReadyForMediaUpload();
-      try {
-        await MuralPostPendingMediaCache.put(
-          tenantId: tenantId,
-          postId: postId,
-          images: newImages,
+    unawaited(
+      runFirebaseBackgroundTask<void>(
+        () async {
+          try {
+            await MuralPostPendingMediaCache.put(
+              tenantId: tenantId,
+              postId: postId,
+              images: newImages,
+            );
+            await MuralPublishOutboxService.registerJob(
+              tenantId: tenantId,
+              postId: postId,
+              postType: postType,
+              existingUrls: existingUrls,
+              startSlotIndex: startSlotIndex,
+              hasVideo: hasVideo,
+            );
+          } catch (_) {}
+          await uploadImagesAndFinalizePost(
+            docRef: docRef,
+            tenantId: tenantId,
+            postId: postId,
+            postType: postType,
+            newImages: newImages,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlotIndex,
+            hasVideo: hasVideo,
+            uploadSlot: uploadSlot,
+            buildMediaFields: buildMediaFields,
+            onPublished: onPublished,
+          );
+        },
+        debugLabel: 'mural_finalize_bytes',
+      ).catchError((Object e, StackTrace st) async {
+        await CrashlyticsService.record(
+          e,
+          st,
+          reason: 'mural_schedule_background_bytes',
         );
-        await MuralPublishOutboxService.registerJob(
-          tenantId: tenantId,
-          postId: postId,
-          postType: postType,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlotIndex,
-          hasVideo: hasVideo,
+        await _markFailed(
+          docRef: docRef,
+          message: formatUploadErrorForUser(e),
         );
-      } catch (_) {}
-      await uploadImagesAndFinalizePost(
-        docRef: docRef,
-        tenantId: tenantId,
-        postId: postId,
-        postType: postType,
-        newImages: newImages,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        uploadSlot: uploadSlot,
-        buildMediaFields: buildMediaFields,
-        onPublished: onPublished,
-      );
-    }));
+      }),
+    );
   }
 
   /// Mobile: comprime JPEG a partir do disco e envia em background (sem bloquear o editor).
@@ -118,63 +132,76 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) {
-    unawaited(Future<void>(() async {
-      await ensureFirebaseReadyForMediaUpload();
-      try {
-        await MuralPublishOutboxService.registerJob(
-          tenantId: tenantId,
-          postId: postId,
-          postType: postType,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlotIndex,
-          hasVideo: hasVideo,
-          localPaths: localPaths,
+    unawaited(
+      runFirebaseBackgroundTask<void>(
+        () async {
+          try {
+            await MuralPublishOutboxService.registerJob(
+              tenantId: tenantId,
+              postId: postId,
+              postType: postType,
+              existingUrls: existingUrls,
+              startSlotIndex: startSlotIndex,
+              hasVideo: hasVideo,
+              localPaths: localPaths,
+            );
+            String? firstPath;
+            for (final p in localPaths) {
+              final t = p.trim();
+              if (t.isNotEmpty) {
+                firstPath = t;
+                break;
+              }
+            }
+            if (firstPath != null) {
+              final f = File(firstPath);
+              if (await f.exists()) {
+                Uint8List previewBytes;
+                if (IosPublishImagePipeline.useIosLightweightPublish) {
+                  previewBytes =
+                      await IosPublishImagePipeline.compressForPublishFromPath(
+                    firstPath,
+                  );
+                } else {
+                  previewBytes = await f.readAsBytes();
+                }
+                if (previewBytes.isNotEmpty) {
+                  await MuralPostPendingMediaCache.put(
+                    tenantId: tenantId,
+                    postId: postId,
+                    images: [previewBytes],
+                  );
+                }
+              }
+            }
+          } catch (_) {}
+          await uploadImagesAndFinalizePostFromPaths(
+            docRef: docRef,
+            tenantId: tenantId,
+            postId: postId,
+            postType: postType,
+            localPaths: localPaths,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlotIndex,
+            hasVideo: hasVideo,
+            uploadSlot: uploadSlot,
+            buildMediaFields: buildMediaFields,
+            onPublished: onPublished,
+          );
+        },
+        debugLabel: 'mural_finalize_paths',
+      ).catchError((Object e, StackTrace st) async {
+        await CrashlyticsService.record(
+          e,
+          st,
+          reason: 'mural_schedule_background_paths',
         );
-        // Pré-visualização leve (1ª foto) — evita comprimir 4× antes do upload no Android.
-        String? firstPath;
-        for (final p in localPaths) {
-          final t = p.trim();
-          if (t.isNotEmpty) {
-            firstPath = t;
-            break;
-          }
-        }
-        if (firstPath != null) {
-          final f = File(firstPath);
-          if (await f.exists()) {
-            Uint8List previewBytes;
-            if (IosPublishImagePipeline.useIosLightweightPublish) {
-              previewBytes =
-                  await IosPublishImagePipeline.compressForPublishFromPath(
-                firstPath,
-              );
-            } else {
-              previewBytes = await f.readAsBytes();
-            }
-            if (previewBytes.isNotEmpty) {
-              await MuralPostPendingMediaCache.put(
-                tenantId: tenantId,
-                postId: postId,
-                images: [previewBytes],
-              );
-            }
-          }
-        }
-      } catch (_) {}
-      await uploadImagesAndFinalizePostFromPaths(
-        docRef: docRef,
-        tenantId: tenantId,
-        postId: postId,
-        postType: postType,
-        localPaths: localPaths,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        uploadSlot: uploadSlot,
-        buildMediaFields: buildMediaFields,
-        onPublished: onPublished,
-      );
-    }));
+        await _markFailed(
+          docRef: docRef,
+          message: formatUploadErrorForUser(e),
+        );
+      }),
+    );
   }
 
   /// Sobe fotos em paralelo e faz merge no post; push FCM só após `published` (Function).
@@ -304,7 +331,6 @@ abstract final class MuralFastPublishService {
         maxConcurrent: _feedUploadConcurrency(paths.length),
         progressLabel: 'A enviar imagens…',
         uploadOne: (i, report) async {
-          await ensureFirebaseReadyForMediaUpload();
           final r = await MuralPostMediaPayload.uploadPhotoSlotWithVariants(
             tenantId: tenantId,
             postType: postType,
@@ -454,9 +480,13 @@ abstract final class MuralFastPublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required String message,
   }) async {
-    final userMsg = message.trim().isEmpty
-        ? 'Não foi possível enviar as fotos. Toque em «Tentar de novo».'
-        : message;
+    final userMsg = formatUploadErrorForUser(
+      message.trim().isEmpty
+          ? StateError(
+              'Não foi possível enviar as fotos. Toque em «Tentar de novo».',
+            )
+          : Exception(message.trim()),
+    );
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
         await ensureFirebaseReadyForMediaUpload();

@@ -119,27 +119,20 @@ abstract final class ChurchChatMediaOutboxService {
   }
 
   static void resumePendingOnAppStart() {
-    unawaited(() async {
-      try {
-        await ensureFirebaseInitialized();
-      } catch (_) {
-        return;
-      }
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final raw = prefs.getString(_prefsKey);
-        if (raw == null || raw.isEmpty) return;
-        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        for (final m in list) {
-          await _retryFromJson(m);
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('ChurchChatMediaOutbox resume: $e');
-        }
-      }
-    }());
+    unawaited(
+      runFirebaseBackgroundTask<void>(
+        () async {
+          final prefs = await SharedPreferences.getInstance();
+          final raw = prefs.getString(_prefsKey);
+          if (raw == null || raw.isEmpty) return;
+          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+          for (final m in list) {
+            await _retryFromJson(m);
+          }
+        },
+        debugLabel: 'chat_outbox_resume',
+      ).catchError((_) {}),
+    );
   }
 
   static Future<void> _retryFromJson(Map<String, dynamic> json) async {

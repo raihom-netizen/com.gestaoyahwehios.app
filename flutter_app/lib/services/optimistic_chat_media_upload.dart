@@ -50,22 +50,25 @@ abstract final class OptimisticChatMediaUpload {
     VoidCallback? onReplyCleared,
   }) async {
     try {
-      await _flushCore(
-        pending: pending,
-        tenantId: tenantId,
-        threadId: threadId,
-        bytes: bytes,
-        localPath: localPath,
-        replyTo: replyTo,
-        onProgress: onProgress,
-        onFailed: onFailed,
-        onSuccess: onSuccess,
-        onReplyCleared: onReplyCleared,
-      ).timeout(
-        _flushTimeoutFor(pending.kind),
-        onTimeout: () => throw TimeoutException(
-          'Envio demorou demais. Verifique a rede e tente de novo.',
+      await runFirebaseBackgroundTask<void>(
+        () => _flushCore(
+          pending: pending,
+          tenantId: tenantId,
+          threadId: threadId,
+          bytes: bytes,
+          localPath: localPath,
+          replyTo: replyTo,
+          onProgress: onProgress,
+          onFailed: onFailed,
+          onSuccess: onSuccess,
+          onReplyCleared: onReplyCleared,
+        ).timeout(
+          _flushTimeoutFor(pending.kind),
+          onTimeout: () => throw TimeoutException(
+            'Envio demorou demais. Verifique a rede e tente de novo.',
+          ),
         ),
+        debugLabel: 'chat_media_flush',
       );
     } on TimeoutException catch (e) {
       await _abandonStub(pending, tenantId, threadId);
@@ -121,7 +124,7 @@ abstract final class OptimisticChatMediaUpload {
     }
 
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       if (messageId == null || messageId.isEmpty) {
         final can = await ChurchChatMemberPrefs.canSendToDmThread(
           tenantId: tenantId,

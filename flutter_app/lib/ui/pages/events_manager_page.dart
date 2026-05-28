@@ -5399,6 +5399,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _saving = false;
   bool _mediaPicking = false;
   bool _uploadingVideo = false;
+  /// Evento já publicado (stub+fotos) enquanto o vídeo ainda sobe — merge ao concluir.
+  bool _publishedAwaitingVideoMerge = false;
   /// null = a comprimir / a preparar; 0–1 = progresso real do upload ao Storage.
   double? _videoUploadFraction;
   bool _buscandoCep = false;
@@ -6237,6 +6239,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _uploadingVideo = false;
         _videoUploadFraction = null;
       });
+      if (_publishedAwaitingVideoMerge) {
+        _publishedAwaitingVideoMerge = false;
+        unawaited(_mergePublishedEventVideoFields());
+      }
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6538,12 +6544,43 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Future<void> _mergePublishedEventVideoFields() async {
+    try {
+      await ensureFirebaseReadyForMediaUpload();
+      final firstVideoUrl = _eventVideos.isNotEmpty
+          ? (_eventVideos.first['videoUrl'] ?? '').toString().trim()
+          : _videoUrl.text.trim();
+      if (firstVideoUrl.isEmpty) return;
+      final firstThumbUrl = _eventVideos.isNotEmpty
+          ? (_eventVideos.first['thumbUrl'] ?? '').toString().trim()
+          : '';
+      final videosClean = _eventVideos
+          .map((e) => <String, dynamic>{
+                'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+                'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+              })
+          .where((m) => (m['videoUrl'] as String).isNotEmpty)
+          .toList();
+      await _eventDocRef.set(
+        {
+          'videoUrl': firstVideoUrl,
+          'thumbUrl': firstThumbUrl,
+          'videos': videosClean,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      _schedulePostPublishCacheWarmup();
+    } catch (_) {}
+  }
+
   Future<void> _save() async {
     if (_saving) return;
-    if (_uploadingVideo) {
+    final willUsePhotoStub = _newPhotoCount > 0;
+    if (_uploadingVideo && !willUsePhotoStub) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Aguarde o envio do vídeo terminar antes de publicar.',
+          'Aguarde o envio do vídeo terminar ou publique com fotos (vídeo entra em seguida).',
         ),
       );
       return;
@@ -6629,12 +6666,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         );
         await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
+          if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
           setState(() => _saving = false);
           _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-              'Evento criado — a enviar fotos em segundo plano',
+              _uploadingVideo
+                  ? 'Evento criado — fotos em segundo plano; vídeo a concluir…'
+                  : 'Evento criado — a enviar fotos em segundo plano',
             ),
           );
           Navigator.pop(context, true);

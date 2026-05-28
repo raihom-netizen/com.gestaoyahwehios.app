@@ -3179,8 +3179,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(ensureFirebaseInitialized());
-    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
+    unawaited(() async {
+      await ensureFirebaseInitialized();
+      await FeedPostMediaUpload.warmAuthToken().catchError((_) {});
+    }());
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(

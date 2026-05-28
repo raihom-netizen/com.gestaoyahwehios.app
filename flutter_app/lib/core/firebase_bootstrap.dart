@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -8,10 +9,8 @@ import 'package:gestao_yahweh/firebase_options.dart';
 
 /// Garante [Firebase.initializeApp] antes de Firestore/Storage/Auth.
 ///
-/// **Web, Android e iOS** — usar antes de qualquer operação Firebase (publicar aviso/evento,
-/// chat, upload Storage, perfis). No iOS, `Firebase.apps.isNotEmpty` pode ser verdadeiro sem
-/// o app Dart `[DEFAULT]` — por isso validamos com [Firebase.app].
-Future<void>? _initFuture;
+/// Web, Android e iOS — obrigatório antes de publicar aviso/evento, chat ou upload.
+Completer<void>? _bootstrapCompleter;
 
 bool _hasDefaultFirebaseApp() {
   try {
@@ -22,71 +21,77 @@ bool _hasDefaultFirebaseApp() {
   }
 }
 
+/// Aguarda o bootstrap completo (inicialização + Storage/Auth/Firestore utilizáveis).
 Future<void> ensureFirebaseInitialized() async {
-  Object? last;
-  for (var attempt = 1; attempt <= 3; attempt++) {
-    try {
-      await _ensureFirebaseInitializedOnce();
-      return;
-    } catch (e) {
-      last = e;
-      _initFuture = null;
-      if (attempt >= 3) break;
-      await Future.delayed(Duration(milliseconds: 320 * attempt));
-    }
-  }
-  throw last ??
-      StateError(
-        'Firebase não inicializou. Reinicie o app ou atualize para a versão mais recente.',
-      );
-}
-
-Future<void> _ensureFirebaseInitializedOnce() async {
-  if (_hasDefaultFirebaseApp()) return;
-
-  if (_initFuture != null) {
-    await _initFuture!;
-    if (_hasDefaultFirebaseApp()) return;
-    _initFuture = null;
+  if (_hasDefaultFirebaseApp()) {
+    await _validateFirebasePluginsReady();
+    return;
   }
 
-  final fut = _initializeFirebaseDefaultApp();
-  _initFuture = fut;
+  final inflight = _bootstrapCompleter;
+  if (inflight != null) {
+    await inflight.future;
+    return;
+  }
+
+  final c = Completer<void>();
+  _bootstrapCompleter = c;
   try {
-    await fut;
-  } catch (e) {
-    _initFuture = null;
+    for (var attempt = 1; attempt <= 4; attempt++) {
+      try {
+        await _initializeFirebaseDefaultApp();
+        await _validateFirebasePluginsReady();
+        c.complete();
+        return;
+      } catch (e) {
+        _bootstrapCompleter = null;
+        if (attempt >= 4) {
+          c.completeError(e);
+          rethrow;
+        }
+        await Future.delayed(Duration(milliseconds: 280 * attempt));
+      }
+    }
+  } catch (e, st) {
+    if (!c.isCompleted) c.completeError(e, st);
     rethrow;
   }
-  _initFuture = null;
-
-  if (!_hasDefaultFirebaseApp()) {
-    throw StateError(
-      'Firebase não inicializou. Reinicie o app ou atualize para a versão mais recente.',
-    );
-  }
 }
 
-/// Upload mural/chat: confirma Storage/Auth após [ensureFirebaseInitialized].
+/// Upload mural/chat: confirma Storage/Auth após init (evita «No Firebase App» no nativo).
 Future<void> ensureFirebaseReadyForMediaUpload() async {
   await ensureFirebaseInitialized();
-  try {
-    FirebaseStorage.instance.ref('_bootstrap_ping').fullPath;
-    final _ = FirebaseAuth.instance.app;
-  } catch (e) {
-    final low = e.toString().toLowerCase();
-    if (low.contains('no firebase app') ||
-        low.contains('firebase.initializeapp')) {
-      _initFuture = null;
-      await _ensureFirebaseInitializedOnce();
-      FirebaseStorage.instance.ref('_bootstrap_ping').fullPath;
-    } else {
-      rethrow;
+  await _validateFirebasePluginsReady();
+}
+
+/// Executa [fn] só após Firebase pronto — use em `unawaited` de publicação em background.
+Future<T> runFirebaseBackgroundTask<T>(
+  Future<T> Function() fn, {
+  String? debugLabel,
+}) async {
+  Object? last;
+  for (var attempt = 1; attempt <= 4; attempt++) {
+    try {
+      await ensureFirebaseReadyForMediaUpload();
+      return await fn();
+    } catch (e, st) {
+      last = e;
+      _bootstrapCompleter = null;
+      if (kDebugMode && debugLabel != null) {
+        debugPrint('runFirebaseBackgroundTask($debugLabel) tentativa $attempt: $e');
+      }
+      if (attempt >= 4) {
+        Error.throwWithStackTrace(last ?? e, st);
+      }
+      await Future.delayed(Duration(milliseconds: 350 * attempt));
     }
   }
+  throw last ?? StateError('Firebase indisponível');
 }
 
 Future<void> _initializeFirebaseDefaultApp() async {
+  if (_hasDefaultFirebaseApp()) return;
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -105,6 +110,39 @@ Future<void> _initializeFirebaseDefaultApp() async {
     }
     if (kDebugMode) {
       debugPrint('ensureFirebaseInitialized falhou: $e');
+    }
+    rethrow;
+  }
+
+  if (!_hasDefaultFirebaseApp()) {
+    throw StateError(
+      'Firebase não inicializou. Feche o app por completo e abra de novo.',
+    );
+  }
+}
+
+Future<void> _validateFirebasePluginsReady() async {
+  if (!_hasDefaultFirebaseApp()) {
+    throw StateError(
+      'Firebase não inicializou. Feche o app por completo e abra de novo.',
+    );
+  }
+  try {
+    final app = Firebase.app();
+    FirebaseFirestore.instanceFor(app: app);
+    final auth = FirebaseAuth.instanceFor(app: app);
+    // ignore: unnecessary_statements
+    auth.app;
+    final storage = FirebaseStorage.instanceFor(app: app);
+    // ignore: unnecessary_statements
+    storage.ref('_bootstrap_ping').fullPath;
+  } catch (e) {
+    final low = e.toString().toLowerCase();
+    if (low.contains('no firebase app') ||
+        low.contains('firebase.initializeapp')) {
+      throw StateError(
+        'Serviços Firebase não iniciaram. Feche o app por completo e abra de novo.',
+      );
     }
     rethrow;
   }

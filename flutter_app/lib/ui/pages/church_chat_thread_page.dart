@@ -1531,34 +1531,43 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required List<int>? bytes,
     required String? localPath,
   }) async {
-    await ensureFirebaseInitialized();
+    _enqueuePending(pending);
     final bytesCopy = bytes != null && bytes.isNotEmpty
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : pending.previewBytes;
-    unawaited(ChurchChatMediaOutboxService.registerJob(
-      tenantId: widget.tenantId,
-      threadId: widget.threadId,
-      localId: pending.localId,
-      kind: pending.kind,
-      fileName: pending.fileName,
-      mime: pending.mime,
-      localPath: localPath ?? pending.localPath,
-      bytes: bytesCopy,
-    ));
-    _enqueuePending(pending);
-    // WhatsApp: bolha já na thread; stub Firestore + upload em paralelo.
-    unawaited(() async {
-      try {
-        await _startPendingFirestoreStub(pending);
-      } catch (_) {
-        // flush tenta criar o stub de novo
-      }
-      await _flushPendingUpload(
-        pending: pending,
-        bytes: bytes,
-        localPath: localPath,
-      );
-    }());
+    unawaited(
+      runFirebaseBackgroundTask<void>(() async {
+        await ChurchChatMediaOutboxService.registerJob(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          localId: pending.localId,
+          kind: pending.kind,
+          fileName: pending.fileName,
+          mime: pending.mime,
+          localPath: localPath ?? pending.localPath,
+          bytes: bytesCopy,
+        );
+        try {
+          await _startPendingFirestoreStub(pending);
+        } catch (_) {
+          // flush tenta criar o stub de novo
+        }
+        await _flushPendingUpload(
+          pending: pending,
+          bytes: bytes,
+          localPath: localPath,
+        );
+      }, debugLabel: 'chat_media_enqueue').catchError((Object e) {
+        final i =
+            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+        if (i >= 0) {
+          _pendingOutbound[i].failed = true;
+          _pendingOutbound[i].errorMessage =
+              ChurchChatService.formatInstantSendError(e);
+          if (mounted) setState(() {});
+        }
+      }),
+    );
   }
 
   void _showChatAttachmentError(String message) {

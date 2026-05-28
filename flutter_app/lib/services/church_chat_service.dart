@@ -1096,7 +1096,7 @@ class ChurchChatService {
     return true;
   }
 
-  /// Stub de texto (`deliveryStatus: sending`) — aparece na thread sem esperar rede lenta.
+  /// Stub de texto (`deliveryStatus: sending`) — aparece na thread e indexa a conversa na hora.
   static Future<({String messageId, bool allowed})> beginTextMessage({
     required String tenantId,
     required String threadId,
@@ -1106,6 +1106,7 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
+    await ensureFirebaseReadyForMediaUpload();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1139,6 +1140,23 @@ class ChurchChatService {
             label.length > 100 ? label.substring(0, 100) : label,
       if (mentions.isNotEmpty) 'mentionedUids': mentions,
     });
+    final preview = nf != null
+        ? '↪ ${nf['preview']}'
+        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
+    final threadPatch = <String, dynamic>{
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastMessagePreview': preview.length > 120
+          ? '${preview.substring(0, 117)}…'
+          : preview,
+      'lastSenderUid': uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final indexPatch = dmThreadIndexPatch(threadId, const {});
+    if (indexPatch != null) threadPatch.addAll(indexPatch);
+    await threadRef(tenantId, threadId).set(
+      threadPatch,
+      SetOptions(merge: true),
+    );
     return (messageId: msgRef.id, allowed: true);
   }
 
@@ -1150,25 +1168,37 @@ class ChurchChatService {
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
   }) async {
+    await ensureFirebaseReadyForMediaUpload();
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
         ? '↪ ${nf['preview']}'
         : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
-    await messagesCol(tenantId, threadId).doc(messageId).update({
-      'deliveryStatus': deliverySent,
-    });
-    await threadRef(tenantId, threadId).set(
-      {
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'lastMessagePreview': preview.length > 120
-            ? '${preview.substring(0, 117)}…'
-            : preview,
-        'lastSenderUid': uid,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    Object? last;
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      try {
+        await messagesCol(tenantId, threadId).doc(messageId).update({
+          'deliveryStatus': deliverySent,
+        });
+        await threadRef(tenantId, threadId).set(
+          {
+            'lastMessageAt': FieldValue.serverTimestamp(),
+            'lastMessagePreview': preview.length > 120
+                ? '${preview.substring(0, 117)}…'
+                : preview,
+            'lastSenderUid': uid,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        return;
+      } catch (e) {
+        last = e;
+        if (attempt >= 5) break;
+        await Future.delayed(Duration(milliseconds: 280 * attempt));
+      }
+    }
+    throw last ?? StateError('Não foi possível concluir o envio da mensagem.');
   }
 
   static Future<void> abandonTextMessage({
@@ -1450,7 +1480,7 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1499,6 +1529,7 @@ class ChurchChatService {
             : preview,
         'lastSenderUid': uid,
         'updatedAt': FieldValue.serverTimestamp(),
+        ...?dmThreadIndexPatch(threadId, const {}),
       },
       SetOptions(merge: true),
     );
@@ -1615,7 +1646,7 @@ class ChurchChatService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
@@ -1656,6 +1687,7 @@ class ChurchChatService {
     if (kIsWeb) {
       throw UnsupportedError('uploadChatFile não suportado na web.');
     }
+    await ensureFirebaseReadyForMediaUpload();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,

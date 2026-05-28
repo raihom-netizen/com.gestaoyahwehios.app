@@ -1560,9 +1560,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     disp = _deptDisplayTitle(doc);
                     preview = (data['lastMessagePreview'] ?? '').toString();
                   } else {
-                    final others = peers.where((p) => p != uid).toList();
-                    if (others.isEmpty) continue;
-                    final peer = others.first;
+                    var peer = peers.where((p) => p != uid).firstOrNull;
+                    peer ??= ChurchChatService.otherUidInDmThread(doc.id, uid);
+                    if (peer == null || peer.isEmpty) continue;
                     if (prefs.isBlockedPeer(peer)) continue;
                     disp = _dmDisplayTitle(doc, uid);
                     preview = (data['lastMessagePreview'] ?? '').toString();

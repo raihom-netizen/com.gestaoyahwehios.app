@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
 /// Chat estilo WhatsApp: mensagem no Firestore primeiro (`sending`), finalize em background.
@@ -24,7 +25,8 @@ abstract final class ChurchChatInstantSendService {
     void Function(bool ok)? onComplete,
     void Function(String message)? onError,
   }) {
-    unawaited(Future<void>(() async {
+    unawaited(
+      runFirebaseBackgroundTask<void>(() async {
       var messageId = '';
       try {
         final begun = await ChurchChatService.beginTextMessage(
@@ -63,7 +65,10 @@ abstract final class ChurchChatInstantSendService {
         }
         onError?.call(ChurchChatService.formatInstantSendError(e));
       }
-    }));
+    }, debugLabel: 'chat_text_send').catchError((Object e) {
+      onError?.call(ChurchChatService.formatInstantSendError(e));
+    }),
+    );
   }
 
   /// Figurinha (URL já no Storage): stub `sending` → `sent` em background.
@@ -78,7 +83,8 @@ abstract final class ChurchChatInstantSendService {
     void Function(bool ok)? onComplete,
     void Function(String message)? onError,
   }) {
-    unawaited(Future<void>(() async {
+    unawaited(
+      runFirebaseBackgroundTask<void>(() async {
       var messageId = '';
       try {
         final begun = await ChurchChatService.beginStickerMessage(
@@ -117,6 +123,9 @@ abstract final class ChurchChatInstantSendService {
         }
         onError?.call(ChurchChatService.formatInstantSendError(e));
       }
-    }));
+    }, debugLabel: 'chat_sticker_send').catchError((Object e) {
+      onError?.call(ChurchChatService.formatInstantSendError(e));
+    }),
+    );
   }
 }
